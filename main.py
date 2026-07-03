@@ -3595,6 +3595,28 @@ async def ws_handler(websocket):
                                     }
                                 except Exception:
                                     pass
+                            else:
+                                try:
+                                    _action = _routed.get("action", "")
+                                    _arg = _routed.get("arg", "")
+                                    _q_prompt = (
+                                        f"Мастер сказал: {text}. Ты думаешь, он хочет: {_action} {_arg}, "
+                                        f"но не уверена. Переспроси коротко, одно предложение."
+                                    )
+                                    _q = await ask_gemini(_q_prompt, save_history=False)
+                                    if _q:
+                                        if ws_dev:
+                                            await stream_tts_to_device(_q, ws_dev, device_id or "laptop", literal=True)
+                                        else:
+                                            await bot.send_message(MASTER_ID, _q)
+                                    _pending_clarify[_mk] = {
+                                        "text": text,
+                                        "main": _routed,
+                                        "alt": None,
+                                        "ts": __import__("time").monotonic(),
+                                    }
+                                except Exception:
+                                    pass
                             continue
 
                         # Зона 4: низкая уверенность — пробуем планировщик
