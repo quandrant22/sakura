@@ -184,14 +184,20 @@ def _register_command(action: str, device: str) -> str:
     return cmd_id
 
 
-def _resolve_command_status(action: str, ok: bool, detail: str) -> str:
-    """Ищет pending-команду по action, обновляет статус, возвращает статус."""
+def _resolve_command_status(device: str, ok: bool, detail: str) -> str:
+    """Находит последнюю pending-команду (status==sent) для устройства, обновляет статус."""
     now = __import__("time").monotonic()
+    best_id = None
+    best_ts = -1
     for cmd_id, cmd in _pending_commands.items():
-        if cmd["action"] == action and now - cmd["ts"] < 300:
-            cmd["status"] = "executed" if ok else "failed"
-            cmd["detail"] = detail
-            return cmd["status"]
+        if cmd["status"] == "sent" and cmd["device"] == device and now - cmd["ts"] < 300:
+            if cmd["ts"] > best_ts:
+                best_ts = cmd["ts"]
+                best_id = cmd_id
+    if best_id:
+        _pending_commands[best_id]["status"] = "executed" if ok else "failed"
+        _pending_commands[best_id]["detail"] = detail
+        return _pending_commands[best_id]["status"]
     return "executed" if ok else "failed"
 
 
@@ -2589,7 +2595,7 @@ async def ws_handler(websocket):
                         _cmd_detail = str(result)
                         _cmd_ok = not any(t in _cmd_detail.lower() for t in
                                           ("ошибка", "не нашла", "не найдено", "app_not_found", "оффлайн"))
-                        _resolve_command_status("", _cmd_ok, _cmd_detail)
+                        _resolve_command_status(dev_name, _cmd_ok, _cmd_detail)
 
                     # Результат от расширения браузера
                     if data.get("ext"):
@@ -3536,6 +3542,25 @@ async def ws_handler(websocket):
                             pass
 
                         continue
+
+                    elif _routed and not ws_dev:
+                        _offline_action = _routed.get("action", "")
+                        if _offline_action and not _offline_action.startswith("screenshot:") and not _offline_action.startswith("music_"):
+                            try:
+                                from modules.disposition import current as _disp_current
+                                _disp = _disp_current()
+                                _cmd_confirm = (
+                                    f"Мастер попросил: {text}. Команда: {_offline_action}. "
+                                    f"СТАТУС КОМАНДЫ: Устройство offline, выполнить нельзя. "
+                                    f"Скажи честно, без обещаний повторить. "
+                                    f"Твоя диспозиция: {_disp['stance']}, "
+                                    f"valence={_disp['valence']}, arousal={_disp['arousal']}."
+                                )
+                                _creply = await ask_gemini(_cmd_confirm, save_history=False)
+                                if _creply:
+                                    await bot.send_message(MASTER_ID, _creply)
+                            except Exception:
+                                pass
 
                     active_win = data.get("active_window", "")
                     # Обновляем контекст игрового хаба
