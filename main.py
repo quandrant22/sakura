@@ -163,6 +163,9 @@ _pending_describe: dict = {}     # device_id → True если ждём скри
 _pending_commands: dict[str, dict] = {}  # cmd_id → {"action", "device", "ts", "status"}
 _pending_clarify: dict[str, dict] = {}  # master_key → {"text", "main", "alt", "ts"}
 _last_executed: dict[str, dict] = {}    # master_key → {"text", "action", "ts"}
+_pending_plan: dict[str, dict] = {}     # master_key → {"text", "plan", "ts"}
+_plan_cancel: dict[str, bool] = {}      # master_key → True если отмена
+PLAN_WAIT_ACK = False  # переключить после этапа 4-агент
 
 
 def _cleanup_pending_commands():
@@ -2355,6 +2358,56 @@ async def send_command_to_device(device_id: str, command: dict) -> bool:
         return False
 
 
+async def _execute_plan(plan: dict, master_key: str, ws_dev, device_id) -> tuple[bool, str]:
+    """Исполняет план по шагам. Возвращает (успех, сообщение)."""
+    import time as _pt
+    steps = plan.get("steps", [])
+    summary = plan.get("summary", "задача")
+
+    for i, step in enumerate(steps):
+        # Проверка отмены
+        if _plan_cancel.get(master_key):
+            _plan_cancel.pop(master_key, None)
+            return False, f"План остановлен на шаге {i + 1} по запросу Мастера."
+
+        action = step.get("action", "")
+        arg = step.get("arg", "")
+
+        # wait — пауза на сервере
+        if action == "wait":
+            try:
+                wait_sec = min(int(arg), 10)
+            except (ValueError, TypeError):
+                wait_sec = 1
+            await asyncio.sleep(wait_sec)
+            continue
+
+        # Отправка команды на агент
+        if not ws_dev:
+            return False, f"Устройство offline, план не может быть выполнен."
+
+        full_action = f"{action}:{arg}" if arg and ":" not in action else action
+        _cmd_id = _register_command(full_action, device_id or "laptop")
+        await ws_dev.send(json.dumps({"type": "command", "action": full_action, "id": _cmd_id}))
+
+        # Ожидание ack (оптимистичный режим или реальный)
+        if PLAN_WAIT_ACK:
+            for _ in range(50):  # 10 сек / 0.2
+                await asyncio.sleep(0.2)
+                cmd = _pending_commands.get(_cmd_id, {})
+                if cmd.get("status") in ("executed", "failed"):
+                    if cmd["status"] == "failed":
+                        return False, f"План остановлен на шаге {i + 1}: {full_action} — {cmd.get('detail', 'ошибка')}"
+                    break
+            else:
+                return False, f"План остановлен на шаге {i + 1}: {full_action} — таймаут ожидания"
+        else:
+            # Оптимистичный режим — пауза 1с между шагами
+            await asyncio.sleep(1.0)
+
+    return True, f"План выполнен: {summary}"
+
+
 async def ws_handler(websocket):
     device_id = None
     try:
@@ -3364,9 +3417,54 @@ async def ws_handler(websocket):
                             pass
                         continue
 
-                    # ── УТОЧНЕНИЕ: проверяем ответ на предыдущий вопрос ──
+                    # ── ПОДТВЕРЖДЕНИЕ ПЛАНА ─────────────────────────────
                     _mk = device_id or "tg"
                     _now_ts = __import__("time").monotonic()
+                    if _mk in _pending_plan:
+                        _pp = _pending_plan[_mk]
+                        if _now_ts - _pp["ts"] < 60:
+                            _pp_text = text.lower().strip().rstrip(".!?,")
+                            if _pp_text in ("да", "давай", "делай", "точно", "ага", "угу", "конечно"):
+                                del _pending_plan[_mk]
+                                _plan_result, _plan_msg = await _execute_plan(
+                                    _pp["plan"], _mk, ws_dev, device_id)
+                                if _plan_result:
+                                    from modules.user_commands import add as _uc_add
+                                    _uc_add(_pp["text"], {
+                                        "plan": _pp["plan"]["steps"],
+                                        "summary": _pp["plan"]["summary"],
+                                        "source": "plan",
+                                        "risky": _pp["plan"]["risky"],
+                                        "uses": 1,
+                                    }, source="plan")
+                                if ws_dev:
+                                    await stream_tts_to_device(
+                                        _plan_msg, ws_dev, device_id or "laptop", literal=True)
+                                else:
+                                    await bot.send_message(MASTER_ID, _plan_msg)
+                                continue
+                            elif _pp_text in ("нет", "стоп", "отмена", "хватит"):
+                                del _pending_plan[_mk]
+                                _deny = "Хорошо, отменила."
+                                if ws_dev:
+                                    await stream_tts_to_device(
+                                        _deny, ws_dev, device_id or "laptop", literal=True)
+                                else:
+                                    await bot.send_message(MASTER_ID, _deny)
+                                continue
+                            else:
+                                del _pending_plan[_mk]
+                        else:
+                            del _pending_plan[_mk]
+
+                    # ── ОТМЕНА ПЛАНА: «стоп»/«отмена» во время исполнения ──
+                    _tlow = text.lower().strip().rstrip(".!?,")
+                    if _tlow in ("стоп", "отмена", "хватит", "стоп план", "отмена плана"):
+                        if _mk in _pending_plan:
+                            del _pending_plan[_mk]
+                        _plan_cancel[_mk] = True
+
+                    # ── УТОЧНЕНИЕ: проверяем ответ на предыдущий вопрос ──
                     if _mk in _pending_clarify:
                         _pc = _pending_clarify[_mk]
                         if _now_ts - _pc["ts"] < 60:
@@ -3492,11 +3590,54 @@ async def ws_handler(websocket):
                                     pass
                             continue
 
-                        # Зона 4: низкая уверенность — честный отказ
+                        # Зона 4: низкая уверенность — пробуем планировщик
                         else:
-                            try:
-                                from modules.intent_classifier import is_command as _is_cmd
-                                if _is_cmd(text):
+                            from modules.intent_classifier import is_command as _is_cmd
+                            if _is_cmd(text):
+                                from modules.planner import build_plan
+                                _plan = await build_plan(text, _router_ctx,
+                                                         source="voice", sender_id=device_id)
+                                if _plan:
+                                    if _plan["risky"]:
+                                        try:
+                                            _q_prompt = (
+                                                f"Сделаю так: {_plan['summary']}. "
+                                                f"Это включает действия которые нельзя отменить. Давай?"
+                                            )
+                                            _q = await ask_gemini(_q_prompt, save_history=False)
+                                            if _q:
+                                                if ws_dev:
+                                                    await stream_tts_to_device(
+                                                        _q, ws_dev, device_id or "laptop", literal=True)
+                                                else:
+                                                    await bot.send_message(MASTER_ID, _q)
+                                            _pending_plan[_mk] = {
+                                                "text": text,
+                                                "plan": _plan,
+                                                "ts": __import__("time").monotonic(),
+                                            }
+                                        except Exception:
+                                            pass
+                                    else:
+                                        _plan_result, _plan_msg = await _execute_plan(
+                                            _plan, _mk, ws_dev, device_id)
+                                        if _plan_result:
+                                            from modules.user_commands import add as _uc_add
+                                            _uc_add(text, {
+                                                "plan": _plan["steps"],
+                                                "summary": _plan["summary"],
+                                                "source": "plan",
+                                                "risky": _plan["risky"],
+                                                "uses": 1,
+                                            }, source="plan")
+                                        if ws_dev:
+                                            await stream_tts_to_device(
+                                                _plan_msg, ws_dev, device_id or "laptop", literal=True)
+                                        else:
+                                            await bot.send_message(MASTER_ID, _plan_msg)
+                                    continue
+                                # План пуст/None → честный отказ
+                                try:
                                     _deny_prompt = (
                                         f"Мастер сказал: {text}. Ты не поняла, какое действие он хочет. "
                                         f"Скажи это честно, одним коротким предложением, попроси сказать иначе."
@@ -3504,14 +3645,78 @@ async def ws_handler(websocket):
                                     _deny = await ask_gemini(_deny_prompt, save_history=False)
                                     if _deny:
                                         if ws_dev:
-                                            await stream_tts_to_device(_deny, ws_dev, device_id or "laptop", literal=True)
+                                            await stream_tts_to_device(
+                                                _deny, ws_dev, device_id or "laptop", literal=True)
                                         else:
                                             await bot.send_message(MASTER_ID, _deny)
-                            except Exception:
-                                pass
+                                except Exception:
+                                    pass
                             continue
 
+                    # ── ПЛАНИРОВЩИК: route_command вернул None ──────────
+                    if not _routed:
+                        from modules.intent_classifier import is_command as _is_cmd2
+                        if _is_cmd2(text):
+                            from modules.planner import build_plan
+                            _plan = await build_plan(text, _router_ctx,
+                                                     source="voice", sender_id=device_id)
+                            if _plan:
+                                if _plan["risky"]:
+                                    try:
+                                        _q_prompt = (
+                                            f"Сделаю так: {_plan['summary']}. "
+                                            f"Это включает действия которые нельзя отменить. Давай?"
+                                        )
+                                        _q = await ask_gemini(_q_prompt, save_history=False)
+                                        if _q:
+                                            if ws_dev:
+                                                await stream_tts_to_device(
+                                                    _q, ws_dev, device_id or "laptop", literal=True)
+                                            else:
+                                                await bot.send_message(MASTER_ID, _q)
+                                        _pending_plan[_mk] = {
+                                            "text": text,
+                                            "plan": _plan,
+                                            "ts": __import__("time").monotonic(),
+                                        }
+                                    except Exception:
+                                        pass
+                                else:
+                                    _plan_result, _plan_msg = await _execute_plan(
+                                        _plan, _mk, ws_dev, device_id)
+                                    if _plan_result:
+                                        from modules.user_commands import add as _uc_add
+                                        _uc_add(text, {
+                                            "plan": _plan["steps"],
+                                            "summary": _plan["summary"],
+                                            "source": "plan",
+                                            "risky": _plan["risky"],
+                                            "uses": 1,
+                                        }, source="plan")
+                                    if ws_dev:
+                                        await stream_tts_to_device(
+                                            _plan_msg, ws_dev, device_id or "laptop", literal=True)
+                                    else:
+                                        await bot.send_message(MASTER_ID, _plan_msg)
+                                continue
+
                     if _routed and ws_dev:
+                        # ── Навык-план: выполнять через _execute_plan ──────
+                        if "plan" in _routed:
+                            _skill_plan = {
+                                "steps": _routed["plan"],
+                                "summary": _routed.get("summary", "выполнить сохранённый план"),
+                                "risky": _routed.get("risky", False),
+                            }
+                            _plan_result, _plan_msg = await _execute_plan(
+                                _skill_plan, _mk, ws_dev, device_id)
+                            if ws_dev:
+                                await stream_tts_to_device(
+                                    _plan_msg, ws_dev, device_id or "laptop", literal=True)
+                            else:
+                                await bot.send_message(MASTER_ID, _plan_msg)
+                            continue
+
                         globals()['_last_command_ts'] = __import__('time').monotonic()
                         action  = _routed.get("action", "")
                         arg     = _routed.get("arg", "")

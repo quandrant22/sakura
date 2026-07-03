@@ -56,7 +56,7 @@ def match(text: str) -> dict | None:
 
 
 def cleanup_auto(min_uses: int = 2, older_days: int = 30):
-    """Удаляет auto-записи с uses < min_uses старше older_days дней."""
+    """Удаляет auto/plan-записи с uses < min_uses старше older_days дней."""
     from datetime import datetime, timedelta
     data = _load()
     if not data:
@@ -64,7 +64,10 @@ def cleanup_auto(min_uses: int = 2, older_days: int = 30):
     cutoff = datetime.now() - timedelta(days=older_days)
     to_remove = []
     for key, val in data.items():
-        if not isinstance(val, dict) or val.get("source") != "auto":
+        if not isinstance(val, dict):
+            continue
+        src = val.get("source", "")
+        if src not in ("auto", "plan"):
             continue
         if val.get("uses", 0) >= min_uses:
             continue
@@ -81,25 +84,11 @@ def cleanup_auto(min_uses: int = 2, older_days: int = 30):
     if to_remove:
         _save(data)
     return len(to_remove)
-    tl = text.lower().strip().rstrip(".!?,")
-    # Точное совпадение
-    if tl in data:
-        entry = data[tl]
-        _increment_uses(entry)
-        return entry
-    # Частичное — по границам слов (триггеры < 3 символов — только точное)
-    for key, action in data.items():
-        if len(key) < 3:
-            continue
-        if re.search(rf"(?<!\w){re.escape(key)}(?!\w)", tl):
-            _increment_uses(action)
-            return action
-    return None
 
 
 def _increment_uses(entry):
-    """Инкрементирует поле uses для auto-записей."""
-    if isinstance(entry, dict) and entry.get("source") == "auto":
+    """Инкрементирует поле uses для auto/plan-записей."""
+    if isinstance(entry, dict) and entry.get("source") in ("auto", "plan"):
         entry["uses"] = entry.get("uses", 0) + 1
 
 
@@ -107,9 +96,9 @@ def add(trigger: str, action: dict, source: str = "manual") -> bool:
     """Добавляет команду в словарь."""
     data = _load()
     trigger = trigger.lower().strip().rstrip(".!?,")
-    if source == "auto":
+    if source in ("auto", "plan"):
         action = dict(action)
-        action["source"] = "auto"
+        action["source"] = source
         action["uses"] = action.get("uses", 1)
     data[trigger] = action
     _save(data)
