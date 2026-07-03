@@ -22,7 +22,7 @@ def get_state_block() -> str:
             from modules.mood_vector import get_current
             m = get_current()
             v, a = m.get("valence", 0.0), m.get("arousal", 0.3)
-            from modules.disposition import _stance, _STANCE_MAP as _sm
+            from modules.disposition import _stance
             stance = _stance(v, a)
             _map = {
                 "playful":  "в игривом расположении",
@@ -89,7 +89,7 @@ def get_state_block() -> str:
         lines.append(winner)
 
     # 3. leak_hint — только если модификатор-победитель: дневник или пусто
-    if winner_source != "revenge":
+    if winner_source in ("diary", ""):
         try:
             from modules.secret_diary import get_leak_hint
             leak = get_leak_hint()
