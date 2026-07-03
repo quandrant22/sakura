@@ -22,9 +22,8 @@ _TRIGGERS = [
     "секс", "трахн", "ебать", "ебш", "ебёт", "ебал",
     "минет", "дроч", "порно", "голая", "голый", "обнажён",
     "интим", "интимн", "сексуальн", "эротичн",
-    "orgasm", "оргазм", "выебать", "вагин", "член",
-    "грудь", "попка", "попк", "задн", "перд",
-    "лесб", "гей секс", "трах",
+    "orgasm", "оргазм", "выебать", "вагин",
+    "лесб", "трах",
     "снять одежду", "раздевайся", "раздеваться",
 ]
 
@@ -33,8 +32,8 @@ _STOP_PHRASES = [
     "другая тема", "хватит об этом",
 ]
 
-# Сборка regex-паттерна по границам слов (как в user_commands.match)
-_TRIGGER_PATTERNS = [re.compile(rf"(?<!\w){re.escape(t)}(?!\w)", re.IGNORECASE) for t in _TRIGGERS]
+# Паттерны: левая граница \w, правой НЕТ — ловим основу в слове
+_TRIGGER_PATTERNS = [re.compile(rf"(?<!\w){re.escape(t)}", re.IGNORECASE) for t in _TRIGGERS]
 _STOP_PATTERNS = [re.compile(rf"(?<!\w){re.escape(s)}(?!\w)", re.IGNORECASE) for s in _STOP_PHRASES]
 
 
