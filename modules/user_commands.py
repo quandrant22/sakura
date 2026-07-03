@@ -42,18 +42,75 @@ def match(text: str) -> dict | None:
     tl = text.lower().strip().rstrip(".!?,")
     # Точное совпадение
     if tl in data:
-        return data[tl]
-    # Частичное — фраза содержит ключ
+        entry = data[tl]
+        _increment_uses(entry)
+        return entry
+    # Частичное — по границам слов (триггеры < 3 символов — только точное)
     for key, action in data.items():
-        if key in tl:
+        if len(key) < 3:
+            continue
+        if re.search(rf"(?<!\w){re.escape(key)}(?!\w)", tl):
+            _increment_uses(action)
             return action
     return None
 
 
-def add(trigger: str, action: dict) -> bool:
+def cleanup_auto(min_uses: int = 2, older_days: int = 30):
+    """Удаляет auto-записи с uses < min_uses старше older_days дней."""
+    from datetime import datetime, timedelta
+    data = _load()
+    if not data:
+        return 0
+    cutoff = datetime.now() - timedelta(days=older_days)
+    to_remove = []
+    for key, val in data.items():
+        if not isinstance(val, dict) or val.get("source") != "auto":
+            continue
+        if val.get("uses", 0) >= min_uses:
+            continue
+        ts = val.get("created_at")
+        if ts:
+            try:
+                if datetime.fromisoformat(ts) > cutoff:
+                    continue
+            except Exception:
+                pass
+        to_remove.append(key)
+    for k in to_remove:
+        del data[k]
+    if to_remove:
+        _save(data)
+    return len(to_remove)
+    tl = text.lower().strip().rstrip(".!?,")
+    # Точное совпадение
+    if tl in data:
+        entry = data[tl]
+        _increment_uses(entry)
+        return entry
+    # Частичное — по границам слов (триггеры < 3 символов — только точное)
+    for key, action in data.items():
+        if len(key) < 3:
+            continue
+        if re.search(rf"(?<!\w){re.escape(key)}(?!\w)", tl):
+            _increment_uses(action)
+            return action
+    return None
+
+
+def _increment_uses(entry):
+    """Инкрементирует поле uses для auto-записей."""
+    if isinstance(entry, dict) and entry.get("source") == "auto":
+        entry["uses"] = entry.get("uses", 0) + 1
+
+
+def add(trigger: str, action: dict, source: str = "manual") -> bool:
     """Добавляет команду в словарь."""
     data = _load()
     trigger = trigger.lower().strip().rstrip(".!?,")
+    if source == "auto":
+        action = dict(action)
+        action["source"] = "auto"
+        action["uses"] = action.get("uses", 1)
     data[trigger] = action
     _save(data)
     log.info(f"[user_cmd] добавлено: {trigger!r} → {action}")

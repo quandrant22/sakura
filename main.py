@@ -84,7 +84,7 @@ from modules.episodes import add_episode, get_recall
 from modules.audio_control   import handle_audio_command
 from modules.discord_bot      import start_bot as discord_start_bot, is_discord_priority, register_agent_request
 from modules.youtube import youtube_command
-from modules.command_router import route_command, route_critical
+from modules.command_router import route_command, route_critical, is_irreversible, EXEC_THRESHOLD, GRAY_THRESHOLD
 from modules.intent_classifier import classify_intent, is_command, is_question, IntentResult
 from modules.game_hub import get_game_context_for_device, set_game_mood, build_game_prompt_context
 from modules.calculator import calculate
@@ -161,6 +161,8 @@ connected_devices: dict = {}
 _pending_event_check: dict = {}  # device_id → True если ждём скриншот для event-тика
 _pending_describe: dict = {}     # device_id → True если ждём скриншот для описания
 _pending_commands: dict[str, dict] = {}  # cmd_id → {"action", "device", "ts", "status"}
+_pending_clarify: dict[str, dict] = {}  # master_key → {"text", "main", "alt", "ts"}
+_last_executed: dict[str, dict] = {}    # master_key → {"text", "action", "ts"}
 
 
 def _cleanup_pending_commands():
@@ -1280,6 +1282,14 @@ async def daily_analysis():
                     if item and isinstance(item, str):
                         await asyncio.to_thread(add_to_category, cat, item)
             mark_analysis_done()
+            # Очистка автоалиасов
+            try:
+                from modules.user_commands import cleanup_auto
+                _cleaned = cleanup_auto()
+                if _cleaned:
+                    log.info(f"[daily] auto aliases cleaned: {_cleaned}")
+            except Exception:
+                pass
         except Exception as e:
             log.error(f"Daily analysis error: {e}")
 
@@ -3354,6 +3364,85 @@ async def ws_handler(websocket):
                             pass
                         continue
 
+                    # ── УТОЧНЕНИЕ: проверяем ответ на предыдущий вопрос ──
+                    _mk = device_id or "tg"
+                    _now_ts = __import__("time").monotonic()
+                    if _mk in _pending_clarify:
+                        _pc = _pending_clarify[_mk]
+                        if _now_ts - _pc["ts"] < 60:
+                            _pc_text = text.lower().strip().rstrip(".!?,")
+                            _main_action = _pc["main"].get("action", "")
+                            _alt_action = _pc["alt"].get("action", "") if _pc["alt"] else ""
+
+                            _chose_main = False
+                            _chose_alt = False
+                            if _pc_text in ("да", "давай", "точно", "именно", "конечно", "ага", "угу"):
+                                _chose_main = True
+                            elif _pc_text in ("нет", "стоп", "отмена", "другое", "не то"):
+                                pass  # отбой
+                            elif _alt_action and _alt_action in _pc_text:
+                                _chose_alt = True
+                            elif _main_action and _main_action in _pc_text:
+                                _chose_main = True
+                            else:
+                                # Попробуем через route_command
+                                try:
+                                    _correction = await route_command(text, context=_router_ctx)
+                                    if _correction and _correction.get("action"):
+                                        _chose_main = True
+                                        _pc["main"] = _correction
+                                except Exception:
+                                    pass
+
+                            del _pending_clarify[_mk]
+
+                            if _chose_main or _chose_alt:
+                                _chosen = _pc["main"] if _chose_main else _pc["alt"]
+                                from modules.user_commands import add as _uc_add
+                                _uc_add(_pc["text"], _chosen, source="auto")
+                                # Исполнить chosen
+                                if ws_dev:
+                                    _chosen_action = _chosen.get("action", "")
+                                    _chosen_arg = _chosen.get("arg", "")
+                                    if _chosen_arg and ":" not in _chosen_action:
+                                        _chosen_full = f"{_chosen_action}:{_chosen_arg}"
+                                    else:
+                                        _chosen_full = _chosen_action
+                                    _cmd_id = _register_command(_chosen_full, device_id or "laptop")
+                                    await ws_dev.send(json.dumps({"type": "command", "action": _chosen_full, "id": _cmd_id}))
+                                continue
+                            # Отбой — ничего не делаем
+                            continue
+                        else:
+                            del _pending_clarify[_mk]
+
+                    # ── ДЕТЕКТОР КОРРЕКЦИИ (шаг 6) ─────────────────────────
+                    if _mk in _last_executed:
+                        _le = _last_executed[_mk]
+                        if _now_ts - _le["ts"] < 90:
+                            _tlow = text.lower().strip()
+                            if (_tlow.startswith("нет") or
+                                any(p in _tlow for p in ("я имел в виду", "не то", "я просил", "неправильно"))):
+                                try:
+                                    _fix = await route_command(text, context=_router_ctx)
+                                    if _fix and _fix.get("action") and _fix.get("confidence", 0) >= 0.5:
+                                        from modules.user_commands import add as _uc_add
+                                        _uc_add(_le["text"], _fix, source="auto")
+                                        if ws_dev:
+                                            _fix_action = _fix.get("action", "")
+                                            _fix_arg = _fix.get("arg", "")
+                                            if _fix_arg and ":" not in _fix_action:
+                                                _fix_full = f"{_fix_action}:{_fix_arg}"
+                                            else:
+                                                _fix_full = _fix_action
+                                            _cmd_id = _register_command(_fix_full, device_id or "laptop")
+                                            await ws_dev.send(json.dumps({"type": "command", "action": _fix_full, "id": _cmd_id}))
+                                        _last_executed.pop(_mk, None)
+                                        continue
+                                except Exception:
+                                    pass
+                        _last_executed.pop(_mk, None)
+
                     # ── LLM-РОУТЕР (все остальные команды) ──────────────
                     _router_ctx = {
                         "active_window": data.get("active_window", ""),
@@ -3361,6 +3450,67 @@ async def ws_handler(websocket):
                     }
                     _routed = await route_command(text, context=_router_ctx)
                     log.info(f"[router] {text!r} → {_routed}")
+
+                    if _routed:
+                        _confidence = _routed.get("confidence", 0.7)
+                        _is_irrev = is_irreversible(_routed.get("action", ""))
+
+                        # Зона 1: высокая уверенность — исполнять
+                        if _confidence >= EXEC_THRESHOLD:
+                            pass  # ниже по коду
+
+                        # Зона 2: серая зона + обратимое — исполнять
+                        elif GRAY_THRESHOLD <= _confidence < EXEC_THRESHOLD and not _is_irrev:
+                            pass  # ниже по коду
+
+                        # Зона 3: серая зона + необратимое — уточнение
+                        elif GRAY_THRESHOLD <= _confidence < EXEC_THRESHOLD and _is_irrev:
+                            _alt = _routed.get("alt")
+                            if _alt and _alt.get("action"):
+                                try:
+                                    from modules.disposition import current as _dc
+                                    _d = _dc()
+                                    _q_prompt = (
+                                        f"Мастер сказал: {text}. "
+                                        f"Вариант 1: {_routed.get('action','')} {_routed.get('arg','')}. "
+                                        f"Вариант 2: {_alt.get('action','')} {_alt.get('arg','')}. "
+                                        f"Спроси коротко: какой вариант он имел в виду? Одно предложение."
+                                    )
+                                    _q = await ask_gemini(_q_prompt, save_history=False)
+                                    if _q:
+                                        if ws_dev:
+                                            await stream_tts_to_device(_q, ws_dev, device_id or "laptop", literal=True)
+                                        else:
+                                            await bot.send_message(MASTER_ID, _q)
+                                    _pending_clarify[_mk] = {
+                                        "text": text,
+                                        "main": _routed,
+                                        "alt": _alt,
+                                        "ts": __import__("time").monotonic(),
+                                    }
+                                except Exception:
+                                    pass
+                            continue
+
+                        # Зона 4: низкая уверенность — честный отказ
+                        else:
+                            try:
+                                from modules.intent_classifier import is_command as _is_cmd
+                                if _is_cmd(text):
+                                    _deny_prompt = (
+                                        f"Мастер сказал: {text}. Ты не поняла, какое действие он хочет. "
+                                        f"Скажи это честно, одним коротким предложением, попроси сказать иначе."
+                                    )
+                                    _deny = await ask_gemini(_deny_prompt, save_history=False)
+                                    if _deny:
+                                        if ws_dev:
+                                            await stream_tts_to_device(_deny, ws_dev, device_id or "laptop", literal=True)
+                                        else:
+                                            await bot.send_message(MASTER_ID, _deny)
+                            except Exception:
+                                pass
+                            continue
+
                     if _routed and ws_dev:
                         globals()['_last_command_ts'] = __import__('time').monotonic()
                         action  = _routed.get("action", "")
@@ -3372,6 +3522,13 @@ async def ws_handler(websocket):
                             full_action = f"{action}:{arg}"
                         else:
                             full_action = action
+
+                        # Запомнить последнюю команду для детектора коррекции
+                        _last_executed[_mk] = {
+                            "text": text,
+                            "action": full_action,
+                            "ts": __import__("time").monotonic(),
+                        }
 
                         # Скриншот с описанием → запоминаем флаг, отправляем screenshot:
                         if full_action == "screenshot:describe":

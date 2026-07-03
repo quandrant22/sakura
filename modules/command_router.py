@@ -16,6 +16,9 @@ from config import get_active_key, mark_key_used, mark_key_rate_limited
 
 log = logging.getLogger("sakura.router")
 
+EXEC_THRESHOLD = 0.8   # выше — выполнять сразу
+GRAY_THRESHOLD = 0.5   # ниже — честное "не поняла"
+
 # ── Описания намерений ────────────────────────────────────────────────
 
 INTENTS_PROMPT = """
@@ -99,6 +102,11 @@ YOUTUBE:
 5. Для ЗАПРОС/НАЗВАНИЕ/URL — извлеки из фразы пользователя
 6. Неоднозначно без контекста → {"action": null}
 7. say: НЕ использовать — это внутренняя команда
+
+ФОРМАТ ОТВЕТА — ТОЛЬКО JSON:
+{"action": ..., "arg": ..., "confidence": 0.0-1.0, "alt": {"action":...,"arg":...} | null}
+confidence — насколько однозначно намерение (1.0 = абсолютно точно).
+alt — вторая гипотеза если она близка по вероятности, иначе null.
 """
 
 
@@ -240,12 +248,16 @@ async def route_command(text: str, context: dict | None = None) -> dict | None:
     from modules.user_commands import match as user_match
     user_cmd = user_match(text)
     if user_cmd:
+        user_cmd["confidence"] = 1.0
+        user_cmd["alt"] = None
         log.info(f"[router] {text!r} → {user_cmd} (user dict)")
         return user_cmd
 
     # Уровень 2 — хардкод частых команд (без Gemini — работает без ключей)
     hard = _hardcoded_match(text)
     if hard:
+        hard["confidence"] = 1.0
+        hard["alt"] = None
         log.info(f"[router] {text!r} → {hard} (hardcoded)")
         return hard
 
@@ -291,7 +303,7 @@ async def route_command(text: str, context: dict | None = None) -> dict | None:
                 config=types.GenerateContentConfig(
                     system_instruction=INTENTS_PROMPT,
                     temperature=0.0,
-                    max_output_tokens=80,
+                    max_output_tokens=160,
                 )
             )
             mark_key_used(key)
@@ -300,6 +312,10 @@ async def route_command(text: str, context: dict | None = None) -> dict | None:
             result = json.loads(raw)
             if not result.get("action"):
                 return None
+            result.setdefault("confidence", 0.7)
+            result.setdefault("alt", None)
+            if "agent" not in result:
+                result["agent"] = False
             log.info(f"[router] {text!r} → {result}")
             return result
         except json.JSONDecodeError:
@@ -313,6 +329,15 @@ async def route_command(text: str, context: dict | None = None) -> dict | None:
             log.debug(f"[router] error: {e}")
             return None
     return None
+
+
+def is_irreversible(action: str) -> bool:
+    """Необратимые действия — после них сложно вернуть состояние."""
+    irreversible_prefixes = (
+        "open_app", "close_window", "kettle:", "say:",
+        "ext:", "browser:", "music_dislike", "type_text:", "powershell:",
+    )
+    return any(action.startswith(p) for p in irreversible_prefixes)
 
 
 # ── Критические команды — только точный матчинг ───────────────────────
