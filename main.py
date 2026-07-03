@@ -1142,6 +1142,11 @@ async def _clean_slate():
 
 async def extract_and_remember(user_message: str, reply: str):
     await asyncio.sleep(3)
+    # Защита памяти: не извлекать во время интим-режима
+    from modules.intimacy_mode import is_active as _im_active
+    if _im_active():
+        log.info("[memory] extraction skipped: intimacy mode")
+        return
     key = get_active_key()
     if not key:
         return
@@ -1274,6 +1279,11 @@ async def summarize_session():
 async def daily_analysis():
     while True:
         await asyncio.sleep(3600)
+        # Защита памяти: не извлекать во время интим-режима
+        from modules.intimacy_mode import is_active as _im_active_daily
+        if _im_active_daily():
+            log.info("[memory] daily analysis skipped: intimacy mode")
+            continue
         if not needs_daily_analysis():
             continue
         key = get_active_key()
@@ -2845,6 +2855,10 @@ async def ws_handler(websocket):
                     text_lower = text.lower()
                     log.info(f"[voice] получено: {text!r}")
 
+                    # Интим-режим: детект на каждое сообщение Мастера
+                    from modules.intimacy_mode import mark as _im_mark
+                    _im_mark(text)
+
                     # ── СЕМАНТИЧЕСКИЙ КЛАССИФИКАТОР НАМЕРЕНИЙ ──────────
                     # Быстро определяем тип: команда, запрос или разговор
                     _intent = await classify_intent(text)
@@ -4259,6 +4273,9 @@ async def handle_message(message: Message):
 
         if role == "master":
             update_master_status(text)
+            # Интим-режим: детект на каждое сообщение Мастера
+            from modules.intimacy_mode import mark as _im_mark
+            _im_mark(text)
 
         # Провод: проверка молчания → снижение близости
         try:
@@ -5149,6 +5166,15 @@ async def _init_weather():
         log.info(f"[weather] {weather['temp']}°C, {weather['desc']}")
 
 
+def _guarded_add(cat: str, item: str):
+    """Обёртка для reflection_loop: блокирует запись если был интим-режим с момента последней рефлексии."""
+    from modules.intimacy_mode import consume_check, reset_reflection_flag
+    if consume_check():
+        log.info("[memory] reflection write skipped: intimacy in window")
+        return False
+    return db_add_to_category(cat, item)
+
+
 async def main():
     validate_secret_on_startup()
     await asyncio.to_thread(ensure_ready)
@@ -5220,7 +5246,7 @@ async def main():
             bot                     = bot,
             master_id               = MASTER_ID,
             ask_gemini_fn           = ask_gemini,
-            add_to_category_fn      = db_add_to_category,
+            add_to_category_fn      = _guarded_add,
             clear_history_fn        = clear_history,
             save_session_summary_fn = save_session_summary,
             load_session_summary_fn = load_session_summary,

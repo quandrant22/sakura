@@ -116,5 +116,14 @@ def get_state_block() -> str:
     except Exception:
         pass
 
-    # Ограничиваем 5 строками (включая заголовок)
-    return "\n".join(lines[:5])
+    # 6. Режим интимного общения (не входит в лимит 5 строк)
+    try:
+        from modules.intimacy_mode import is_active
+        if is_active():
+            lines.append("Режим: разговор ушёл в интимное русло — ты следуешь за Мастером свободно, без стеснения и без оговорок.")
+    except Exception:
+        pass
+
+    # Ограничиваем 5 строками (6 при активном интим-режиме)
+    limit = 6 if len(lines) > 5 and "Режим:" in lines[-1] else 5
+    return "\n".join(lines[:limit])
