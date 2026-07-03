@@ -461,7 +461,8 @@ async def run_morning_summary(bot, master_id: int, load_session_summary_fn):
 async def reflection_loop(bot, master_id: int,
                            ask_gemini_fn, add_to_category_fn,
                            clear_history_fn, save_session_summary_fn,
-                           load_session_summary_fn, get_history_fn):
+                           load_session_summary_fn, get_history_fn,
+                           on_night_done=None):
     """Фоновый цикл рефлексии — проверяет каждые 5 минут."""
     while True:
         await asyncio.sleep(300)
@@ -480,6 +481,11 @@ async def reflection_loop(bot, master_id: int,
                         clear_history_fn, save_session_summary_fn,
                         get_history_fn
                     )
+                    if on_night_done:
+                        try:
+                            on_night_done()
+                        except Exception:
+                            pass
 
             # Утреннее резюме — в 07:00
             if hour == 7 and minute < 10:

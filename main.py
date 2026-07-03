@@ -49,6 +49,7 @@ from modules.web_search import search_and_fetch, needs_search, search_image, dow
 from modules.tts_server import stream_tts_to_device, stream_llm_to_tts, warmup_cache
 import modules.tts_server as tts_server
 from modules.reflection import reflection_loop
+from modules.intimacy_mode import reset_reflection_flag
 from modules.mem_cache import apply_all_patches, get_json, set_json
 from modules.ws_auth import check_token, is_master_device, reject, validate_secret_on_startup
 from modules.rituals import (should_greet_device, get_greeting_prompt,
@@ -5175,46 +5176,6 @@ def _guarded_add(cat: str, item: str):
     return db_add_to_category(cat, item)
 
 
-async def _reflection_loop_with_reset(*args, **kwargs):
-    """Обёртка: сбрасывает флаг интим-режима после каждой ночной рефлексии."""
-    from modules.reflection import reflection_loop as _rl
-    from modules.intimacy_mode import reset_reflection_flag, consume_check
-    import asyncio as _aio
-
-    while True:
-        await _aio.sleep(300)
-        try:
-            from datetime import datetime as _dt
-            now = _dt.now()
-            if now.hour == 2 and now.minute < 10:
-                from modules.reflection import _should_reflect
-                if await _aio.to_thread(_should_reflect):
-                    log.info("[Рефлексия] Запускаю ночную рефлексию...")
-                    from modules.reflection import run_night_reflection
-                    await run_night_reflection(
-                        kwargs.get("ask_gemini_fn", args[2] if len(args) > 2 else None),
-                        _guarded_add,
-                        kwargs.get("clear_history_fn", args[4] if len(args) > 4 else None),
-                        kwargs.get("save_session_summary_fn", args[5] if len(args) > 5 else None),
-                        kwargs.get("get_history_fn", args[7] if len(args) > 7 else None),
-                    )
-                    # Сброс после завершения ночной рефлексии
-                    reset_reflection_flag()
-                    log.info("[intimacy] reflection flag reset after nightly reflection")
-
-            if now.hour == 7 and now.minute < 10:
-                from modules.reflection import _should_morning, run_morning_summary
-                if await _aio.to_thread(_should_morning):
-                    log.info("[Рефлексия] Отправляю утреннее резюме...")
-                    await run_morning_summary(
-                        args[0] if args else kwargs.get("bot"),
-                        args[1] if len(args) > 1 else kwargs.get("master_id"),
-                        kwargs.get("load_session_summary_fn", args[6] if len(args) > 6 else None),
-                    )
-        except Exception as e:
-            log.error(f"[Рефлексия] Ошибка в цикле: {e}")
-
-
 async def main():
     validate_secret_on_startup()
     await asyncio.to_thread(ensure_ready)
@@ -5282,7 +5243,7 @@ async def main():
         ws_server.wait_closed(),
         daily_analysis(),
         proactive_loop(),
-        _reflection_loop_with_reset(
+        reflection_loop(
             bot                     = bot,
             master_id               = MASTER_ID,
             ask_gemini_fn           = ask_gemini,
@@ -5291,6 +5252,7 @@ async def main():
             save_session_summary_fn = save_session_summary,
             load_session_summary_fn = load_session_summary,
             get_history_fn          = get_history,
+            on_night_done           = reset_reflection_flag,
         ),
     )
 
