@@ -1,0 +1,155 @@
+[[commands]]
+id = "open_app"
+action = "open_app"
+args = "{app_name}"
+priority = 10
+description = "Open application"
+
+[commands.phrases]
+ru = ["открой {app_name}", "запусти {app_name}"]
+
+[commands.slots.app_name]
+entity = "application name"
+
+[[commands]]
+id = "open_browser"
+action = "open_app"
+args = "browser"
+priority = 15
+description = "Open browser"
+
+[commands.phrases]
+ru = ["открой браузер", "запусти браузер"]
+
+[[commands]]
+id = "close_window"
+action = "close_window"
+args = "{window_name}"
+priority = 10
+description = "Close window"
+
+[commands.phrases]
+ru = ["закрой {window_name}"]
+
+[commands.slots.window_name]
+entity = "window name"
+
+[[commands]]
+id = "volume_set"
+action = "volume"
+args = "{level}"
+priority = 20
+description = "Set volume"
+
+[commands.phrases]
+ru = ["громкость {level}", "громкость на {level}"]
+
+[[commands]]
+id = "volume_up"
+action = "volume_up"
+args = "{delta}"
+priority = 15
+description = "Volume up"
+
+[commands.phrases]
+ru = ["громче", "прибавь"]
+
+[[commands]]
+id = "volume_down"
+action = "volume_down"
+args = "{delta}"
+priority = 15
+description = "Volume down"
+
+[commands.phrases]
+ru = ["тише", "убавь"]
+
+[[commands]]
+id = "browser_tab_new"
+action = "browser"
+args = "tab_new"
+priority = 10
+description = "New browser tab"
+
+[commands.phrases]
+ru = ["новая вкладка", "открой вкладку"]
+
+[[commands]]
+id = "browser_tab_close"
+action = "browser"
+args = "tab_close"
+priority = 10
+description = "Close tab"
+
+[commands.phrases]
+ru = ["закрой вкладку"]
+
+[[commands]]
+id = "music_play_pause"
+action = "music"
+args = "play_pause"
+priority = 15
+description = "Play/Pause"
+
+[commands.phrases]
+ru = ["пауза", "останови музыку"]
+
+[[commands]]
+id = "music_next"
+action = "music"
+args = "next"
+priority = 15
+description = "Next track"
+
+[commands.phrases]
+ru = ["следующий трек", "скип"]
+
+[[commands]]
+id = "music_prev"
+action = "music"
+args = "prev"
+priority = 15
+description = "Previous track"
+
+[commands.phrases]
+ru = ["предыдущий трек", "назад"]
+
+[[commands]]
+id = "system_lock"
+action = "system"
+args = "lock"
+priority = 30
+description = "Lock workstation"
+
+[commands.phrases]
+ru = ["заблокируй", "блокировка"]
+
+[[commands]]
+id = "system_shutdown"
+action = "system"
+args = "shutdown"
+priority = 30
+description = "Shutdown"
+
+[commands.phrases]
+ru = ["выключи комп", "shutdown"]
+
+[[commands]]
+id = "system_sleep"
+action = "system"
+args = "sleep"
+priority = 30
+description = "Sleep mode"
+
+[commands.phrases]
+ru = ["спящий режим", "в сон"]
+
+[[commands]]
+id = "screenshot"
+action = "screenshot"
+args = ""
+priority = 30
+description = "Take screenshot"
+
+[commands.phrases]
+ru = ["скриншот", "снимок экрана"]

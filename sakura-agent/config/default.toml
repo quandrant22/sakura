@@ -1,0 +1,28 @@
+# Sakura Agent v2 Configuration
+
+[agent]
+device_id = "pc"
+vps_url = "ws://localhost:8765"
+ws_token = ""
+
+[audio]
+sample_rate = 16000
+frame_size = 512
+pre_roll_seconds = 5.0
+silence_threshold_sec = 0.3  # Fast response: 0.3s instead of 1.0s
+
+[wake_word]
+words = ["сакура", "сакуру", "сакуре", "сакурой", "sakura"]
+
+[stt]
+# Small model for wake word (fast detection)
+wake_model = "C:/Sakura/vosk-model-small-ru-0.22"
+# Large model for command recognition (accurate)
+command_model = "C:/Sakura/vosk-model-ru-0.42"
+
+[chain]
+enabled = true
+timeout_sec = 4.0  # Continue listening for 4s after command
+
+[logging]
+level = "info"

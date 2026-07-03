@@ -1,0 +1,11 @@
+{
+  "репит": {
+    "action": "music:repeat"
+  },
+  "волна": {
+    "action": "music:wave"
+  },
+  "трек вперед": {
+    "action": "music_next"
+  }
+}

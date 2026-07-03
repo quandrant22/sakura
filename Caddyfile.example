@@ -1,0 +1,79 @@
+# Caddyfile.example — TLS-терминация для WebSocket Sakura
+#
+# Требования:
+#   1. Установленный Caddy: https://caddyserver.com/docs/install
+#   2. Домен, указывающий A-записью на IP этого VPS
+#   3. Порт 80 и 443 открыты в firewall
+#
+# Использование:
+#   1. Скопировать в /etc/caddy/Caddyfile (или caddy.conf рядом с бинарником)
+#   2. Заменить your.domain.com на реальный домен
+#   3. caddy reload
+#
+# После этого:
+#   - Наружу слушает wss://your.domain.com/ws (HTTPS :443)
+#   - TLS-сертификат Let's Encrypt выдаётся автоматически
+#   - Сам ws_handler слушает ТОЛЬКО 127.0.0.1:8765 (недоступен снаружи)
+#
+# В main.py изменить строку запуска WebSocket:
+#   websockets.serve(ws_handler, "127.0.0.1", 8765, ...)
+#                                 ↑ было "0.0.0.0"
+
+your.domain.com {
+    # WebSocket endpoint
+    handle /ws {
+        reverse_proxy 127.0.0.1:8765 {
+            # Для WebSocket: пробрасываем заголовки Upgrade
+            header_up Host {upstream_hostport}
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # Опционально: блокировать все остальные пути
+    handle {
+        respond "Not Found" 404
+    }
+
+    # Логи (опционально)
+    log {
+        output file /var/log/caddy/sakura.log
+        format json
+    }
+}
+
+# ──────────────────────────────────────────────────────────────
+# Если домена нет (локальная сеть / VPN):
+# Можно использовать самоподписанный сертификат для тестов:
+#
+# localhost:8766 {
+#     tls internal
+#     handle /ws {
+#         reverse_proxy 127.0.0.1:8765
+#     }
+# }
+# ──────────────────────────────────────────────────────────────
+
+# ──────────────────────────────────────────────────────────────
+# Альтернатива: nginx (если Caddy не доступен)
+# ──────────────────────────────────────────────────────────────
+#
+# /etc/nginx/sites-available/sakura:
+#
+# server {
+#     listen 443 ssl;
+#     server_name your.domain.com;
+#
+#     ssl_certificate     /etc/letsencrypt/live/your.domain.com/fullchain.pem;
+#     ssl_certificate_key /etc/letsencrypt/live/your.domain.com/privkey.pem;
+#
+#     location /ws {
+#         proxy_pass http://127.0.0.1:8765;
+#         proxy_http_version 1.1;
+#         proxy_set_header Upgrade $http_upgrade;
+#         proxy_set_header Connection "upgrade";
+#         proxy_set_header Host $host;
+#         proxy_read_timeout 3600s;
+#         proxy_send_timeout 3600s;
+#     }
+# }

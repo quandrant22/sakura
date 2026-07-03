@@ -1,0 +1,77 @@
+[[commands]]
+id = "open_app"
+type = "action"
+action = "open_app"
+args = "{app_name}"
+priority = 10
+description = "Open an application by name"
+
+phrases.ru = [
+    "открой {app_name}",
+    "запусти {app_name}",
+    "включи {app_name}",
+]
+
+[commands.slots.app_name]
+entity = "application name"
+context = ["открой", "запусти", "включи"]
+
+[[commands]]
+id = "close_window"
+type = "action"
+action = "close_window"
+args = "{window_name}"
+priority = 10
+description = "Close a window"
+
+phrases.ru = [
+    "закрой {window_name}",
+]
+
+[commands.slots.window_name]
+entity = "window name"
+context = ["закрой"]
+
+[[commands]]
+id = "remember_app"
+type = "action"
+action = "remember_app"
+args = "{pair}"
+priority = 30
+description = "Remember application path"
+
+patterns = ["запомни\\s+(.+)\\s*=\\s*(.+)"]
+
+[commands.slots.pair]
+entity = "key=value pair"
+
+[[commands]]
+id = "screenshot"
+type = "action"
+action = "screenshot"
+args = ""
+priority = 30
+description = "Take a screenshot"
+
+phrases.ru = [
+    "скриншот",
+    "снимок экрана",
+    "сделай снимок",
+    "сфоткай экран",
+]
+
+[[commands]]
+id = "dictate"
+type = "action"
+action = "dictate"
+args = "{text}"
+priority = 20
+description = "Dictate text via clipboard"
+
+phrases.ru = [
+    "диктуй",
+    "вставь текст",
+]
+
+[commands.slots.text]
+entity = "dictated text"

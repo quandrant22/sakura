@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body {
+    width: 220px;
+    padding: 12px 16px;
+    font-family: -apple-system, sans-serif;
+    font-size: 13px;
+    color: #e0e0e0;
+    background: #1a1a2e;
+    margin: 0;
+  }
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #ff4444;
+    flex-shrink: 0;
+  }
+  .dot.connected { background: #9a7fb5; box-shadow: 0 0 6px #9a7fb5; }
+  .title { font-weight: 600; color: #c9a7eb; }
+  .status { color: #888; font-size: 12px; }
+  .divider { border: none; border-top: 1px solid #333; margin: 8px 0; }
+  .info { color: #666; font-size: 11px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="dot" id="dot"></div>
+  <div class="title">Сакура</div>
+</div>
+<div class="status" id="status">Подключение...</div>
+<hr class="divider">
+<div class="info">
+  Расширение управляет браузером<br>
+  по команде Сакуры через агент.
+</div>
+<script>
+  chrome.runtime.sendMessage({ type: "get_status" }, (resp) => {
+    const dot    = document.getElementById("dot");
+    const status = document.getElementById("status");
+    if (resp?.connected) {
+      dot.classList.add("connected");
+      status.textContent = "Подключено к агенту";
+    } else {
+      status.textContent = "Нет подключения";
+    }
+  });
+</script>
+</body>
+</html>

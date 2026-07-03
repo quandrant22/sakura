@@ -1,0 +1,32 @@
+# Sakura Agent - Python Dependencies
+# Core
+websockets
+psutil
+python-dotenv
+
+# Windows API
+pywin32
+pyperclip
+pyautogui
+comtypes
+pycaw
+
+# Audio
+sounddevice
+vosk
+numpy
+torch
+silero-vad
+
+# UI
+PyQt6
+pillow
+
+# Command registry
+toml
+
+# Optional: for better fuzzy matching
+rapidfuzz
+
+# Optional: for image processing
+# opencv-python

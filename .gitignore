@@ -1,0 +1,93 @@
+# ──────────────────────────────────────────────────────────────
+# Sakura — .gitignore
+# ──────────────────────────────────────────────────────────────
+
+# Секреты — НИКОГДА в репо
+.env
+*.env
+
+# Google OAuth
+memory/credentials.json
+memory/token.json
+credentials.json
+token.json
+
+# API ключи (теперь в .env, файл-кэш не должен коммититься)
+memory/api_keys.json
+
+# Память пользователя — приватные данные
+memory/long_term.json
+memory/history.json
+memory/session_summary.json
+memory/guests/
+memory/timeline.json
+memory/mood.json
+memory/rules.json
+memory/tasks.json
+memory/reflection.json
+memory/proactive.json
+memory/muiv_schedule.json
+memory/users.json
+memory/devices.json
+memory/guest_relations.json
+
+# Файловый индекс (большой, генерируется локально)
+file_index.json
+
+# Маппинги приложений (машино-специфичные)
+memory/apps_mapping_*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.Python
+venv/
+.venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Резервные копии
+*.bak
+*.orig
+*.backup
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# Vosk-модель (большая, скачивается отдельно)
+vosk-model-*/
+vosk-model-small-*/
+
+# Rust build artifacts
+target/
+sakura-agent/core/target/
+
+# Sakura session
+sakura.session
+
+# Отдельные проекты (не коммитить)
+jarvis-master/
+vosk-model-small-ru-0.22/
+
+# Данные сессий и БД
+*.session
+*.session-journal
+*.db
+*.db-shm
+*.db-wal
+
+# Логи
+*.log
+logs/
+
+# Временные файлы
+*.tmp
+*.temp

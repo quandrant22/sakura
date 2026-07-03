@@ -1,0 +1,24 @@
+# Sakura Agent v2 — Python Dependencies
+
+# Core
+python-dotenv
+
+# Windows API
+pywin32
+pyperclip
+pyautogui
+comtypes
+pycaw
+
+# Audio
+sounddevice
+numpy
+pillow
+
+# UI
+PyQt6
+
+# Optional
+# vosk
+# torch
+# silero-vad

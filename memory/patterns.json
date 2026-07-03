@@ -1,0 +1,63 @@
+{
+  "patterns": [
+    {
+      "type": "context_habit",
+      "context": "Сакура",
+      "emotion": "neutral",
+      "count": 8,
+      "hint": "Часто бывает в «Сакура» — обычно neutral"
+    },
+    {
+      "type": "context_habit",
+      "context": "Яндекс Музыка — собираем музыку для вас",
+      "emotion": "neutral",
+      "count": 11,
+      "hint": "Часто бывает в «Яндекс Музыка — собираем музык» — обычно neutral"
+    },
+    {
+      "type": "context_habit",
+      "context": "mimo - sakura [SSH: 144.31.47.139] - Vis",
+      "emotion": "neutral",
+      "count": 7,
+      "hint": "Часто бывает в «mimo - sakura [SSH: 144.31.47.» — обычно neutral"
+    },
+    {
+      "type": "context_habit",
+      "context": "agent.py - Sakura - Visual Studio Code",
+      "emotion": "neutral",
+      "count": 3,
+      "hint": "Часто бывает в «agent.py - Sakura - Visual Stu» — обычно neutral"
+    },
+    {
+      "type": "app_habit",
+      "window": "Друзья - Discord",
+      "minutes": 4538,
+      "hint": "Много времени в «Друзья - Discord»"
+    },
+    {
+      "type": "app_habit",
+      "window": "music.py - Sakura - Visual Studio Code",
+      "minutes": 2686,
+      "hint": "Много времени в «music.py - Sakura - Visual Stu»"
+    },
+    {
+      "type": "app_habit",
+      "window": "Начальный экран",
+      "minutes": 2636,
+      "hint": "Много времени в «Начальный экран»"
+    },
+    {
+      "type": "app_habit",
+      "window": "Экран блокировки Windows по умолчанию",
+      "minutes": 1224,
+      "hint": "Много времени в «Экран блокировки Windows по ум»"
+    },
+    {
+      "type": "app_habit",
+      "window": "Ваш сеанс будет завершен",
+      "minutes": 959,
+      "hint": "Много времени в «Ваш сеанс будет завершен»"
+    }
+  ],
+  "last_update": "2026-07-02 17:01:31.159710"
+}

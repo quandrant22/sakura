@@ -1,0 +1,68 @@
+[package]
+name = "sakura-audio-core"
+version = "0.1.0"
+edition = "2021"
+description = "High-performance audio core for Sakura agent"
+authors = ["Sakura Team"]
+
+[dependencies]
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Audio
+cpal = "0.15"
+
+# VAD (Voice Activity Detection)
+# silero-vad will be integrated via ONNX later
+# For now, use energy-based VAD
+
+# STT (Speech-to-Text)
+vosk = "0.3"
+
+# Fuzzy matching
+seqdiff = "0.3"
+rapidfuzz = "0.5"
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# CLI
+clap = { version = "4.0", features = ["derive"] }
+
+# Tokio for async
+tokio = { version = "1.0", features = ["full"] }
+
+# WebSocket
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
+
+# Chrono for timestamps
+chrono = "0.4"
+
+# TOML for command definitions
+toml = "0.8"
+
+# SHA256 for hashing
+sha2 = "0.10"
+
+# Cross-platform dirs
+dirs = "5.0"
+
+[target.'cfg(windows)'.dependencies]
+# Windows-specific audio APIs
+windows = { version = "0.56", features = [
+    "Win32_Media_Audio",
+    "Win32_Media_Audio_Endpoints",
+    "Win32_System_Com",
+] }
+
+[target.'cfg(unix)'.dependencies]
+# Linux/Mac audio
+alsa = "0.9"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

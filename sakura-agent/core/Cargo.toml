@@ -1,0 +1,48 @@
+[package]
+name = "sakura-core"
+version = "2.0.0"
+edition = "2021"
+description = "Sakura Agent v2 — High-performance audio core"
+authors = ["Sakura Team"]
+
+[dependencies]
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# Audio
+cpal = "0.15"
+vosk = "0.3"
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# Async
+tokio = { version = "1.0", features = ["full"] }
+futures-util = "0.3"
+
+# WebSocket
+tokio-tungstenite = "0.24"
+
+# Timestamps
+chrono = "0.4"
+
+# Fuzzy matching
+rapidfuzz = "0.5"
+
+# Hashing
+sha2 = "0.10"
+
+# Directories
+dirs = "5.0"
+
+# Lua scripting
+mlua = { version = "0.10", features = ["lua54", "vendored", "async"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

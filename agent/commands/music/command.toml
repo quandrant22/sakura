@@ -1,0 +1,261 @@
+[[commands]]
+id = "music_play_pause"
+type = "action"
+action = "music"
+args = "play_pause"
+priority = 15
+description = "Toggle play/pause"
+
+phrases.ru = [
+    "пауза",
+    "останови музыку",
+    "продолжи музыку",
+    "поставь на паузу",
+]
+phrases.en = [
+    "pause",
+    "play",
+    "resume",
+]
+
+[[commands]]
+id = "music_next"
+type = "action"
+action = "music"
+args = "next"
+priority = 15
+description = "Next track"
+
+phrases.ru = [
+    "следующий трек",
+    "следующая песня",
+    "скип",
+    "давай следующий",
+]
+
+[[commands]]
+id = "music_prev"
+type = "action"
+action = "music"
+args = "prev"
+priority = 15
+description = "Previous track"
+
+phrases.ru = [
+    "предыдущий трек",
+    "прошлый трек",
+    "назад",
+]
+
+[[commands]]
+id = "music_like"
+type = "action"
+action = "music"
+args = "like"
+priority = 20
+description = "Like current track"
+
+phrases.ru = [
+    "лайкни",
+    "залайкай",
+    "поставь лайк",
+    "добавь в любимые",
+]
+
+[[commands]]
+id = "music_dislike"
+type = "action"
+action = "music"
+args = "dislike"
+priority = 20
+description = "Dislike current track"
+
+phrases.ru = [
+    "дизлайкни",
+    "поставь дизлайк",
+    "плохой трек",
+    "следующий другой",
+]
+
+[[commands]]
+id = "music_open"
+type = "action"
+action = "music"
+args = "open"
+priority = 10
+description = "Open Yandex Music"
+
+phrases.ru = [
+    "открой музыку",
+    "включи музыку",
+    "открой яндекс музыку",
+]
+
+[[commands]]
+id = "music_wave"
+type = "action"
+action = "music"
+args = "wave"
+priority = 10
+description = "Play My Wave"
+
+phrases.ru = [
+    "моя волна",
+    "волна",
+    "мою волну",
+]
+
+[[commands]]
+id = "music_track"
+type = "action"
+action = "music"
+args = "track:{query}"
+priority = 15
+description = "Play a specific track"
+
+phrases.ru = [
+    "включи трек",
+    "поставь трек",
+    "включи песню",
+    "хочу послушать",
+]
+
+[commands.slots.query]
+entity = "track name"
+
+[[commands]]
+id = "music_artist"
+type = "action"
+action = "music"
+args = "artist:{query}"
+priority = 15
+description = "Play artist"
+
+phrases.ru = [
+    "включи исполнителя",
+    "музыку от",
+    "треки от",
+]
+
+[commands.slots.query]
+entity = "artist name"
+
+[[commands]]
+id = "music_playlist"
+type = "action"
+action = "music"
+args = "playlist:{query}"
+priority = 15
+description = "Play playlist"
+
+phrases.ru = [
+    "включи плейлист",
+    "поставь плейлист",
+]
+
+[commands.slots.query]
+entity = "playlist name"
+
+[[commands]]
+id = "music_shuffle"
+type = "action"
+action = "music"
+args = "shuffle"
+priority = 10
+description = "Toggle shuffle"
+
+phrases.ru = [
+    "перемешай",
+    "случайный порядок",
+]
+
+[[commands]]
+id = "music_repeat"
+type = "action"
+action = "music"
+args = "repeat"
+priority = 10
+description = "Toggle repeat"
+
+phrases.ru = [
+    "повтор",
+    "повторяй",
+]
+
+[[commands]]
+id = "music_seek_forward"
+type = "action"
+action = "music"
+args = "seek_forward"
+priority = 10
+description = "Seek forward"
+
+phrases.ru = [
+    "перемотай вперёд",
+    "вперёд",
+]
+
+[[commands]]
+id = "music_seek_back"
+type = "action"
+action = "music"
+args = "seek_back"
+priority = 10
+description = "Seek backward"
+
+phrases.ru = [
+    "перемотай назад",
+    "назад",
+]
+
+[[commands]]
+id = "music_volume_up"
+type = "action"
+action = "music"
+args = "volume_up"
+priority = 10
+description = "Volume up in music player"
+
+phrases.ru = [
+    "громче музыку",
+    "прибавь музыку",
+]
+
+[[commands]]
+id = "music_volume_down"
+type = "action"
+action = "music"
+args = "volume_down"
+priority = 10
+description = "Volume down in music player"
+
+phrases.ru = [
+    "тише музыку",
+    "убавь музыку",
+]
+
+[[commands]]
+id = "music_liked"
+type = "action"
+action = "music"
+args = "liked"
+priority = 10
+description = "Show liked tracks"
+
+phrases.ru = [
+    "любимые треки",
+    "лайкнутые треки",
+]
+
+[[commands]]
+id = "music_podcasts"
+type = "action"
+action = "music"
+args = "podcasts"
+priority = 10
+description = "Show podcasts"
+
+phrases.ru = [
+    "подкасты",
+    "открой подкасты",
+]
