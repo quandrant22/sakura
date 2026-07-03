@@ -3494,8 +3494,17 @@ async def ws_handler(websocket):
                                 try:
                                     _correction = await route_command(text, context=_router_ctx)
                                     if _correction and _correction.get("action"):
-                                        _chose_main = True
-                                        _pc["main"] = _correction
+                                        _corr_action = _correction["action"]
+                                        if _corr_action in (_main_action, _alt_action):
+                                            _chose_main = True
+                                            _pc["main"] = _correction
+                                        else:
+                                            # Другое действие — исполнить, но алиас не писать
+                                            _corr_arg = _correction.get("arg", "")
+                                            _corr_full = f"{_corr_action}:{_corr_arg}" if _corr_arg and ":" not in _corr_action else _corr_action
+                                            if ws_dev:
+                                                _cmd_id = _register_command(_corr_full, device_id or "laptop")
+                                                await ws_dev.send(json.dumps({"type": "command", "action": _corr_full, "id": _cmd_id}))
                                 except Exception:
                                     pass
 
