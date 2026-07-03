@@ -1835,51 +1835,15 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
     if achievements_ctx:
         parts.append(achievements_ctx)
 
-    # Mood vector (Фаза 2) — читается ДО генерации, stance влияет на тон
+    # Mood vector + disposition + модификаторы — единый блок СОСТОЯНИЕ
     try:
-        from modules.disposition import stance_prompt as _disp_prompt
-        disp = _disp_prompt()
-        if disp:
-            parts.append(disp)
+        from modules.state_arbiter import get_state_block
+        state_block = get_state_block()
+        if state_block:
+            parts.append(state_block)
     except Exception:
         pass
 
-    # Желания и инициатива — когда энергия есть, можно предложить от себя
-    try:
-        from modules.disposition import desire_hint as _desire
-        desire = _desire()
-        if desire:
-            parts.append(desire)
-    except Exception:
-        pass
-
-    try:
-        mood_ctx = get_mood_vector_context()
-        if mood_ctx:
-            parts.append(mood_ctx)
-    except Exception:
-        mood_ctx = get_mood_context()
-        if mood_ctx:
-            parts.append(mood_ctx)
-
-    # Настроение Мастера — подтекст для тона Сакуры (бэклог №4)
-    try:
-        master_mood_ctx = get_master_mood_hint()
-        if master_mood_ctx:
-            parts.append(master_mood_ctx)
-    except Exception:
-        pass
-
-    # Эмоциональная арка — преемственность через дни
-    try:
-        from modules.reflection import get_mood_arc
-        mood_arc = get_mood_arc()
-        if mood_arc:
-            parts.append(mood_arc)
-    except Exception:
-        pass
-
-    # Привычки Мастера — паттерны по дням/времени
     try:
         from modules.patterns import get_patterns_hint
         patterns_hint = get_patterns_hint()
@@ -1965,38 +1929,11 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
     except Exception:
         pass
 
-    # Подкол-долг (№26)
-    try:
-        revenge = get_revenge_hint()
-        if revenge:
-            parts.append(revenge)
-    except Exception:
-        pass
+    # Подкол-долг — теперь внутри state_arbiter
 
-    # Секретный дневник — иногда проговаривается (Фаза 7 №3)
-    try:
-        leak = get_leak_hint()
-        if leak:
-            parts.append(leak)
-    except Exception:
-        pass
+    # Секретный дневник и подкол-долг — теперь внутри state_arbiter
 
-    # Дневник влияет на поведение — не только leak, но и настроение
-    try:
-        from modules.secret_diary import get_diary_mood_influence
-        diary_mood = get_diary_mood_influence()
-        if diary_mood:
-            parts.append(diary_mood)
-    except Exception:
-        pass
-
-    # Органическая близость (Фаза 4)
-    try:
-        closeness_hint = get_closeness_hint()
-        if closeness_hint:
-            parts.append(closeness_hint)
-    except Exception:
-        pass
+    # Органическая близость (Фаза 4) — теперь внутри state_arbiter
 
     # Увлечения Сакуры (Фаза 4)
     try:
