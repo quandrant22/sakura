@@ -4,6 +4,7 @@ import json
 import base64
 import os
 import re
+import uuid
 from modules.fuzzy import phrase_has_any as _fz, phrase_has as _fz1
 import tempfile
 import time
@@ -159,6 +160,39 @@ dp  = Dispatcher()
 connected_devices: dict = {}
 _pending_event_check: dict = {}  # device_id → True если ждём скриншот для event-тика
 _pending_describe: dict = {}     # device_id → True если ждём скриншот для описания
+_pending_commands: dict[str, dict] = {}  # cmd_id → {"action", "device", "ts", "status"}
+
+
+def _cleanup_pending_commands():
+    """Удаляет команды старше 5 минут."""
+    now = __import__("time").monotonic()
+    expired = [k for k, v in _pending_commands.items() if now - v["ts"] > 300]
+    for k in expired:
+        del _pending_commands[k]
+
+
+def _register_command(action: str, device: str) -> str:
+    """Регистрирует команду и возвращает её id."""
+    cmd_id = uuid.uuid4().hex[:12]
+    _pending_commands[cmd_id] = {
+        "action": action,
+        "device": device,
+        "ts": __import__("time").monotonic(),
+        "status": "sent",
+    }
+    _cleanup_pending_commands()
+    return cmd_id
+
+
+def _resolve_command_status(action: str, ok: bool, detail: str) -> str:
+    """Ищет pending-команду по action, обновляет статус, возвращает статус."""
+    now = __import__("time").monotonic()
+    for cmd_id, cmd in _pending_commands.items():
+        if cmd["action"] == action and now - cmd["ts"] < 300:
+            cmd["status"] = "executed" if ok else "failed"
+            cmd["detail"] = detail
+            return cmd["status"]
+    return "executed" if ok else "failed"
 
 
 def _get_active_ws():
@@ -1682,7 +1716,7 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
     import time as _t
 
     # Кэшируем только типичный случай (Telegram, без calendar, без query)
-    cache_key = f"{include_calendar}:{active_window}:{bool(query)}"
+    cache_key = f"{include_calendar}:{active_window}:{bool(query)}:{tuple(sorted(get_online_devices()))}"
     if not query:
         with _build_system_lock:
             entry = _build_system_cache.get(cache_key)
@@ -1698,6 +1732,9 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
     )
 
     parts = [system]
+
+    from modules.capabilities import get_capabilities_block
+    parts.append(get_capabilities_block())
 
     rules_ctx = get_rules_context()
     if rules_ctx:
@@ -2542,6 +2579,18 @@ async def ws_handler(websocket):
                     screenshot = data.get("screenshot")
                     dev_name   = data.get("device_id", "устройство")
 
+                    # Обновляем статус pending-команды по id или action
+                    _cmd_ok = True
+                    _cmd_detail = ""
+                    _cmd_id_from_agent = data.get("id")
+                    if _cmd_id_from_agent and _cmd_id_from_agent in _pending_commands:
+                        _pending_commands[_cmd_id_from_agent]["status"] = "executed"
+                    elif result:
+                        _cmd_detail = str(result)
+                        _cmd_ok = not any(t in _cmd_detail.lower() for t in
+                                          ("ошибка", "не нашла", "не найдено", "app_not_found", "оффлайн"))
+                        _resolve_command_status("", _cmd_ok, _cmd_detail)
+
                     # Результат от расширения браузера
                     if data.get("ext"):
                         ext_data = data["ext"]
@@ -3384,17 +3433,20 @@ async def ws_handler(websocket):
                         # Скриншот с описанием → запоминаем флаг, отправляем screenshot:
                         if full_action == "screenshot:describe":
                             _pending_describe[device_id or "laptop"] = True
-                            await ws_dev.send(json.dumps({"type": "command", "action": "screenshot:"}))
+                            _cmd_id = _register_command("screenshot:", device_id or "laptop")
+                            await ws_dev.send(json.dumps({"type": "command", "action": "screenshot:", "id": _cmd_id}))
                             log.info(f"[vision] запрос скриншота с описанием для {device_id}")
                         elif is_agent:
                             # Команды для агента (YouTube через расширение и т.д.)
-                            await ws_dev.send(json.dumps({"type": "command", "action": full_action}))
+                            _cmd_id = _register_command(full_action, device_id or "laptop")
+                            await ws_dev.send(json.dumps({"type": "command", "action": full_action, "id": _cmd_id}))
                         elif action.startswith("youtube_"):
                             # YouTube Data API (поиск, плейлисты)
                             yt_result = await youtube_command(full_action)
                             yt_open = yt_result.get("open_youtube_url") or yt_result.get("open_url")
                             if yt_open:
-                                await ws_dev.send(json.dumps({"type": "command", "action": f"open_youtube_url:{yt_open}"}))
+                                _cmd_id = _register_command(f"open_youtube_url:{yt_open}", device_id or "laptop")
+                                await ws_dev.send(json.dumps({"type": "command", "action": f"open_youtube_url:{yt_open}", "id": _cmd_id}))
                             if yt_result.get("items"):
                                 items_str = ", ".join(yt_result["items"][:3])
                                 _yt_reply = await ask_gemini(f"Нашла на YouTube: {items_str}. Скажи коротко.", save_history=False)
@@ -3402,10 +3454,12 @@ async def ws_handler(websocket):
                                     await stream_tts_to_device(_yt_reply, ws_dev, device_id or "laptop", literal=True)
                         elif action.startswith("ext:") or action.startswith("browser:"):
                             # Браузерные команды через агент
-                            await ws_dev.send(json.dumps({"type": "command", "action": full_action}))
+                            _cmd_id = _register_command(full_action, device_id or "laptop")
+                            await ws_dev.send(json.dumps({"type": "command", "action": full_action, "id": _cmd_id}))
                         elif action.startswith("music_"):
                             # Яндекс Музыка через SMTC+API (на агенте)
-                            await ws_dev.send(json.dumps({"type": "command", "action": full_action}))
+                            _cmd_id = _register_command(full_action, device_id or "laptop")
+                            await ws_dev.send(json.dumps({"type": "command", "action": full_action, "id": _cmd_id}))
                         else:
                             # Все остальные команды — на агент
                             dev = device_id or "laptop"
@@ -3417,7 +3471,8 @@ async def ws_handler(websocket):
                                 app_query = full_action.split(":", 1)[1] if ":" in full_action else arg
                                 _, target = resolve_app(app_query, device_id)
                                 if target:
-                                    await tws.send(json.dumps({"type": "command", "action": f"open_app:{target}"}))
+                                    _cmd_id = _register_command(f"open_app:{target}", dev)
+                                    await tws.send(json.dumps({"type": "command", "action": f"open_app:{target}", "id": _cmd_id}))
                                     # Записать запуск для умных дефолтов
                                     try:
                                         from modules.app_launcher import record_launch
@@ -3425,19 +3480,36 @@ async def ws_handler(websocket):
                                     except Exception:
                                         pass
                                 else:
-                                    await tws.send(json.dumps({"type": "command", "action": full_action}))
+                                    _cmd_id = _register_command(full_action, dev)
+                                    await tws.send(json.dumps({"type": "command", "action": full_action, "id": _cmd_id}))
                             else:
-                                await tws.send(json.dumps({"type": "command", "action": full_action}))
+                                _cmd_id = _register_command(full_action, dev)
+                                await tws.send(json.dumps({"type": "command", "action": full_action, "id": _cmd_id}))
 
-                        # Провод 2: подтверждение команды с учётом диспозиции
+                        # Провод 2: подтверждение команды с учётом статуса
                         # Для music_ и screenshot — пропускаем (ответ приходит отдельно)
                         if not full_action.startswith("screenshot:") and not full_action.startswith("music_"):
                             try:
                                 from modules.disposition import current as _disp_current
                                 _disp = _disp_current()
+                                _cmd_status = _pending_commands.get(_cmd_id, {}).get("status", "sent")
+                                _cmd_detail = _pending_commands.get(_cmd_id, {}).get("detail", "")
+
+                                if _cmd_status == "executed":
+                                    _status_text = "Команда выполнена. Отреагируй одним предложением."
+                                elif _cmd_status == "failed":
+                                    _status_text = f"Команда не выполнена: {_cmd_detail}. Скажи честно, одним предложением."
+                                else:
+                                    _status_text = (
+                                        "Команда отправлена на устройство, результат ещё не известен. "
+                                        "Отреагируй естественно, одним коротким предложением, "
+                                        "НЕ утверждая что уже сделано (нельзя: \"открыла\", \"сделала\"; "
+                                        "можно: \"сейчас\", \"открываю\")."
+                                    )
+
                                 _cmd_confirm = (
                                     f"Мастер попросил: {text}. Команда: {full_action}. "
-                                    f"Скажи коротко одно предложение. "
+                                    f"СТАТУС КОМАНДЫ: {_status_text} "
                                     f"Твоя диспозиция: {_disp['stance']}, "
                                     f"valence={_disp['valence']}, arousal={_disp['arousal']}."
                                 )
