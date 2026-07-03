@@ -263,7 +263,6 @@ def patch_context_module():
 
 def apply_all_patches():
     """Вызывать из main() один раз при старте."""
-    patch_memory_module()
     patch_small_modules()
     patch_context_module()
     log.info("[cache] Все патчи применены.")

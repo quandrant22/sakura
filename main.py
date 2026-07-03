@@ -23,7 +23,6 @@ from config import TELEGRAM_TOKEN, MASTER_ID, GROUP_CHAT_ID, get_active_key, mar
 from personality import get_system_prompt, get_time_context
 from memory.memory import (
     add_to_history, get_history, clear_history,
-    get_memory_context, add_to_category,
     needs_daily_analysis, mark_analysis_done,
     load_session_summary, save_session_summary,
     clear_session_summary, should_summarize
@@ -132,7 +131,7 @@ from modules.integrations import (
     get_current_music_from_window, should_comment_music,
     make_music_comment_prompt, mark_music_commented
 )
-from memory.db import ensure_ready, add_to_category as db_add_to_category, get_self_context, add_to_self
+from memory.db import ensure_ready, add_to_category as db_add_to_category, get_memory_context as db_get_memory_context, get_self_context, add_to_self
 from modules.users import (
     get_role, is_master, is_himari,
     get_guest_history, add_guest_message,
@@ -1155,6 +1154,11 @@ async def extract_and_remember(user_message: str, reply: str):
             "Только прямые факты из его слов. "
             "Игровой контекст (LEGO, Minecraft, GTA и т.д.) — это игра, не реальность. "
             "Команды ассистенту (следующий трек, пауза, открой и т.д.) — не записывать.\n"
+            "Каждый факт помечай префиксом слоя:\n"
+            "[L] — устойчивое: предпочтения, факты о Мастере, повторяющиеся паттерны, важные события жизни;\n"
+            "[W] — временное: текущие задачи, состояния на этой неделе, незакрытые дела;\n"
+            "Сиюминутное НЕ выводи вовсе: эмоции момента, обсуждения кода и архитектуры Sakura, "
+            "разовые бытовые события, темы одного разговора.\n"
             'Верни JSON: {"facts":[],"interests":[],"preferences":[],'
             '"achievements":[],"patterns":[],"events":[],"notes":[],'
             '"entities":[{"name":"","type":"person|project|place|game|org|event|thing","date":""}],'
@@ -1199,7 +1203,16 @@ async def extract_and_remember(user_message: str, reply: str):
                     except Exception:
                         pass  # Если валидатор недоступен — сохраняем как есть
 
-                    ok = await asyncio.to_thread(add_to_category, cat, item)
+                    # Определяем слой по префиксу [L] или [W]
+                    layer = "long_term"
+                    if item.startswith("[L]"):
+                        layer = "long_term"
+                        item = item[3:].strip()
+                    elif item.startswith("[W]"):
+                        layer = "working"
+                        item = item[3:].strip()
+
+                    ok = await asyncio.to_thread(db_add_to_category, cat, item, layer)
                     if ok is not False:
                         saved.append(f"{cat}: {item[:40]}")
         if saved:
@@ -1283,7 +1296,14 @@ async def daily_analysis():
             for cat, items in json.loads(raw).items():
                 for item in items:
                     if item and isinstance(item, str):
-                        await asyncio.to_thread(add_to_category, cat, item)
+                        layer = "long_term"
+                        if item.startswith("[L]"):
+                            layer = "long_term"
+                            item = item[3:].strip()
+                        elif item.startswith("[W]"):
+                            layer = "working"
+                            item = item[3:].strip()
+                        await asyncio.to_thread(db_add_to_category, cat, item, layer)
             mark_analysis_done()
             # Очистка автоалиасов
             try:
@@ -1331,7 +1351,7 @@ async def proactive_loop():
 
         try:
             devices = load_devices().get("devices", {})
-            mem_ctx = get_memory_context()
+            mem_ctx = db_get_memory_context()
             silence = get_silence_context()
             trigger = None
             is_crit = False
@@ -1679,8 +1699,7 @@ def _build_voice_system() -> str:
 
     # 6. Память (быстро, без embed)
     try:
-        from memory.memory import get_memory_context
-        mem = get_memory_context()
+        mem = db_get_memory_context()
         if mem:
             parts.append(mem)
     except Exception:
@@ -1781,7 +1800,7 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
     # Без query — быстрый топ по hits, без сетевых вызовов.
     try:
         # query="" всегда — embed вызовы убраны полностью из основного пути
-        raw_mem = get_memory_context()
+        raw_mem = db_get_memory_context()
         mem_ctx = enrich_memory_context(raw_mem, query) if raw_mem else ""
         if mem_ctx:
             parts.append(mem_ctx)
@@ -2521,8 +2540,7 @@ async def ws_handler(websocket):
                        _t_music.monotonic() - _last_command_ts > 30:
                         track = get_current_music_from_window(active_win)
                         if track:
-                            from memory.db import get_memory_context
-                            mem = get_memory_context()
+                            mem = db_get_memory_context()
                             prompt = make_music_comment_prompt(track, mem[:200])
                             reply = await ask_gemini(prompt, save_history=False)
                             if reply:
@@ -4039,7 +4057,7 @@ async def cmd_status(message: Message):
 async def cmd_memory(message: Message):
     if not is_master(message.from_user.id):
         return
-    ctx = get_memory_context()
+    ctx = db_get_memory_context()
     await message.answer(ctx if ctx else "Память пока пуста.")
 
 
@@ -5202,7 +5220,7 @@ async def main():
             bot                     = bot,
             master_id               = MASTER_ID,
             ask_gemini_fn           = ask_gemini,
-            add_to_category_fn      = add_to_category,
+            add_to_category_fn      = db_add_to_category,
             clear_history_fn        = clear_history,
             save_session_summary_fn = save_session_summary,
             load_session_summary_fn = load_session_summary,

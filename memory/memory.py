@@ -134,51 +134,11 @@ def _eviction_score(item: dict) -> float:
 
 
 def add_to_category(category: str, item: str):
-    """Добавляет факт. Семантический merge вместо лексического дедупа.
-    ВНИМАНИЕ: делает сетевой вызов (эмбеддинг). Из async-кода зови через
-    await asyncio.to_thread(add_to_category, ...), чтобы не блокировать loop."""
-    if not item or len(item.strip()) < 5:
-        return
-    item = item.strip()
-
-    data   = load_long_term()
-    master = data["master"]
-    if category not in master:
-        master[category] = []  # автосоздание категории
-
-    vec = _embed(item, "RETRIEVAL_DOCUMENT")
-
-    # Поиск смыслового дубля внутри категории
-    if vec:
-        for existing in master[category]:
-            ev = existing.get("vec")
-            if ev and _dot(vec, ev) >= MERGE_THRESHOLD:
-                # Это переформулировка уже известного — усиливаем, не плодим
-                if len(item) > len(existing["text"]):
-                    existing["text"], existing["vec"] = item, vec
-                existing["hits"]        = existing.get("hits", 0) + 1
-                existing["last_access"] = str(date.today())
-                save_long_term(data)
-                return
-    else:
-        # Без эмбеддинга — точный дедуп как страховка
-        if any(e.get("text", "").lower() == item.lower() for e in master[category]):
-            return
-
-    master[category].append({
-        "text":        item,
-        "date":        str(date.today()),
-        "last_access": str(date.today()),
-        "hits":        0,
-        "vec":         vec,
-    })
-
-    # Вытеснение по важности, а не по дате
-    if len(master[category]) > MAX_PER_CAT:
-        master[category].sort(key=_eviction_score, reverse=True)
-        master[category] = master[category][:MAX_PER_CAT]
-
-    save_long_term(data)
+    """DEPRECATED: единственная точка записи — memory.db.
+    Любые пропущенные вызовы автоматически попадают в db и видны в логах."""
+    log.warning(f"legacy add_to_category → db: {category}")
+    from memory.db import add_to_category as _db_add
+    return _db_add(category, item)
 
 
 def _format(buckets: dict) -> str:

@@ -119,7 +119,9 @@ def _open_db() -> sqlite3.Connection:
             last_access TEXT    NOT NULL DEFAULT (date('now')),
             hits        INTEGER NOT NULL DEFAULT 0,
             pinned      INTEGER NOT NULL DEFAULT 0,   -- 1 = якорь, не вытесняется
-            vec_rowid   INTEGER                        -- ссылка на vec_master
+            vec_rowid   INTEGER,                       -- ссылка на vec_master
+            layer       TEXT    DEFAULT 'long_term',   -- 'long_term' | 'working'
+            expires_at  TEXT                            -- NULL = бессрочно, ISO datetime = рабочий слой
         );
         CREATE INDEX IF NOT EXISTS idx_mm_cat ON master_memory(category);
         CREATE INDEX IF NOT EXISTS idx_mm_pin ON master_memory(pinned DESC, hits DESC);
@@ -151,6 +153,38 @@ def _open_db() -> sqlite3.Connection:
 
     conn.commit()
     return conn
+
+
+# ── Write gate (этап 6: режим 18+) ──────────────────────────────────
+_WRITE_GATE_OPEN = True
+
+
+def set_write_gate(open_: bool):
+    """Управляет гейтом записи. False → add_to_category не пишет, возвращает False.
+    Точка подключения этапа 6 (режим 18+). Пока никто не вызывает."""
+    global _WRITE_GATE_OPEN
+    _WRITE_GATE_OPEN = open_
+
+
+# ── Миграция схемы (layer/expires_at) ────────────────────────────────
+def _migrate_schema():
+    """Добавляет колонки layer/expires_at если их нет."""
+    conn = _conn()
+    cur = conn.cursor()
+    cur.execute("SELECT name FROM migrations WHERE name='schema_v2_layers'")
+    if cur.fetchone():
+        return
+    for stmt in (
+        "ALTER TABLE master_memory ADD COLUMN layer TEXT DEFAULT 'long_term'",
+        "ALTER TABLE master_memory ADD COLUMN expires_at TEXT",
+    ):
+        try:
+            conn.execute(stmt)
+        except sqlite3.OperationalError:
+            pass  # колонка уже есть
+    conn.commit()
+    _mark_migration("schema_v2_layers")
+    log.info("[db] Миграция schema_v2_layers: добавлены layer/expires_at")
 
 
 # ── Векторные утилиты ────────────────────────────────────────────────
@@ -278,17 +312,27 @@ def _mark_migration(name: str):
 
 # ── Запись в master_memory ───────────────────────────────────────────
 
-def add_to_category(category: str, text: str) -> bool:
+def add_to_category(category: str, text: str, layer: str = "long_term") -> bool:
     """
     Добавляет факт в категорию.
+    layer: 'long_term' (бессрочно) | 'working' (TTL 7 дней).
     Семантический merge: если косинус > MERGE_THRESHOLD — обновляет hits, не дублирует.
-    Возвращает True если запись добавлена, False если слита с существующей.
+    Возвращает True если запись добавлена, False если слита с существующей или гейт закрыт.
     """
+    if not _WRITE_GATE_OPEN:
+        log.warning(f"[db] write gate closed, rejected: {category}: {text[:40]}")
+        return False
+
     text = text.strip()
     if not text or len(text) < 5:
         return False
     if category not in CATEGORY_LABELS:
         return False
+
+    expires_at = None
+    if layer == "working":
+        from datetime import timedelta
+        expires_at = (datetime.now() + timedelta(days=7)).isoformat()
 
     conn = _conn()
 
@@ -310,9 +354,9 @@ def add_to_category(category: str, text: str) -> bool:
     _maybe_evict(category)
 
     cur = conn.execute("""
-        INSERT INTO master_memory (category, text, created_at, last_access)
-        VALUES (?, ?, date('now'), date('now'))
-    """, (category, text))
+        INSERT INTO master_memory (category, text, created_at, last_access, layer, expires_at)
+        VALUES (?, ?, date('now'), date('now'), ?, ?)
+    """, (category, text, layer, expires_at))
     row_id = cur.lastrowid
 
     if vec:
@@ -380,8 +424,19 @@ def _eviction_score(hits: int, last_access: str) -> float:
     return hits + recency
 
 
+def _evict_expired():
+    """Удаляет записи с истёкшим expires_at (рабочий слой)."""
+    conn = _conn()
+    conn.execute("""
+        DELETE FROM master_memory
+        WHERE expires_at IS NOT NULL AND expires_at < datetime('now')
+    """)
+    conn.commit()
+
+
 def _maybe_evict(category: str, max_per_cat: int = 50):
     """Вытесняет наименее ценную запись если категория полна. Якоря не трогает."""
+    _evict_expired()
     conn = _conn()
     count = conn.execute(
         "SELECT COUNT(*) FROM master_memory WHERE category=? AND pinned=0",
@@ -480,6 +535,7 @@ def _semantic_search(vec: list[float], k: int) -> list[sqlite3.Row]:
             JOIN master_memory mm ON mm.vec_rowid = vec_master.rowid
             WHERE vec_master.embedding MATCH ?
               AND k = ?
+              AND (mm.expires_at IS NULL OR mm.expires_at > datetime('now'))
             ORDER BY distance
         """, (_vec_to_bytes(vec), k)).fetchall()
     except Exception:
@@ -488,9 +544,11 @@ def _semantic_search(vec: list[float], k: int) -> list[sqlite3.Row]:
 
 def _top_by_importance(k: int) -> list[sqlite3.Row]:
     conn = _conn()
+    _evict_expired()
     return conn.execute("""
         SELECT id, category, text, hits, last_access
         FROM master_memory
+        WHERE expires_at IS NULL OR expires_at > datetime('now')
         ORDER BY pinned DESC,
                  hits DESC,
                  last_access DESC
@@ -642,7 +700,17 @@ def db_stats() -> dict:
 
 def ensure_ready():
     """Вызывается при старте main.py. Инициализирует БД и мигрирует JSON."""
+    # Бэкап legacy JSON перед миграцией (один раз)
+    if os.path.exists(LEGACY_JSON) and not os.path.exists(LEGACY_JSON + ".pre-cutover"):
+        try:
+            import shutil
+            shutil.copy(LEGACY_JSON, LEGACY_JSON + ".pre-cutover")
+            log.info(f"[db] Бэкап: {LEGACY_JSON} → {LEGACY_JSON}.pre-cutover")
+        except Exception as e:
+            log.warning(f"[db] Не удалось сделать бэкап: {e}")
+
     _conn()  # открывает и создаёт схему
+    _migrate_schema()  # миграция layer/expires_at
     n = migrate_from_json()
     if n:
         log.info(f"[db] Первый запуск: мигрировано {n} воспоминаний из JSON.")
