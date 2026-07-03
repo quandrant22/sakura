@@ -25,6 +25,8 @@ import websockets
 import config
 from core.eyes import get_active_window, get_system_info
 from core.hands import execute_command, scan_apps, init_index
+from core.hands import hotkey as _hotkey, type_text as _type_text
+from core.hands import focus_window as _focus_window, powershell as _powershell
 from core.hearing import Hearing
 from core.voice import Player
 from core.local_mood import LocalMood
@@ -46,6 +48,7 @@ class Agent:
         self._activity_level = 0.0
         self.local_mood = LocalMood()
         self._last_mood_update = {}  # последний mood_update от сервера
+        self._abort_flag = False     # аварийный тормоз (abort_all)
 
     def set_state(self, state: str):
         self.state = state
@@ -177,7 +180,19 @@ class Agent:
                 kind = data.get("type")
 
                 if kind == "command":
-                    asyncio.create_task(self._run_command(data.get("action", "")))
+                    _cmd_id = data.get("id")
+                    _action = data.get("action", "")
+                    if _action == "abort_all":
+                        self._abort_flag = True
+                        if _cmd_id:
+                            await self._ws.send(json.dumps({
+                                "type": "command_result", "id": _cmd_id,
+                                "device_id": config.DEVICE_ID, "ok": True,
+                                "detail": "abort принят",
+                            }))
+                        continue
+                    self._abort_flag = False
+                    asyncio.create_task(self._run_command(_action, _cmd_id))
 
                 elif kind == "tts_chunk":
                     # При первом чанке нового ответа — сбрасываем буфер
@@ -217,22 +232,62 @@ class Agent:
             except Exception as e:
                 log.error(f"recv: {e}")
 
-    async def _run_command(self, action: str):
+    async def _run_command(self, action: str, cmd_id: str | None = None):
         if not action:
             return
-        log.info(f"command: {action}")
+        log.info(f"command: {action} (id={cmd_id})")
+
+        async def _send_ack(ok: bool, detail: str, extra: dict | None = None):
+            """Отправить command_result с id (если есть)."""
+            if not cmd_id:
+                return
+            msg = {
+                "type": "command_result", "id": cmd_id,
+                "device_id": config.DEVICE_ID, "token": config.WS_TOKEN,
+                "ok": ok, "detail": detail,
+            }
+            if extra:
+                msg.update(extra)
+            try:
+                await self._ws.send(json.dumps(msg))
+            except Exception:
+                pass
 
         # Игровой режим — переключаем через bus
         if action == "game_mode:on":
             self.bus.emit("game_mode", on=True)
+            await _send_ack(True, "game_mode:on")
             return
         if action == "game_mode:off":
             self.bus.emit("game_mode", on=False)
+            await _send_ack(True, "game_mode:off")
+            return
+
+        # ── Новые примитивы (этап 4) ────────────────────────────────
+        if action.startswith("hotkey:"):
+            result = await asyncio.to_thread(_hotkey, action[7:])
+            await _send_ack(result.get("ok", False), result.get("detail", ""))
+            return
+
+        if action.startswith("type_text:"):
+            result = await asyncio.to_thread(_type_text, action[10:])
+            await _send_ack(result.get("ok", False), result.get("detail", ""))
+            return
+
+        if action.startswith("focus_window:"):
+            result = await asyncio.to_thread(_focus_window, action[13:])
+            await _send_ack(result.get("ok", False), result.get("detail", ""))
+            return
+
+        if action.startswith("powershell:"):
+            if self._abort_flag:
+                await _send_ack(False, "прервано abort_all")
+                return
+            result = await asyncio.to_thread(_powershell, action[11:])
+            await _send_ack(result.get("ok", False), result.get("detail", ""))
             return
 
         # Яндекс Музыка + SMTC
-        # music_* — от parse_music_info_command (VPS роутер)
-        # music:next/prev/play_pause — от device_commands (старый путь, тоже сюда)
         _music_action = None
         if action.startswith("music_"):
             _music_action = action
@@ -244,16 +299,16 @@ class Agent:
             try:
                 from core.music import music_command
                 result = await music_command(_music_action)
-                result["action"] = _music_action  # VPS использует для фильтрации ответов
+                result["action"] = _music_action
                 await self._ws.send(json.dumps({
-                    "type":      "command_result",
-                    "device_id": config.DEVICE_ID,
-                    "token":     config.WS_TOKEN,
-                    "result":    result.get("result", ""),
-                    "music":     result,
+                    "type": "command_result", "id": cmd_id,
+                    "device_id": config.DEVICE_ID, "token": config.WS_TOKEN,
+                    "ok": True, "detail": result.get("result", ""),
+                    "music": result,
                 }))
             except Exception as e:
                 log.error(f"music error: {e}")
+                await _send_ack(False, f"music error: {e}")
             return
 
         # Команды через расширение браузера
@@ -263,11 +318,13 @@ class Agent:
                 _ext = _s.modules.get('core.extension_server')
                 if not _ext:
                     log.warning("[ext] Модуль расширения не загружен")
+                    await _send_ack(False, "расширение не загружено")
                     return
                 send_command  = _ext.send_command
                 is_connected  = _ext.is_connected
                 if not is_connected():
                     log.warning("[ext] Расширение не подключено")
+                    await _send_ack(False, "расширение не подключено")
                     return
                 parts     = action[4:].split(":", 1)
                 ext_action = parts[0]
@@ -275,14 +332,14 @@ class Agent:
                 result    = await send_command(ext_action, ext_arg)
                 log.info(f"[ext] {ext_action} → {result}")
                 await self._ws.send(json.dumps({
-                    "type":      "command_result",
-                    "device_id": config.DEVICE_ID,
-                    "token":     config.WS_TOKEN,
-                    "result":    str(result.get("result", result.get("error", ""))),
-                    "ext":       result,
+                    "type": "command_result", "id": cmd_id,
+                    "device_id": config.DEVICE_ID, "token": config.WS_TOKEN,
+                    "ok": True, "detail": str(result.get("result", result.get("error", ""))),
+                    "ext": result,
                 }))
             except Exception as e:
                 log.error(f"ext command error: {e}")
+                await _send_ack(False, f"ext error: {e}")
             return
 
         # YouTube команды плеера
@@ -292,54 +349,55 @@ class Agent:
             try:
                 _ext = __import__('sys').modules.get('core.extension_server')
                 if _ext and _ext.is_connected():
-                    # Через расширение — надёжно, без фокуса
                     result = await _ext.send_command(action)
                     log.info(f"[yt] {action} via extension → {result}")
                 else:
-                    # Fallback — хоткеи
                     from core.browser import youtube_player_cmd
                     result = youtube_player_cmd(action)
                     log.info(f"[yt] {action} via hotkey → {result}")
+                await _send_ack(True, str(result))
             except Exception as e:
                 log.error(f"youtube error: {e}")
+                await _send_ack(False, f"youtube error: {e}")
             return
 
-        # Чайник — BLE, обрабатываем отдельно
+        # Чайник — BLE
         if action.startswith("kettle:"):
             kettle_action = action[len("kettle:"):]
             try:
                 from core.kettle import kettle_command
                 result = await kettle_command(kettle_action)
                 await self._ws.send(json.dumps({
-                    "type":      "command_result",
-                    "device_id": config.DEVICE_ID,
-                    "token":     config.WS_TOKEN,
-                    "result":    result.get("result", ""),
-                    "kettle":    result,
+                    "type": "command_result", "id": cmd_id,
+                    "device_id": config.DEVICE_ID, "token": config.WS_TOKEN,
+                    "ok": result.get("ok", False), "detail": result.get("result", ""),
+                    "kettle": result,
                 }))
-                # Если включили кипячение — запускаем фоновый мониторинг
                 if result.get("ok") and kettle_action in ("boil", "boil_heat") or kettle_action.startswith("boil"):
                     asyncio.create_task(self._kettle_watch())
             except Exception as e:
                 log.error(f"kettle error: {e}")
-                await self._ws.send(json.dumps({
-                    "type":      "command_result",
-                    "device_id": config.DEVICE_ID,
-                    "token":     config.WS_TOKEN,
-                    "result":    f"Ошибка чайника: {e}",
-                }))
+                await _send_ack(False, f"kettle error: {e}")
             return
 
-        out = await asyncio.to_thread(execute_command, action)
-        if out.get("screenshot"):
-            await self._ws.send(json.dumps({
-                "type":       "command_result",
-                "device_id":  config.DEVICE_ID,
-                "token":      config.WS_TOKEN,
-                "screenshot": out["screenshot"],
-            }))
-        elif out.get("result"):
-            log.info(f"→ {out['result']}")
+        # ── Фолбэк: execute_command (hands.py) ──────────────────────
+        try:
+            out = await asyncio.to_thread(execute_command, action)
+            if out.get("screenshot"):
+                await self._ws.send(json.dumps({
+                    "type": "command_result", "id": cmd_id,
+                    "device_id": config.DEVICE_ID, "token": config.WS_TOKEN,
+                    "ok": True, "detail": "скриншот",
+                    "screenshot": out["screenshot"],
+                }))
+            elif out.get("result"):
+                log.info(f"→ {out['result']}")
+                await _send_ack(True, out["result"])
+            else:
+                await _send_ack(True, "выполнено")
+        except Exception as e:
+            log.error(f"execute_command error: {e}")
+            await _send_ack(False, f"ошибка: {e}")
 
     async def _kettle_watch(self):
         """

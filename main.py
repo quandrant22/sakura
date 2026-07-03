@@ -165,7 +165,7 @@ _pending_clarify: dict[str, dict] = {}  # master_key → {"text", "main", "alt",
 _last_executed: dict[str, dict] = {}    # master_key → {"text", "action", "ts"}
 _pending_plan: dict[str, dict] = {}     # master_key → {"text", "plan", "ts"}
 _plan_cancel: dict[str, bool] = {}      # master_key → True если отмена
-PLAN_WAIT_ACK = False  # переключить после этапа 4-агент
+PLAN_WAIT_ACK = True  # агент теперь шлёт ack для каждой команды
 
 
 def _cleanup_pending_commands():
@@ -2590,7 +2590,14 @@ async def ws_handler(websocket):
                     _cmd_detail = ""
                     _cmd_id_from_agent = data.get("id")
                     if _cmd_id_from_agent and _cmd_id_from_agent in _pending_commands:
-                        _pending_commands[_cmd_id_from_agent]["status"] = "executed"
+                        # Агент прислал ack с полем ok
+                        if "ok" in data:
+                            _cmd_ok = data["ok"]
+                            _cmd_detail = data.get("detail", "")
+                            _pending_commands[_cmd_id_from_agent]["status"] = "executed" if _cmd_ok else "failed"
+                            _pending_commands[_cmd_id_from_agent]["detail"] = _cmd_detail
+                        else:
+                            _pending_commands[_cmd_id_from_agent]["status"] = "executed"
                     elif result:
                         _cmd_detail = str(result)
                         _cmd_ok = not any(t in _cmd_detail.lower() for t in

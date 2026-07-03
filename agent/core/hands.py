@@ -557,6 +557,132 @@ def execute_command(action: str) -> dict:
     return {"result": f"неизвестная команда: {action}"}
 
 
+# ── Новые примитивы (этап 4) ──────────────────────────────────────────
+
+_ALLOWED_KEYS = frozenset({
+    "ctrl", "alt", "shift", "win", "windows", "enter", "esc", "escape",
+    "tab", "space", "backspace", "delete", "insert", "home", "end",
+    "pageup", "pagedown", "up", "down", "left", "right",
+    "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10",
+    "f11", "f12", "f13", "f14", "f15", "f16", "f17", "f18", "f19", "f20",
+    "f21", "f22", "f23", "f24",
+})
+# Буквы/цифры добавляются динамически
+for _c in "abcdefghijklmnopqrstuvwxyz0123456789":
+    _ALLOWED_KEYS.add(_c)
+
+
+def hotkey(combo: str) -> dict:
+    """Нажать комбинацию клавиш (ctrl+shift+esc и т.д.)."""
+    if not pyautogui:
+        return {"ok": False, "detail": "pyautogui недоступен"}
+    keys = [k.strip().lower() for k in combo.split("+")]
+    if not keys:
+        return {"ok": False, "detail": "пустая комбинация"}
+    for k in keys:
+        if k not in _ALLOWED_KEYS:
+            return {"ok": False, "detail": f"неизвестная клавиша: {k}"}
+    try:
+        pyautogui.hotkey(*keys)
+        return {"ok": True, "detail": f"нажала {combo}"}
+    except Exception as e:
+        return {"ok": False, "detail": f"ошибка хоткея: {e}"}
+
+
+_TYPE_TEXT_MAX = 2000
+
+
+def type_text(text: str) -> dict:
+    """Напечатать текст в активное окно через буфер обмена + Ctrl+V."""
+    if not (pyperclip and pyautogui):
+        return {"ok": False, "detail": "pyperclip/pyautogui недоступны"}
+    if len(text) > _TYPE_TEXT_MAX:
+        return {"ok": False, "detail": f"текст слишком длинный ({len(text)} > {_TYPE_TEXT_MAX})"}
+    try:
+        pyperclip.copy(text)
+        time.sleep(0.05)
+        pyautogui.hotkey("ctrl", "v")
+        return {"ok": True, "detail": f"напечатала {len(text)} символов"}
+    except Exception as e:
+        return {"ok": False, "detail": f"ошибка вставки: {e}"}
+
+
+def focus_window(name: str) -> dict:
+    """Найти окно по подстроке заголовка и активировать его."""
+    name_lower = name.strip().lower()
+    if not name_lower:
+        return {"ok": False, "detail": "пустое имя окна"}
+
+    # Попытка через win32gui
+    if win32gui:
+        found_hwnd = None
+        found_title = None
+
+        def _cb(hwnd, _):
+            nonlocal found_hwnd, found_title
+            if win32gui.IsWindowVisible(hwnd):
+                title = win32gui.GetWindowText(hwnd)
+                if title and name_lower in title.lower():
+                    found_hwnd = hwnd
+                    found_title = title
+
+        try:
+            win32gui.EnumWindows(_cb, None)
+        except Exception:
+            pass
+
+        if found_hwnd:
+            try:
+                win32gui.SetForegroundWindow(found_hwnd)
+                return {"ok": True, "detail": f"фокус: {found_title}"}
+            except Exception as e:
+                return {"ok": False, "detail": f"не удалось активировать окно: {e}"}
+
+    # Fallback через pyautogui
+    if pyautogui:
+        try:
+            wins = pyautogui.getWindowsWithTitle(name)
+            if wins:
+                wins[0].activate()
+                return {"ok": True, "detail": f"фокус: {wins[0].title}"}
+        except Exception as e:
+            return {"ok": False, "detail": f"pyautogui фокус: {e}"}
+
+    return {"ok": False, "detail": f"окно не найдено: {name}"}
+
+
+_POWERSHELL_BLOCKLIST = (
+    "remove-item -recurse", "remove-item -r",
+    "format-", "rd /s", "rd /s /q",
+    "del /f /s /q", "del /s /q",
+    "stop-computer", "restart-computer",
+    "set-executionpolicy", "invoke-webrequest", "iwr ",
+    "curl ", "invoke-expression", "iex ",
+    "new-service", "schtasks", "reg add", "reg delete",
+)
+
+
+def powershell(cmd: str) -> dict:
+    """Выполнить команду в PowerShell с проверкой стоп-листа."""
+    cmd_stripped = cmd.strip().lower()
+    for blocked in _POWERSHELL_BLOCKLIST:
+        if blocked in cmd_stripped:
+            return {"ok": False, "detail": f"заблокировано стоп-листом: содержит «{blocked.strip()}»"}
+    try:
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", cmd],
+            capture_output=True, timeout=15,
+        )
+        output = (r.stdout or b"").decode("utf-8", "replace") + (r.stderr or b"").decode("utf-8", "replace")
+        detail = output[-300:] if len(output) > 300 else output
+        ok = r.returncode == 0
+        return {"ok": ok, "detail": detail.strip() or ("выполнено" if ok else "ошибка")}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "detail": "таймаут 15 секунд"}
+    except Exception as e:
+        return {"ok": False, "detail": f"ошибка: {e}"}
+
+
 # ── Command Registry Integration ──────────────────────────────────────
 
 def match_voice_command(text: str, lang: str = "ru") -> dict | None:
