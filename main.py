@@ -45,7 +45,6 @@ from modules.tasks import (
 )
 from modules.rules import detect_rule, apply_rule, get_rules_context
 from modules import device_commands
-from modules.web_search import search_and_fetch, needs_search, search_image, download_bytes
 from modules.tts_server import stream_tts_to_device, stream_llm_to_tts, warmup_cache
 import modules.tts_server as tts_server
 from modules.reflection import reflection_loop
@@ -73,17 +72,11 @@ from modules.memory_honesty import enrich_memory_context
 from modules.evening_pulse import should_send_pulse, mark_pulse_sent, get_pulse_prompt, check_pc_health
 from modules.vps_monitor import start_monitor, get_vps_context, get_vps_alert
 from modules.threads import extract_threads, get_threads_context, get_thread_recall
-from modules.capsules import (is_capsule_request, parse_open_date,
-    create_capsule, get_due_capsules, mark_opened, make_open_prompt, make_create_prompt,
-    should_create_sakura_capsule, create_sakura_capsule,
-    get_due_sakura_capsules, mark_sakura_opened, make_sakura_open_prompt)
 from modules.relationship import (check_milestone, increase_closeness, get_closeness_hint,
     get_interests_hint, track_topic, extract_topics_from_text,
     should_write_journal, get_growth_journal_prompt, mark_journal_written)
 from modules.episodes import add_episode, get_recall
-from modules.audio_control   import handle_audio_command
 from modules.discord_bot      import start_bot as discord_start_bot, is_discord_priority, register_agent_request
-from modules.youtube import youtube_command
 from modules.command_router import route_command, route_critical, is_irreversible, EXEC_THRESHOLD, GRAY_THRESHOLD
 from modules.intent_classifier import classify_intent, is_command, is_question, IntentResult
 from modules.game_hub import get_game_context_for_device, set_game_mood, build_game_prompt_context
@@ -1237,6 +1230,7 @@ async def extract_and_remember(user_message: str, reply: str):
 
         # Двусторонние капсулы — Сакура прячет своё наблюдение (бэклог №5)
         try:
+            from modules.capsules import should_create_sakura_capsule, create_sakura_capsule
             hint = should_create_sakura_capsule(user_message, reply)
             if hint:
                 await asyncio.to_thread(
@@ -1345,6 +1339,8 @@ _current_track: dict = {}       # текущий играющий трек (из
 
 
 async def proactive_loop():
+    from modules.capsules import (get_due_capsules, make_open_prompt, mark_opened,
+        get_due_sakura_capsules, make_sakura_open_prompt, mark_sakura_opened)
     global _proactive_prompt_idx
     await asyncio.sleep(60)
     while True:
@@ -2439,6 +2435,8 @@ async def _execute_plan(plan: dict, master_key: str, ws_dev, device_id) -> tuple
 
 
 async def ws_handler(websocket):
+    from modules.web_search import search_and_fetch, needs_search, search_image, download_bytes
+    from modules.youtube import youtube_command
     device_id = None
     try:
         async for raw in websocket:
@@ -4244,6 +4242,10 @@ async def device_control(message: Message):
 
 @dp.message(F.text)
 async def handle_message(message: Message):
+    from modules.youtube import youtube_command
+    from modules.capsules import (is_capsule_request, parse_open_date,
+        create_capsule, make_create_prompt)
+    from modules.audio_control import handle_audio_command
     # ── Групповой чат ─────────────────────────────────────────────────────────
     if GROUP_CHAT_ID and message.chat.id == GROUP_CHAT_ID:
         user_id   = message.from_user.id
