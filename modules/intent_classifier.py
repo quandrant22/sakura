@@ -46,6 +46,12 @@ INTENT_PROMPT = """
    - шутка/комплимент
    - эмоциональное высказывание
 
+ДЛИНА ОТВЕТА:
+Определи также, насколько развёрнутым должен быть ответ:
+"length": "short" — обычный разговор, реакция, короткий вопрос. 1-2 предложения.
+"length": "medium" — просьба мнения, обсуждение, "как думаешь". 3-5 предложений.
+"length": "long" — явная просьба рассказать/объяснить/подробно/в деталях. Сколько нужно.
+
 ПРАВИЛА:
 - Если есть хотя бы один глагол действия (включи, открой, закрой, сделай, отправь, поставь) → command
 - Если есть вопросительное слово (что, как, почему, когда, где, кто) без глагола действия → request
@@ -53,18 +59,18 @@ INTENT_PROMPT = """
 - Неоднозначно без контекста → conversation
 
 Примеры:
-"включи музыку" → {"type": "command", "intent": "music_play", "confidence": 0.95}
-"что думаешь про это" → {"type": "request", "intent": "opinion", "confidence": 0.9}
-"привет как дела" → {"type": "conversation", "intent": "greeting", "confidence": 0.95}
-"открой стим" → {"type": "command", "intent": "open_app", "confidence": 0.95}
-"сколько времени" → {"type": "request", "intent": "time_query", "confidence": 0.9}
-"молодец" → {"type": "conversation", "intent": "praise", "confidence": 0.9}
-"скажи что на экране" → {"type": "command", "intent": "screenshot_describe", "confidence": 0.85}
-"какая погода" → {"type": "request", "intent": "weather_query", "confidence": 0.9}
-"отправь в тг" → {"type": "command", "intent": "send_tg", "confidence": 0.9}
+"включи музыку" → {"type": "command", "intent": "music_play", "confidence": 0.95, "length": "short"}
+"что думаешь про это" → {"type": "request", "intent": "opinion", "confidence": 0.9, "length": "medium"}
+"привет как дела" → {"type": "conversation", "intent": "greeting", "confidence": 0.95, "length": "short"}
+"расскажи про историю Японии" → {"type": "request", "intent": "tell_about", "confidence": 0.9, "length": "long"}
+"объясни как работает двигатель" → {"type": "request", "intent": "explain", "confidence": 0.9, "length": "long"}
+"что думаешь про киберпанк" → {"type": "request", "intent": "opinion", "confidence": 0.9, "length": "medium"}
+"посмеёшься?" → {"type": "conversation", "intent": "playful", "confidence": 0.85, "length": "short"}
+"сколько времени" → {"type": "request", "intent": "time_query", "confidence": 0.9, "length": "short"}
+"молодец" → {"type": "conversation", "intent": "praise", "confidence": 0.9, "length": "short"}
 
 Верни JSON:
-{"type": "command|request|conversation", "intent": "строка", "confidence": 0.0-1.0}
+{"type": "command|request|conversation", "intent": "строка", "confidence": 0.0-1.0, "length": "short|medium|long"}
 """
 
 
@@ -74,6 +80,7 @@ class IntentResult:
     type: str  # "command" | "request" | "conversation"
     intent: str  # конкретное намерение
     confidence: float  # 0.0 - 1.0
+    length: str = "short"  # "short" | "medium" | "long"
 
 
 def _fast_classify(text: str) -> Optional[IntentResult]:
@@ -83,6 +90,14 @@ def _fast_classify(text: str) -> Optional[IntentResult]:
     """
     tl = text.lower().strip().rstrip(".?!")
 
+    # Явные маркеры длинного ответа — сразу request + long
+    _long_markers = (
+        "расскажи", "объясни", "подробно", "в деталях", "опиши",
+        "рассказать", "объяснить", "описать", "разверни",
+    )
+    if any(m in tl for m in _long_markers):
+        return IntentResult(type="request", intent="fast_detect", confidence=0.8, length="long")
+
     # Явные командные маркеры
     _command_markers = (
         "включи", "выключи", "открой", "закрой", "сделай", "поставь",
@@ -91,7 +106,7 @@ def _fast_classify(text: str) -> Optional[IntentResult]:
         "врубай", "вырубай", "переключи", "дублируй", "обнови",
     )
     if any(m in tl for m in _command_markers):
-        return IntentResult(type="command", intent="fast_detect", confidence=0.85)
+        return IntentResult(type="command", intent="fast_detect", confidence=0.85, length="short")
 
     # Явные разговорные маркеры
     _conversation_markers = (
@@ -99,7 +114,7 @@ def _fast_classify(text: str) -> Optional[IntentResult]:
         "спасибо", "хорошо", "плохо", "круто", "супер", "класс",
     )
     if tl in _conversation_markers or any(tl.startswith(m) for m in _conversation_markers):
-        return IntentResult(type="conversation", intent="fast_detect", confidence=0.8)
+        return IntentResult(type="conversation", intent="fast_detect", confidence=0.8, length="short")
 
     # Вопросы — запросы
     _question_markers = (
@@ -110,7 +125,10 @@ def _fast_classify(text: str) -> Optional[IntentResult]:
         # Но если есть глагол действия — это команда
         _action_verbs = ("включи", "открой", "закрой", "сделай", "поставь", "найди")
         if not any(v in tl for v in _action_verbs):
-            return IntentResult(type="request", intent="fast_detect", confidence=0.75)
+            # Средняя длина для вопросов мнения/обсуждения
+            _medium_markers = ("что думаешь", "как считаешь", "как насчёт", "что скажешь")
+            mid = "medium" if any(m in tl for m in _medium_markers) else "short"
+            return IntentResult(type="request", intent="fast_detect", confidence=0.75, length=mid)
 
     return None
 
@@ -127,7 +145,7 @@ async def classify_intent(text: str) -> IntentResult:
     # Уровень 1: быстрая классификация
     fast = _fast_classify(text)
     if fast and fast.confidence >= 0.85:
-        log.info(f"[intent] {text!r} → {fast.type} (fast, {fast.confidence:.2f})")
+        log.info(f"[intent] {text!r} → {fast.type}/{fast.intent}/len={fast.length} (fast, {fast.confidence:.2f})")
         return fast
 
     # Уровень 2: LLM-классификация
@@ -165,13 +183,16 @@ async def classify_intent(text: str) -> IntentResult:
         intent_type = result.get("type", "conversation")
         intent = result.get("intent", "unknown")
         confidence = float(result.get("confidence", 0.5))
+        length = result.get("length", "short")
 
         # Валидация
         if intent_type not in ("command", "request", "conversation"):
             intent_type = "conversation"
+        if length not in ("short", "medium", "long"):
+            length = "short"
 
-        log.info(f"[intent] {text!r} → {intent_type}/{intent} ({confidence:.2f})")
-        return IntentResult(type=intent_type, intent=intent, confidence=confidence)
+        log.info(f"[intent] {text!r} → {intent_type}/{intent}/len={length} ({confidence:.2f})")
+        return IntentResult(type=intent_type, intent=intent, confidence=confidence, length=length)
 
     except json.JSONDecodeError:
         log.debug(f"[intent] JSON error: {raw!r}")

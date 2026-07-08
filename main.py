@@ -1684,12 +1684,6 @@ def _build_voice_system() -> str:
     except Exception:
         pass
 
-    # 7. Голосовой режим
-    parts.append(
-        "ГОЛОСОВОЙ РЕЖИМ: отвечай коротко — 1-2 предложения, как в живом разговоре. "
-        "Никаких списков, никакого markdown. Максимум 50 слов."
-    )
-
     result = "\n\n".join(p for p in parts if p)
 
     # Кэш на 60 секунд
@@ -2126,11 +2120,20 @@ async def _handle_gemini_error(e: Exception, user_message: str, save_history: bo
     return f"Мастер, что-то пошло не так. Ошибка: {err[:100]}"
 
 
+_LEN_TOKENS = {"short": 150, "medium": 300, "long": 800}
+_LEN_HINT = {
+    "short":  "Ответь коротко, 1-2 предложения — идёт живой разговор.",
+    "medium": "Ответь по существу, 3-5 предложений.",
+    "long":   "Мастер просит подробно — разверни ответ полноценно.",
+}
+
+
 async def ask_gemini_voice(
     user_message : str,
     websocket    = None,
     device_id    : str = "laptop",
     active_window: str | None = None,
+    length       : str = "short",
 ) -> tuple[str, str]:
     """Голосовой ответ с истинным стримингом LLM→TTS (~400-600мс до первого звука)."""
     key = get_active_key()
@@ -2149,12 +2152,17 @@ async def ask_gemini_voice(
 
     _t_build = __import__("time").monotonic()
     full_system = _build_system(query=user_message)
+    # Добавляем подсказку длины в системный промпт
+    len_hint = _LEN_HINT.get(length, "")
+    if len_hint:
+        full_system = f"{full_system}\n\n{len_hint}"
     log.info(f"[voice] _build_system за {__import__('time').monotonic()-_t_build:.2f}с")
 
     contents  = _build_contents(user_message)
     client    = _gemini_client(key)
     emotion   = "neutral"
     full_text = ""
+    max_tok   = _LEN_TOKENS.get(length, 150)
 
     try:
         if websocket:
@@ -2165,13 +2173,13 @@ async def ask_gemini_voice(
                 device_id   = device_id,
                 client      = client,
                 model       = MAIN_MODEL,
-                max_tokens  = 200,
+                max_tokens  = max_tok,
                 temperature = 0.85,
                 api_key     = key,
                 emotion     = get_current_emotion(),
             )
         else:
-            response  = await _gemini_generate(client, MAIN_MODEL, contents, full_system, max_tokens=200, temperature=0.85)
+            response  = await _gemini_generate(client, MAIN_MODEL, contents, full_system, max_tokens=max_tok, temperature=0.85)
             full_text = (response.text or "").strip()
             mark_key_used(key)
     except Exception as e:
@@ -2180,11 +2188,11 @@ async def ask_gemini_voice(
             if websocket:
                 full_text, emotion = await stream_llm_to_tts(
                     contents, full_system, websocket, device_id,
-                    client, FALLBACK_MODEL, max_tokens=200,
+                    client, FALLBACK_MODEL, max_tokens=max_tok,
                     api_key=key, emotion=get_current_emotion(),
                 )
             else:
-                r = await _gemini_generate(client, FALLBACK_MODEL, contents, full_system, max_tokens=200)
+                r = await _gemini_generate(client, FALLBACK_MODEL, contents, full_system, max_tokens=max_tok)
                 full_text = (r.text or "").strip()
                 mark_key_used(key)
         except Exception as e2:

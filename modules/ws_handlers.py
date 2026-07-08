@@ -522,17 +522,18 @@ async def handle_voice_command(websocket, data, ctx) -> None:
     # ── СЕМАНТИЧЕСКИЙ КЛАССИФИКАТОР НАМЕРЕНИЙ ──────────
     # Быстро определяем тип: команда, запрос или разговор
     _intent = await classify_intent(text)
-    log.info(f"[intent] тип={_intent.type}, намерение={_intent.intent}, уверенность={_intent.confidence:.2f}")
+    log.info(f"[intent] тип={_intent.type}, намерение={_intent.intent}, длина={_intent.length}, уверенность={_intent.confidence:.2f}")
 
     # Если это разговор и уверенность высокая — пропускаем командный роутер
     if _intent.type == "conversation" and _intent.confidence >= 0.8:
-        log.info(f"[intent] разговор → ask_gemini_voice")
+        log.info(f"[intent] разговор → ask_gemini_voice (len={_intent.length})")
         active_win = data.get("active_window", "")
         await ask_gemini_voice(
             user_message  = text + ctx_str,
             websocket     = ws_dev,
             device_id     = device_id or "laptop",
             active_window = active_win,
+            length        = _intent.length,
         )
         return
 
