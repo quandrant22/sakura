@@ -1547,6 +1547,40 @@ async def proactive_loop():
 #  LLM — Мастер
 # ─────────────────────────────────────────────
 
+def build_identity_core(active_window=None, ctx_master=None) -> list[str]:
+    """Единое ядро личности для голоса и текста.
+    Возвращает список частей промпта: характер + состояние + самопамять."""
+    parts = []
+    # 1. Ядро характера
+    try:
+        if ctx_master:
+            parts.append(get_system_prompt(
+                active_window=active_window,
+                ctx_location=ctx_master.get("location"),
+                ctx_status=ctx_master.get("status"),
+            ))
+        else:
+            parts.append(get_system_prompt())
+    except Exception:
+        pass
+    # 2. Текущее состояние (эмоция/настроение)
+    try:
+        from modules.state_arbiter import get_state_block
+        sb = get_state_block()
+        if sb:
+            parts.append(sb)
+    except Exception:
+        pass
+    # 3. Самопамять — кто она
+    try:
+        self_ctx = get_self_context()
+        if self_ctx:
+            parts.append(self_ctx)
+    except Exception:
+        pass
+    return parts
+
+
 # Кэш лёгкого голосового промпта
 _voice_system_cache: dict = {}
 
@@ -1556,28 +1590,15 @@ def _build_voice_system() -> str:
     Только критически важные компоненты — быстрее генерация.
     """
     import time as _t
-    cache_key = "voice"
+    from modules.state_arbiter import get_current_emotion
+    cache_key = f"voice:{get_current_emotion()}"
     entry = _voice_system_cache.get(cache_key)
     if entry and _t.monotonic() < entry[1]:
         return entry[0]
 
-    parts = []
+    parts = build_identity_core()
 
-    # 1. Базовая личность (самое важное)
-    try:
-        parts.append(get_system_prompt())
-    except Exception:
-        pass
-
-    # 2. Самопамять — кто она
-    try:
-        self_ctx = get_self_context()
-        if self_ctx:
-            parts.append(self_ctx)
-    except Exception:
-        pass
-
-    # 3. Текущая игра если есть
+    # Текущая игра если есть
     try:
         game_ctx = format_current_game_context()
         if game_ctx:
@@ -1694,13 +1715,11 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
 
     _bs_t0 = __import__("time").monotonic()
     ctx    = get_full_context()
-    system = get_system_prompt(
-        active_window = active_window,
-        ctx_location  = ctx["master"]["location"],
-        ctx_status    = ctx["master"]["status"],
-    )
 
-    parts = [system]
+    parts = build_identity_core(
+        active_window=active_window,
+        ctx_master=ctx["master"],
+    )
 
     from modules.capabilities import get_capabilities_block
     parts.append(get_capabilities_block())
@@ -1798,15 +1817,6 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
     if achievements_ctx:
         parts.append(achievements_ctx)
 
-    # Mood vector + disposition + модификаторы — единый блок СОСТОЯНИЕ
-    try:
-        from modules.state_arbiter import get_state_block
-        state_block = get_state_block()
-        if state_block:
-            parts.append(state_block)
-    except Exception:
-        pass
-
     try:
         from modules.patterns import get_patterns_hint
         patterns_hint = get_patterns_hint()
@@ -1830,14 +1840,6 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
         return_hint = return_ctx.get("prompt_hint", "")
         if return_hint:
             parts.append(return_hint)
-    except Exception:
-        pass
-
-    # Самопамять Сакуры (Фаза 1)
-    try:
-        self_ctx = get_self_context()
-        if self_ctx:
-            parts.append(self_ctx)
     except Exception:
         pass
 
