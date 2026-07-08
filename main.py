@@ -46,6 +46,7 @@ from modules.tasks import (
 from modules.rules import detect_rule, apply_rule, get_rules_context
 from modules import device_commands
 from modules.tts_server import stream_tts_to_device, stream_llm_to_tts, warmup_cache
+from modules.state_arbiter import get_current_emotion
 import modules.tts_server as tts_server
 from modules.reflection import reflection_loop
 from modules.intimacy_mode import reset_reflection_flag
@@ -856,68 +857,6 @@ async def _translate_en(text: str) -> str:
         return latin or text
     except Exception:
         return text
-    
-async def generate_image_by_prompt(prompt: str) -> bytes | None:
-    try:
-        from modules.image_gen import generate_image
-        key = get_active_key()
-        if not key:
-            return None
-        client = _gemini_client(key)
-        try:
-            r = await _run(
-                client, "gemma-4-31b-it",
-                [types.Content(role="user", parts=[types.Part(
-                    text=f"Translate to English, return only translation: {prompt}"
-                )])],
-                types.GenerateContentConfig(max_output_tokens=100)
-            )
-            en = (r.text or "").strip() or prompt
-        except Exception:
-            en = prompt
-        full = f"{en}, anime style, manga art, nsfw, explicit, uncensored, highly detailed, masterpiece"
-        return await generate_image(full, width=768, height=1024)
-    except Exception as e:
-        log.error(f"Image gen error: {e}")
-        return None
-
-
-async def maybe_generate_image(text: str) -> bytes | None:
-    triggers = [
-        "нарисуй", "сгенерируй", "покажи как выглядит",
-        "визуализируй", "создай изображение", "создай картинку",
-    ]
-    tl = text.lower()
-    if not any(t in tl for t in triggers):
-        return None
-    prompt = tl
-    for t in sorted(triggers, key=len, reverse=True):
-        prompt = prompt.replace(t, "")
-    prompt = prompt.strip().strip(".,!?")
-    if not prompt:
-        return None
-    return await generate_image_by_prompt(prompt)
-
-
-async def _send_photo(image_data: bytes, caption: str | None = None):
-
-    await bot.send_photo(MASTER_ID, photo=BufferedInputFile(image_data, "image.jpg"), caption=caption)
-
-
-async def _handle_image_tag(reply: str) -> str:
-    картинка_lines = [l for l in reply.split('\n') if 'КАРТИНКА:' in l.upper()]
-    if not картинка_lines:
-        return reply
-    desc = картинка_lines[0].split(':', 1)[1].strip()
-    for l in картинка_lines:
-        reply = reply.replace(l, '').strip()
-    try:
-        img = await generate_image_by_prompt(desc)
-        if img:
-            await _send_photo(img)
-    except Exception as e:
-        log.error(f"Image tag error: {e}")
-    return reply
 
 
 # ─────────────────────────────────────────────
@@ -1595,21 +1534,6 @@ async def proactive_loop():
             except Exception:
                 pass
 
-            if reply.startswith("КАРТИНКА:"):
-                lines      = reply.split("\n", 1)
-                img_prompt = lines[0].replace("КАРТИНКА:", "").strip()
-                reply_text = lines[1].strip() if len(lines) > 1 else ""
-                try:
-                    img = await generate_image_by_prompt(img_prompt)
-                    if img:
-                        await _send_photo(img, reply_text or None)
-                        mark_sent(trigger)
-                        if trigger in ("work_start", "work_end"):
-                            mark_work_event(trigger)
-                        continue
-                except Exception as e:
-                    log.error(f"Proactive image error: {e}")
-
             await bot.send_message(MASTER_ID, reply)
             mark_sent(trigger)
             if trigger in ("work_start", "work_end"):
@@ -2130,8 +2054,6 @@ async def ask_gemini(user_message: str, save_history: bool = True) -> str:
     if not reply:
         reply = "Мастер, что-то мешает мне ответить. Попробуй ещё раз."
 
-    reply = await _handle_image_tag(reply)
-
     if save_history:
         add_to_history("user", user_message)
         add_to_history("model", reply)
@@ -2166,10 +2088,6 @@ async def ask_gemini(user_message: str, save_history: bool = True) -> str:
             ))
         except Exception:
             pass
-
-    img = await maybe_generate_image(user_message)
-    if img:
-        await _send_photo(img, reply[:200] if reply else None)
 
     return reply
 
@@ -2248,6 +2166,7 @@ async def ask_gemini_voice(
                 max_tokens  = 200,
                 temperature = 0.85,
                 api_key     = key,
+                emotion     = get_current_emotion(),
             )
         else:
             response  = await _gemini_generate(client, MAIN_MODEL, contents, full_system, max_tokens=200, temperature=0.85)
@@ -2260,7 +2179,7 @@ async def ask_gemini_voice(
                 full_text, emotion = await stream_llm_to_tts(
                     contents, full_system, websocket, device_id,
                     client, FALLBACK_MODEL, max_tokens=200,
-                    api_key=key,
+                    api_key=key, emotion=get_current_emotion(),
                 )
             else:
                 r = await _gemini_generate(client, FALLBACK_MODEL, contents, full_system, max_tokens=200)
@@ -2473,7 +2392,6 @@ async def ws_handler(websocket):
                     "_analyze_screen_context": _analyze_screen_context,
                     "_gemini_client": _gemini_client,
                     "bot": bot,
-                    "generate_image_by_prompt": generate_image_by_prompt,
                     "parse_kettle_command": parse_kettle_command,
                     "PLAN_WAIT_ACK": PLAN_WAIT_ACK,
                 }
@@ -2717,7 +2635,7 @@ async def device_control(message: Message):
             await message.answer("Делаю скриншот...")
         elif rest_low.startswith("скажи "):
             phrase = rest[6:].strip()
-            asyncio.create_task(stream_tts_to_device(phrase, ws, device_id, literal=True))
+            asyncio.create_task(stream_tts_to_device(phrase, ws, device_id, literal=True, emotion=get_current_emotion()))
             await message.answer(f"Говорю на {dev_label}: {phrase}")
         elif rest_low.startswith("открой "):
             arg    = rest[7:].strip()
@@ -2860,7 +2778,9 @@ async def handle_message(message: Message):
                 if dev_id:
                     chain_reply = await run_chain(
                         chain, connected_devices, ask_gemini,
-                        stream_tts_to_device, device_id=dev_id
+                        lambda text, ws, dev, literal=False: stream_tts_to_device(
+                            text, ws, dev, literal=literal, emotion=get_current_emotion()),
+                        device_id=dev_id
                     )
                     await send_as_conversation(message.chat.id, chain_reply)
                     return
@@ -3350,7 +3270,7 @@ async def handle_message(message: Message):
         done = []
         for action, human in actions:
             if action.startswith("say:"):
-                asyncio.create_task(stream_tts_to_device(action[4:], ws, dev, literal=True))
+                asyncio.create_task(stream_tts_to_device(action[4:], ws, dev, literal=True, emotion=get_current_emotion()))
             else:
                 await ws.send(json.dumps({"type": "command", "action": action}))
             done.append(human)
@@ -3713,7 +3633,7 @@ async def main():
     async def _reminder_cb(msg: str):
         ws, dev = _get_active_ws()
         if ws:
-            await stream_tts_to_device(msg, ws, dev or "laptop", literal=True)
+            await stream_tts_to_device(msg, ws, dev or "laptop", literal=True, emotion=get_current_emotion())
         await bot.send_message(MASTER_ID, msg)
     set_reminder_callback(_reminder_cb)
     asyncio.create_task(reminder_check_loop())
@@ -3733,7 +3653,7 @@ async def main():
                 )
                 reply = await ask_gemini(prompt, save_history=False)
                 if reply:
-                    await stream_tts_to_device(reply, ws, dev or "laptop", literal=True)
+                    await stream_tts_to_device(reply, ws, dev or "laptop", literal=True, emotion=get_current_emotion())
 
     try:
         from modules.tg_monitor import get_monitor

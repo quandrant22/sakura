@@ -5,6 +5,80 @@ modules/state_arbiter.py — Арбитр состояния Sakura.
 Модуль только читает, не пишет никакого состояния.
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
+_last_emotion: str = "спокойная"
+
+_EMOTION_MAP = {
+    "playful":  "игривая",
+    "tender":   "нежная",
+    "happy":    "весёлая",
+    "excited":  "восторженная",
+    "annoyed":  "обиженная",
+    "worried":  "тревожная",
+    "lonely":   "грустная",
+    "calm":     "спокойная",
+    "focused":  "сосредоточенная",
+    "neutral":  "спокойная",
+}
+
+
+def get_current_emotion() -> str:
+    """Возвращает одно слово-эмоцию для TTS-префикса.
+    Приоритеты: revenge → время → stance."""
+    global _last_emotion
+    try:
+        # Приоритет 90: обида/revenge
+        try:
+            from modules.emotional_memory import get_revenge_hint
+            h = get_revenge_hint()
+            if h:
+                result = "обиженная"
+                if result != _last_emotion:
+                    _log.info(f"[emotion] смена: {_last_emotion} → {result}")
+                    _last_emotion = result
+                return result
+        except Exception:
+            pass
+
+        # Приоритет: поздний час → усталая
+        from datetime import datetime
+        hour = datetime.now().hour
+        if 23 <= hour or hour < 6:
+            result = "усталая"
+            if result != _last_emotion:
+                _log.info(f"[emotion] смена: {_last_emotion} → {result}")
+                _last_emotion = result
+            return result
+
+        # Приоритет: высокая близость → нежная
+        try:
+            from modules.relationship import get_closeness_hint
+            close = get_closeness_hint()
+            if close and (" близк" in close.lower() or "родн" in close.lower()):
+                result = "нежная"
+                if result != _last_emotion:
+                    _log.info(f"[emotion] смена: {_last_emotion} → {result}")
+                    _last_emotion = result
+                return result
+        except Exception:
+            pass
+
+        # Fallback: stance из mood_vector
+        from modules.mood_vector import get_current
+        m = get_current()
+        v, a = m.get("valence", 0.0), m.get("arousal", 0.3)
+        from modules.disposition import _stance
+        stance = _stance(v, a)
+        result = _EMOTION_MAP.get(stance, "спокойная")
+        if result != _last_emotion:
+            _log.info(f"[emotion] смена: {_last_emotion} → {result}")
+            _last_emotion = result
+        return result
+    except Exception:
+        return "спокойная"
+
 
 def get_state_block() -> str:
     lines = ["СОСТОЯНИЕ"]

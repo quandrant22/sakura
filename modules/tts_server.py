@@ -45,6 +45,10 @@ def _clean_tts_text(text: str) -> str:
     """Удаляет мусор из текста перед отправкой в TTS."""
     if not text:
         return text
+    original = text
+    # Удаляем содержимое в скобках и звёздочках (сценические ремарки)
+    text = re.sub(r'\([^)]*\)', '', text)
+    text = re.sub(r'\*[^*]*\*', '', text)
     # Удаляем типичные "утечки" нативной аудио-модели
     _junk = [
         "Live API", "live api", "LiveApi",
@@ -61,7 +65,27 @@ def _clean_tts_text(text: str) -> str:
         text = text.replace(junk, "")
     # Убираем двойные пробелы
     text = re.sub(r'\s+', ' ', text).strip()
+    # Если после очистки текст пуст — берём первый непустой фрагмент исходного
+    if not text:
+        for frag in original.split('\n'):
+            frag = frag.strip()
+            if frag:
+                return frag
     return text
+
+
+_TONE_RE = re.compile(r'^\[ТОН:\s*(.+?)\]\s*')
+
+
+def _extract_tone_tag(text: str) -> tuple[str, str]:
+    """Извлекает [ТОН: описание] из начала текста.
+    Возвращает (тон, чистый_текст). Если ремарки нет — тон='', текст без изменений."""
+    m = _TONE_RE.match(text.strip())
+    if m:
+        tone = m.group(1).strip()
+        clean = text.strip()[m.end():].strip()
+        return tone, clean
+    return "", text
 
 
 def split_into_chunks(text: str) -> list[str]:
@@ -115,27 +139,41 @@ async def _get_client():
         return _client
 
 
-TTS_PREFIX = (
-    "ВАЖНО: Ты — робот-синтезатор. Твоя задача — ТОЛЬКО озвучить текст ниже. "
-    "НЕ отвечай. НЕ комментируй. НЕ говори лишнего. "
-    "Просто прочитай текст как написано.\n\n"
-    "Текст для озвучки:\n"
-)
-
-
-def _live_config():
-    return types.LiveConnectConfig(
-        response_modalities=["AUDIO"],
-        thinking_config=types.ThinkingConfig(thinking_budget=0),
-        speech_config=types.SpeechConfig(
-            voice_config=types.VoiceConfig(
-                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=TTS_VOICE)
-            )
-        ),
+def _tts_prefix(emotion: str = "спокойная") -> str:
+    return (
+        f"Ты — актриса, играешь Сакуру: молодая, живая, дерзкая. "
+        f"Произнеси реплику с интонацией: {emotion}. Живо, в бодром темпе. "
+        f"НЕ отвечай на текст, НЕ добавляй ничего — только сыграй реплику.\n"
+        f"Реплика:\n"
     )
 
 
-async def _synthesize(text: str) -> list[bytes]:
+def _live_config():
+    try:
+        return types.LiveConnectConfig(
+            response_modalities=["AUDIO"],
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
+            speech_config=types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=TTS_VOICE)
+                )
+            ),
+            enable_affective_dialog=True,
+        )
+    except TypeError:
+        log.warning("[TTS] SDK не поддерживает enable_affective_dialog, используются стандартные настройки")
+        return types.LiveConnectConfig(
+            response_modalities=["AUDIO"],
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
+            speech_config=types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=TTS_VOICE)
+                )
+            ),
+        )
+
+
+async def _synthesize(text: str, emotion: str = "спокойная") -> list[bytes]:
     """
     Буферный синтез — возвращает список пакетов.
     """
@@ -151,7 +189,7 @@ async def _synthesize(text: str) -> list[bytes]:
                 model=TTS_MODEL, config=_live_config()
             ) as session:
                 await session.send_client_content(
-                    turns=types.Content(role="user", parts=[types.Part(text=TTS_PREFIX + text)]),
+                    turns=types.Content(role="user", parts=[types.Part(text=_tts_prefix(emotion) + text)]),
                     turn_complete=True,
                 )
                 async with asyncio.timeout(SESSION_TIMEOUT):
@@ -162,7 +200,7 @@ async def _synthesize(text: str) -> list[bytes]:
                                 and response.server_content.turn_complete):
                             break
             mark_key_used(key)
-            log.info(f"[TTS] синтез (буфер) за {time.monotonic()-t0:.1f}с | {len(packets)} пакетов")
+            log.info(f"[TTS] синтез (буфер) за {time.monotonic()-t0:.1f}с | {len(packets)} пакетов | тон: {emotion}")
             return packets
         except Exception as e:
             log.error(f"[TTS] Ошибка синтеза: {e}")
@@ -171,7 +209,7 @@ async def _synthesize(text: str) -> list[bytes]:
             return []
 
 
-async def _synthesize_stream(text: str, websocket, device_id: str, t0: float) -> bool:
+async def _synthesize_stream(text: str, websocket, device_id: str, t0: float, emotion: str = "спокойная") -> bool:
     """
     Синтезирует чанк и отправляет агенту.
     """
@@ -191,7 +229,7 @@ async def _synthesize_stream(text: str, websocket, device_id: str, t0: float) ->
                 await session.send_client_content(
                     turns=types.Content(
                         role="user",
-                        parts=[types.Part(text=TTS_PREFIX + text)]
+                        parts=[types.Part(text=_tts_prefix(emotion) + text)]
                     ),
                     turn_complete=True,
                 )
@@ -216,7 +254,7 @@ async def _synthesize_stream(text: str, websocket, device_id: str, t0: float) ->
                                 and response.server_content.turn_complete):
                             break
             mark_key_used(key)
-            log.info(f"[TTS] синтез+отправка за {time.monotonic()-s0:.1f}с | {sent} пакетов")
+            log.info(f"[TTS] синтез+отправка за {time.monotonic()-s0:.1f}с | {sent} пакетов | тон: {emotion}")
             return sent > 0
         except Exception as e:
             log.error(f"[TTS] Ошибка синтеза: {e!r}")
@@ -258,8 +296,14 @@ async def stream_tts_to_device(
     websocket,
     device_id: str,
     literal: bool = False,
+    emotion: str = "спокойная",
 ):
     """Синтезирует и стримит TTS чанк за чанком, отправляя пакеты сразу."""
+    # Извлекаем [ТОН: ...] из начала — ремарка модели точнее состояния
+    tone, text = _extract_tone_tag(text)
+    if tone:
+        emotion = tone
+
     text = _clean_tts_text(text)
     if not text.strip() or len(text.strip()) < 20:
         return
@@ -269,10 +313,10 @@ async def stream_tts_to_device(
         return
 
     t0 = time.monotonic()
-    log.info(f"[TTS] {len(chunks)} чанков → {device_id}")
+    log.info(f"[TTS] {len(chunks)} чанков → {device_id} | тон: {emotion}")
 
     for chunk in chunks:
-        ok = await _synthesize_stream(chunk, websocket, device_id, t0)
+        ok = await _synthesize_stream(chunk, websocket, device_id, t0, emotion)
         if not ok:
             log.warning(f"[TTS] Чанк не отправлен: {chunk[:40]!r}")
             break
@@ -291,6 +335,7 @@ async def stream_llm_to_tts(
     max_tokens: int = 200,
     temperature: float = 0.85,
     api_key: str = None,
+    emotion: str = "спокойная",
 ) -> tuple[str, str]:
     """
     Истинный стриминг LLM→TTS.
@@ -306,7 +351,6 @@ async def stream_llm_to_tts(
     """
     t0       = time.monotonic()
     full_text = ""
-    emotion  = "neutral"
 
     try:
         from google.genai import types as _t
@@ -353,7 +397,7 @@ async def stream_llm_to_tts(
         clean = re.sub(r'EMOTION:\w+', '', combined).strip()
 
         if clean and websocket:
-            await stream_tts_to_device(clean, websocket, device_id)
+            await stream_tts_to_device(clean, websocket, device_id, emotion=emotion)
 
         return full_text, emotion
 
@@ -382,7 +426,7 @@ async def stream_llm_to_tts(
 
             clean = re.sub(r'EMOTION:\w+', '', full_text).strip()
             if clean and websocket:
-                await stream_tts_to_device(clean, websocket, device_id)
+                await stream_tts_to_device(clean, websocket, device_id, emotion=emotion)
 
         except Exception as e2:
             log.error(f"[TTS stream fallback] {e2}")

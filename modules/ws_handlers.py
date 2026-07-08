@@ -505,7 +505,6 @@ async def handle_voice_command(websocket, data, ctx) -> None:
     _execute_plan = ctx["_execute_plan"]
     _register_command = ctx["_register_command"]
     _get_active_ws = ctx["_get_active_ws"]
-    generate_image_by_prompt = ctx["generate_image_by_prompt"]
     parse_kettle_command = ctx["parse_kettle_command"]
     bot = ctx["bot"]
 
@@ -858,23 +857,10 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                       ("это", "этого", "на экране", "что вижу", "тут", "здесь", "по этому"))
         query = f"{payload} {aw}".strip() if (use_ctx and aw) else payload
 
-        gen    = any(w in payload for w in ("нарисуй", "сгенерируй", "сгенери", "придумай", "сделай арт"))
         is_img = (len(payload.split()) <= 8 and any(w in payload for w in
                   ("картинк", "фото", "изображени", "рисунок", "арт", "мем", "пикч", "нарисуй")))
         try:
-            if is_img and gen:
-                desc = query
-                for w in ("нарисуй", "сгенерируй", "сгенери", "придумай", "картинку",
-                          "картинка", "фото", "изображение", "арт", "мем", "пикчу"):
-                    desc = desc.replace(w, " ")
-                img = await generate_image_by_prompt(" ".join(desc.split()).strip() or "аниме сакура")
-                if img:
-                    await bot.send_photo(MASTER_ID,
-                        photo=BufferedInputFile(img, "image.jpg"), caption=query)
-                    await _say("Нарисовала и отправила, Мастер.")
-                else:
-                    await _say("Не получилось нарисовать, Мастер.")
-            elif is_img:
+            if is_img:
                 q = query
                 for w in ("найди", "поищи", "покажи", "картинку", "картинка", "картинки",
                           "фото", "фотку", "фотографию", "изображение", "рисунок", "арт", "мем", "пикчу"):
