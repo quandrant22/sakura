@@ -95,7 +95,7 @@ def split_into_chunks(text: str) -> list[str]:
         return []
 
     # Если текст короткий — один чанк
-    if len(text) < 500:
+    if len(text) < 150:
         return [text]
 
     raw    = _SPLIT_RE.split(text)
@@ -107,7 +107,7 @@ def split_into_chunks(text: str) -> list[str]:
             continue
         if not buf:
             buf = part
-        elif len(buf) + len(part) < 800:
+        elif len(buf) + len(part) < 200:
             buf += " " + part
         else:
             chunks.append(buf)
