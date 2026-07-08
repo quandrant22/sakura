@@ -95,7 +95,7 @@ def split_into_chunks(text: str) -> list[str]:
         return []
 
     # Если текст короткий — один чанк
-    if len(text) < 150:
+    if len(text) < 100:
         return [text]
 
     raw    = _SPLIT_RE.split(text)
@@ -107,7 +107,7 @@ def split_into_chunks(text: str) -> list[str]:
             continue
         if not buf:
             buf = part
-        elif len(buf) + len(part) < 200:
+        elif len(buf) + len(part) < 80:
             buf += " " + part
         else:
             chunks.append(buf)
@@ -263,6 +263,43 @@ async def _synthesize_stream(text: str, websocket, device_id: str, t0: float, em
             return sent > 0
 
 
+async def _synthesize_chunk(text: str, emotion: str = "спокойная") -> list[bytes]:
+    """Синтезирует один чанк, возвращает список аудио-пакетов. Без отправки."""
+    key = get_active_key()
+    if not key:
+        return []
+    async with _sem:
+        s0 = time.monotonic()
+        packets = []
+        try:
+            client = await _get_client()
+            async with client.aio.live.connect(
+                model=TTS_MODEL, config=_live_config()
+            ) as session:
+                await session.send_client_content(
+                    turns=types.Content(
+                        role="user",
+                        parts=[types.Part(text=_tts_prefix(emotion) + text)]
+                    ),
+                    turn_complete=True,
+                )
+                async with asyncio.timeout(SESSION_TIMEOUT):
+                    async for response in session.receive():
+                        if response.data:
+                            packets.append(response.data)
+                        if (response.server_content
+                                and response.server_content.turn_complete):
+                            break
+            mark_key_used(key)
+            log.info(f"[TTS] синтез за {time.monotonic()-s0:.1f}с | {len(packets)} пакетов | тон: {emotion}")
+            return packets
+        except Exception as e:
+            log.error(f"[TTS] Ошибка синтеза: {e!r}")
+            global _client
+            _client = None
+            return []
+
+
 async def _send_packets(packets: list[bytes], websocket, device_id: str) -> int:
     """Отправляет пакеты на устройство. Возвращает количество отправленных."""
     sent = 0
@@ -298,7 +335,8 @@ async def stream_tts_to_device(
     literal: bool = False,
     emotion: str = "спокойная",
 ):
-    """Синтезирует и стримит TTS чанк за чанком, отправляя пакеты сразу."""
+    """Синтезирует и стримит TTS чанк за чанком.
+    Параллельный пайплайн: синтез чанка N+1 идёт пока отправляется чанк N."""
     # Извлекаем [ТОН: ...] из начала — ремарка модели точнее состояния
     tone, text = _extract_tone_tag(text)
     if tone:
@@ -315,11 +353,45 @@ async def stream_tts_to_device(
     t0 = time.monotonic()
     log.info(f"[TTS] {len(chunks)} чанков → {device_id} | тон: {emotion}")
 
-    for chunk in chunks:
-        ok = await _synthesize_stream(chunk, websocket, device_id, t0, emotion)
-        if not ok:
-            log.warning(f"[TTS] Чанк не отправлен: {chunk[:40]!r}")
-            break
+    # Параллельный пайплайн: синтез N+1 параллельно с отправкой N
+    async def _send_packets(audio_packets: list[bytes]) -> int:
+        sent = 0
+        for audio in audio_packets:
+            try:
+                await websocket.send(json.dumps({
+                    "type":        "tts_chunk",
+                    "device_id":   device_id,
+                    "audio":       base64.b64encode(audio).decode(),
+                    "sample_rate": TTS_SAMPLE_RATE,
+                }))
+                sent += 1
+            except Exception as e:
+                log.error(f"[TTS] Отправка: {e}")
+                return sent
+        return sent
+
+    # Запускаем синтез первого чанка
+    synth_task = asyncio.create_task(_synthesize_chunk(chunks[0], emotion))
+
+    for i in range(len(chunks)):
+        # Ждём синтез текущего чанка
+        try:
+            packets = await synth_task
+        except Exception:
+            packets = []
+
+        # Запускаем синтез СЛЕДУЮЩЕГО чанка параллельно с отправкой текущего
+        if i + 1 < len(chunks):
+            synth_task = asyncio.create_task(_synthesize_chunk(chunks[i + 1], emotion))
+
+        # Отправляем пакеты текущего чанка (порядок сохраняется)
+        if packets:
+            sent = await _send_packets(packets)
+            if sent == 0:
+                log.warning(f"[TTS] Чанк не отправлен: {chunks[i][:40]!r}")
+                break
+        else:
+            log.warning(f"[TTS] Чанк пустой: {chunks[i][:40]!r}")
 
     log.info(f"[TTS] Готово за {time.monotonic()-t0:.1f}с")
     await _send_end(websocket, device_id)
