@@ -36,10 +36,6 @@ _sem = asyncio.Semaphore(2)
 _client      = None
 _client_lock = asyncio.Lock()
 
-# Разбивка текста на предложения для стриминга
-_SENTENCE_END = re.compile(r'(?<=[.!?…])\s+')
-_SPLIT_RE     = re.compile(r'(?<=[.!?…])\s+|(?<=,)\s+(?=\S{20})')
-
 
 def _clean_tts_text(text: str) -> str:
     """Удаляет мусор из текста перед отправкой в TTS."""
@@ -88,40 +84,9 @@ def _extract_tone_tag(text: str) -> tuple[str, str]:
     return "", text
 
 
-def split_into_chunks(text: str) -> list[str]:
-    """Разбивает текст на чанки для TTS. Не теряет текст."""
-    text = _clean_tts_text(text.strip())
-    if not text:
-        return []
-
-    # Если текст короткий — один чанк
-    if len(text) < 100:
-        return [text]
-
-    raw    = _SPLIT_RE.split(text)
-    chunks: list[str] = []
-    buf    = ""
-    for part in raw:
-        part = part.strip()
-        if not part:
-            continue
-        if not buf:
-            buf = part
-        elif len(buf) + len(part) < 80:
-            buf += " " + part
-        else:
-            chunks.append(buf)
-            buf = part
-    if buf:
-        chunks.append(buf)
-
-    # Проверяем что ничего не потерялось
-    total_in_chunks = sum(len(c) for c in chunks)
-    if total_in_chunks < len(text) * 0.9:
-        log.warning(f"[TTS] Потеря текста: {len(text)} → {total_in_chunks}")
-        return [text]
-
-    return chunks
+def _live_timeout(text: str) -> int:
+    """Таймаут зависит от длины текста: базовый 25с + ~1с/50символов, макс 60с."""
+    return min(60, 25 + len(text) // 50)
 
 
 async def _get_client():
@@ -263,16 +228,19 @@ async def _synthesize_stream(text: str, websocket, device_id: str, t0: float, em
             return sent > 0
 
 
-async def _synthesize_chunk(text: str, emotion: str = "спокойная") -> list[bytes]:
-    """Синтезирует один чанк, возвращает список аудио-пакетов. Без отправки."""
+async def _synthesize_and_stream(text: str, websocket, device_id: str,
+                                 emotion: str = "спокойная") -> int:
+    """Одна Live-сессия: шлёт весь текст, стримит аудио на устройство
+    по мере поступления пакетов. Возвращает число отправленных пакетов."""
     key = get_active_key()
     if not key:
-        return []
+        return 0
+    sent = 0
     async with _sem:
         s0 = time.monotonic()
-        packets = []
         try:
             client = await _get_client()
+            timeout = _live_timeout(text)
             async with client.aio.live.connect(
                 model=TTS_MODEL, config=_live_config()
             ) as session:
@@ -283,39 +251,27 @@ async def _synthesize_chunk(text: str, emotion: str = "спокойная") -> l
                     ),
                     turn_complete=True,
                 )
-                async with asyncio.timeout(SESSION_TIMEOUT):
+                async with asyncio.timeout(timeout):
                     async for response in session.receive():
                         if response.data:
-                            packets.append(response.data)
+                            await websocket.send(json.dumps({
+                                "type": "tts_chunk",
+                                "device_id": device_id,
+                                "audio": base64.b64encode(response.data).decode(),
+                                "sample_rate": TTS_SAMPLE_RATE,
+                            }))
+                            sent += 1
                         if (response.server_content
                                 and response.server_content.turn_complete):
                             break
             mark_key_used(key)
-            log.info(f"[TTS] синтез за {time.monotonic()-s0:.1f}с | {len(packets)} пакетов | тон: {emotion}")
-            return packets
+            log.info(f"[TTS] синтез за {time.monotonic()-s0:.1f}с | {sent} пакетов | тон: {emotion} | таймаут: {timeout}с")
+            return sent
         except Exception as e:
             log.error(f"[TTS] Ошибка синтеза: {e!r}")
             global _client
             _client = None
-            return []
-
-
-async def _send_packets(packets: list[bytes], websocket, device_id: str) -> int:
-    """Отправляет пакеты на устройство. Возвращает количество отправленных."""
-    sent = 0
-    for audio in packets:
-        try:
-            await websocket.send(json.dumps({
-                "type":        "tts_chunk",
-                "device_id":   device_id,
-                "audio":       base64.b64encode(audio).decode(),
-                "sample_rate": TTS_SAMPLE_RATE,
-            }))
-            sent += 1
-        except Exception as e:
-            log.error(f"[TTS] Отправка: {e}")
             return sent
-    return sent
 
 
 async def _send_end(websocket, device_id: str):
@@ -335,9 +291,7 @@ async def stream_tts_to_device(
     literal: bool = False,
     emotion: str = "спокойная",
 ):
-    """Конвейер TTS: синтез чанков параллельно с отправкой.
-    Producer синтезирует чанки в очередь, consumer отправляет по порядку."""
-    # Извлекаем [ТОН: ...] из начала — один раз, до разбивки на чанки
+    """Одна Live-сессия на весь ответ: текст целиком → аудио-поток сразу на устройство."""
     tone, text = _extract_tone_tag(text)
     if tone:
         emotion = tone
@@ -346,47 +300,10 @@ async def stream_tts_to_device(
     if not text.strip() or len(text.strip()) < 20:
         return
 
-    chunks = split_into_chunks(text)
-    if not chunks:
-        return
-
     t0 = time.monotonic()
-    log.info(f"[TTS] {len(chunks)} чанков → {device_id} | тон: {emotion}")
-
-    queue: asyncio.Queue = asyncio.Queue(maxsize=2)
-    SENTINEL = object()
-
-    async def _producer():
-        """Синтезирует чанки по порядку, кладёт аудио в очередь."""
-        try:
-            for ch in chunks:
-                try:
-                    packets = await _synthesize_chunk(ch, emotion)
-                    await queue.put(packets)
-                except Exception as e:
-                    log.error(f"[TTS] Синтез чанка упал: {e!r}")
-                    await queue.put([])  # пустой пакет — consumer пропустит
-        finally:
-            await queue.put(SENTINEL)
-
-    async def _consumer():
-        """Отправляет аудио из очереди по порядку (строго FIFO)."""
-        try:
-            while True:
-                packets = await queue.get()
-                if packets is SENTINEL:
-                    break
-                if packets:
-                    sent = await _send_packets(packets, websocket, device_id)
-                    if sent == 0:
-                        log.warning("[TTS] Отправка: 0 пакетов")
-        finally:
-            await _send_end(websocket, device_id)
-
-    # Producer и consumer работают ОДНОВРЕМЕННО
-    await asyncio.gather(_producer(), _consumer())
-
-    log.info(f"[TTS] Готово за {time.monotonic()-t0:.1f}с")
+    sent = await _synthesize_and_stream(text, websocket, device_id, emotion)
+    await _send_end(websocket, device_id)
+    log.info(f"[TTS] Готово за {time.monotonic()-t0:.1f}с | {sent} пакетов | тон: {emotion}")
 
 
 async def stream_llm_to_tts(
