@@ -1493,21 +1493,15 @@ async def handle_voice_command(websocket, data, ctx) -> None:
             if full_action.startswith("say:"):
                 await stream_tts_to_device(full_action[4:], tws, dev, literal=True)
             elif full_action.startswith("open_app:") or full_action.startswith("close_window:"):
-                # Для открытия приложений нужен resolve_app
-                app_query = full_action.split(":", 1)[1] if ":" in full_action else arg
-                from modules.device_commands import resolve_app
-                _, target = resolve_app(app_query, device_id)
-                if target:
-                    _cmd_id = _register_command(f"open_app:{target}", dev)
-                    await tws.send(json.dumps({"type": "command", "action": f"open_app:{target}", "id": _cmd_id}))
-                    # Записать запуск для умных дефолтов
+                _cmd_id = _register_command(full_action, dev)
+                await tws.send(json.dumps({"type": "command", "action": full_action, "id": _cmd_id}))
+                # запись запуска для умных дефолтов
+                if full_action.startswith("open_app:"):
                     try:
+                        app_query = full_action.split(":", 1)[1]
                         await asyncio.to_thread(record_launch, app_query.lower())
                     except Exception:
                         pass
-                else:
-                    _cmd_id = _register_command(full_action, dev)
-                    await tws.send(json.dumps({"type": "command", "action": full_action, "id": _cmd_id}))
             else:
                 _cmd_id = _register_command(full_action, dev)
                 await tws.send(json.dumps({"type": "command", "action": full_action, "id": _cmd_id}))
