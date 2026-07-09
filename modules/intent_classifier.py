@@ -48,9 +48,10 @@ INTENT_PROMPT = """
 
 ДЛИНА ОТВЕТА:
 Определи также, насколько развёрнутым должен быть ответ:
-"length": "short" — обычный разговор, реакция, короткий вопрос. 1-2 предложения.
-"length": "medium" — просьба мнения, обсуждение, "как думаешь". 3-5 предложений.
-"length": "long" — явная просьба рассказать/объяснить/подробно/в деталях. Сколько нужно.
+"length": "short" — ПО УМОЛЧАНИЮ: разговор, реакция, жалоба, рассказ о себе, эмоция, приветствие, короткий вопрос. Почти всё — short. 1-2 предложения.
+"length": "medium" — ТОЛЬКО когда Мастер явно просит оценку/мнение или обсуждение темы ("как думаешь", "что скажешь про", "оцени"). 2-3 предложения.
+"length": "long" — ТОЛЬКО явная просьба развернуть ("расскажи", "объясни", "опиши", "подробно", "в деталях"). Сколько нужно.
+Если сомневаешься между short и medium — выбирай short.
 
 ПРАВИЛА:
 - Если есть хотя бы один глагол действия (включи, открой, закрой, сделай, отправь, поставь) → command
@@ -60,12 +61,14 @@ INTENT_PROMPT = """
 
 Примеры:
 "включи музыку" → {"type": "command", "intent": "music_play", "confidence": 0.95, "length": "short"}
-"что думаешь про это" → {"type": "request", "intent": "opinion", "confidence": 0.9, "length": "medium"}
 "привет как дела" → {"type": "conversation", "intent": "greeting", "confidence": 0.95, "length": "short"}
+"мне ничего не помогает, мучаюсь" → {"type": "conversation", "intent": "complaint", "confidence": 0.85, "length": "short"}
+"я плохо сплю в последнее время" → {"type": "conversation", "intent": "self_report", "confidence": 0.85, "length": "short"}
+"вот занимаюсь кодом, слушаю музыку" → {"type": "conversation", "intent": "sharing", "confidence": 0.85, "length": "short"}
+"как думаешь, стоит ли брать эту игру" → {"type": "request", "intent": "opinion", "confidence": 0.9, "length": "medium"}
+"что думаешь про киберпанк" → {"type": "request", "intent": "opinion", "confidence": 0.9, "length": "medium"}
 "расскажи про историю Японии" → {"type": "request", "intent": "tell_about", "confidence": 0.9, "length": "long"}
 "объясни как работает двигатель" → {"type": "request", "intent": "explain", "confidence": 0.9, "length": "long"}
-"что думаешь про киберпанк" → {"type": "request", "intent": "opinion", "confidence": 0.9, "length": "medium"}
-"посмеёшься?" → {"type": "conversation", "intent": "playful", "confidence": 0.85, "length": "short"}
 "сколько времени" → {"type": "request", "intent": "time_query", "confidence": 0.9, "length": "short"}
 "молодец" → {"type": "conversation", "intent": "praise", "confidence": 0.9, "length": "short"}
 
