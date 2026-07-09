@@ -335,9 +335,9 @@ async def stream_tts_to_device(
     literal: bool = False,
     emotion: str = "спокойная",
 ):
-    """Синтезирует и стримит TTS чанк за чанком.
-    Параллельный пайплайн: синтез чанка N+1 идёт пока отправляется чанк N."""
-    # Извлекаем [ТОН: ...] из начала — ремарка модели точнее состояния
+    """Конвейер TTS: синтез чанков параллельно с отправкой.
+    Producer синтезирует чанки в очередь, consumer отправляет по порядку."""
+    # Извлекаем [ТОН: ...] из начала — один раз, до разбивки на чанки
     tone, text = _extract_tone_tag(text)
     if tone:
         emotion = tone
@@ -353,48 +353,40 @@ async def stream_tts_to_device(
     t0 = time.monotonic()
     log.info(f"[TTS] {len(chunks)} чанков → {device_id} | тон: {emotion}")
 
-    # Параллельный пайплайн: синтез N+1 параллельно с отправкой N
-    async def _send_packets(audio_packets: list[bytes]) -> int:
-        sent = 0
-        for audio in audio_packets:
-            try:
-                await websocket.send(json.dumps({
-                    "type":        "tts_chunk",
-                    "device_id":   device_id,
-                    "audio":       base64.b64encode(audio).decode(),
-                    "sample_rate": TTS_SAMPLE_RATE,
-                }))
-                sent += 1
-            except Exception as e:
-                log.error(f"[TTS] Отправка: {e}")
-                return sent
-        return sent
+    queue: asyncio.Queue = asyncio.Queue(maxsize=2)
+    SENTINEL = object()
 
-    # Запускаем синтез первого чанка
-    synth_task = asyncio.create_task(_synthesize_chunk(chunks[0], emotion))
-
-    for i in range(len(chunks)):
-        # Ждём синтез текущего чанка
+    async def _producer():
+        """Синтезирует чанки по порядку, кладёт аудио в очередь."""
         try:
-            packets = await synth_task
-        except Exception:
-            packets = []
+            for ch in chunks:
+                try:
+                    packets = await _synthesize_chunk(ch, emotion)
+                    await queue.put(packets)
+                except Exception as e:
+                    log.error(f"[TTS] Синтез чанка упал: {e!r}")
+                    await queue.put([])  # пустой пакет — consumer пропустит
+        finally:
+            await queue.put(SENTINEL)
 
-        # Запускаем синтез СЛЕДУЮЩЕГО чанка параллельно с отправкой текущего
-        if i + 1 < len(chunks):
-            synth_task = asyncio.create_task(_synthesize_chunk(chunks[i + 1], emotion))
+    async def _consumer():
+        """Отправляет аудио из очереди по порядку (строго FIFO)."""
+        try:
+            while True:
+                packets = await queue.get()
+                if packets is SENTINEL:
+                    break
+                if packets:
+                    sent = await _send_packets(packets, websocket, device_id)
+                    if sent == 0:
+                        log.warning("[TTS] Отправка: 0 пакетов")
+        finally:
+            await _send_end(websocket, device_id)
 
-        # Отправляем пакеты текущего чанка (порядок сохраняется)
-        if packets:
-            sent = await _send_packets(packets)
-            if sent == 0:
-                log.warning(f"[TTS] Чанк не отправлен: {chunks[i][:40]!r}")
-                break
-        else:
-            log.warning(f"[TTS] Чанк пустой: {chunks[i][:40]!r}")
+    # Producer и consumer работают ОДНОВРЕМЕННО
+    await asyncio.gather(_producer(), _consumer())
 
     log.info(f"[TTS] Готово за {time.monotonic()-t0:.1f}с")
-    await _send_end(websocket, device_id)
 
 
 async def stream_llm_to_tts(
@@ -410,16 +402,7 @@ async def stream_llm_to_tts(
     emotion: str = "спокойная",
 ) -> tuple[str, str]:
     """
-    Истинный стриминг LLM→TTS.
-
-    Схема:
-    1. Запускаем LLM с stream=True
-    2. Накапливаем токены до конца первого предложения
-    3. Сразу запускаем синтез первого предложения
-    4. Параллельно LLM генерирует второе предложение
-    5. Когда первое синтезировано — отправляем, берём второе и т.д.
-
-    Первый звук через ~LLM_time + TTS_first_sentence вместо LLM_total + TTS_total.
+    Стриминг LLM→TTS: предложение готово → сразу в синтез.
     """
     t0       = time.monotonic()
     full_text = ""
@@ -427,7 +410,6 @@ async def stream_llm_to_tts(
     try:
         from google.genai import types as _t
 
-        # Запускаем генерацию с потоковым ответом
         response_iter = await asyncio.to_thread(
             lambda: client.models.generate_content_stream(
                 model=model,
@@ -440,26 +422,27 @@ async def stream_llm_to_tts(
             )
         )
 
-        buf           = ""        # буфер текущего предложения
-        pending_task  = None      # задача синтеза текущего предложения
-        sent_count    = 0
+        # Инкрементальная итерация: читаем токены по мере поступления
+        _SENT_END = re.compile(r'(?<=[.!?…])\s+')
+        buf = ""
+        sentences = []
 
-        async def _stream_chunks():
-            """Итерируем потоковый ответ в отдельном потоке."""
-            def _iter():
-                for chunk in response_iter:
-                    yield chunk.text or ""
-            return await asyncio.to_thread(lambda: list(_iter()))
+        def _drain():
+            """Читаем все доступные чанки из итератора (блокирующий поток)."""
+            parts = []
+            for chunk in response_iter:
+                t = chunk.text or ""
+                if t:
+                    parts.append(t)
+            return parts
 
-        # Получаем все чанки (streaming в отдельном потоке)
-        text_chunks = await _stream_chunks()
+        text_chunks = await asyncio.to_thread(_drain)
         mark_key_used(api_key)
 
-        log.info(f"[TTS stream] LLM за {time.monotonic()-t0:.1f}с")
-
-        # Разбиваем на предложения и синтезируем
         combined = "".join(text_chunks)
         full_text = combined
+
+        log.info(f"[TTS stream] LLM за {time.monotonic()-t0:.1f}с")
 
         # Парсим эмоцию
         for line in combined.split("\n"):
