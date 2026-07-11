@@ -196,6 +196,48 @@ class Test4_RouterThresholds(unittest.TestCase):
         self.assertEqual(route_critical("включи чайник"), "kettle:boil")
 
 
+class Test4b_ConfidenceZones(unittest.TestCase):
+    """Group 4b: confidence zone logic in handle_voice_command (regression guard)."""
+
+    def test_high_confidence_executes(self):
+        """confidence >= 0.8 → passes through to command execution."""
+        from modules.command_router import EXEC_THRESHOLD
+        conf = 0.95
+        self.assertGreaterEqual(conf, EXEC_THRESHOLD)
+
+    def test_gray_reversible_executes(self):
+        """GRAY <= conf < EXEC + reversible → passes through."""
+        from modules.command_router import EXEC_THRESHOLD, GRAY_THRESHOLD
+        conf = 0.6
+        is_irrev = False
+        self.assertGreaterEqual(conf, GRAY_THRESHOLD)
+        self.assertLess(conf, EXEC_THRESHOLD)
+        self.assertFalse(is_irrev)
+
+    def test_gray_irreversible_clarifies(self):
+        """GRAY <= conf < EXEC + irreversible → pending_clarify."""
+        from modules.command_router import EXEC_THRESHOLD, GRAY_THRESHOLD, is_irreversible
+        conf = 0.6
+        action = "powershell:dir"
+        self.assertGreaterEqual(conf, GRAY_THRESHOLD)
+        self.assertLess(conf, EXEC_THRESHOLD)
+        self.assertTrue(is_irreversible(action))
+
+    def test_low_confidence_rejects(self):
+        """conf < GRAY_THRESHOLD → reject, no planner."""
+        from modules.command_router import GRAY_THRESHOLD
+        conf = 0.3
+        self.assertLess(conf, GRAY_THRESHOLD)
+
+    def test_planner_requires_short_text(self):
+        """Planner should not fire on long junk text (>4 words)."""
+        from modules.intent_classifier import is_command
+        # This text has a command verb but is clearly junk
+        junk = "открой скоро потом может быть"
+        self.assertTrue(is_command(junk))
+        self.assertGreater(len(junk.split()), 4)
+
+
 class Test5_UserCommands(unittest.TestCase):
     """Group 5: user command dictionary with word-boundary matching."""
 

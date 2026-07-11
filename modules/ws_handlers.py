@@ -1248,10 +1248,10 @@ async def handle_voice_command(websocket, data, ctx) -> None:
         "current_track": st._current_track,
     }
     _routed = await route_command(text, context=_router_ctx)
-    log.info(f"[router] {text!r} → {_routed}")
+    _confidence = _routed.get("confidence", 0.7) if _routed else 0.0
+    log.info(f"[router] {text!r} → {_routed} | routed={bool(_routed)} ws_dev={bool(ws_dev)} device={device_id} connected={list(st.connected_devices)}")
 
     if _routed:
-        _confidence = _routed.get("confidence", 0.7)
         _is_irrev = is_irreversible(_routed.get("action", ""))
 
         # Зона 1: высокая уверенность — исполнять
@@ -1313,71 +1313,28 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                     pass
             return
 
-        # Зона 4: низкая уверенность — пробуем планировщик
+        # Зона 4: низкая уверенность — честный отказ, планировщик НЕ строит
         else:
-            if _is_command_check(text):
-                from modules.planner import build_plan
-                _plan = await build_plan(text, _router_ctx,
-                                         source="voice", sender_id=device_id)
-                if _plan:
-                    if _plan["risky"]:
-                        try:
-                            _q_prompt = (
-                                f"Сделаю так: {_plan['summary']}. "
-                                f"Это включает действия которые нельзя отменить. Давай?"
-                            )
-                            _q = await ask_gemini(_q_prompt, save_history=False)
-                            if _q:
-                                if ws_dev:
-                                    await stream_tts_to_device(
-                                        _q, ws_dev, device_id or "laptop", literal=True)
-                                else:
-                                    await bot.send_message(MASTER_ID, _q)
-                            st._pending_plan[_mk] = {
-                                "text": text,
-                                "plan": _plan,
-                                "ts": __import__("time").monotonic(),
-                            }
-                        except Exception:
-                            pass
+            try:
+                _deny_prompt = (
+                    f"Мастер сказал: {text}. Ты не поняла, какое действие он хочет. "
+                    f"Скажи это честно, одним коротким предложением, попроси сказать иначе."
+                )
+                _deny = await ask_gemini(_deny_prompt, save_history=False)
+                if _deny:
+                    if ws_dev:
+                        await stream_tts_to_device(
+                            _deny, ws_dev, device_id or "laptop", literal=True)
                     else:
-                        _plan_result, _plan_msg = await _execute_plan(
-                            _plan, _mk, ws_dev, device_id)
-                        if _plan_result:
-                            from modules.user_commands import add as _uc_add
-                            _uc_add(text, {
-                                "plan": _plan["steps"],
-                                "summary": _plan["summary"],
-                                "source": "plan",
-                                "risky": _plan["risky"],
-                                "uses": 1,
-                            }, source="plan")
-                        if ws_dev:
-                            await stream_tts_to_device(
-                                _plan_msg, ws_dev, device_id or "laptop", literal=True)
-                        else:
-                            await bot.send_message(MASTER_ID, _plan_msg)
-                    return
-                # План пуст/None → честный отказ
-                try:
-                    _deny_prompt = (
-                        f"Мастер сказал: {text}. Ты не поняла, какое действие он хочет. "
-                        f"Скажи это честно, одним коротким предложением, попроси сказать иначе."
-                    )
-                    _deny = await ask_gemini(_deny_prompt, save_history=False)
-                    if _deny:
-                        if ws_dev:
-                            await stream_tts_to_device(
-                                _deny, ws_dev, device_id or "laptop", literal=True)
-                        else:
-                            await bot.send_message(MASTER_ID, _deny)
-                except Exception:
-                    pass
+                        await bot.send_message(MASTER_ID, _deny)
+            except Exception:
+                pass
             return
 
     # ── ПЛАНИРОВЩИК: route_command вернул None ──────────
+    # Не строить план если уверенность роутера низкая — текст мусорный
     if not _routed:
-        if _is_command_check(text):
+        if _is_command_check(text) and len(text.split()) <= 4:
             from modules.planner import build_plan
             _plan = await build_plan(text, _router_ctx,
                                      source="voice", sender_id=device_id)
