@@ -1443,25 +1443,24 @@ async def handle_voice_command(websocket, data, ctx) -> None:
             # Яндекс Музыка через SMTC+API (на агенте)
             _cmd_id = _register_command(full_action, device_id or "laptop")
             await ws_dev.send(json.dumps({"type": "command", "action": full_action, "id": _cmd_id}))
+        elif full_action.startswith("open_app:") or full_action.startswith("close_window:"):
+            dev = device_id or "laptop"
+            tws = st.connected_devices.get(dev, ws_dev)
+            _cmd_id = _register_command(full_action, dev)
+            await tws.send(json.dumps({"type": "command", "action": full_action, "id": _cmd_id}))
+            # запись запуска для умных дефолтов
+            if full_action.startswith("open_app:"):
+                try:
+                    app_query = full_action.split(":", 1)[1]
+                    await asyncio.to_thread(record_launch, app_query.lower())
+                except Exception:
+                    pass
         else:
             # Все остальные команды — на агент
             dev = device_id or "laptop"
             tws = st.connected_devices.get(dev, ws_dev)
-            if full_action.startswith("say:"):
-                await stream_tts_to_device(full_action[4:], tws, dev, literal=True)
-            elif full_action.startswith("open_app:") or full_action.startswith("close_window:"):
-                _cmd_id = _register_command(full_action, dev)
-                await tws.send(json.dumps({"type": "command", "action": full_action, "id": _cmd_id}))
-                # запись запуска для умных дефолтов
-                if full_action.startswith("open_app:"):
-                    try:
-                        app_query = full_action.split(":", 1)[1]
-                        await asyncio.to_thread(record_launch, app_query.lower())
-                    except Exception:
-                        pass
-            else:
-                _cmd_id = _register_command(full_action, dev)
-                await tws.send(json.dumps({"type": "command", "action": full_action, "id": _cmd_id}))
+            _cmd_id = _register_command(full_action, dev)
+            await tws.send(json.dumps({"type": "command", "action": full_action, "id": _cmd_id}))
 
         # Провод 2: подтверждение команды с учётом статуса
         # Для music_ и screenshot — пропускаем (ответ приходит отдельно)

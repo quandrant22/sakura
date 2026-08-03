@@ -711,7 +711,7 @@ def clean_reply(text: str) -> str:
 _TG_TONE_RE = re.compile(r'^\[ТОН:\s*(.+?)\]\s*')
 
 
-def _strip_tone_tag(text: str) -> str:
+def _strip_tone(text: str) -> str:
     if not text:
         return text
     stripped = text.strip()
@@ -722,7 +722,7 @@ def _strip_tone_tag(text: str) -> str:
 
 
 async def send_to_master(text: str, **kwargs):
-    cleaned = _strip_tone_tag(text)
+    cleaned = _strip_tone(text)
     result = bot.send_message(MASTER_ID, cleaned, **kwargs)
     if inspect.isawaitable(result):
         return await result
@@ -2998,8 +2998,9 @@ async def handle_message(message: Message):
                     f"Пиши в своей манере, с учётом отношения к этому человеку, обращайся к нему напрямую. "
                     f"Верни только текст сообщения, без пояснений.",
                     save_history=False)
-                await bot.send_message(int(vip_id), composed)
-                await message.answer(f"Передала {vip_name.capitalize()}: «{composed}»")
+                cleaned_composed = _strip_tone(composed)
+                await bot.send_message(int(vip_id), cleaned_composed)
+                await message.answer(f"Передала {vip_name.capitalize()}: «{cleaned_composed}»")
             except Exception as e:
                 log.error(f"text->vip SEND FAIL: {e}")
                 await message.answer("Не получилось отправить.")

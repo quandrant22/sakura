@@ -14,7 +14,7 @@ import tempfile
 import shutil
 import unittest
 import asyncio
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from datetime import datetime, timedelta
 
 # ── Env stubs (must be set before any project imports) ──────────────
@@ -111,6 +111,68 @@ class Test2_SourceGate(unittest.TestCase):
             build_plan("открой браузер", {}, source="web", sender_id="evil")
         )
         self.assertIsNone(result)
+
+
+class Test11_WsHandlers(unittest.TestCase):
+    """Group 11: WebSocket handler regression guards."""
+
+    def test_open_app_command_routes_to_agent(self):
+        import json
+        import modules.ws_handlers as wh
+        ws_dev = MagicMock()
+        ws_dev.send = AsyncMock()
+
+        async def fake_classify_intent(text):
+            return MagicMock(type="command", intent="open app", confidence=1.0, length=2)
+
+        async def fake_ask_gemini(*args, **kwargs):
+            return "Принято"
+
+        async def fake_send_safe(*args, **kwargs):
+            return None
+
+        async def fake_execute_plan(*args, **kwargs):
+            return False, ""
+
+        ctx = {
+            "ask_gemini": fake_ask_gemini,
+            "ask_gemini_voice": AsyncMock(),
+            "send_safe": fake_send_safe,
+            "_find_vip_by_name": lambda *a, **k: None,
+            "_translate_en": lambda *a, **k: None,
+            "_clean_slate": AsyncMock(),
+            "_execute_plan": fake_execute_plan,
+            "_register_command": lambda action, device: "cmd123",
+            "_get_active_ws": lambda: (None, None),
+            "parse_kettle_command": lambda *a, **k: None,
+            "bot": MagicMock(),
+        }
+
+        data = {"device_id": "laptop", "text": "открой дискорд", "active_window": "", "context": []}
+
+        with patch.object(wh, "classify_intent", side_effect=fake_classify_intent), \
+             patch.object(wh, "route_command", return_value={"action": "open_app", "arg": "discord", "confidence": 1.0, "agent": False}), \
+             patch.object(wh, "match_voice_trigger", return_value=None), \
+             patch.object(wh, "stream_tts_to_device", AsyncMock()), \
+             patch.object(wh, "add_episode", MagicMock()), \
+             patch.object(wh, "_disp_current", return_value={"stance": "neutral", "valence": 0.0, "arousal": 0.0}), \
+             patch.object(wh.st, "connected_devices", {"laptop": ws_dev}), \
+             patch.object(wh.st, "_pending_commands", {}), \
+             patch.object(wh.st, "_last_executed", {}):
+            import asyncio
+            asyncio.get_event_loop().run_until_complete(
+                wh.handle_voice_command(None, data, ctx)
+            )
+
+        ws_dev.send.assert_awaited_once()
+        sent = json.loads(ws_dev.send.await_args.args[0])
+        self.assertEqual(sent["type"], "command")
+        self.assertEqual(sent["action"], "open_app:discord")
+        self.assertEqual(sent["id"], "cmd123")
+
+
+class Test3_PlanValidation(unittest.TestCase):
+    """Group 3: plan validation and irreversibility detection."""
 
 
 class Test3_PlanValidation(unittest.TestCase):
