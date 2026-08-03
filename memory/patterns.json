@@ -4,7 +4,7 @@
       "type": "context_habit",
       "context": "Сакура",
       "emotion": "neutral",
-      "count": 8,
+      "count": 12,
       "hint": "Часто бывает в «Сакура» — обычно neutral"
     },
     {
@@ -30,34 +30,34 @@
     },
     {
       "type": "app_habit",
+      "window": "VMmanager - Opera",
+      "minutes": 7326,
+      "hint": "Много времени в «VMmanager - Opera»"
+    },
+    {
+      "type": "app_habit",
       "window": "Друзья - Discord",
       "minutes": 4538,
       "hint": "Много времени в «Друзья - Discord»"
     },
     {
       "type": "app_habit",
+      "window": "Пуск",
+      "minutes": 3458,
+      "hint": "Много времени в «Пуск»"
+    },
+    {
+      "type": "app_habit",
+      "window": "Visual Studio Code [Administrator]",
+      "minutes": 2989,
+      "hint": "Много времени в «Visual Studio Code [Administra»"
+    },
+    {
+      "type": "app_habit",
       "window": "music.py - Sakura - Visual Studio Code",
       "minutes": 2686,
       "hint": "Много времени в «music.py - Sakura - Visual Stu»"
-    },
-    {
-      "type": "app_habit",
-      "window": "Начальный экран",
-      "minutes": 2636,
-      "hint": "Много времени в «Начальный экран»"
-    },
-    {
-      "type": "app_habit",
-      "window": "Экран блокировки Windows по умолчанию",
-      "minutes": 1224,
-      "hint": "Много времени в «Экран блокировки Windows по ум»"
-    },
-    {
-      "type": "app_habit",
-      "window": "Ваш сеанс будет завершен",
-      "minutes": 959,
-      "hint": "Много времени в «Ваш сеанс будет завершен»"
     }
   ],
-  "last_update": "2026-07-02 17:01:31.159710"
+  "last_update": "2026-08-03 13:01:19.296924"
 }

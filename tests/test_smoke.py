@@ -13,6 +13,7 @@ import time
 import tempfile
 import shutil
 import unittest
+import asyncio
 from unittest.mock import patch, MagicMock
 from datetime import datetime, timedelta
 
@@ -477,8 +478,38 @@ class Test9_StateAndEmotion(unittest.TestCase):
         self.assertGreater(len(block), 10)
 
 
-class Test10_Capabilities(unittest.TestCase):
-    """Group 10: capabilities block — honest about device availability."""
+class Test10_ProactiveBehavior(unittest.TestCase):
+    """Group 10: proactive dedup and Telegram cleanup."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.mkdtemp(prefix="sakura_proactive_test_")
+        self._proactive_file = os.path.join(self._tmpdir, "proactive.json")
+
+    def tearDown(self):
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def test_semantic_dedup_detects_repeated_monitor_phrase(self):
+        import modules.proactive as proactive
+        with patch.object(proactive, "PROACTIVE_FILE", self._proactive_file):
+            self.assertTrue(
+                proactive.is_semantically_similar(
+                    "ты скоро в монитор врастешь",
+                    "монитор к сетчатке прирастет"
+                )
+            )
+
+    def test_tg_sender_strips_tone_tag(self):
+        with patch("aiogram.Bot"):
+            import main
+            with patch.object(main, "bot", MagicMock()) as bot:
+                asyncio.get_event_loop().run_until_complete(
+                    main.send_telegram_text(123456789, "[ТОН: мягко] Привет")
+                )
+                bot.send_message.assert_called_once_with(123456789, "Привет")
+
+
+class Test11_Capabilities(unittest.TestCase):
+    """Group 11: capabilities block — honest about device availability."""
 
     def test_no_devices_shows_unavailable(self):
         from modules.capabilities import get_capabilities_block

@@ -10,6 +10,8 @@ proactive.py — Проактивность Сакуры.
 
 import json
 import os
+import random
+import re
 from datetime import datetime, timedelta, date
 
 PROACTIVE_FILE = "memory/proactive.json"
@@ -36,6 +38,97 @@ MIN_INTERVAL_HOURS = 2    # минимум между любыми сообще�
 MAX_DAILY          = 10    # максимум в день (было 8-15)
 
 
+def _normalize_text(text: str) -> str:
+    if not text:
+        return ""
+    text = text.lower()
+    text = re.sub(r"[^\w\s]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def _stem_word(word: str) -> str:
+    w = (word or "").lower()
+    for prefix in ("при", "про", "по", "на", "за", "пере", "с", "со", "в", "во", "вы", "об", "от", "до", "у"):
+        if w.startswith(prefix) and len(w) > len(prefix) + 2:
+            w = w[len(prefix):]
+            break
+    for suffix in ("ешь", "ет", "ют", "ут", "ит", "ил", "ила", "или", "ить", "ишь", "ать", "ять", "ется", "ятся", "алась", "ался", "я", "ы", "и"):
+        if w.endswith(suffix) and len(w) > len(suffix) + 2:
+            w = w[:-len(suffix)]
+            break
+    return w
+
+
+def _get_significant_terms(text: str) -> set[str]:
+    normalized = _normalize_text(text)
+    if not normalized:
+        return set()
+    terms = []
+    for raw in normalized.split():
+        if len(raw) <= 4:
+            continue
+        stem = _stem_word(raw)
+        if stem:
+            terms.append(stem)
+    return set(terms)
+
+
+def is_semantically_similar(text_a: str, text_b: str) -> bool:
+    if not text_a or not text_b:
+        return False
+    terms_a = _get_significant_terms(text_a)
+    terms_b = _get_significant_terms(text_b)
+    if not terms_a or not terms_b:
+        return False
+    overlap = terms_a & terms_b
+    if not overlap:
+        return False
+    return len(overlap) / max(1, len(terms_a | terms_b)) > 0.4
+
+
+def _get_recent_messages(state: dict) -> list[dict]:
+    messages = state.get("recent_messages", [])
+    if not messages:
+        return []
+    cleaned = []
+    for item in messages[-15:]:
+        if isinstance(item, dict):
+            cleaned.append(item)
+    return cleaned
+
+
+def add_recent_message(text: str, topic: str = "", source: str = "proactive"):
+    state = load_state()
+    recent = _get_recent_messages(state)
+    recent.append({"text": text, "topic": topic, "source": source, "ts": str(datetime.now())})
+    state["recent_messages"] = recent[-15:]
+    save_state(state)
+
+
+def has_recent_semantic_duplicate(text: str) -> bool:
+    state = load_state()
+    for item in _get_recent_messages(state):
+        if is_semantically_similar(text, item.get("text", "")):
+            return True
+    return False
+
+
+def should_skip_by_probability(state: dict) -> bool:
+    recent = _get_recent_messages(state)
+    if not recent:
+        return random.random() < 0.35
+
+    recent_proactive = [item for item in recent if item.get("source") == "proactive"]
+    recent_window = [
+        item for item in recent_proactive
+        if item.get("ts") and datetime.fromisoformat(item["ts"]) > datetime.now() - timedelta(hours=3)
+    ]
+    if recent_window:
+        return random.random() < 0.7
+    return random.random() < 0.35
+
+
 def load_state() -> dict:
     if not os.path.exists(PROACTIVE_FILE):
         return _default_state()
@@ -59,6 +152,7 @@ def _default_state() -> dict:
         "last_topic":       "",
         "topic_timestamps": {},
         "late_night_sent":  None,
+        "recent_messages":  [],
     }
 
 
@@ -196,7 +290,7 @@ def can_send_message(is_critical: bool = False, topic: str = "") -> bool:
     return True
 
 
-def mark_sent(topic: str = ""):
+def mark_sent(topic: str = "", text: str = ""):
     state = load_state()
     now   = datetime.now()
 
@@ -214,6 +308,10 @@ def mark_sent(topic: str = ""):
         timestamps[topic] = str(now)
         state["topic_timestamps"] = timestamps
 
+    if text:
+        recent = state.get("recent_messages", [])
+        recent.append({"text": text, "topic": topic, "source": "proactive", "ts": str(now)})
+        state["recent_messages"] = recent[-15:]
     save_state(state)
 
 
@@ -277,9 +375,13 @@ def get_trigger(devices: dict, memory_ctx: str) -> tuple:
     # Если нужно написать — напишет что-то своё через proactive_thought.
     pass  # long_silence триггер убран
 
+    has_online_device = any((device or {}).get("online", False) for device in devices.values())
+
     # Инициативное сообщение — редко, только со своей мыслью
     if memory_ctx and status in ["free", "normal"] and 10 <= hour < 21:
         if not _topic_on_cooldown(state, "proactive_thought"):
+            if not has_online_device:
+                return None, False
             last = state.get("last_message")
             if last:
                 try:
@@ -295,6 +397,8 @@ def get_trigger(devices: dict, memory_ctx: str) -> tuple:
         _d = _disp_cur()
         if _d["willingness"] > 0.6 and status in ["free", "normal"] and 10 <= hour < 21:
             if not _topic_on_cooldown(state, "boredom"):
+                if not has_online_device:
+                    return None, False
                 last = state.get("last_message")
                 if last:
                     try:
@@ -313,6 +417,8 @@ def get_trigger(devices: dict, memory_ctx: str) -> tuple:
         if (_dc["willingness"] > 0.75 and _dc["valence"] > 0.3
                 and status in ["free", "normal"] and 12 <= hour < 22):
             if not _topic_on_cooldown(state, "creative"):
+                if not has_online_device:
+                    return None, False
                 last = state.get("last_message")
                 if last:
                     try:

@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import logging
 import json
 import base64
@@ -37,7 +38,8 @@ from modules.timeline import get_timeline_context, get_achievements_context, ext
 from modules.mood_vector import get_mood_context, mark_interaction, auto_detect_mood_from_reply
 from modules.proactive import (
     can_send_message, mark_sent, get_trigger, update_master_status,
-    mark_work_event, get_silence_context
+    mark_work_event, get_silence_context, load_state, has_recent_semantic_duplicate,
+    should_skip_by_probability
 )
 from modules.tasks import (
     add_task, get_due_tasks, get_upcoming_tasks,
@@ -706,6 +708,37 @@ def clean_reply(text: str) -> str:
     return '\n'.join(lines).strip()
 
 
+_TG_TONE_RE = re.compile(r'^\[ТОН:\s*(.+?)\]\s*')
+
+
+def _strip_tone_tag(text: str) -> str:
+    if not text:
+        return text
+    stripped = text.strip()
+    m = _TG_TONE_RE.match(stripped)
+    if m:
+        return stripped[m.end():].strip()
+    return text
+
+
+async def send_to_master(text: str, **kwargs):
+    cleaned = _strip_tone_tag(text)
+    result = bot.send_message(MASTER_ID, cleaned, **kwargs)
+    if inspect.isawaitable(result):
+        return await result
+    return result
+
+
+async def send_telegram_text(chat_id: int, text: str, **kwargs):
+    if chat_id == MASTER_ID:
+        return await send_to_master(text, **kwargs)
+    cleaned = _strip_tone_tag(text)
+    result = bot.send_message(chat_id, cleaned, **kwargs)
+    if inspect.isawaitable(result):
+        return await result
+    return result
+
+
 def _gemini_client(key: str) -> genai.Client:
     return genai.Client(api_key=key)
 
@@ -713,10 +746,10 @@ def _gemini_client(key: str) -> genai.Client:
 async def send_safe(chat_id: int, text: str):
     limit = 4096
     if len(text) <= limit:
-        await bot.send_message(chat_id, text)
+        await send_telegram_text(chat_id, text)
         return
     for i in range(0, len(text), limit):
-        await bot.send_message(chat_id, text[i:i + limit])
+        await send_telegram_text(chat_id, text[i:i + limit])
 
 
 async def _run(client, model, contents, cfg):
@@ -1272,7 +1305,42 @@ _PROACTIVE_PROMPTS = [
     "Вспомни что-то из прошлых разговоров с Мастером и напиши ему об этом. Коротко, живо. Не спрашивай как он.",
     "Напиши Мастеру что-нибудь неожиданное — шутку, странную мысль, что-то что тебя раздражает или удивляет. Одно-два предложения.",
     "Напиши Мастеру короткое сообщение про что угодно кроме того что ждёшь его или скучаешь. Что-то своё.",
+    "Напиши короткую живую мысль о сегодняшнем дне, а не упрёк. Может быть про мелочь, вкус, настроение или воспоминание.",
 ]
+
+
+def _build_proactive_prompt(base_prompt: str, devices: dict, trigger: str, silence: dict) -> str:
+    device_lines = []
+    if devices:
+        for device_id, dev in sorted(devices.items()):
+            status = dev.get("online", False)
+            last_seen = dev.get("last_seen") or "нет данных"
+            icon = "online" if status else "offline"
+            device_lines.append(f"- {device_id}: {icon}; last_seen={last_seen}")
+    else:
+        device_lines.append("- нет данных по устройствам")
+
+    presence_ctx = "Контекст устройств:\n" + "\n".join(device_lines)
+    recent_state = load_state()
+    recent_items = recent_state.get("recent_messages", [])[-5:]
+    recent_lines = []
+    for item in recent_items:
+        if isinstance(item, dict):
+            text = (item.get("text") or "").strip()
+            if text:
+                recent_lines.append(f"- {text}")
+    recent_ctx = ""
+    if recent_lines:
+        recent_ctx = "Недавние отправленные сообщения:\n" + "\n".join(recent_lines) + "\n"
+
+    rules = (
+        "Правила: не называй конкретные числа часов/дней, если они не переданы как факт; "
+        "не утверждай, где Мастер и что он делает, если это не подтверждено статусом устройств; "
+        "если устройство offline, не говори про ноутбук/ПК/работу за ним; "
+        "упрёки про долгую работу за ноутбуком не чаще раза в 3 дня; "
+        "ты уже писала это недавно — НЕ повторяй тему и формулировки, найди другой повод или промолчи."
+    )
+    return f"{base_prompt}\n\n{presence_ctx}\n{recent_ctx}{rules}"
 
 _proactive_prompt_idx = 0
 
@@ -1366,7 +1434,17 @@ async def proactive_loop():
                 else:
                     prompt = f"Напиши Мастеру коротко: {trigger}"
 
+            prompt = _build_proactive_prompt(prompt, devices, trigger, silence)
             reply = await ask_gemini(prompt, save_history=False)
+
+            if reply and not is_crit and has_recent_semantic_duplicate(reply):
+                log.info("[proactive] skip duplicate message: %s", reply)
+                continue
+
+            state = load_state()
+            if reply and not is_crit and should_skip_by_probability(state):
+                log.info("[proactive] skip by probability")
+                continue
 
             # Финальная проверка — вдруг пока генерировали пришла команда
             if __import__('time').monotonic() - _last_command_ts < 30:
@@ -1386,8 +1464,8 @@ async def proactive_loop():
                 if insight and can_send_message(is_critical=False):
                     reply = await ask_gemini(insight["prompt"], save_history=False)
                     if reply:
-                        await bot.send_message(MASTER_ID, reply)
-                        mark_sent("window_insight")
+                        await send_telegram_text(MASTER_ID, reply)
+                        mark_sent("window_insight", text=reply)
                     continue
             except Exception:
                 pass
@@ -1398,7 +1476,7 @@ async def proactive_loop():
                 for cap in due_caps:
                     cap_reply = await ask_gemini(make_open_prompt(cap), save_history=False)
                     if cap_reply:
-                        await bot.send_message(MASTER_ID, cap_reply)
+                        await send_telegram_text(MASTER_ID, cap_reply)
                     await asyncio.to_thread(mark_opened, cap["id"])
             except Exception:
                 pass
@@ -1409,8 +1487,8 @@ async def proactive_loop():
                 if rec and can_send_message(is_critical=False):
                     reply = await ask_gemini(rec["prompt"], save_history=False)
                     if reply:
-                        await bot.send_message(MASTER_ID, reply)
-                        mark_sent("proactive_rec")
+                        await send_telegram_text(MASTER_ID, reply)
+                        mark_sent("proactive_rec", text=reply)
             except Exception as e:
                 log.debug(f"proactive_rec: {e}")
 
@@ -1419,7 +1497,7 @@ async def proactive_loop():
                 if should_send_thought() and can_send_message(is_critical=False):
                     thought = await generate_spontaneous_thought()
                     if thought:
-                        await bot.send_message(MASTER_ID, thought)
+                        await send_telegram_text(MASTER_ID, thought)
                         mark_thought_sent()
             except Exception as e:
                 log.debug(f"thought: {e}")
@@ -1431,7 +1509,7 @@ async def proactive_loop():
                     prompt = make_achievement_prompt(ach)
                     reply = await ask_gemini(prompt, save_history=False)
                     if reply:
-                        await bot.send_message(MASTER_ID, reply)
+                        await send_telegram_text(MASTER_ID, reply)
             except Exception as e:
                 log.debug(f"steam: {e}")
 
@@ -1440,7 +1518,7 @@ async def proactive_loop():
                 if should_do_research():
                     digest = await do_research()
                     if digest:
-                        await bot.send_message(MASTER_ID, digest)
+                        await send_telegram_text(MASTER_ID, digest)
             except Exception as e:
                 log.debug(f"research: {e}")
 
@@ -1462,7 +1540,7 @@ async def proactive_loop():
                 for cap in due_sakura:
                     cap_reply = await ask_gemini(make_sakura_open_prompt(cap), save_history=False)
                     if cap_reply:
-                        await bot.send_message(MASTER_ID, cap_reply)
+                        await send_telegram_text(MASTER_ID, cap_reply)
                     await asyncio.to_thread(mark_sakura_opened, cap["id"])
             except Exception as e:
                 log.debug(f"sakura_capsules: {e}")
@@ -1479,7 +1557,7 @@ async def proactive_loop():
                     )
                     reply = await ask_gemini(remind_prompt, save_history=False)
                     if reply:
-                        await bot.send_message(MASTER_ID, reply)
+                        await send_telegram_text(MASTER_ID, reply)
                         mark_reminded(note["id"])
             except Exception as e:
                 log.debug(f"notes reminder: {e}")
@@ -1498,7 +1576,7 @@ async def proactive_loop():
                     pulse_prompt = await asyncio.to_thread(get_pulse_prompt)
                     pulse_reply = await ask_gemini(pulse_prompt, save_history=False)
                     if pulse_reply:
-                        await bot.send_message(MASTER_ID, pulse_reply)
+                        await send_telegram_text(MASTER_ID, pulse_reply)
                         await asyncio.to_thread(mark_pulse_sent)
             except Exception:
                 pass
@@ -1509,7 +1587,7 @@ async def proactive_loop():
                 if vps_alert and can_send_message(is_critical=True):
                     alert_reply = await ask_gemini(vps_alert, save_history=False)
                     if alert_reply:
-                        await bot.send_message(MASTER_ID, alert_reply)
+                        await send_telegram_text(MASTER_ID, alert_reply)
             except Exception as e:
                 log.debug(f"vps_alert: {e}")
 
@@ -1519,7 +1597,7 @@ async def proactive_loop():
                 if recall and can_send_message(is_critical=False):
                     recall_reply = await ask_gemini(recall, save_history=False)
                     if recall_reply:
-                        await bot.send_message(MASTER_ID, recall_reply)
+                        await send_telegram_text(MASTER_ID, recall_reply)
             except Exception as e:
                 log.debug(f"thread_recall: {e}")
 
@@ -1529,13 +1607,13 @@ async def proactive_loop():
                     journal_prompt = await asyncio.to_thread(get_growth_journal_prompt)
                     journal_reply = await ask_gemini(journal_prompt, save_history=False)
                     if journal_reply:
-                        await bot.send_message(MASTER_ID, f"📓 {journal_reply}")
+                        await send_telegram_text(MASTER_ID, f"📓 {journal_reply}")
                         await asyncio.to_thread(mark_journal_written)
             except Exception:
                 pass
 
-            await bot.send_message(MASTER_ID, reply)
-            mark_sent(trigger)
+            await send_telegram_text(MASTER_ID, reply)
+            mark_sent(trigger, text=reply)
             if trigger in ("work_start", "work_end"):
                 mark_work_event(trigger)
             log.info(f"Проактивное сообщение: {trigger}")
@@ -2447,7 +2525,7 @@ async def ws_handler(websocket):
             if is_master_device(device_id) and should_farewell():
                 farewell = await ask_gemini(get_farewell_prompt(), save_history=False)
                 if farewell:
-                    await bot.send_message(MASTER_ID, farewell)
+                    await send_to_master(farewell)
 
 
 # ─────────────────────────────────────────────
@@ -2705,7 +2783,7 @@ async def handle_message(message: Message):
                 )
                 opinion = await ask_gemini(opinion_prompt, save_history=False)
                 notif = "[химари] Химари: " + text[:120] + "\n\n" + opinion + "\n\n<- ответь чтобы обсудить"
-                await bot.send_message(MASTER_ID, notif, disable_notification=True)
+                await send_to_master(notif, disable_notification=True)
             except Exception as e:
                 log.error("Group himari notification error: " + str(e))
             return
@@ -2818,7 +2896,7 @@ async def handle_message(message: Message):
             )
             opinion = await ask_gemini(opinion_prompt, save_history=False)
             notif = "[гость] " + user_name + " (id=" + str(user_id) + "): " + text[:120] + "\n\n" + opinion + "\n\n<- ответь чтобы обсудить"
-            await bot.send_message(MASTER_ID, notif, disable_notification=True)
+            await send_to_master(notif, disable_notification=True)
         except Exception as e:
             log.error("Group guest notification error: " + str(e))
         return
@@ -2874,7 +2952,7 @@ async def handle_message(message: Message):
                 f"💭 {opinion}\n\n"
                 f"_← ответь на это сообщение чтобы обсудить_"
             )
-            await bot.send_message(MASTER_ID, full_notification, disable_notification=True)
+            await send_to_master(full_notification, disable_notification=True)
         except Exception as e:
             log.error(f"Master notification error: {e}")
         return
@@ -3633,7 +3711,7 @@ async def main():
             await asyncio.sleep(30)
             reply = await ask_gemini(milestone["prompt"], save_history=False)
             if reply:
-                await bot.send_message(MASTER_ID, reply)
+                await send_to_master(reply)
         asyncio.create_task(_send_milestone())
 
     tts_server.start()
@@ -3644,7 +3722,7 @@ async def main():
         ws, dev = _get_active_ws()
         if ws:
             await stream_tts_to_device(msg, ws, dev or "laptop", literal=True, emotion=get_current_emotion())
-        await bot.send_message(MASTER_ID, msg)
+        await send_to_master(msg)
     set_reminder_callback(_reminder_cb)
     asyncio.create_task(reminder_check_loop())
 

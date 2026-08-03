@@ -5,8 +5,8 @@ import tempfile
 
 # Must run before any project imports
 os.environ.setdefault("MASTER_ID", "123456789")
-os.environ.setdefault("TELEGRAM_TOKEN", "test:fake-token")
-os.environ.setdefault("GEMINI_KEY_1", "fake-gemini-key")
+os.environ.setdefault("TELEGRAM_TOKEN", "123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw")
+os.environ.setdefault("GEMINI_KEY_1", "AIzaFakeKeyForTests1234567890")
 os.environ.setdefault("WS_SECRET", "test-secret-minimum-16-chars")
 os.environ.setdefault("MASTER_DEVICES", "laptop,pc")
 

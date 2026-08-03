@@ -547,21 +547,6 @@ class Hearing(threading.Thread):
         def has(targets, cutoff=0.75):
             return any(difflib.get_close_matches(w, targets, n=1, cutoff=cutoff) for w in words)
 
-        # Разговорный контекст — не триггерим команду
-        # Если пользователь говорит "про игровой", "по поводу", "надо дополнить" и т.д.
-        _conversation_markers = (
-            "про ", "по поводу", "про то", "насчёт", "на счет",
-            "надо", "нужен", "нужно", "нужна", "дополнить", "изменить",
-            "улучшить", "убрать", "добавить", "что думаешь", "как насчёт",
-            "стоит ли", "может быть", "может он", "а может",
-        )
-        if any(m in low for m in _conversation_markers):
-            return False
-
-        # Вопрос — не триггерим команду
-        if low.endswith("?") and not any(w in low for w in ("включи", "выключи", "открой")):
-            return False
-
         if ((("выйди" in low) or ("выход" in low) or ("обычный" in low) or ("выключи" in low))
                 and (has(("игровой", "игры", "игру")) or "режим" in low)):
             self.agent.bus.emit("game_mode", on=False)
