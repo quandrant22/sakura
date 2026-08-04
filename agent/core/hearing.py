@@ -35,6 +35,68 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 _TTS_TAIL = 0.4
 
+# ── Общие Vosk-модели для wake-word и STT ─────────────────────────
+_shared_vosk_model_wake = None
+_shared_vosk_model_stt  = None
+_shared_vosk_path_wake  = None
+_shared_vosk_path_stt   = None
+
+
+def _get_shared_model(kind: str = "wake"):
+    """Загружает Vosk-модель для wake-word или STT и кеширует результат."""
+    global _shared_vosk_model_wake, _shared_vosk_model_stt
+    global _shared_vosk_path_wake, _shared_vosk_path_stt
+
+    if kind == "wake" and _shared_vosk_model_wake is not None:
+        return _shared_vosk_model_wake
+    if kind == "stt" and _shared_vosk_model_stt is not None:
+        return _shared_vosk_model_stt
+
+    def _load_model(path: str, kind_name: str):
+        if not os.path.isdir(path):
+            return None
+        try:
+            model = VoskModel(path)
+            log.info(f"[Vosk] {kind_name} модель загружена: {path}")
+            return model
+        except MemoryError:
+            log.error(f"Недостаточно памяти для {kind_name} модели ({path}).")
+            return None
+        except Exception as e:
+            log.error(f"Ошибка загрузки {kind_name} модели ({path}): {e}")
+            return None
+
+    if not VoskModel:
+        log.warning("Vosk не установлен, модели загрузить нельзя.")
+        return None
+
+    wake_path = os.path.join(config.BASE_DIR, config.VOSK_MODEL_PATH)
+    if kind == "wake":
+        model = _load_model(wake_path, "wake-word")
+        if model is not None:
+            _shared_vosk_model_wake = model
+            _shared_vosk_path_wake = wake_path
+        return model
+
+    # STT model may be different from wake-word model.
+    stt_path = os.path.join(config.BASE_DIR, config.VOSK_STT_MODEL) if getattr(config, "VOSK_STT_MODEL", None) else None
+    if stt_path and os.path.isdir(stt_path):
+        model = _load_model(stt_path, "STT")
+        if model is not None:
+            _shared_vosk_model_stt = model
+            _shared_vosk_path_stt = stt_path
+            return model
+        log.warning("Откат на wake-word модель для STT.")
+    else:
+        if stt_path:
+            log.info(f"STT модель не найдена: {stt_path}. Буду использовать wake-word модель.")
+
+    model = _load_model(wake_path, "STT")
+    if model is not None:
+        _shared_vosk_model_stt = model
+        _shared_vosk_path_stt = wake_path
+    return model
+
 _BOOKMARK_RE = re.compile(
     r"сакура[,\s]*|запомни это[,\s]*|сохрани это[,\s]*|заметь это[,\s]*|в память[,\s]*",
     re.IGNORECASE,
@@ -77,7 +139,7 @@ class SileroVAD:
         self._model.reset_states()
 
 
-# ── Определение вопроса (Vosk很少 ставит «?») ────────────────────────
+# ── Определение вопроса (Vosk редко ставит «?») ────────────────────────
 
 # Вопросительные слова в начале фразы
 _Q_FIRST = (
@@ -98,7 +160,7 @@ _Q_ANY = (
 
 def _normalize_question(text: str) -> str:
     """
-    Vosk很少 ставит «?». Определяем вопрос по вопросительным
+    Vosk редко ставит «?». Определяем вопрос по вопросительным
     словам и дописываем «?», чтобы дальше его правильно разграничивали.
     """
     if not text:
@@ -144,22 +206,12 @@ class SpeechRecognizer:
         return text
 
     def _build(self):
-        """Загружает Vosk модель для STT."""
-        model_path = os.path.join(config.BASE_DIR, config.VOSK_STT_MODEL)
-        if not os.path.isdir(model_path):
-            log.warning(f"Модель Vosk STT не найдена: {model_path}")
-            log.warning(f"Скачай: https://alphacephei.com/vosk/models → {config.VOSK_STT_MODEL}")
-            return None
-
-        try:
-            from vosk import Model as VoskModel
-            log.info(f"[STT] Загружаю Vosk модель: {config.VOSK_STT_MODEL}...")
-            model = VoskModel(model_path)
-            log.info(f"[STT] Vosk модель загружена: {config.VOSK_STT_MODEL}")
-            return model
-        except Exception as e:
-            log.error(f"Ошибка загрузки Vosk STT: {e}")
-            return None
+        """Загружает Vosk модель для STT (переиспользует пул моделей)."""
+        model = _get_shared_model("stt")
+        if model is None:
+            log.warning("STT недоступен: Vosk-модель не загружена.")
+            log.warning("Установи: pip install vosk")
+        return model
 
     def _run(self, model, audio) -> str:
         """Распознаёт аудио через Vosk с пост-обработкой."""
@@ -309,36 +361,12 @@ def _fix_common_errors(text: str) -> str:
     text = re.sub(r'\b(\w+)\s+\1\b', r'\1', text)
 
     # Убираем "эээ", "ммм" и т.д.
-    text = re.sub(r'\b[ээммм]+\b', '', text)
+    text = re.sub(r'\b(э+|м+|мм+|ээ+)\b', '', text)
     text = re.sub(r'\s+', ' ', text).strip()
 
     return text
 
 
-def _normalize_question(text: str) -> str:
-    """
-    Vosk很少 ставит «?». Определяем вопрос по вопросительным
-    словам и дописываем «?», чтобы дальше его правильно разграничивали.
-    """
-    if not text:
-        return text
-    t = text.strip()
-    if t.endswith("?"):
-        return t
-
-    low = t.lower().lstrip("аи, ")  # «а что...», «и где...»
-    first_word = low.split()[0] if low.split() else ""
-
-    is_question = (
-        first_word in _Q_WORDS
-        or any(low.startswith(q + " ") or low == q for q in _Q_WORDS)
-        or any(q in low for q in _Q_WORDS)
-    )
-
-    if is_question:
-        t = t.rstrip(" .…")
-        return t + "?"
-    return t
 
 
 # ── Анализ просодии (Фаза 5) ─────────────────────────────────────────
@@ -399,14 +427,20 @@ class Hearing(threading.Thread):
         if self.ok:
             try:
                 self.vad = SileroVAD()
+            except MemoryError:
+                log.error("Недостаточно памяти для Silero VAD. Слух выключен.")
+                self.ok = False
             except Exception as e:
                 log.error(f"Silero VAD не загрузился: {e}")
                 self.ok = False
             try:
                 self.recognizer = SpeechRecognizer()
+            except MemoryError:
+                log.error("Недостаточно памяти для STT. Работаю без слуха.")
+                self.recognizer = None
             except Exception as e:
                 log.error(f"SpeechRecognizer не создался: {e}")
-                self.ok = False
+                self.recognizer = None
 
     def open_followup(self, seconds: float = config.FOLLOWUP_SEC):
         self._follow_until = time.monotonic() + seconds
@@ -422,19 +456,13 @@ class Hearing(threading.Thread):
             log.warning(f"Слух выключен. Отсутствует: {', '.join(missing) or 'инициализация упала'}")
             log.warning("Установи: pip install vosk silero-vad sounddevice")
             return
-            if not VoskModel:        missing.append("vosk")
-            if not load_silero_vad:  missing.append("silero-vad")
-            log.warning(f"Слух выключен. Отсутствует: {', '.join(missing) or 'инициализация упала'}")
-            log.warning("Установи: pip install vosk silero-vad sounddevice")
-            return
-        if not os.path.isdir(config.VOSK_MODEL_PATH):
+        if not os.path.isdir(os.path.join(config.BASE_DIR, config.VOSK_MODEL_PATH)):
             log.warning(f"Слух выключен: нет модели Vosk в {config.VOSK_MODEL_PATH}")
             log.warning("Скачай: https://alphacephei.com/vosk/models → vosk-model-small-ru-0.22")
             return
-        try:
-            model = VoskModel(config.VOSK_MODEL_PATH)
-        except Exception as e:
-            log.error(f"Слух: модель Vosk не загрузилась: {e}")
+        model = _get_shared_model("wake")
+        if model is None:
+            log.warning("Слух выключен: Vosk-модель не загрузилась (память/файл).")
             return
 
         wake = KaldiRecognizer(model, config.MIC_RATE)
