@@ -38,6 +38,8 @@ try:    import pyautogui; pyautogui.FAILSAFE = False
 except ImportError: pyautogui = None
 try:    from PIL import ImageGrab
 except ImportError: ImageGrab = None
+try:    import sounddevice as sd
+except ImportError: sd = None
 
 log = logging.getLogger("sakura.hands")
 
@@ -109,10 +111,23 @@ def _transliterate(text: str) -> str:
     return ''.join(result)
 
 
+def _phonetic_normalize(text: str) -> str:
+    """Фонетическая нормализация латинских строк для более стабильного резолва."""
+    text = text.lower()
+    text = re.sub(r'ph', 'f', text)
+    text = re.sub(r'ck', 'k', text)
+    text = re.sub(r'oo', 'u', text)
+    text = re.sub(r'ee', 'i', text)
+    text = text.replace('w', 'v')
+    text = re.sub(r'(.)\1+', r'\1', text)
+    text = re.sub(r'[oa]', 'a', text)
+    return text
+
+
 def _normalize_app_name(name: str) -> str:
-    """Нормализовать имя приложения: транслит, лоу-кейс, удалить спец. символы."""
+    """Нормализовать имя приложения: транслит, фонетика, удалить спец. символы."""
     name = _transliterate(name)
-    name = name.lower()
+    name = _phonetic_normalize(name)
     name = re.sub(r'[\s\-_:;,.]', '', name)
     return name
 
@@ -120,7 +135,7 @@ def _normalize_app_name(name: str) -> str:
 def _normalize_app_name_tokens(name: str) -> list[str]:
     """Разбить имя приложения на нормализованные токены для поиска по словам."""
     name = _transliterate(name)
-    name = name.lower()
+    name = _phonetic_normalize(name)
     name = re.sub(r'[\s\-_:;,.]+', ' ', name)
     return [token for token in name.split() if token]
 
@@ -620,8 +635,6 @@ def execute_command(action: str) -> dict:
                 ext_action, ext_arg = "navigate", arg[4:]
             elif arg.startswith("search:"):
                 ext_action, ext_arg = "search_google", arg[7:]
-            elif arg.startswith("switch:"):
-                ext_action, ext_arg = "tab_switch", arg[7:]
             elif arg.startswith("switch:"):
                 ext_action, ext_arg = "tab_switch", arg[7:]
             elif arg.startswith("zoom:"):

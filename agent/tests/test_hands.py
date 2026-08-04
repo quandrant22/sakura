@@ -65,3 +65,7 @@ class TestHandsAppCache(unittest.TestCase):
             result = hands.execute_command("rescan_apps")
         scan.assert_called_once_with(force=True)
         self.assertEqual(result["result"], "пересканировала приложения")
+
+    def test_get_capabilities_does_not_raise(self):
+        caps = hands.get_capabilities()
+        self.assertIsInstance(caps, list)
