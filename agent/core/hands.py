@@ -67,10 +67,101 @@ _SKIP_EXE = ("unins", "setup", "redist", "vcredist", "dxsetup", "directx",
 # Полный результат последнего скана — для фаззи-резолва приложений на месте.
 _app_cache: dict = {}
 
+# Путь к кэшу приложений на диск (с TTL ~6 часов)
+_APPS_CACHE_FILE = os.path.join(os.path.dirname(config.APPS_FILE) or ".", "apps_cache.json")
+_APPS_CACHE_TTL = 6 * 3600  # 6 часов в секундах
+
 # Индекс файлов по всему диску. Запуск — init_index() из агента при старте.
 file_index = FileIndex(
     cache_path=os.path.join(os.path.dirname(config.APPS_FILE) or ".", "file_index.json")
 )
+
+
+# ── Трансфитерация и нормализация ───────────────────────────────────
+_TRANSLITERATION_MAP = {
+    # Комбинации
+    'дж': 'j', 'дз': 'dz', 'кс': 'x',
+    # Гласные
+    'а': 'a', 'е': 'e', 'ё': 'yo', 'и': 'i', 'о': 'o', 'у': 'u', 'ы': 'y', 'э': 'e',
+    'я': 'ya',
+    # Согласные
+    'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'ж': 'zh', 'з': 'z', 'й': 'y', 'к': 'k',
+    'л': 'l', 'м': 'm', 'н': 'n', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'ф': 'f', 'х': 'kh',
+    'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'sch', 'ъ': '', 'ь': '',
+    'ю': 'yu',
+    # Английские буквы (на случай смешанного ввода)
+}
+
+
+def _transliterate(text: str) -> str:
+    """Преобразовать кириллицу в латиницу, включая частые сочетания."""
+    text = text.lower()
+    result = []
+    i = 0
+    while i < len(text):
+        pair = text[i:i+2]
+        if pair in _TRANSLITERATION_MAP:
+            result.append(_TRANSLITERATION_MAP[pair])
+            i += 2
+            continue
+        result.append(_TRANSLITERATION_MAP.get(text[i], text[i]))
+        i += 1
+    return ''.join(result)
+
+
+def _normalize_app_name(name: str) -> str:
+    """Нормализовать имя приложения: транслит, лоу-кейс, удалить спец. символы."""
+    name = _transliterate(name)
+    name = name.lower()
+    name = re.sub(r'[\s\-_:;,.]', '', name)
+    return name
+
+
+def _normalize_app_name_tokens(name: str) -> list[str]:
+    """Разбить имя приложения на нормализованные токены для поиска по словам."""
+    name = _transliterate(name)
+    name = name.lower()
+    name = re.sub(r'[\s\-_:;,.]+', ' ', name)
+    return [token for token in name.split() if token]
+
+
+def _load_apps_cache() -> dict | None:
+    """Загрузить кэш приложений с диска, если он свежий (TTL ~6 часов)."""
+    try:
+        if not os.path.exists(_APPS_CACHE_FILE):
+            return None
+        # Проверить возраст файла
+        age = time.time() - os.path.getmtime(_APPS_CACHE_FILE)
+        if age > _APPS_CACHE_TTL:
+            return None  # Кэш устарел
+        with open(_APPS_CACHE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        log.debug(f"load apps cache: {e}")
+        return None
+
+
+def _save_apps_cache(apps: dict):
+    """Сохранить кэш приложений на диск."""
+    try:
+        with open(_APPS_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(apps, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        log.debug(f"save apps cache: {e}")
+
+
+def _ensure_app_cache():
+    global _app_cache
+    if _app_cache:
+        return
+    cached = _load_apps_cache()
+    if cached is not None:
+        _app_cache = cached
+        log.info(f"Загружен apps_cache.json: {len(_app_cache)} приложений")
+
+
+# Попробовать подгрузить свежий кэш сразу при импорте.
+_ensure_app_cache()
 
 
 def init_index():
@@ -208,8 +299,18 @@ def _scan_game_dirs() -> dict:
     return apps
 
 
-def scan_apps() -> dict:
-    """Собирает все источники. Более «играбельные» переопределяют общие, ручные — поверх всех."""
+def scan_apps(force: bool = False) -> dict:
+    """Собирает все источники. Более «играбельные» переопределяют общие, ручные — поверх всех.
+    При force=False сначала пытается загрузить свежий кэш с диска (TTL ~6 часов).
+    """
+    global _app_cache
+    if not force:
+        cached = _load_apps_cache()
+        if cached is not None:
+            _app_cache = cached
+            log.info(f"Загружен apps_cache.json: {len(cached)} приложений")
+            return cached
+
     apps = {}
     for source in (_scan_start_menu, _scan_start_apps, _scan_steam, _scan_game_dirs):
         try:
@@ -217,8 +318,8 @@ def scan_apps() -> dict:
         except Exception as e:
             log.error(f"scan {source.__name__}: {e}")
     apps.update(_load_apps())
-    global _app_cache
     _app_cache = apps                      # запомнить для фаззи-резолва на месте
+    _save_apps_cache(apps)                 # сохранить кэш на диск (TTL ~6ч)
     log.info(f"Найдено приложений и игр: {len(apps)}")
     return apps
 
@@ -248,40 +349,70 @@ def _launch(target: str) -> bool:
 
 
 def _resolve_target(name: str) -> str | None:
-    """Разговорное имя → таргет. Ручные → полный скан: точно, подстрока, фаззи."""
-    key = name.lower()
+    """Разговорное имя → таргет. Ручные → полный скан: точно, по словам, фаззи.
+
+    Трансфитерирует кириллицу и нормализует и запрос, и ключи кэша.
+    Матч: точное совпадение → вхождение по словам → fuzzy.
+    """
+    _ensure_app_cache()
+    norm_name = _normalize_app_name(name)
+    query_tokens = _normalize_app_name_tokens(name)
+
+    # 1. Проверить ручные приложения (с нормализацией)
     manual = _load_apps()
-    if key in manual:
-        return manual[key]
-    if key in _app_cache:
-        return _app_cache[key]
-    for k, v in _app_cache.items():
-        if key in k:
-            return v
-    hit = get_close_matches(key, list(_app_cache.keys()), n=1, cutoff=0.6)
-    return _app_cache[hit[0]] if hit else None
+    for manual_key, manual_value in manual.items():
+        if _normalize_app_name(manual_key) == norm_name:
+            return manual_value
+
+    # 2. Точное совпадение по нормализованному кэшу
+    for cache_key, cache_value in _app_cache.items():
+        if _normalize_app_name(cache_key) == norm_name:
+            return cache_value
+
+    # 3. Вхождение по словам
+    for cache_key, cache_value in _app_cache.items():
+        cache_tokens = _normalize_app_name_tokens(cache_key)
+        if query_tokens and set(query_tokens).issubset(set(cache_tokens)):
+            return cache_value
+        if query_tokens and any(token == norm_name for token in cache_tokens):
+            return cache_value
+
+    # 4. Фаззи-матч по нормализованным ключам
+    normalized_keys = {_normalize_app_name(k): (k, v) for k, v in _app_cache.items()}
+    hit = get_close_matches(norm_name, list(normalized_keys.keys()), n=1, cutoff=0.6)
+    if hit:
+        _, value = normalized_keys[hit[0]]
+        return value
+
+    return None
 
 
 def open_app(name: str) -> str:
-    """Открывает приложение ИЛИ файл по имени. Что бы ни пришло — доводит до конца."""
+    """Открывает приложение ИЛИ файл по имени. Что бы ни пришло — доводит до конца.
+
+    Защита: если кэш пуст, сначала пробует загрузить диск‑кэш, затем scan_apps().
+    Честный отказ вместо fallback'a в ОС для неизвестных имён приложений.
+    """
     name = name.strip()
 
-    # 1. Готовый таргет от VPS — запускаем как есть.
     if _is_target(name):
         return f"открыл {name}" if _launch(name) else f"app_not_found:{name}"
 
-    # 2. Разговорное имя → приложение (точно / подстрока / фаззи по полному скану).
+    _ensure_app_cache()
+    global _app_cache
+    if not _app_cache:
+        log.info("app_cache пуст, выполняю ленивую инициализацию...")
+        scan_apps()
+
     target = _resolve_target(name)
     if target and _launch(target):
         return f"открыл {name}"
 
-    # 3. Не приложение — ищем файл по всему диску в индексе.
     opened = file_index.open(name)
     if opened:
         return f"открыл файл {os.path.basename(opened)}"
 
-    # 4. Последняя попытка — отдать ОС как есть.
-    return f"открыл {name}" if _launch(name) else f"app_not_found:{name}"
+    return f"не нашла приложение '{name}'"
 
 
 def open_file(name: str) -> str:
@@ -409,6 +540,9 @@ def execute_command(action: str) -> dict:
     verb, _, arg = action.partition(":")
     verb = verb.strip()
     if verb == "open_app":      return {"result": open_app(arg)}
+    if verb == "rescan_apps":
+        scan_apps(force=True)
+        return {"result": "пересканировала приложения"}
     if verb == "open_file":     return {"result": open_file(arg)}
     if verb == "close_window":  return {"result": close_window(arg)}
     if verb == "remember_app":  return {"result": remember_app(arg)}
@@ -563,14 +697,9 @@ _ALLOWED_KEYS = frozenset({
     "ctrl", "alt", "shift", "win", "windows", "enter", "esc", "escape",
     "tab", "space", "backspace", "delete", "insert", "home", "end",
     "pageup", "pagedown", "up", "down", "left", "right",
-    "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10",
-    "f11", "f12", "f13", "f14", "f15", "f16", "f17", "f18", "f19", "f20",
-    "f21", "f22", "f23", "f24",
+    *(f"f{i}" for i in range(1, 25)),
+    *"abcdefghijklmnopqrstuvwxyz0123456789",
 })
-# Буквы/цифры добавляются динамически
-for _c in "abcdefghijklmnopqrstuvwxyz0123456789":
-    _ALLOWED_KEYS.add(_c)
-
 
 def hotkey(combo: str) -> dict:
     """Нажать комбинацию клавиш (ctrl+shift+esc и т.д.)."""
