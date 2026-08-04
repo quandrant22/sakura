@@ -48,7 +48,20 @@ class TestHandsAppCache(unittest.TestCase):
             scan.side_effect = scan_side_effect
             result = hands.open_app("palworld")
         scan.assert_called_once()
-        self.assertEqual(result, "открыл palworld")
+        self.assertEqual(result, "открыл Palworld")
+
+    def test_open_app_returns_real_name_not_query(self):
+        """Искажённый запрос 'fall world' должен дать ответ с 'Palworld', а не 'fall world'."""
+        hands._app_cache = {
+            "palworld": "steam://rungameid/1623730",
+        }
+        with patch.object(hands, "_load_apps", return_value={}), \
+             patch.object(hands, "_launch", return_value=True), \
+             patch.object(hands.file_index, "open", return_value=None):
+            result = hands.open_app("fall world")
+        self.assertIn("Palworld", result)
+        self.assertNotIn("fall world", result)
+        self.assertEqual(result, "открыл Palworld")
 
     def test_open_app_unknown_returns_failure_without_os_startfile(self):
         hands._app_cache = {}

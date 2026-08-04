@@ -363,11 +363,13 @@ def _launch(target: str) -> bool:
             return False
 
 
-def _resolve_target(name: str) -> str | None:
-    """Разговорное имя → таргет. Ручные → полный скан: точно, по словам, фаззи.
+def _resolve_target_with_name(name: str) -> tuple[str, str] | None:
+    """Разговорное имя → (реальное_имя, таргет).
 
+    Ручные → полный скан: точно, по словам, фаззи.
     Трансфитерирует кириллицу и нормализует и запрос, и ключи кэша.
     Матч: точное совпадение → вхождение по словам → fuzzy.
+    Возвращает кортеж (ключ_из_кэша, таргет) или None.
     """
     _ensure_app_cache()
     norm_name = _normalize_app_name(name)
@@ -377,29 +379,40 @@ def _resolve_target(name: str) -> str | None:
     manual = _load_apps()
     for manual_key, manual_value in manual.items():
         if _normalize_app_name(manual_key) == norm_name:
-            return manual_value
+            return (manual_key, manual_value)
 
     # 2. Точное совпадение по нормализованному кэшу
     for cache_key, cache_value in _app_cache.items():
         if _normalize_app_name(cache_key) == norm_name:
-            return cache_value
+            return (cache_key, cache_value)
 
     # 3. Вхождение по словам
     for cache_key, cache_value in _app_cache.items():
         cache_tokens = _normalize_app_name_tokens(cache_key)
         if query_tokens and set(query_tokens).issubset(set(cache_tokens)):
-            return cache_value
+            return (cache_key, cache_value)
         if query_tokens and any(token == norm_name for token in cache_tokens):
-            return cache_value
+            return (cache_key, cache_value)
 
     # 4. Фаззи-матч по нормализованным ключам
     normalized_keys = {_normalize_app_name(k): (k, v) for k, v in _app_cache.items()}
     hit = get_close_matches(norm_name, list(normalized_keys.keys()), n=1, cutoff=0.6)
     if hit:
-        _, value = normalized_keys[hit[0]]
-        return value
+        real_key, value = normalized_keys[hit[0]]
+        return (real_key, value)
 
     return None
+
+
+def _resolve_target(name: str) -> str | None:
+    """Разговорное имя → таргет. Тонкая обёртка над _resolve_target_with_name."""
+    result = _resolve_target_with_name(name)
+    return result[1] if result else None
+
+
+def _pretty_app_name(name: str) -> str:
+    """Имя приложения в читаемом виде: с заглавной буквы каждого слова."""
+    return ' '.join(word.capitalize() for word in name.split())
 
 
 def open_app(name: str) -> str:
@@ -419,9 +432,10 @@ def open_app(name: str) -> str:
         log.info("app_cache пуст, выполняю ленивую инициализацию...")
         scan_apps()
 
-    target = _resolve_target(name)
-    if target and _launch(target):
-        return f"открыл {name}"
+    resolved = _resolve_target_with_name(name)
+    if resolved and _launch(resolved[1]):
+        real_name = _pretty_app_name(resolved[0])
+        return f"открыл {real_name}"
 
     opened = file_index.open(name)
     if opened:
