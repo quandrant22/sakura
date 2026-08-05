@@ -30,6 +30,12 @@ _current_game: Optional[dict] = None
 _achievements_cache: dict     = {}
 _ACHIEVEMENTS_TTL             = 30 * 60   # 30 минут — новые ачивки подхватываются без перезапуска
 
+# Текущая игровая сессия (в памяти процесса — сиюминутное состояние, не в БД)
+_session: Optional[dict] = None   # {"game": dict, "started_at": float}
+_SESSION_MIN_MINUTES = 15         # короче 15 минут — не событие
+_SESSION_DEDUP_HOURS = 1          # не плодим записи об одной игре чаще раза в час
+_last_session_log: dict = {}      # {appid: timestamp} — защита от мусора
+
 # Последняя причина ошибки — логируем ОДИН раз при смене состояния, не спамим в цикле
 _last_reason: str = ""
 
@@ -289,14 +295,66 @@ def find_game_by_window(active_window: str) -> Optional[dict]:
     return None
 
 
+def _record_session_end():
+    """Завершает сессию: считает длительность, при >15 мин пишет эпизод в память.
+    Защита от мусора: не чаще одной записи об игре в час."""
+    global _session
+    if not _session:
+        return
+    game = _session["game"]
+    started = _session["started_at"]
+    _session = None
+
+    minutes = int((time.monotonic() - started) / 60)
+    if minutes < _SESSION_MIN_MINUTES:
+        return
+
+    appid = game.get("appid")
+    now = time.monotonic()
+    last = _last_session_log.get(appid)
+    if last and now - last < _SESSION_DEDUP_HOURS * 3600:
+        return  # уже писали об этой игре недавно — не плодим записи
+
+    _last_session_log[appid] = now
+    name = game.get("name", "игра")
+    hours = minutes // 60
+    mins = minutes % 60
+    if hours:
+        dur = f"{hours} ч {mins} мин" if mins else f"{hours} ч"
+    else:
+        dur = f"{mins} мин"
+    try:
+        from memory.db import add_to_category as db_add
+        db_add("events", f"играл в {name} {dur}", layer="working")
+        log.info(f"[steam] Сессия записана: {name} {dur}")
+    except Exception as e:
+        log.debug(f"[steam] session record error: {e}")
+
+
 async def get_current_game(active_window: str) -> Optional[dict]:
     global _current_game
     game = find_game_by_window(active_window)
     if game != _current_game:
+        # Игра пропала → конец сессии
+        if _current_game and not game:
+            _record_session_end()
         _current_game = game
         if game:
+            # Игра появилась → начало сессии
+            global _session
+            _session = {"game": game, "started_at": time.monotonic()}
             log.info(f"[steam] Текущая игра: {game['name']}")
     return game
+
+
+def get_session_context() -> str:
+    """→ 'СЕЙЧАС: Мастер играет в Palworld, 40 минут' или '' если не играет."""
+    if not _session:
+        return ""
+    game = _session["game"]
+    minutes = int((time.monotonic() - _session["started_at"]) / 60)
+    name = game.get("name", "игра")
+    return f"СЕЙЧАС: Мастер играет в {name}, {minutes} минут"
 
 
 # ── Достижения ────────────────────────────────────────────────────────

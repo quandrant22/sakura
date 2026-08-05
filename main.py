@@ -107,7 +107,7 @@ from modules.steam_integration import (
     load_library, get_current_game, recommend_games,
     find_guide, format_library_context, format_current_game_context,
     get_achievement_stats, get_library, search_game,
-    steam_library_loop,
+    steam_library_loop, get_session_context,
 )
 from modules.weather         import get_weather, apply_weather_to_mood, get_weather_context
 from modules.game_detector   import detect_game_from_screenshot, get_game_context, get_cached_game, should_check_event, detect_game_event, make_event_prompt
@@ -1655,6 +1655,13 @@ def build_identity_core(active_window=None, ctx_master=None) -> list[str]:
         self_ctx = get_self_context()
         if self_ctx:
             parts.append(self_ctx)
+    except Exception:
+        pass
+    # 3.1. Текущая игровая сессия — Мастер В ИГРЕ ПРЯМО СЕЙЧАС (голос и текст)
+    try:
+        session_ctx = get_session_context()
+        if session_ctx:
+            parts.append(session_ctx)
     except Exception:
         pass
     return parts

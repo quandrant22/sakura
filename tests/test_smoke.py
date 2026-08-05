@@ -670,6 +670,74 @@ class Test13_SteamAchievementsTTL(unittest.TestCase):
         self.assertEqual(res[0]["apiname"], "a2")
 
 
+class Test14_SteamSession(unittest.TestCase):
+    """Group 14: игровая сессия — старт/стоп считает длительность корректно."""
+
+    def test_session_start_stop_duration(self):
+        import modules.steam_integration as si
+        # Сбрасываем состояние
+        si._current_game = None
+        si._session = None
+        si._last_session_log = {}
+
+        game = {"appid": 1623730, "name": "Palworld", "playtime_forever": 1104}
+
+        # Старт сессии
+        async def start():
+            return await si.get_current_game("Palworld - Steam")
+        with patch.object(si, "find_game_by_window", return_value=game):
+            asyncio.get_event_loop().run_until_complete(start())
+        self.assertIsNotNone(si._session)
+        self.assertEqual(si._session["game"]["name"], "Palworld")
+
+        # Контекст сессии не пуст
+        ctx = si.get_session_context()
+        self.assertIn("Palworld", ctx)
+        self.assertIn("СЕЙЧАС", ctx)
+
+        # Подменяем время старта на 40 минут назад
+        si._session["started_at"] = time.monotonic() - 40 * 60
+        ctx = si.get_session_context()
+        self.assertIn("40 минут", ctx)
+
+        # Стоп сессии — игра пропала
+        async def stop():
+            return await si.get_current_game("")
+        with patch.object(si, "find_game_by_window", return_value=None), \
+             patch("memory.db.add_to_category", return_value=True) as mock_add:
+            asyncio.get_event_loop().run_until_complete(stop())
+        self.assertIsNone(si._session)
+        # Сессия >15 мин → записана в память
+        mock_add.assert_called_once()
+        args = mock_add.call_args[0]
+        kwargs = mock_add.call_args.kwargs
+        self.assertEqual(args[0], "events")
+        self.assertIn("Palworld", args[1])
+        self.assertEqual(kwargs.get("layer"), "working")
+
+    def test_short_session_not_recorded(self):
+        import modules.steam_integration as si
+        si._current_game = None
+        si._session = None
+        si._last_session_log = {}
+
+        game = {"appid": 1, "name": "TestGame", "playtime_forever": 0}
+
+        async def start():
+            return await si.get_current_game("TestGame")
+        with patch.object(si, "find_game_by_window", return_value=game):
+            asyncio.get_event_loop().run_until_complete(start())
+
+        # Сессия длилась 5 минут (< 15) — не записываем
+        si._session["started_at"] = time.monotonic() - 5 * 60
+        async def stop():
+            return await si.get_current_game("")
+        with patch.object(si, "find_game_by_window", return_value=None), \
+             patch("memory.db.add_to_category", return_value=True) as mock_add:
+            asyncio.get_event_loop().run_until_complete(stop())
+        mock_add.assert_not_called()
+
+
 class Test11_Capabilities(unittest.TestCase):
     """Group 11: capabilities block — honest about device availability."""
 
