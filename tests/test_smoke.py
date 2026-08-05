@@ -570,6 +570,106 @@ class Test10_ProactiveBehavior(unittest.TestCase):
                 bot.send_message.assert_called_once_with(123456789, "Привет")
 
 
+class Test12_SteamFetch(unittest.TestCase):
+    """Group 12: Steam _fetch reason-коды (честность API)."""
+
+    def _mock_fetch(self, status, body):
+        """Подменяет urllib.request.urlopen на мок с заданным статусом и телом."""
+        import modules.steam_integration as si
+        mock_resp = MagicMock()
+        mock_resp.status = status
+        mock_resp.read.return_value = body.encode()
+        # `with urlopen(...) as r` вызывает __enter__() — возвращаем сам мок
+        mock_resp.__enter__.return_value = mock_resp
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            return si._fetch("http://test")
+
+    def test_no_stats_reason(self):
+        """'Requested app has no stats' → reason=no_stats (НОРМА, не ошибка)."""
+        import modules.steam_integration as si
+        body = '{"playerstats": {"error": "Requested app has no stats"}}'
+        res = self._mock_fetch(200, body)
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["reason"], "no_stats")
+
+    def test_private_reason(self):
+        """'Profile is not public' → reason=private."""
+        import modules.steam_integration as si
+        body = '{"playerstats": {"error": "Profile is not public"}}'
+        res = self._mock_fetch(200, body)
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["reason"], "private")
+
+    def test_empty_response_private(self):
+        """Пустой {"response": {}} → reason=private."""
+        import modules.steam_integration as si
+        res = self._mock_fetch(200, '{"response": {}}')
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["reason"], "private")
+
+    def test_ok_reason(self):
+        """Успешный ответ → reason=ok."""
+        import modules.steam_integration as si
+        res = self._mock_fetch(200, '{"response": {"games": []}}')
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["reason"], "ok")
+
+    def test_invalid_key_reason(self):
+        """HTTP 403 → reason=invalid_key."""
+        import modules.steam_integration as si
+        res = self._mock_fetch(403, '{"error": "forbidden"}')
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["reason"], "invalid_key")
+
+    def test_steam_down_reason(self):
+        """HTTP 500 → reason=steam_down."""
+        import modules.steam_integration as si
+        res = self._mock_fetch(500, '{"error": "internal"}')
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["reason"], "steam_down")
+
+
+class Test13_SteamAchievementsTTL(unittest.TestCase):
+    """Group 13: TTL кэша ачивок — через 31 минуту данные перезапрашиваются."""
+
+    def test_ttl_expiry_refetches(self):
+        import modules.steam_integration as si
+        # Сбрасываем кэш
+        si._achievements_cache = {}
+
+        # Первый вызов — заполняем кэш
+        async def first():
+            return await si.get_achievements(1234)
+        with patch.object(si, "_get_config", return_value=("key", "sid")), \
+             patch.object(si, "_fetch", return_value={
+                 "ok": True, "reason": "ok",
+                 "data": {"playerstats": {"achievements": [{"apiname": "a1", "achieved": 1}]}}
+             }):
+            res = asyncio.get_event_loop().run_until_complete(first())
+            self.assertEqual(len(res), 1)
+
+        # Кэш заполнен
+        self.assertIn(1234, si._achievements_cache)
+
+        # Подменяем timestamp на 31 минуту назад — кэш протух
+        old_ts = si._achievements_cache[1234][1]
+        si._achievements_cache[1234] = (si._achievements_cache[1234][0], old_ts - 31 * 60)
+
+        # Второй вызов — должен перезапросить (fetch вызывается снова)
+        calls = []
+        def fake_fetch(url):
+            calls.append(url)
+            return {"ok": True, "reason": "ok",
+                    "data": {"playerstats": {"achievements": [{"apiname": "a2", "achieved": 1}]}}}
+        async def second():
+            return await si.get_achievements(1234)
+        with patch.object(si, "_get_config", return_value=("key", "sid")), \
+             patch.object(si, "_fetch", side_effect=fake_fetch):
+            res = asyncio.get_event_loop().run_until_complete(second())
+        self.assertEqual(len(calls), 1, "протухший кэш должен перезапросить данные")
+        self.assertEqual(res[0]["apiname"], "a2")
+
+
 class Test11_Capabilities(unittest.TestCase):
     """Group 11: capabilities block — honest about device availability."""
 

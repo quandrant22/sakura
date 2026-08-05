@@ -28,6 +28,10 @@ _LIBRARY_TTL              = 3600 * 6   # обновляем раз в 6 часо
 
 _current_game: Optional[dict] = None
 _achievements_cache: dict     = {}
+_ACHIEVEMENTS_TTL             = 30 * 60   # 30 минут — новые ачивки подхватываются без перезапуска
+
+# Последняя причина ошибки — логируем ОДИН раз при смене состояния, не спамим в цикле
+_last_reason: str = ""
 
 
 def _get_config():
@@ -38,13 +42,69 @@ def _get_config():
         return "", ""
 
 
-def _fetch(url: str) -> Optional[dict]:
+def _log_reason(reason: str):
+    """Логирует причину только при смене состояния."""
+    global _last_reason
+    if reason != _last_reason:
+        _last_reason = reason
+        if reason == "ok":
+            log.info("[steam] API: ok")
+        else:
+            log.warning(f"[steam] API: {reason}")
+
+
+def _fetch(url: str) -> dict:
+    """→ {"ok": bool, "data": dict|None, "reason": str}
+    reason: ok | private | invalid_key | steam_down | no_stats | no_data | error"""
     try:
         with urllib.request.urlopen(url, timeout=8) as r:
-            return json.loads(r.read().decode())
+            status = r.status
+            body   = r.read().decode()
+    except urllib.error.HTTPError as e:
+        status = e.code
+        try:
+            body = e.read().decode()
+        except Exception:
+            body = ""
     except Exception as e:
         log.debug(f"[steam] fetch error: {e}")
-        return None
+        _log_reason("steam_down")
+        return {"ok": False, "data": None, "reason": "steam_down"}
+
+    try:
+        data = json.loads(body) if body else {}
+    except Exception:
+        data = {}
+
+    # HTTP-коды
+    if status in (401, 403):
+        _log_reason("invalid_key")
+        return {"ok": False, "data": data, "reason": "invalid_key"}
+    if status >= 500:
+        _log_reason("steam_down")
+        return {"ok": False, "data": data, "reason": "steam_down"}
+
+    # Семантика тела
+    ps = data.get("playerstats")
+    if isinstance(ps, dict):
+        err = ps.get("error")
+        if err == "Profile is not public":
+            _log_reason("private")
+            return {"ok": False, "data": data, "reason": "private"}
+        if err == "Requested app has no stats":
+            _log_reason("no_stats")
+            return {"ok": False, "data": data, "reason": "no_stats"}
+
+    if data.get("response") == {}:
+        _log_reason("private")
+        return {"ok": False, "data": data, "reason": "private"}
+
+    if not data:
+        _log_reason("no_data")
+        return {"ok": False, "data": None, "reason": "no_data"}
+
+    _log_reason("ok")
+    return {"ok": True, "data": data, "reason": "ok"}
 
 
 # ── SQLite хранилище ──────────────────────────────────────────────────
@@ -159,11 +219,11 @@ async def _sync_from_api():
         f"?key={key}&steamid={sid}&include_appinfo=true"
         f"&include_played_free_games=true&format=json"
     )
-    data = await asyncio.to_thread(_fetch, url)
-    if not data:
+    res = await asyncio.to_thread(_fetch, url)
+    if not res.get("ok"):
         return
 
-    games = data.get("response", {}).get("games", [])
+    games = res["data"].get("response", {}).get("games", [])
     games = [g for g in games if _is_real_game(g)]
     games = sorted(games, key=lambda g: g.get("playtime_forever", 0), reverse=True)
 
@@ -242,8 +302,10 @@ async def get_current_game(active_window: str) -> Optional[dict]:
 # ── Достижения ────────────────────────────────────────────────────────
 
 async def get_achievements(app_id: int) -> list[dict]:
-    if app_id in _achievements_cache:
-        return _achievements_cache[app_id]
+    # TTL-кэш: храним (данные, timestamp), перезапрашиваем после 30 минут
+    cached = _achievements_cache.get(app_id)
+    if cached and time.monotonic() - cached[1] < _ACHIEVEMENTS_TTL:
+        return cached[0]
     key, sid = _get_config()
     if not key or not sid:
         return []
@@ -251,11 +313,15 @@ async def get_achievements(app_id: int) -> list[dict]:
         f"http://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v0001/"
         f"?appid={app_id}&key={key}&steamid={sid}&format=json&l=russian"
     )
-    data = await asyncio.to_thread(_fetch, url)
-    if not data:
+    res = await asyncio.to_thread(_fetch, url)
+    if not res.get("ok"):
+        # steam_down / private / invalid_key — НЕ считаем отсутствием ачивок.
+        # Возвращаем прежние данные если есть, не затираем кэш пустотой.
+        if cached:
+            return cached[0]
         return []
-    achievements = data.get("playerstats", {}).get("achievements", [])
-    _achievements_cache[app_id] = achievements
+    achievements = res["data"].get("playerstats", {}).get("achievements", [])
+    _achievements_cache[app_id] = (achievements, time.monotonic())
     return achievements
 
 
@@ -310,7 +376,7 @@ def format_library_context() -> str:
     lines = [f"STEAM БИБЛИОТЕКА ({len(_library)} игр):"]
 
     # Топ-20 с временем
-    lines.append("Наиграно:")
+    lines.append("Наиграно (всего за всё время):")
     for g in played[:20]:
         h = g.get("playtime_forever", 0) // 60
         lines.append(f"  • {g['name']} ({h}ч)")
@@ -321,11 +387,19 @@ def format_library_context() -> str:
         suffix = f" и ещё {len(unplayed)-15}" if len(unplayed) > 15 else ""
         lines.append(f"Не запускались: {names}{suffix}")
 
-    # Недавно играл (playtime_2weeks > 0)
+    # Недавно играл (playtime_2weeks > 0) — это время за последние 2 недели, не всего
     recent = [g for g in _library if g.get("playtime_2weeks", 0) > 0]
     if recent:
         r_names = ", ".join(g["name"] for g in recent[:3])
-        lines.append(f"На этой неделе: {r_names}")
+        lines.append(f"За последние 2 недели: {r_names}")
+
+    # Правило честности: не выдумывать числа
+    lines.append(
+        "ПРАВИЛО: если данных о времени в игре или ачивках нет — НЕ выдумывай числа. "
+        "Скажи, что статистика недоступна, или не упоминай её вовсе. "
+        "playtime_forever — всего часов за всё время, playtime_2weeks — за последние две недели. "
+        "Это разные утверждения, подписывай явно."
+    )
 
     return "\n".join(lines)
 
@@ -336,8 +410,10 @@ def format_current_game_context() -> str:
     name  = _current_game.get("name", "")
     hours = _current_game.get("playtime_forever", 0) // 60
     return (
-        f"ТЕКУЩАЯ ИГРА: {name} (наиграно {hours}ч). "
-        f"Мастер сейчас играет — можешь комментировать и обсуждать игру."
+        f"ТЕКУЩАЯ ИГРА: {name} (наиграно всего {hours}ч). "
+        f"Мастер сейчас играет — можешь комментировать и обсуждать игру. "
+        f"ПРАВИЛО: если данных о времени или ачивках нет — НЕ выдумывай числа, "
+        f"скажи что статистика недоступна или не упоминай её."
     )
 
 
@@ -386,9 +462,9 @@ async def _find_game_images(game_name: str) -> list[str]:
         if not game:
             enc  = urllib.parse.quote(game_name)
             url  = f"https://store.steampowered.com/api/storesearch/?term={enc}&l=russian&cc=RU"
-            data = await asyncio.to_thread(_fetch, url)
-            if data:
-                items = data.get("items", [])
+            res  = await asyncio.to_thread(_fetch, url)
+            if res.get("ok"):
+                items = res["data"].get("items", [])
                 if items:
                     game = items[0]
 
@@ -400,14 +476,27 @@ async def _find_game_images(game_name: str) -> list[str]:
             return []
 
         url  = f"https://store.steampowered.com/api/appdetails?appids={app_id}&l=russian"
-        data = await asyncio.to_thread(_fetch, url)
-        if not data:
+        res  = await asyncio.to_thread(_fetch, url)
+        if not res.get("ok"):
             return []
 
-        app_data    = data.get(str(app_id), {}).get("data", {})
+        app_data    = res["data"].get(str(app_id), {}).get("data", {})
         screenshots = app_data.get("screenshots", [])
         return [s["path_thumbnail"] for s in screenshots[:3]]
 
     except Exception as e:
         log.debug(f"[steam images] {e}")
         return []
+
+
+# ── Фоновое обновление библиотеки ─────────────────────────────────────
+
+async def steam_library_loop():
+    """Фоновый цикл: раз в 6 часов синхронизирует библиотеку с API,
+    чтобы новые игры (например Palworld) появлялись без перезапуска."""
+    while True:
+        await asyncio.sleep(_LIBRARY_TTL)
+        try:
+            await load_library(force=True)
+        except Exception as e:
+            log.debug(f"[steam] library loop error: {e}")
