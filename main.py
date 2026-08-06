@@ -108,6 +108,7 @@ from modules.steam_integration import (
     find_guide, format_library_context, format_current_game_context,
     get_achievement_stats, get_library, search_game,
     steam_library_loop, get_session_context,
+    steam_achievements_loop, set_achievement_callback,
 )
 from modules.weather         import get_weather, apply_weather_to_mood, get_weather_context
 from modules.game_detector   import detect_game_from_screenshot, get_game_context, get_cached_game, should_check_event, detect_game_event, make_event_prompt
@@ -1503,16 +1504,10 @@ async def proactive_loop():
             except Exception as e:
                 log.debug(f"thought: {e}")
 
-            # №28: Steam ачивки
-            try:
-                ach = await check_new_achievements()
-                if ach:
-                    prompt = make_achievement_prompt(ach)
-                    reply = await ask_gemini(prompt, save_history=False)
-                    if reply:
-                        await send_telegram_text(MASTER_ID, reply)
-            except Exception as e:
-                log.debug(f"steam: {e}")
+            # №28: Steam ачивки — отключено, заменено на steam_achievements_loop
+            # (новая механика в steam_integration.py: таблица seen, редкая реакция)
+            # Старый check_new_achievements() из integrations.py больше не вызывается,
+            # чтобы не было ДУБЛЯ реакций на одну ачивку.
 
             # №12: автономный ресёрч (раз в неделю)
             try:
@@ -3762,6 +3757,22 @@ async def main():
 
     ws_server = await websockets.serve(ws_handler, "0.0.0.0", 8765, max_size=None)
 
+    # Steam ачивки: callback → проактивный канал (Сакура реагирует своими словами)
+    async def _achievement_cb(game_name: str, ach: dict):
+        """Реакция на новую ачивку — передаём как факты, не выдумываем."""
+        ach_name = ach.get("name") or ach.get("apiname") or "достижение"
+        desc = ach.get("description") or ""
+        prompt = (
+            f"Мастер только что получил ачивку «{ach_name}»"
+            f"{f' ({desc})' if desc else ''} в игре «{game_name}». "
+            "Отреагируй живо — одна фраза, как подруга которая следила за игрой. "
+            "Не «поздравляю», а что-то своё. Название ачивки и игры — только как факты, не выдумывай."
+        )
+        reply = await ask_gemini(prompt, save_history=False)
+        if reply:
+            await send_telegram_text(MASTER_ID, reply)
+    set_achievement_callback(_achievement_cb)
+
     # Discord бот в основном event loop (discord.py + voice_recv)
     asyncio.create_task(discord_start_bot())
     log.info("WebSocket сервер запущен на порту 8765")
@@ -3771,6 +3782,7 @@ async def main():
         daily_analysis(),
         proactive_loop(),
         steam_library_loop(),
+        steam_achievements_loop(),
         reflection_loop(
             bot                     = bot,
             master_id               = MASTER_ID,

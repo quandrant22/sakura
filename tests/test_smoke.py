@@ -738,6 +738,40 @@ class Test14_SteamSession(unittest.TestCase):
         mock_add.assert_not_called()
 
 
+class Test15_SteamNewAchievements(unittest.TestCase):
+    """Group 15: check_new_achievements — первый запуск молчит, второй с новой ачивкой возвращает её."""
+
+    def test_first_run_silent_then_new_returns(self):
+        import modules.steam_integration as si
+        # Сбрасываем кэш ачивок
+        si._achievements_cache = {}
+
+        # Мок: get_achievements возвращает 2 разблокированные ачивки
+        ach1 = {"apiname": "a1", "name": "Первая", "achieved": 1, "unlocktime": 100}
+        ach2 = {"apiname": "a2", "name": "Вторая", "achieved": 1, "unlocktime": 200}
+
+        # Первый запуск — таблица пуста → записывает всё молча, возвращает []
+        with patch.object(si, "get_achievements", return_value=[ach1, ach2]), \
+             patch.object(si, "_seen_achievements", return_value=set()), \
+             patch.object(si, "_mark_achievements_seen") as mock_mark:
+            res = asyncio.get_event_loop().run_until_complete(si.check_new_achievements(999))
+        self.assertEqual(res, [])
+        mock_mark.assert_called_once()
+        # Записаны обе ачивки
+        self.assertEqual(len(mock_mark.call_args[0][1]), 2)
+
+        # Второй запуск — появилась новая ачивка a3
+        ach3 = {"apiname": "a3", "name": "Третья", "achieved": 1, "unlocktime": 300}
+        with patch.object(si, "get_achievements", return_value=[ach1, ach2, ach3]), \
+             patch.object(si, "_seen_achievements", return_value={"a1", "a2"}), \
+             patch.object(si, "_mark_achievements_seen") as mock_mark2:
+            res = asyncio.get_event_loop().run_until_complete(si.check_new_achievements(999))
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0]["apiname"], "a3")
+        mock_mark2.assert_called_once()
+        self.assertEqual(mock_mark2.call_args[0][1][0]["apiname"], "a3")
+
+
 class Test11_Capabilities(unittest.TestCase):
     """Group 11: capabilities block — honest about device availability."""
 

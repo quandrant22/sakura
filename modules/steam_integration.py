@@ -129,6 +129,14 @@ def _ensure_table():
         );
         CREATE INDEX IF NOT EXISTS idx_steam_playtime ON steam_games(playtime_forever DESC);
         CREATE INDEX IF NOT EXISTS idx_steam_name     ON steam_games(name);
+
+        CREATE TABLE IF NOT EXISTS steam_achievements_seen (
+            appid       INTEGER NOT NULL,
+            apiname     TEXT    NOT NULL,
+            unlocked_at TEXT,
+            seen_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (appid, apiname)
+        );
     """)
     conn.commit()
 
@@ -400,6 +408,64 @@ async def get_achievement_stats(app_id: int) -> dict:
     }
 
 
+# ── Ачивки как события ────────────────────────────────────────────────
+
+def _seen_achievements(appid: int) -> set:
+    """Возвращает set apiname уже виденных ачивок для игры."""
+    try:
+        _ensure_table()
+        from memory.db import _conn
+        rows = _conn().execute(
+            "SELECT apiname FROM steam_achievements_seen WHERE appid=?", (appid,)
+        ).fetchall()
+        return {r["apiname"] for r in rows}
+    except Exception as e:
+        log.debug(f"[steam] seen achievements error: {e}")
+        return set()
+
+
+def _mark_achievements_seen(appid: int, achievements: list[dict]):
+    """Записывает ачивки в таблицу seen."""
+    try:
+        _ensure_table()
+        from memory.db import _conn
+        conn = _conn()
+        for a in achievements:
+            conn.execute("""
+                INSERT OR IGNORE INTO steam_achievements_seen(appid, apiname, unlocked_at)
+                VALUES(?, ?, ?)
+            """, (appid, a.get("apiname", ""), str(a.get("unlocktime", ""))))
+        conn.commit()
+    except Exception as e:
+        log.debug(f"[steam] mark seen error: {e}")
+
+
+async def check_new_achievements(appid: int) -> list[dict]:
+    """Сравнивает текущие разблокированные ачивки с таблицей seen.
+    Новые → записывает и возвращает список. При первом запуске для игры
+    (таблица пуста по appid) — записывает ВСЁ молча, возвращает []."""
+    achievements = await get_achievements(appid)
+    if not achievements:
+        return []
+
+    unlocked = [a for a in achievements if a.get("achieved") == 1]
+    if not unlocked:
+        return []
+
+    seen = _seen_achievements(appid)
+    if not seen:
+        # Первый запуск для игры — записываем всё молча, ничего не возвращаем
+        _mark_achievements_seen(appid, unlocked)
+        return []
+
+    new = [a for a in unlocked if a.get("apiname") not in seen]
+    if not new:
+        return []
+
+    _mark_achievements_seen(appid, new)
+    return new
+
+
 # ── Рекомендации ──────────────────────────────────────────────────────
 
 async def recommend_games(mood: str = "neutral", limit: int = 5,
@@ -558,3 +624,64 @@ async def steam_library_loop():
             await load_library(force=True)
         except Exception as e:
             log.debug(f"[steam] library loop error: {e}")
+
+
+# ── Фоновый цикл ачивок ───────────────────────────────────────────────
+
+_ACHIEVEMENTS_CHECK_INTERVAL = 10 * 60   # раз в 10 минут
+_ACHIEVEMENTS_REACTION_COOLDOWN = 3600   # не чаще одного упоминания в час
+_ACHIEVEMENTS_REACTION_PROB = 0.5        # ~50% вероятность реакции
+_last_achievement_reaction: float = 0.0
+
+
+async def steam_achievements_loop():
+    """Фоновый цикл: раз в 10 минут проверяет новые ачивки, ТОЛЬКО если
+    Мастер сейчас в игре. Реакция редкая — не чаще раза в час, ~50%."""
+    global _last_achievement_reaction
+    while True:
+        await asyncio.sleep(_ACHIEVEMENTS_CHECK_INTERVAL)
+        try:
+            if not _current_game:
+                continue  # не дёргаем API, когда Мастер не играет
+            appid = _current_game.get("appid")
+            if not appid:
+                continue
+            new = await check_new_achievements(appid)
+            if not new:
+                continue
+            # Реакция редкая: не чаще раза в час + ~50% вероятность
+            now = time.monotonic()
+            if now - _last_achievement_reaction < _ACHIEVEMENTS_REACTION_COOLDOWN:
+                continue
+            import random
+            if random.random() > _ACHIEVEMENTS_REACTION_PROB:
+                continue
+            _last_achievement_reaction = now
+            # Выбираем одну ачивку: самую редкую (по глобальному проценту) или последнюю
+            chosen = _pick_rarest_achievement(new)
+            game_name = _current_game.get("name", "игра")
+            log.info(f"[steam] Новая ачивка: {chosen.get('name', chosen.get('apiname', '?'))} в {game_name}")
+            # Передаём в проактивный канал через callback (устанавливается в main.py)
+            cb = _achievement_callback
+            if cb:
+                await cb(game_name, chosen)
+        except Exception as e:
+            log.debug(f"[steam] achievements loop error: {e}")
+
+
+_achievement_callback = None
+
+
+def set_achievement_callback(cb):
+    """Устанавливает callback для реакции на ачивку: cb(game_name, achievement_dict)."""
+    global _achievement_callback
+    _achievement_callback = cb
+
+
+def _pick_rarest_achievement(achievements: list[dict]) -> dict:
+    """Выбирает самую редкую ачивку (по глобальному проценту получения),
+    если доступен, иначе — последнюю по unlocktime."""
+    with_pct = [a for a in achievements if a.get("global_percent") is not None]
+    if with_pct:
+        return min(with_pct, key=lambda a: a.get("global_percent", 100))
+    return max(achievements, key=lambda a: a.get("unlocktime", 0))
