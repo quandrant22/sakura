@@ -495,6 +495,17 @@ async def handle_command_result(websocket, data, ctx) -> None:
 #  voice_command  (~1000 строк, вынос целиком)
 # ─────────────────────────────────────────────
 
+# Системные команды, которые нельзя откатить — перед выполнением спрашиваем
+# подтверждение (см. _pending_system). "lock" сюда не входит: она безопасна
+# и обратима (разблокировать может кто угодно с паролем).
+_DANGEROUS_SYSTEM_ACTIONS = frozenset({"system:shutdown", "system:restart", "system:sleep"})
+_SYSTEM_CONFIRM_PROMPTS = {
+    "system:shutdown": "Выключаю компьютер. Подтверждаешь?",
+    "system:restart": "Перезагружаю компьютер. Подтверждаешь?",
+    "system:sleep": "Отправляю компьютер в сон. Подтверждаешь?",
+}
+
+
 async def handle_voice_command(websocket, data, ctx) -> None:
     ask_gemini = ctx["ask_gemini"]
     ask_gemini_voice = ctx["ask_gemini_voice"]
@@ -1076,13 +1087,13 @@ async def handle_voice_command(websocket, data, ctx) -> None:
             pass
         return
 
-    _critical = route_critical(text)
-    if _critical and ws_dev:
+    async def _finish_critical(_crit_action: str) -> None:
+        """Отправить критическую команду агенту и записать эпизод."""
         st._last_command_ts = __import__('time').monotonic()
-        await ws_dev.send(json.dumps({"type": "command", "action": _critical}))
-        if _critical.startswith("kettle:"):
+        await ws_dev.send(json.dumps({"type": "command", "action": _crit_action}))
+        if _crit_action.startswith("kettle:"):
             _kreply = await ask_gemini(
-                f"Мастер попросил: {text}. Команда: {_critical}. Скажи коротко.",
+                f"Мастер попросил: {text}. Команда: {_crit_action}. Скажи коротко.",
                 save_history=False)
             if _kreply:
                 await stream_tts_to_device(_kreply, ws_dev, device_id or "laptop", literal=True)
@@ -1091,7 +1102,7 @@ async def handle_voice_command(websocket, data, ctx) -> None:
             from modules.disposition import current as _disp_ep
             _dep = _disp_ep()
             add_episode(
-                text=f"Выполнила команду: {text[:80]} → {_critical}",
+                text=f"Выполнила команду: {text[:80]} → {_crit_action}",
                 emotion=_dep["stance"],
                 valence=_dep["valence"],
                 arousal=_dep["arousal"],
@@ -1099,11 +1110,54 @@ async def handle_voice_command(websocket, data, ctx) -> None:
             )
         except Exception:
             pass
+
+    _critical = route_critical(text)
+    if _critical and ws_dev:
+        if _critical in _DANGEROUS_SYSTEM_ACTIONS:
+            # Опасная системная команда — не выполняем сразу, спрашиваем подтверждение
+            _sys_mk = device_id or "tg"
+            st._pending_system[_sys_mk] = {
+                "action": _critical,
+                "device": device_id,
+                "ts": __import__("time").monotonic(),
+            }
+            _sys_q = _SYSTEM_CONFIRM_PROMPTS.get(_critical, "Выполняю системную команду. Подтверждаешь?")
+            await stream_tts_to_device(_sys_q, ws_dev, device_id or "laptop", literal=True)
+            return
+        await _finish_critical(_critical)
         return
 
     # ── ПОДТВЕРЖДЕНИЕ ПЛАНА ─────────────────────────────
     _mk = device_id or "tg"
     _now_ts = __import__("time").monotonic()
+
+    # ── ПОДТВЕРЖДЕНИЕ СИСТЕМНОЙ КОМАНДЫ (выключение/перезагрузка/сон) ──
+    if _mk in st._pending_system:
+        _ps = st._pending_system[_mk]
+        if _now_ts - _ps["ts"] < 60:
+            _ps_text = text.lower().strip().rstrip(".!?,")
+            _ps_confirm = ("да", "давай", "подтверждаю", "выключай", "точно", "конечно", "ага", "угу")
+            _ps_deny = ("нет", "отмена", "стоп", "не надо", "хватит")
+            if _ps_text in _ps_confirm:
+                del st._pending_system[_mk]
+                if ws_dev:
+                    await _finish_critical(_ps["action"])
+                else:
+                    await bot.send_message(MASTER_ID, "Устройство отключилось, не могу выполнить.")
+                return
+            elif _ps_text in _ps_deny:
+                del st._pending_system[_mk]
+                _ps_cancel_msg = "Хорошо, отменила."
+                if ws_dev:
+                    await stream_tts_to_device(_ps_cancel_msg, ws_dev, device_id or "laptop", literal=True)
+                else:
+                    await bot.send_message(MASTER_ID, _ps_cancel_msg)
+                return
+            else:
+                # Мастер сменил тему — отменяем подтверждение и обрабатываем реплику обычным путём
+                del st._pending_system[_mk]
+        else:
+            del st._pending_system[_mk]
     if _mk in st._pending_plan:
         _pp = st._pending_plan[_mk]
         if _now_ts - _pp["ts"] < 60:

@@ -170,6 +170,121 @@ class Test11_WsHandlers(unittest.TestCase):
         self.assertEqual(sent["action"], "open_app:discord")
         self.assertEqual(sent["id"], "cmd123")
 
+    # ── Подтверждение выключения ПК вместо задержки ──────────────────
+
+    @staticmethod
+    def _make_ctx(**overrides):
+        async def fake_ask_gemini(*args, **kwargs):
+            return "Принято"
+
+        async def fake_send_safe(*args, **kwargs):
+            return None
+
+        async def fake_execute_plan(*args, **kwargs):
+            return False, ""
+
+        ctx = {
+            "ask_gemini": fake_ask_gemini,
+            "ask_gemini_voice": AsyncMock(),
+            "send_safe": fake_send_safe,
+            "_find_vip_by_name": lambda *a, **k: None,
+            "_translate_en": lambda *a, **k: None,
+            "_clean_slate": AsyncMock(),
+            "_execute_plan": fake_execute_plan,
+            "_register_command": lambda action, device: "cmd123",
+            "_get_active_ws": lambda: (None, None),
+            "parse_kettle_command": lambda *a, **k: None,
+            "bot": MagicMock(),
+        }
+        ctx.update(overrides)
+        return ctx
+
+    def _run_voice_command(self, text, ws_dev, pending_system=None):
+        import modules.ws_handlers as wh
+
+        async def fake_classify_intent(_text):
+            return MagicMock(type="command", intent="system", confidence=1.0, length=2)
+
+        data = {"device_id": "laptop", "text": text, "active_window": "", "context": []}
+        ctx = self._make_ctx()
+
+        with patch.object(wh, "classify_intent", side_effect=fake_classify_intent), \
+             patch.object(wh, "match_voice_trigger", return_value=None), \
+             patch.object(wh, "stream_tts_to_device", AsyncMock()), \
+             patch.object(wh, "add_episode", MagicMock()), \
+             patch.object(wh, "_disp_current", return_value={"stance": "neutral", "valence": 0.0, "arousal": 0.0}), \
+             patch.object(wh.st, "connected_devices", {"laptop": ws_dev}), \
+             patch.object(wh.st, "_pending_commands", {}), \
+             patch.object(wh.st, "_last_executed", {}), \
+             patch.object(wh.st, "_pending_plan", {}), \
+             patch.object(wh.st, "_pending_clarify", {}), \
+             patch.object(wh.st, "_pending_system", pending_system if pending_system is not None else {}):
+            asyncio.get_event_loop().run_until_complete(
+                wh.handle_voice_command(None, data, ctx)
+            )
+            # Снимок словаря делаем ДО выхода из patch.object — иначе он
+            # откатится к состоянию, которое было до подмены.
+            result = dict(wh.st._pending_system)
+        return result
+
+    def test_shutdown_creates_pending_system_not_sent(self):
+        """«Выключи компьютер» не уходит на агент сразу — создаёт запись в _pending_system."""
+        import modules.ws_handlers as wh
+        ws_dev = MagicMock()
+        ws_dev.send = AsyncMock()
+
+        pending = self._run_voice_command("выключи компьютер", ws_dev)
+
+        ws_dev.send.assert_not_awaited()
+        self.assertIn("laptop", pending)
+        self.assertEqual(pending["laptop"]["action"], "system:shutdown")
+
+    def test_confirm_yes_sends_command_to_agent(self):
+        """Ответ «да» в пределах TTL → команда уходит на агент, запись очищается."""
+        import json
+        import modules.ws_handlers as wh
+        ws_dev = MagicMock()
+        ws_dev.send = AsyncMock()
+
+        pending_system = {
+            "laptop": {"action": "system:shutdown", "device": "laptop", "ts": time.monotonic()},
+        }
+        pending = self._run_voice_command("да", ws_dev, pending_system=pending_system)
+
+        ws_dev.send.assert_awaited_once()
+        sent = json.loads(ws_dev.send.await_args.args[0])
+        self.assertEqual(sent["action"], "system:shutdown")
+        self.assertNotIn("laptop", pending)
+
+    def test_confirm_no_cancels_without_sending(self):
+        """Ответ «нет» → команда НЕ уходит на агент, запись очищается."""
+        ws_dev = MagicMock()
+        ws_dev.send = AsyncMock()
+
+        pending_system = {
+            "laptop": {"action": "system:shutdown", "device": "laptop", "ts": time.monotonic()},
+        }
+        pending = self._run_voice_command("нет", ws_dev, pending_system=pending_system)
+
+        ws_dev.send.assert_not_awaited()
+        self.assertNotIn("laptop", pending)
+
+    def test_expired_pending_system_does_not_trigger(self):
+        """Истёкший TTL (>60с) — запись не срабатывает даже на «да»."""
+        import modules.ws_handlers as wh
+        ws_dev = MagicMock()
+        ws_dev.send = AsyncMock()
+
+        pending_system = {
+            "laptop": {"action": "system:shutdown", "device": "laptop", "ts": time.monotonic() - 61},
+        }
+        with patch.object(wh, "route_command", AsyncMock(return_value=None)), \
+             patch.object(wh, "_is_command_check", return_value=False):
+            pending = self._run_voice_command("да", ws_dev, pending_system=pending_system)
+
+        ws_dev.send.assert_not_awaited()
+        self.assertNotIn("laptop", pending)
+
 
 class Test3_PlanValidation(unittest.TestCase):
     """Group 3: plan validation and irreversibility detection."""

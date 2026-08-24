@@ -13,6 +13,7 @@ _pending_commands: dict[str, dict] = {}  # cmd_id → {"action", "device", "ts",
 _pending_clarify: dict[str, dict] = {}   # master_key → {"text", "main", "alt", "ts"}
 _last_executed: dict[str, dict] = {}     # master_key → {"text", "action", "ts"}
 _pending_plan: dict[str, dict] = {}      # master_key → {"text", "plan", "ts"}
+_pending_system: dict[str, dict] = {}    # master_key → {"action", "device", "ts"} — подтверждение опасных system:* команд, TTL 60с
 _plan_cancel: dict[str, bool] = {}       # master_key → True если отмена
 _last_command_ts: float = 0.0   # время последней выполненной команды
 _current_track: dict = {}       # текущий играющий трек (из агента)

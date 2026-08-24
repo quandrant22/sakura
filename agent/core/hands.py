@@ -705,8 +705,10 @@ def execute_command(action: str) -> dict:
             ctypes.windll.user32.LockWorkStation()
             return {"result": "заблокировано"}
         if arg == "shutdown":
-            subprocess.Popen(["shutdown", "/s", "/t", "30", "/c", "Команда Сакуры"])
-            return {"result": "выключение через 30 секунд"}
+            # Подтверждение уже получено на сервере (см. _pending_system в
+            # modules/ws_handlers.py) — ждать больше незачем, выключаем сразу.
+            subprocess.Popen(["shutdown", "/s", "/t", "0", "/c", "Команда Сакуры"])
+            return {"result": "выключение"}
         if arg == "shutdown_cancel":
             subprocess.Popen(["shutdown", "/a"])
             return {"result": "выключение отменено"}
