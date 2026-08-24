@@ -285,6 +285,63 @@ class Test11_WsHandlers(unittest.TestCase):
         ws_dev.send.assert_not_awaited()
         self.assertNotIn("laptop", pending)
 
+    # ── Тот же _pending_system, но через Telegram-путь (main.py) ────
+
+    @staticmethod
+    def _make_tg_message(text, master_id):
+        message = MagicMock()
+        message.text = text
+        message.chat = MagicMock(id=999)
+        message.from_user = MagicMock(id=master_id, is_bot=False, full_name="Мастер")
+        message.reply_to_message = None
+        message.answer = AsyncMock()
+        return message
+
+    def test_tg_shutdown_creates_pending_system_not_sent(self):
+        """«Выключи компьютер» через Telegram не уходит на агент сразу — создаёт _pending_system."""
+        with patch("aiogram.Bot"):
+            import main
+        master_id = int(os.environ["MASTER_ID"])
+        laptop_ws = MagicMock()
+        laptop_ws.send = AsyncMock()
+        message = self._make_tg_message("выключи компьютер", master_id)
+
+        with patch.object(main, "bot", MagicMock()), \
+             patch.object(main, "_get_active_ws", return_value=(laptop_ws, "laptop")), \
+             patch.object(main, "_pending_system", {}):
+            asyncio.get_event_loop().run_until_complete(main.handle_message(message))
+            pending = dict(main._pending_system)
+
+        laptop_ws.send.assert_not_awaited()
+        self.assertIn("tg", pending)
+        self.assertEqual(pending["tg"]["action"], "system:shutdown")
+
+    def test_tg_confirm_yes_sends_command_to_agent(self):
+        """Ответ «да» в Telegram в пределах TTL → команда уходит на агент через execute_critical_action."""
+        with patch("aiogram.Bot"):
+            import main
+        import modules.ws_handlers as wh
+        master_id = int(os.environ["MASTER_ID"])
+        laptop_ws = MagicMock()
+        laptop_ws.send = AsyncMock()
+        message = self._make_tg_message("да", master_id)
+
+        pending_system = {
+            "tg": {"action": "system:shutdown", "device": "laptop", "ts": time.monotonic()},
+        }
+        with patch.object(main, "bot", MagicMock()), \
+             patch.object(main, "_get_active_ws", return_value=(laptop_ws, "laptop")), \
+             patch.object(main, "_pending_system", pending_system), \
+             patch.object(wh, "add_episode", MagicMock()):
+            asyncio.get_event_loop().run_until_complete(main.handle_message(message))
+            pending = dict(main._pending_system)
+
+        laptop_ws.send.assert_awaited_once()
+        sent = json.loads(laptop_ws.send.await_args.args[0])
+        self.assertEqual(sent["action"], "system:shutdown")
+        self.assertNotIn("tg", pending)
+        message.answer.assert_awaited()
+
 
 class Test3_PlanValidation(unittest.TestCase):
     """Group 3: plan validation and irreversibility detection."""

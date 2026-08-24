@@ -148,11 +148,13 @@ from modules.state import (
     connected_devices, _pending_event_check, _pending_describe,
     _pending_commands, _pending_clarify, _last_executed,
     _pending_plan, _plan_cancel, _last_command_ts, _current_track,
+    _pending_system,
 )
 from modules.ws_handlers import (
     handle_register, handle_ping, handle_apps_list, handle_screen_context,
     handle_command_result, handle_kettle_ready, handle_notification,
     handle_tg_message, handle_voice_command, update_current_track,
+    execute_critical_action, _DANGEROUS_SYSTEM_ACTIONS, _SYSTEM_CONFIRM_PROMPTS,
 )
 
 # ─────────────────────────────────────────────
@@ -2967,6 +2969,34 @@ async def handle_message(message: Message):
     log.info(f"[вход] {text[:80]!r}")
     update_master_status(text)
 
+    # ── ПОДТВЕРЖДЕНИЕ ОПАСНОЙ СИСТЕМНОЙ КОМАНДЫ (shutdown/restart/sleep) ──
+    # Тот же _pending_system, что и в голосовом пути (modules/ws_handlers.py).
+    # Ключ "tg" — у Telegram-сообщения нет device_id, как и у голоса без устройства.
+    if "tg" in _pending_system:
+        _ps = _pending_system["tg"]
+        if __import__("time").monotonic() - _ps["ts"] < 60:
+            _ps_text = text_lower.strip().rstrip(".!?,")
+            _ps_confirm = ("да", "давай", "подтверждаю", "выключай", "точно", "конечно", "ага", "угу")
+            _ps_deny = ("нет", "отмена", "стоп", "не надо", "хватит")
+            if _ps_text in _ps_confirm:
+                del _pending_system["tg"]
+                laptop_ws, _active_dev = _get_active_ws()
+                if laptop_ws:
+                    await execute_critical_action(_ps["action"], laptop_ws, _active_dev, text, "", ask_gemini)
+                    await message.answer("Готово.")
+                else:
+                    await message.answer("Устройство отключилось, не могу выполнить.")
+                return
+            elif _ps_text in _ps_deny:
+                del _pending_system["tg"]
+                await message.answer("Хорошо, отменила.")
+                return
+            else:
+                # Мастер сменил тему — отменяем подтверждение, обрабатываем реплику обычным путём
+                del _pending_system["tg"]
+        else:
+            del _pending_system["tg"]
+
     # ── написать VIP текстом ──
     _wl = text_lower.replace(",", " ").split()
     if _wl and _wl[0] in ("напиши", "напишите", "передай", "сообщи", "скажи"):
@@ -3293,9 +3323,25 @@ async def handle_message(message: Message):
 
     system_cmd = parse_system_command(text)
     if system_cmd:
+        _sys_action = system_cmd["action"]
+        if _sys_action in _DANGEROUS_SYSTEM_ACTIONS:
+            # Опасная системная команда — не выполняем сразу, спрашиваем подтверждение
+            # (см. одноимённую проверку _pending_system выше по функции).
+            laptop_ws, _active_dev = _get_active_ws()
+            if laptop_ws:
+                _pending_system["tg"] = {
+                    "action": _sys_action,
+                    "device": _active_dev,
+                    "ts": __import__("time").monotonic(),
+                }
+                _sys_q = _SYSTEM_CONFIRM_PROMPTS.get(_sys_action, "Выполняю системную команду. Подтверждаешь?")
+                await message.answer(_sys_q)
+            else:
+                await message.answer("Нет подключённых устройств.")
+            return
         laptop_ws, _active_dev = _get_active_ws()
         if laptop_ws:
-            await laptop_ws.send(json.dumps({"type": "command", "action": system_cmd["action"]}))
+            await laptop_ws.send(json.dumps({"type": "command", "action": _sys_action}))
             reply = await ask_gemini(
                 f"Мастер попросил: {text}. Выполняю. Скажи коротко.",
                 save_history=False)

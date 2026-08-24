@@ -506,6 +506,37 @@ _SYSTEM_CONFIRM_PROMPTS = {
 }
 
 
+async def execute_critical_action(critical_action: str, ws_dev, device_id, text: str,
+                                    active_window: str, ask_gemini) -> None:
+    """Отправить критическую (kettle:/system:) команду агенту и записать эпизод.
+
+    Общий путь выполнения — используется и голосовым каналом (после route_critical
+    или после подтверждения "да"), и Telegram-текстом (main.py), чтобы опасные
+    системные команды исполнялись одинаково независимо от канала.
+    """
+    st._last_command_ts = __import__('time').monotonic()
+    await ws_dev.send(json.dumps({"type": "command", "action": critical_action}))
+    if critical_action.startswith("kettle:"):
+        _kreply = await ask_gemini(
+            f"Мастер попросил: {text}. Команда: {critical_action}. Скажи коротко.",
+            save_history=False)
+        if _kreply:
+            await stream_tts_to_device(_kreply, ws_dev, device_id or "laptop", literal=True)
+    # Провод 3: действие становится эпизодом
+    try:
+        from modules.disposition import current as _disp_ep
+        _dep = _disp_ep()
+        add_episode(
+            text=f"Выполнила команду: {text[:80]} → {critical_action}",
+            emotion=_dep["stance"],
+            valence=_dep["valence"],
+            arousal=_dep["arousal"],
+            context=active_window,
+        )
+    except Exception:
+        pass
+
+
 async def handle_voice_command(websocket, data, ctx) -> None:
     ask_gemini = ctx["ask_gemini"]
     ask_gemini_voice = ctx["ask_gemini_voice"]
@@ -1087,30 +1118,6 @@ async def handle_voice_command(websocket, data, ctx) -> None:
             pass
         return
 
-    async def _finish_critical(_crit_action: str) -> None:
-        """Отправить критическую команду агенту и записать эпизод."""
-        st._last_command_ts = __import__('time').monotonic()
-        await ws_dev.send(json.dumps({"type": "command", "action": _crit_action}))
-        if _crit_action.startswith("kettle:"):
-            _kreply = await ask_gemini(
-                f"Мастер попросил: {text}. Команда: {_crit_action}. Скажи коротко.",
-                save_history=False)
-            if _kreply:
-                await stream_tts_to_device(_kreply, ws_dev, device_id or "laptop", literal=True)
-        # Провод 3: действие становится эпизодом
-        try:
-            from modules.disposition import current as _disp_ep
-            _dep = _disp_ep()
-            add_episode(
-                text=f"Выполнила команду: {text[:80]} → {_crit_action}",
-                emotion=_dep["stance"],
-                valence=_dep["valence"],
-                arousal=_dep["arousal"],
-                context=data.get("active_window", ""),
-            )
-        except Exception:
-            pass
-
     _critical = route_critical(text)
     if _critical and ws_dev:
         if _critical in _DANGEROUS_SYSTEM_ACTIONS:
@@ -1124,7 +1131,7 @@ async def handle_voice_command(websocket, data, ctx) -> None:
             _sys_q = _SYSTEM_CONFIRM_PROMPTS.get(_critical, "Выполняю системную команду. Подтверждаешь?")
             await stream_tts_to_device(_sys_q, ws_dev, device_id or "laptop", literal=True)
             return
-        await _finish_critical(_critical)
+        await execute_critical_action(_critical, ws_dev, device_id, text, data.get("active_window", ""), ask_gemini)
         return
 
     # ── ПОДТВЕРЖДЕНИЕ ПЛАНА ─────────────────────────────
@@ -1141,7 +1148,7 @@ async def handle_voice_command(websocket, data, ctx) -> None:
             if _ps_text in _ps_confirm:
                 del st._pending_system[_mk]
                 if ws_dev:
-                    await _finish_critical(_ps["action"])
+                    await execute_critical_action(_ps["action"], ws_dev, device_id, text, data.get("active_window", ""), ask_gemini)
                 else:
                     await bot.send_message(MASTER_ID, "Устройство отключилось, не могу выполнить.")
                 return
