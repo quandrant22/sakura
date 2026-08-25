@@ -239,3 +239,39 @@ class TestRouterInfoHardcode(unittest.TestCase):
         from modules.command_router import _hardcoded_match
         self.assertIsNone(_hardcoded_match("как дела"))
         self.assertIsNone(_hardcoded_match("привет"))
+
+
+class TestVpsVoice(unittest.TestCase):
+
+    def test_status_with_metrics(self):
+        from modules.voice_info import vps_status
+        m = {"cpu": 23.4, "ram": 61.0, "disk": 48.2, "disk_free": 21, "uptime": "3 дня"}
+        with patch("modules.vps_monitor.get_metrics", return_value=m):
+            text, ok = _run(vps_status())
+        self.assertTrue(ok)
+        self.assertIn("CPU 23%", text)
+        self.assertIn("RAM 61%", text)
+        self.assertIn("свободно 21 ГБ", text)
+
+    def test_status_no_metrics_yet_is_honest(self):
+        from modules.voice_info import vps_status
+        with patch("modules.vps_monitor.get_metrics", return_value={}):
+            text, ok = _run(vps_status())
+        self.assertFalse(ok)
+        self.assertIn("ещё не собрал", text)
+
+    def test_feeling_normal_is_calm_answer(self):
+        from modules.voice_info import vps_feeling
+        with patch("modules.vps_monitor.get_body_feeling", return_value=""):
+            text, ok = _run(vps_feeling())
+        self.assertTrue(ok)
+        self.assertIn("спокойно", text)
+
+    def test_router_server_status(self):
+        from modules.command_router import _hardcoded_match
+        r = _hardcoded_match("как сервер?")
+        self.assertEqual(r["action"], "vps:status")
+        r = _hardcoded_match("какая сейчас нагрузка на систему")
+        self.assertEqual(r["action"], "vps:status")
+        r = _hardcoded_match("как твоё самочувствие")
+        self.assertEqual(r["action"], "vps:feeling")

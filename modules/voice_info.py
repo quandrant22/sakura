@@ -236,6 +236,49 @@ async def steam_recent():
 
 # ── Единая точка входа ────────────────────────────────────────────────
 
+def _vps_status_text() -> str:
+    """Факты о сервере из vps_monitor (метрики текущего момента)."""
+    from modules.vps_monitor import get_metrics
+    m = get_metrics()
+    if not m:
+        return ""
+    cpu, ram, disk = m.get("cpu", 0), m.get("ram", 0), m.get("disk", 0)
+    free = m.get("disk_free")
+    parts = [f"CPU {cpu:.0f}%", f"RAM {ram:.0f}%", f"диск {disk:.0f}%"]
+    if free:
+        parts.append(f"свободно {free} ГБ")
+    uptime = m.get("uptime")
+    if uptime:
+        parts.append(f"аптайм {uptime}")
+    return ", ".join(parts)
+
+
+async def vps_status():
+    """Как сервер / нагрузка. → (текст, ok)."""
+    try:
+        text = _vps_status_text()
+    except Exception as e:
+        log.debug(f"[voice_info] vps метрики: {e}")
+        return "Метрики сервера сейчас не получаются.", False
+    if not text:
+        return ("Мониторинг ещё не собрал ни одной метрики — "
+                "сервер запущен недавно."), False
+    return f"Сервер: {text}.", True
+
+
+async def vps_feeling():
+    """«Как самочувствие» — сервер как тело Сакуры. → (текст, ok)."""
+    from modules.vps_monitor import get_body_feeling
+    feeling = get_body_feeling() or ""
+    if feeling:
+        return feeling, True
+    # пусто = всё в норме — это тоже честный ответ
+    return ("Чувствую себя спокойно: нагрузка в норме, "
+            "ничего не давит."), True
+
+
+# ── Единая точка входа ────────────────────────────────────────────────
+
 async def handle(action: str, arg: str = "", text: str = ""):
     """Диспетчер информационных команд. Возвращает (текст, ok)."""
     action = action or ""
@@ -255,6 +298,10 @@ async def handle(action: str, arg: str = "", text: str = ""):
             return await steam_progress(arg)
         if action == "steam:recent":
             return await steam_recent()
+        if action == "vps:status":
+            return await vps_status()
+        if action == "vps:feeling":
+            return await vps_feeling()
     except Exception as e:
         log.error(f"[voice_info] {action}: {type(e).__name__}: {e}")
         return "Не смогла получить данные у источника — он недоступен.", False
