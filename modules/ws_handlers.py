@@ -1593,9 +1593,10 @@ async def handle_voice_command(websocket, data, ctx) -> None:
     active_win = data.get("active_window", "")
     # Обновляем контекст игрового хаба
     try:
+        from modules.game_hub import get_game_context_for_device
         get_game_context_for_device(active_win)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[voice] game_hub ctx: {e}")
     log.info(f"[voice] → ask_gemini_voice ws_dev={ws_dev is not None} device={device_id}")
     await ask_gemini_voice(
         user_message  = text + ctx_str,

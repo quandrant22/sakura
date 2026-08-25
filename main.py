@@ -736,7 +736,7 @@ async def send_to_master(text: str, **kwargs):
 async def send_telegram_text(chat_id: int, text: str, **kwargs):
     if chat_id == MASTER_ID:
         return await send_to_master(text, **kwargs)
-    cleaned = _strip_tone_tag(text)
+    cleaned = _strip_tone(text)
     result = bot.send_message(chat_id, cleaned, **kwargs)
     if inspect.isawaitable(result):
         return await result
@@ -2100,12 +2100,18 @@ async def ask_gemini(user_message: str, save_history: bool = True) -> str:
     # Дополнительный контекст
     try:
         game_hit = await asyncio.to_thread(search_game, user_message)
-        if game_hit and (not _current_game or game_hit.get('appid') != _current_game.get('appid')):
-            h = game_hit.get('playtime_forever', 0) // 60
-            full_system += (
-                f"\n\nИГРА ИЗ БИБЛИОТЕКИ МАСТЕРА: {game_hit['name']} "
-                f"(наиграно {h}ч) — Мастер спрашивает про эту игру."
-            )
+        if game_hit:
+            # Текущая игра — из глобального состояния модуля steam_integration.
+            # (_current_game в main.py не определён, раньше падало с NameError
+            # и контекст молча терялся.)
+            from modules import steam_integration as _steam_mod
+            current_game = _steam_mod._current_game
+            if not current_game or game_hit.get('appid') != current_game.get('appid'):
+                h = game_hit.get('playtime_forever', 0) // 60
+                full_system += (
+                    f"\n\nИГРА ИЗ БИБЛИОТЕКИ МАСТЕРА: {game_hit['name']} "
+                    f"(наиграно {h}ч) — Мастер спрашивает про эту игру."
+                )
     except Exception:
         pass
 
