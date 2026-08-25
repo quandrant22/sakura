@@ -50,10 +50,6 @@ _vc_guild_id: Optional[int]               = None
 _vc_text_channel                          = None
 _processing = False
 
-# Whisper модель в памяти (предзагружается при старте)
-_whisper_model = None
-_whisper_lock  = threading.Lock()
-
 # Оптимизированные настройки STT
 WHISPER_MODEL    = "medium"      # "small" → "medium" для лучшего качества
 WHISPER_DEVICE   = "cpu"
@@ -62,22 +58,6 @@ WHISPER_BEAM     = 5             # Beam search для точности
 WHISPER_LANGUAGE = "ru"          # Язык по умолчанию
 WHISPER_VAD      = True          # VAD для пропуска тишины
 WHISPER_INITIAL  = "Сакура, привет, как дела, хорошо, отлично, спасибо"  # Контекст для русского
-
-
-def _get_whisper():
-    global _whisper_model
-    if _whisper_model is None:
-        with _whisper_lock:
-            if _whisper_model is None:
-                from faster_whisper import WhisperModel
-                log.info(f"[Discord STT] Загружаю Whisper {WHISPER_MODEL}...")
-                _whisper_model = WhisperModel(
-                    WHISPER_MODEL,
-                    device=WHISPER_DEVICE,
-                    compute_type=WHISPER_COMPUTE
-                )
-                log.info("[Discord STT] Whisper готов")
-    return _whisper_model
 
 # ── История ───────────────────────────────────────────────────────────
 _history: list[dict] = []
@@ -363,7 +343,8 @@ class SakuraSink(voice_recv.AudioSink):
         finally:
             _processing = False
 
-# Whisper модель в памяти (предзагружается при старте)
+# Whisper модель в памяти (предзагружается при старте).
+# ЕДИНОЕ определение: globals и функция объявлены здесь один раз.
 _whisper_model = None
 _whisper_lock  = threading.Lock()
 

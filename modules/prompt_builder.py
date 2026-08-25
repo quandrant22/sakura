@@ -146,10 +146,10 @@ def build_module_prompt(
     # Формируем промпт
     prompt_parts = [
         f"Создай модуль {name}.py в /opt/sakura/modules/",
-        f"",
+        "",
         f"ОПИСАНИЕ: {description}",
-        f"",
-        f"ФУНКЦИИ:",
+        "",
+        "ФУНКЦИИ:",
     ]
 
     for func in functions:
@@ -158,14 +158,14 @@ def build_module_prompt(
 
     if storage:
         prompt_parts.extend([
-            f"",
+            "",
             f"ХРАНЕНИЕ: {storage}",
         ])
 
     if integration:
         prompt_parts.extend([
-            f"",
-            f"ИНТЕГРАЦИЯ В main.py:",
+            "",
+            "ИНТЕГРАЦИЯ В main.py:",
             f"{integration}",
         ])
 
@@ -175,21 +175,21 @@ def build_module_prompt(
     # Паттерны проекта
     if project.get("patterns"):
         prompt_parts.extend([
-            f"",
-            f"ПАТТЕРНЫ ПРОЕКТА:",
+            "",
+            "ПАТТЕРНЫ ПРОЕКТА:",
             *project["patterns"],
         ])
 
     # Требования к стилю
     prompt_parts.extend([
-        f"",
-        f"ТРЕБОВАНИЯ К СТИЛЮ:",
-        f"- Только русские комментарии",
-        f"- Без эмодзи",
-        f"- Без markdown в коде",
-        f"- Логирование через logging.getLogger",
-        f"- Обработка ошибок через try/except",
-        f"- Docstrings на русском",
+        "",
+        "ТРЕБОВАНИЯ К СТИЛЮ:",
+        "- Только русские комментарии",
+        "- Без эмодзи",
+        "- Без markdown в коде",
+        "- Логирование через logging.getLogger",
+        "- Обработка ошибок через try/except",
+        "- Docstrings на русском",
     ])
 
     return "\n".join(prompt_parts)
@@ -201,30 +201,30 @@ def build_fix_prompt(path: str, error: str, context: str = "") -> str:
 
     prompt_parts = [
         f"Исправь ошибку в {path}",
-        f"",
+        "",
         f"ОШИБКА: {error}",
     ]
 
     if context:
         prompt_parts.extend([
-            f"",
+            "",
             f"КОНТЕКСТ: {context}",
         ])
 
     if analysis.get("functions"):
         func_lines = [f"  - {f['name']}({', '.join(f['args'])})" for f in analysis["functions"][:10]]
         prompt_parts.extend([
-            f"",
-            f"ФУНКЦИИ В ФАЙЛЕ:",
+            "",
+            "ФУНКЦИИ В ФАЙЛЕ:",
             *func_lines,
         ])
 
     prompt_parts.extend([
-        f"",
-        f"ТРЕБОВАНИЯ:",
-        f"- Исправь только ошибку, не меняй логику",
-        f"- Сохрани стиль кода",
-        f"- Добавь комментарий что было исправлено",
+        "",
+        "ТРЕБОВАНИЯ:",
+        "- Исправь только ошибку, не меняй логику",
+        "- Сохрани стиль кода",
+        "- Добавь комментарий что было исправлено",
     ])
 
     return "\n".join(prompt_parts)
@@ -236,20 +236,20 @@ def build_review_prompt(path: str) -> str:
 
     prompt_parts = [
         f"Проведи ревью файла {path}",
-        f"",
-        f"ПРОВЕРЬ:",
-        f"1. Баги и ошибки",
-        f"2. Проблемы безопасности",
-        f"3. Производительность",
-        f"4. Читаемость кода",
-        f"5. Соответствие паттернам проекта",
+        "",
+        "ПРОВЕРЬ:",
+        "1. Баги и ошибки",
+        "2. Проблемы безопасности",
+        "3. Производительность",
+        "4. Читаемость кода",
+        "5. Соответствие паттернам проекта",
     ]
 
     if analysis.get("functions"):
         func_lines = [f"  - {f['name']}" for f in analysis["functions"][:15]]
         prompt_parts.extend([
-            f"",
-            f"ФУНКЦИИ ДЛЯ АНАЛИЗА:",
+            "",
+            "ФУНКЦИИ ДЛЯ АНАЛИЗА:",
             *func_lines,
         ])
 

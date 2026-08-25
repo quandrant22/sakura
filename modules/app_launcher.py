@@ -103,7 +103,6 @@ def get_smart_default() -> Optional[str]:
         conn = _conn()
         now = datetime.now()
         hour = now.hour
-        weekday = now.weekday()
 
         # Ищем самое частое приложение для этого времени
         row = conn.execute("""

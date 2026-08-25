@@ -31,11 +31,12 @@ from memory.memory import (
 from modules.device_manager import (
     update_device, get_device_status, get_device_context,
     set_device_offline, parse_device_from_text,
-    get_online_devices, load_devices, get_active_device
+    get_online_devices, load_devices,
+    # get_active_device берётся из presence_sync (ниже) — версия device_manager не используется
 )
 from modules.context import build_context_block, get_full_context, is_home_alone, is_gaming
 from modules.timeline import get_timeline_context, get_achievements_context, extract_and_save_from_dialogue
-from modules.mood_vector import get_mood_context, mark_interaction, auto_detect_mood_from_reply
+from modules.mood_vector import mark_interaction, auto_detect_mood_from_reply
 from modules.proactive import (
     can_send_message, mark_sent, get_trigger, update_master_status,
     mark_work_event, get_silence_context, load_state, has_recent_semantic_duplicate,
@@ -76,6 +77,8 @@ from modules.chains import (
 )
 from modules.presence_sync import (update as ps_update, set_offline as ps_offline,
     get_active_device, check_device_transfer, broadcast_transfer, get_context_for_device)
+# ^ get_active_device — единственная используемая версия (presence_sync),
+#   переопределяла бы версию из device_manager, поэтому там она убрана.
 from modules.memory_honesty import enrich_memory_context
 from modules.evening_pulse import should_send_pulse, mark_pulse_sent, get_pulse_prompt, check_pc_health
 from modules.vps_monitor import start_monitor, get_vps_context, get_vps_alert
@@ -87,7 +90,7 @@ from modules.episodes import add_episode, get_recall
 from modules.discord_bot      import start_bot as discord_start_bot, is_discord_priority, register_agent_request
 from modules.command_router import route_command, route_critical, is_irreversible, EXEC_THRESHOLD, GRAY_THRESHOLD
 from modules.intent_classifier import classify_intent, is_command, is_question, IntentResult
-from modules.game_hub import get_game_context_for_device, set_game_mood, build_game_prompt_context
+from modules.game_hub import get_game_context_for_device, set_game_mood  # noqa: F401 (используются в ws-путях)
 from modules.calculator import calculate
 from modules.fortune_cookie import is_fortune_request, get_fortune, format_fortune
 from modules.reminders import (
@@ -148,7 +151,8 @@ from modules.guest_relations import (
     get_relation, set_relation, adjust_relation,
     detect_relation_from_text, get_relation_prompt,
 )
-from modules.fortune_cookie import get_context_for_prompt as get_fortune_cookie_ctx
+# get_context_for_prompt (fortune_cookie) импортируется лениво внутри _build_system:
+# сбой модуля не должен ронять сборку промпта
 from modules.state import (
     connected_devices, _pending_event_check, _pending_describe,
     _pending_commands, _pending_clarify, _last_executed,
@@ -1336,7 +1340,16 @@ def _build_proactive_prompt(base_prompt: str, devices: dict, trigger: str, silen
         "упрёки про долгую работу за ноутбуком не чаще раза в 3 дня; "
         "ты уже писала это недавно — НЕ повторяй тему и формулировки, найди другой повод или промолчи."
     )
-    return f"{base_prompt}\n\n{presence_ctx}\n{recent_ctx}{rules}"
+    # Реальное время тишины передаём как факт (раньше считалось, но в промпт
+    # не попадало — модель не знала реальную паузу)
+    s_min = (silence or {}).get("silence_minutes") or 0
+    if s_min > 0:
+        hours, mins = divmod(s_min, 60)
+        pretty = f"{hours} ч {mins} мин" if hours else f"{mins} мин"
+        silence_ctx = f"Прошло с последнего сообщения Мастера (факт): {pretty}.\n"
+    else:
+        silence_ctx = ""
+    return f"{base_prompt}\n\n{presence_ctx}\n{recent_ctx}{silence_ctx}{rules}"
 
 _proactive_prompt_idx = 0
 
@@ -1678,17 +1691,18 @@ def _build_voice_system() -> str:
         game_ctx = format_current_game_context()
         if game_ctx:
             parts.append(game_ctx)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[build_system] game ctx: {e}")
 
-    # 3.1. Игровой хаб — контекст сессии
+    # 3.1. Игровой хаб — контекст сессии.
+    # Импорт локально: сбой game_hub не должен ронять сборку промпта.
     try:
         from modules.game_hub import build_game_prompt_context
         hub_ctx = build_game_prompt_context()
         if hub_ctx:
             parts.append(hub_ctx)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[build_system] game hub: {e}")
 
     # 4. Steam библиотека (компактно)
     try:
@@ -1696,17 +1710,17 @@ def _build_voice_system() -> str:
         lib = format_library_context()
         if lib:
             parts.append(lib)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[build_system] steam lib: {e}")
 
-    # 5. Настроение
+    # 5. Настроение — локальный импорт: сбой mood_vector не роняет промпт
     try:
         from modules.mood_vector import get_mood_context
         mood = get_mood_context()
         if mood:
             parts.append(mood)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[build_system] mood: {e}")
 
     # 5.5. Музыкальный вкус
     try:
@@ -2134,7 +2148,6 @@ async def ask_gemini(user_message: str, save_history: bool = True) -> str:
     if save_history:
         add_to_history("user", user_message)
         add_to_history("model", reply)
-        hist = get_history()
         # Извлекаем память из каждого диалога (дедупликация на уровне БД)
         asyncio.create_task(extract_and_remember(user_message, reply))
         if should_summarize():
@@ -2420,7 +2433,7 @@ async def _execute_plan(plan: dict, master_key: str, ws_dev, device_id) -> tuple
 
         # Отправка команды на агент
         if not ws_dev:
-            return False, f"Устройство offline, план не может быть выполнен."
+            return False, "Устройство offline, план не может быть выполнен."
 
         full_action = f"{action}:{arg}" if arg and ":" not in action else action
         _cmd_id = _register_command(full_action, device_id or "laptop")
@@ -2855,7 +2868,9 @@ async def handle_message(message: Message):
             if is_capsule_request(text):
                 open_date = parse_open_date(text)
                 if open_date:
-                    capsule = await asyncio.to_thread(create_capsule, text, open_date)
+                    # Капсула создаётся ради сайд-эффекта записи в БД;
+                    # ответ Мастеру формирует make_create_prompt(open_date)
+                    await asyncio.to_thread(create_capsule, text, open_date)
                     await message.reply(make_create_prompt(open_date))
                     return
         except Exception:
@@ -2881,10 +2896,6 @@ async def handle_message(message: Message):
         # Фаза 4: команды аудио-устройств
         if text.startswith("/устройств"):
             reply = await handle_audio_command(text, connected_devices)
-            await message.reply(reply)
-            return
-            await bot.send_chat_action(message.chat.id, "typing")
-            reply = await ask_gemini(text)
             await message.reply(reply)
             return
 
@@ -2963,7 +2974,6 @@ async def handle_message(message: Message):
     # ── Мастер ─────────────────────────────────────────────────────────────────
     text       = message.text
     text_lower = text.lower()
-    _msg_t0 = __import__("time").monotonic()
     log.info(f"[вход] {text[:80]!r}")
     update_master_status(text)
 
@@ -3216,10 +3226,6 @@ async def handle_message(message: Message):
             log.error(f"[coding] Ошибка: {e}")
             await message.answer(f"Ошибка кодинга: {str(e)[:200]}")
             return
-            await message.answer(reply)
-        else:
-            await message.answer("Нет подключённых устройств.")
-        return
 
     close_triggers = ["закрой ", "закрыть "]
     if any(t in tl_check for t in close_triggers):

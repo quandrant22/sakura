@@ -271,16 +271,14 @@ class Capabilities:
         caps = []
 
         try:
-            import sounddevice
+            # один проверочный импорт на обе аудио-возможности
+            import sounddevice  # noqa: F401
+            has_sounddevice = True
+        except ImportError:
+            has_sounddevice = False
+        if has_sounddevice:
             caps.append(Capabilities.VOICE)
-        except ImportError:
-            pass
-
-        try:
-            import sounddevice
             caps.append(Capabilities.TTS)
-        except ImportError:
-            pass
 
         try:
             from PIL import ImageGrab

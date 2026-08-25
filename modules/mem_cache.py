@@ -168,8 +168,6 @@ def patch_memory_module():
     try:
         import memory.memory as mm
 
-        _orig_load = mm.load_long_term
-
         def _cached_load_long_term():
             return get_json(mm.MEMORY_FILE, {"master": {}, "last_updated": None, "last_analysis": None})
 

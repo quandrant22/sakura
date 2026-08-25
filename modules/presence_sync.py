@@ -180,7 +180,7 @@ async def broadcast_transfer(
     орб анимирует «прилёт».
     Старое устройство получает is_departure=True — орб «тускнеет».
     """
-    import json
+    # json импортирован на уровне модуля — локальный дубль убран
 
     to_dev   = transfer["to"]
     from_dev = transfer.get("from", "")
@@ -216,10 +216,7 @@ def get_context_for_device(device_id: str) -> str:
     """
     try:
         # История уже централизована на VPS — просто возвращаем summary
-        from memory.db import _conn
-        # Последнее summary дня
-        conn = _conn()
-        # Используем reflection summary если есть
+        # (соединение БД поток-локальное и берётся лениво — здесь оно не нужно)
         summary_file = "memory/session_summary.json"
         import os, json as _json
         if os.path.exists(summary_file):

@@ -333,7 +333,8 @@ def get_trigger(devices: dict, memory_ctx: str) -> tuple:
     status  = get_master_status()
     state   = load_state()
     today   = str(now.date())
-    silence = get_silence_context()
+    # (silence-контекст здесь не нужен: реальное время тишины передаётся
+    #  в промпт через _build_proactive_prompt в main.py)
 
     if NIGHT_SILENT_START <= hour < NIGHT_SILENT_END:
         return None, False

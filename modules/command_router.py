@@ -239,7 +239,7 @@ async def route_command(text: str, context: dict | None = None) -> dict | None:
     context: {"active_window": str, "current_track": dict, "youtube_open": bool}
     Возвращает dict {"action": ..., "arg": ..., "agent": ...} или None.
     """
-    from config import get_active_key, mark_key_used, mark_key_rate_limited
+    # get_active_key/mark_key_used/mark_key_rate_limited импортированы на уровне модуля
     from google import genai
     from google.genai import types
 
@@ -325,7 +325,7 @@ async def route_command(text: str, context: dict | None = None) -> dict | None:
         except Exception as e:
             err = str(e)
             if "429" in err or "quota" in err.lower() or "exhausted" in err.lower():
-                log.warning(f"[router] 429, пропускаю (keys не блокирую)")
+                log.warning("[router] 429, пропускаю (keys не блокирую)")
                 return None
             log.debug(f"[router] error: {e}")
             return None

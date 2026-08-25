@@ -63,7 +63,7 @@ def get_upcoming_events(hours_ahead: int = 24) -> list:
 
         return result
 
-    except Exception as e:
+    except Exception:
         return []
 
 
@@ -72,7 +72,6 @@ def get_calendar_context() -> str:
     if not events:
         return ""
 
-    now = datetime.now()
     lines = ["СОБЫТИЯ В КАЛЕНДАРЕ (ближайшие 24 часа):"]
     for e in events:
         line = f"- {e['date']} {e['time']}: {e['summary']}"
