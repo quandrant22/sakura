@@ -387,3 +387,103 @@ class TestRouterReminderTaskHardcode(unittest.TestCase):
         from modules.command_router import _hardcoded_match
         r = _hardcoded_match("какие у меня задачи?")
         self.assertEqual(r["action"], "task:list")
+
+
+class TestWeatherVoice(unittest.TestCase):
+
+    def test_weather_facts(self):
+        from modules.voice_info import weather_now
+        w = {"temp": -3.4, "desc": "небольшой снег", "category": "snow",
+             "wind": 4.2, "daily": [{"t_min": -6, "t_max": -1}]}
+        with patch("modules.weather.get_weather", new=AsyncMock(return_value=w)):
+            text, ok = _run(weather_now())
+        self.assertTrue(ok)
+        self.assertIn("-3.4°C", text)
+        self.assertIn("небольшой снег", text)
+        self.assertIn("от -6 до -1", text)
+
+    def test_weather_service_down_is_honest(self):
+        from modules.voice_info import weather_now
+        with patch("modules.weather.get_weather",
+                   new=AsyncMock(return_value=None)):
+            text, ok = _run(weather_now())
+        self.assertFalse(ok)
+        self.assertIn("не «данных нет»", text)
+
+    def test_router_weather(self):
+        from modules.command_router import _hardcoded_match
+        r = _hardcoded_match("какая погода?")
+        self.assertEqual(r["action"], "weather:now")
+
+
+class TestMusicStatsVoice(unittest.TestCase):
+
+    def test_recent_with_period(self):
+        from modules.voice_info import music_recent
+        with patch("modules.music_memory.format_recent",
+                   return_value="• 14:02 — Кино — Группа крови") as fm:
+            text, ok = _run(music_recent("вчера"))
+        self.assertTrue(ok)
+        fm.assert_called_once_with(hours=48)
+        self.assertIn("За вчера", text)
+
+    def test_recent_empty_honest(self):
+        from modules.voice_info import music_recent
+        with patch("modules.music_memory.format_recent",
+                   return_value="Нет данных о прослушиваниях."):
+            text, ok = _run(music_recent("сегодня"))
+        self.assertTrue(ok)
+        self.assertIn("прослушиваний нет", text.lower())
+
+    def test_top(self):
+        from modules.voice_info import music_top
+        with patch("modules.music_memory.format_top",
+                   return_value="За 7 дн.: 40 прослушиваний") as ft:
+            text, ok = _run(music_top("неделя"))
+        self.assertTrue(ok)
+        ft.assert_called_once_with(days=7)
+        self.assertIn("40 прослушиваний", text)
+
+    def test_router_music(self):
+        from modules.command_router import _hardcoded_match
+        r = _hardcoded_match("что я слушал вчера")
+        self.assertEqual(r["action"], "music_stats:recent")
+        self.assertEqual(r["arg"], "вчера")
+        r = _hardcoded_match("кого я слушаю чаще всего")
+        self.assertEqual(r["action"], "music_stats:top")
+
+
+class TestCapsulesVoice(unittest.TestCase):
+
+    def test_list_capsules(self):
+        from modules.voice_info import capsules_list
+        caps = [
+            {"id": 1, "text": "Письмо себе", "open_date": "2027-01-01"},
+            {"id": 2, "text": "Секретик", "open_date": "2026-12-31"},
+        ]
+        with patch("modules.capsules.get_all_capsules", return_value=caps) as gm:
+            text, ok = _run(capsules_list())
+        gm.assert_called_once_with(include_opened=False)
+        self.assertTrue(ok)
+        self.assertIn("Ждут вскрытия 2", text)
+        self.assertIn("2027-01-01: Письмо себе", text)
+
+    def test_list_empty(self):
+        from modules.voice_info import capsules_list
+        with patch("modules.capsules.get_all_capsules", return_value=[]):
+            text, ok = _run(capsules_list())
+        self.assertTrue(ok)
+        self.assertIn("нет", text.lower())
+
+    def test_router_does_not_hijack_creation(self):
+        """Вопрос о капсулах матчится, а фразы создания — НЕТ."""
+        from modules.command_router import _hardcoded_match
+        r = _hardcoded_match("какие у меня капсулы ждут")
+        self.assertEqual(r["action"], "capsule:list")
+        self.assertIsNone(_hardcoded_match("спрячь капсулу до мая"))
+        self.assertIsNone(_hardcoded_match("открой капсулу которая ждёт"))
+
+    def test_briefing_in_catalog(self):
+        """briefing:now присутствует в каталоге интентов."""
+        from modules.command_router import INTENTS_PROMPT
+        self.assertIn('"briefing:now"', INTENTS_PROMPT)

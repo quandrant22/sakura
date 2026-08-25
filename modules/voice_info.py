@@ -360,6 +360,72 @@ async def tasks_done(arg: str):
     return f"Отметила задачу {task_id} выполненной.", True
 
 
+# ── Погода ────────────────────────────────────────────────────────────
+
+async def weather_now():
+    """Какая погода сейчас. → (текст, ok).
+    Факты собираем из словаря get_weather() (temp/desc/wind/daily);
+    get_weather_context() — промптовый подтекст и на «ясно» пустой,
+    для ответа Мастеру не годится."""
+    from modules.weather import get_weather
+    w = await get_weather()
+    if not w:
+        return ("Сервис погоды не ответил. Это не «данных нет» — "
+                "он просто недоступен, попробуй позже."), False
+    parts = [f"Сейчас {w.get('temp', '?')}°C, {w.get('desc') or w.get('category', '')}"]
+    wind = w.get("wind")
+    if wind is not None:
+        parts.append(f"ветер {wind} м/с")
+    daily = w.get("daily") or []
+    if len(daily) >= 1:
+        d0 = daily[0]
+        try:
+            parts.append(f"сегодня от {d0['t_min']} до {d0['t_max']}°C")
+        except (KeyError, TypeError):
+            pass
+    return ". ".join(parts) + ".", True
+
+
+# ── Музыкальная статистика ────────────────────────────────────────────
+
+async def music_recent(arg: str):
+    """Что я слушал за период. → (текст, ok)."""
+    from modules.music_memory import format_recent
+    word = _default_period_word(arg or "сегодня")
+    hours = 48 if word == "вчера" else (24 if word == "сегодня" else 168)
+    label = _period_human(word)
+    text = format_recent(hours=hours)
+    if text.startswith("Нет данных"):
+        return f"{label} прослушиваний нет.", True
+    return f"{label} слушал(а):\n{text}", True
+
+
+async def music_top(arg: str):
+    """Кого слушаю чаще всего. → (текст, ok)."""
+    from modules.music_memory import format_top
+    word = _default_period_word(arg or "неделя")
+    days = 30 if word == "за месяц" else 7
+    text = format_top(days=days)
+    if text.startswith("Нет данных"):
+        return "За этот период статистики прослушиваний нет.", True
+    return text, True
+
+
+# ── Капсулы ───────────────────────────────────────────────────────────
+
+async def capsules_list():
+    """Какие капсулы ждут. → (текст, ok)."""
+    from modules.capsules import get_all_capsules
+    caps = get_all_capsules(include_opened=False) or []
+    if not caps:
+        return "Запечатанных капсул нет.", True
+    n = len(caps)
+    head = f"Ждут вскрытия {n}:" if n > 1 else "Одна капсула ждёт вскрытия:"
+    lines = [f"— открыть {c.get('open_date', '?')}: "
+             f"{str(c.get('text', ''))[:60]}" for c in caps[:8]]
+    return head + "\n" + "\n".join(lines), True
+
+
 def _now():
     import time as _t
     return _t.time()
@@ -400,6 +466,14 @@ async def handle(action: str, arg: str = "", text: str = ""):
             return await tasks_list()
         if action == "task:done":
             return await tasks_done(arg)
+        if action == "weather:now":
+            return await weather_now()
+        if action == "music_stats:recent":
+            return await music_recent(arg)
+        if action == "music_stats:top":
+            return await music_top(arg)
+        if action == "capsule:list":
+            return await capsules_list()
     except Exception as e:
         log.error(f"[voice_info] {action}: {type(e).__name__}: {e}")
         return "Не смогла получить данные у источника — он недоступен.", False

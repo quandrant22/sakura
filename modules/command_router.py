@@ -113,6 +113,13 @@ STEAM (игры и ачивки Мастера):
 - Какие задачи, что по задачам → {"action": "task:list"}
 - Выполнил/сделал задачу N → {"action": "task:done", "arg": "N"}
 
+ПОГОДА, МУЗЫКА-СТАТИСТИКА, ПРОЧЕЕ:
+- Какая погода сейчас → {"action": "weather:now"}
+- Что я слушал сегодня/вчера/за неделю → {"action": "music_stats:recent", "arg": "ПЕРИОД"}
+- Кого слушаю чаще всего, топ исполнителей → {"action": "music_stats:top"}
+- Что нового, сделай брифинг → {"action": "briefing:now"}
+- Какие капсулы ждут вскрытия → {"action": "capsule:list"}
+
 ВАЖНЫЕ ПРАВИЛА:
 1. Используй контекст! Если играет музыка → «лайк» = music_like. Если открыт YouTube → «лайк» = youtube_like.
 2. Если играет музыка → «следующий», «пауза», «стоп» относятся к музыке.
@@ -302,6 +309,23 @@ def _info_hardcoded(tl: str) -> dict | None:
         return {"action": "reminder:list"}
     if re.search(r"(?<!\w)(?:напомни|таймер)\b", tl):
         return {"action": "reminder:add"}
+
+    # Погода сейчас (создание капсул и прочие «открой…» не задеваем)
+    if re.search(r"(?<!\w)погод\w*", tl) \
+            and re.search(r"(?<!\w)(?:какая|какова\w*|что\s+с|на\s+улице)", tl):
+        return {"action": "weather:now"}
+
+    # Музыкальная статистика
+    if re.search(r"что\s+я\s+слушал\w*", tl):
+        return {"action": "music_stats:recent", "arg": _period_arg(tl)}
+    if re.search(r"(?:кого\s+(?:я\s+)?слуша\w*\s+чащ|чаще\s+всего\s+слуша"
+                 r"|топ\s+исполнител|любим\w*\s+исполнител)", tl):
+        return {"action": "music_stats:top"}
+
+    # Капсулы — только вопросы о них, не создание
+    if re.search(r"(?<!\w)капсул\w+", tl) \
+            and not re.search(r"спрячь|положи|вскрой|открой|закопай|созда", tl):
+        return {"action": "capsule:list"}
 
     return None
 
