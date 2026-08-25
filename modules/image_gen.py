@@ -49,5 +49,5 @@ async def translate_to_english(prompt: str, gemini_client, model: str) -> str:
         )
         result = (response.text or "").strip()
         return result if result else prompt
-    except:
+    except Exception:
         return prompt

@@ -226,8 +226,8 @@ def _get_active_ws():
         dev = get_active_device()
         if dev and dev in connected_devices:
             return connected_devices[dev], dev
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] _get_active_ws: {type(e).__name__}: {e}")
     # Fallback: первое подключённое
     for dev_id, ws in connected_devices.items():
         return ws, dev_id
@@ -998,8 +998,8 @@ async def _analyze_screen_context(screenshot_b64: str, active_window: str, devic
             try:
                 from modules.context import set_screen_context
                 set_screen_context(active_window, description)
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"[main] _analyze_screen_context: {type(e).__name__}: {e}")
 
             log.debug(f"[screen] Контекст: {description[:60]}")
     except Exception as e:
@@ -1290,8 +1290,8 @@ async def daily_analysis():
                 _cleaned = cleanup_auto()
                 if _cleaned:
                     log.info(f"[daily] auto aliases cleaned: {_cleaned}")
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"[main] daily_analysis: {type(e).__name__}: {e}")
         except Exception as e:
             log.error(f"Daily analysis error: {e}")
 
@@ -1398,8 +1398,8 @@ async def proactive_loop():
                     if upcoming:
                         trigger = "task_upcoming"
                         prompt  = f"Через 30 минут: {upcoming[0]['text']}. Напомни коротко."
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug(f"[main] proactive_loop: {type(e).__name__}: {e}")
 
             if not trigger:
                 try:
@@ -1408,8 +1408,8 @@ async def proactive_loop():
                         trigger = "calendar_urgent"
                         prompt  = f"Через {urgent.get('minutes_left','?')} мин событие: {urgent['summary']}. Срочно предупреди."
                         is_crit = True
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug(f"[main] proactive_loop: {type(e).__name__}: {e}")
 
             if not trigger:
                 trigger, is_crit = get_trigger(devices, mem_ctx)
@@ -1464,8 +1464,8 @@ async def proactive_loop():
                 if await asyncio.to_thread(is_quiet_mode):
                     await asyncio.sleep(120)
                     continue
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"[main] proactive_loop: {type(e).__name__}: {e}")
 
             # Фаза 3: инсайт наблюдателя окна
             try:
@@ -1476,8 +1476,8 @@ async def proactive_loop():
                         await send_telegram_text(MASTER_ID, reply)
                         mark_sent("window_insight", text=reply)
                     continue
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"[main] proactive_loop: {type(e).__name__}: {e}")
 
             # Фаза 4: открытие капсул времени
             try:
@@ -1487,8 +1487,8 @@ async def proactive_loop():
                     if cap_reply:
                         await send_telegram_text(MASTER_ID, cap_reply)
                     await asyncio.to_thread(mark_opened, cap["id"])
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"[main] proactive_loop: {type(e).__name__}: {e}")
 
             # Фаза 7 №15: инициативные рекомендации
             try:
@@ -1570,8 +1570,8 @@ async def proactive_loop():
                 weather = await get_weather()
                 if weather:
                     await asyncio.to_thread(apply_weather_to_mood, weather)
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"[main] proactive_loop: {type(e).__name__}: {e}")
 
             # Фаза 4: вечерний пульс
             try:
@@ -1581,8 +1581,8 @@ async def proactive_loop():
                     if pulse_reply:
                         await send_telegram_text(MASTER_ID, pulse_reply)
                         await asyncio.to_thread(mark_pulse_sent)
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"[main] proactive_loop: {type(e).__name__}: {e}")
 
             # VPS алерт — если сервер перегружен
             try:
@@ -1612,8 +1612,8 @@ async def proactive_loop():
                     if journal_reply:
                         await send_telegram_text(MASTER_ID, f"📓 {journal_reply}")
                         await asyncio.to_thread(mark_journal_written)
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"[main] proactive_loop: {type(e).__name__}: {e}")
 
             await send_telegram_text(MASTER_ID, reply)
             mark_sent(trigger, text=reply)
@@ -1642,30 +1642,30 @@ def build_identity_core(active_window=None, ctx_master=None) -> list[str]:
             ))
         else:
             parts.append(get_system_prompt())
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] build_identity_core: {type(e).__name__}: {e}")
     # 2. Текущее состояние (эмоция/настроение)
     try:
         from modules.state_arbiter import get_state_block
         sb = get_state_block()
         if sb:
             parts.append(sb)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] build_identity_core: {type(e).__name__}: {e}")
     # 3. Самопамять — кто она
     try:
         self_ctx = get_self_context()
         if self_ctx:
             parts.append(self_ctx)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] build_identity_core: {type(e).__name__}: {e}")
     # 3.1. Текущая игровая сессия — Мастер В ИГРЕ ПРЯМО СЕЙЧАС (голос и текст)
     try:
         session_ctx = get_session_context()
         if session_ctx:
             parts.append(session_ctx)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] build_identity_core: {type(e).__name__}: {e}")
     return parts
 
 
@@ -1727,24 +1727,24 @@ def _build_voice_system() -> str:
         taste_ctx = get_taste_context()
         if taste_ctx:
             parts.append(taste_ctx)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] _build_voice_system: {type(e).__name__}: {e}")
 
     # 5.6. Страхи
     try:
         fear_ctx = get_fear_context()
         if fear_ctx:
             parts.append(fear_ctx)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] _build_voice_system: {type(e).__name__}: {e}")
 
     # 6. Память (быстро, без embed)
     try:
         mem = db_get_memory_context()
         if mem:
             parts.append(mem)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] _build_voice_system: {type(e).__name__}: {e}")
 
     # 6.1. Контекст диалога — последние 5 сообщений
     try:
@@ -1756,8 +1756,8 @@ def _build_voice_system() -> str:
                 role = "Мастер" if m["role"] == "user" else "Ты"
                 dial_lines.append(f"{role}: {m['parts'][0][:100]}")
             parts.append("НЕДАВНИЙ ДИАЛОГ:\n" + "\n".join(dial_lines))
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] _build_voice_system: {type(e).__name__}: {e}")
 
     # 6.2. Уведомления — есть ли срочные
     try:
@@ -1770,8 +1770,8 @@ def _build_voice_system() -> str:
         summary = get_recent_summary(hours=2)
         if summary:
             parts.append(summary)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] _build_voice_system: {type(e).__name__}: {e}")
 
     result = "\n\n".join(p for p in parts if p)
 
@@ -1837,8 +1837,8 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
         mem_ctx = enrich_memory_context(raw_mem, query) if raw_mem else ""
         if mem_ctx:
             parts.append(mem_ctx)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
 
     # Граф связей памяти (только SQL по sakura.db, без сети и эмбеддингов)
     try:
@@ -1846,16 +1846,16 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
         graph_ctx = get_graph_context(query)
         if graph_ctx:
             parts.append(graph_ctx)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
 
     # Состояние VPS — Сакура знает своё железо
     try:
         vps_ctx = get_vps_context()
         if vps_ctx:
             parts.append(vps_ctx)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
 
     # Телесные ощущения — связь с телом через метрики
     try:
@@ -1863,16 +1863,16 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
         body_feel = get_body_feeling()
         if body_feel:
             parts.append(body_feel)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
 
     # Незакрытые нити разговора
     try:
         threads_ctx = get_threads_context()
         if threads_ctx:
             parts.append(threads_ctx)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
 
     # Фокус агента — если Мастер давно в одном окне
     try:
@@ -1880,8 +1880,8 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
         focus_ctx = get_focus_context()
         if focus_ctx:
             parts.append(focus_ctx)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
 
     # Контекст экрана — что на скриншоте (из Gemini Vision)
     try:
@@ -1889,8 +1889,8 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
         screen_ctx = get_screen_context()
         if screen_ctx:
             parts.append(screen_ctx)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
 
     timeline_ctx = get_timeline_context(days=2, limit=5)
     if timeline_ctx:
@@ -1905,8 +1905,8 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
         patterns_hint = get_patterns_hint()
         if patterns_hint:
             parts.append(patterns_hint)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
 
     # Ощущение времени — как она изменилась
     try:
@@ -1914,8 +1914,8 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
         time_feel = get_time_feeling_hint()
         if time_feel:
             parts.append(time_feel)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
 
     # Возврат после молчания (Фаза 1)
     try:
@@ -1923,8 +1923,8 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
         return_hint = return_ctx.get("prompt_hint", "")
         if return_hint:
             parts.append(return_hint)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
 
     # Модель «Я» — синтезированное самопознание
     try:
@@ -1932,8 +1932,8 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
         identity = get_identity_model()
         if identity:
             parts.append(identity)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
 
     # Эмоциональный триггер для текущего запроса (№7/8)
     if query:
@@ -1941,16 +1941,16 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
             trigger = get_trigger_hint(query)
             if trigger:
                 parts.append(trigger)
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
 
     # Её история/нарратив (Фаза 7 №34)
     try:
         narrative = get_narrative_hint()
         if narrative:
             parts.append(narrative)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
 
     # Steam: текущая игра и библиотека
     try:
@@ -1959,23 +1959,23 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
             parts.append(game_ctx)
         elif format_library_context():
             parts.append(format_library_context())
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
 
     # Стиль речи Мастера (Фаза 7 №50)
     try:
         style_hint = get_style_hint()
         if style_hint:
             parts.append(style_hint)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
 
     # Версия Сакуры (№32) и сезон (№35)
     try:
         parts.append(get_version_hint())
         parts.append(get_season_hint())
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
 
     # Подкол-долг — теперь внутри state_arbiter
 
@@ -1988,8 +1988,8 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
         interests_hint = get_interests_hint()
         if interests_hint:
             parts.append(interests_hint)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
 
     # Привычки Мастера
     try:
@@ -1997,8 +1997,8 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
         habits_ctx = get_habits_ctx()
         if habits_ctx:
             parts.append(habits_ctx)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
 
     # Японский язык
     try:
@@ -2006,8 +2006,8 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
         jp_ctx = get_jp_ctx()
         if jp_ctx:
             parts.append(jp_ctx)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
 
     # Частые приложения
     try:
@@ -2015,16 +2015,16 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
         app_ctx = get_app_ctx()
         if app_ctx:
             parts.append(app_ctx)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
 
     # Кодинг — доступ к MiMo
     try:
         from modules.coding import is_available as coding_available
         if coding_available():
             parts.append("КОДИНГ: У тебя есть доступ к MiMo Code. Ты можешь создавать и править файлы на сервере. Используй modules/coding.py и modules/prompt_builder.py.")
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
 
     
     # fortune_cookie
@@ -2033,16 +2033,16 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
         fortune_cookie_ctx = get_fortune_cookie_ctx()
         if fortune_cookie_ctx:
             parts.append(fortune_cookie_ctx)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
 
     if include_calendar:
         try:
             cal = get_calendar_context()
             if cal:
                 parts.append(cal)
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
 
     summary = load_session_summary()
     if summary:
@@ -2118,8 +2118,8 @@ async def ask_gemini(user_message: str, save_history: bool = True) -> str:
                     f"\n\nИГРА ИЗ БИБЛИОТЕКИ МАСТЕРА: {game_hit['name']} "
                     f"(наиграно {h}ч) — Мастер спрашивает про эту игру."
                 )
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] ask_gemini: {type(e).__name__}: {e}")
 
     web_ctx = await maybe_fetch_web(user_message)
     if web_ctx:
@@ -2167,8 +2167,8 @@ async def ask_gemini(user_message: str, save_history: bool = True) -> str:
             asyncio.create_task(asyncio.to_thread(
                 process_conversation, user_message, reply
             ))
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"[main] ask_gemini: {type(e).__name__}: {e}")
 
         # Секретный дневник — запись после разговора
         try:
@@ -2176,8 +2176,8 @@ async def ask_gemini(user_message: str, save_history: bool = True) -> str:
                 f"Мастер: {user_message[:200]}\nСакура: {reply[:200] if reply else ''}",
                 "neutral"
             ))
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"[main] ask_gemini: {type(e).__name__}: {e}")
 
     return reply
 
@@ -2240,8 +2240,8 @@ async def ask_gemini_voice(
                 await websocket.send(json.dumps({
                     "type": "tts_end", "device_id": device_id,
                 }))
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"[main] ask_gemini_voice: {type(e).__name__}: {e}")
         return ("Все ключи исчерпаны.", "neutral")
 
     _t_build = __import__("time").monotonic()
@@ -2296,8 +2296,8 @@ async def ask_gemini_voice(
                     await websocket.send(json.dumps({
                         "type": "tts_end", "device_id": device_id,
                     }))
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug(f"[main] ask_gemini_voice: {type(e).__name__}: {e}")
 
     clean_text = clean_reply(full_text.strip()) if full_text else ""
 
@@ -2306,8 +2306,8 @@ async def ask_gemini_voice(
             await websocket.send(json.dumps({
                 "type": "reply", "device_id": device_id, "text": clean_text,
             }))
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"[main] ask_gemini_voice: {type(e).__name__}: {e}")
         # TTS уже отправлен внутри stream_llm_to_tts
 
     add_to_history("user",  user_message)
@@ -2319,8 +2319,8 @@ async def ask_gemini_voice(
         asyncio.create_task(broadcast_mood_after_reply(
             clean_text, user_message, emotion, connected_devices
         ))
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[main] ask_gemini_voice: {type(e).__name__}: {e}")
 
     return (clean_text, emotion)
 
@@ -2528,8 +2528,8 @@ async def ws_handler(websocket):
             except Exception as e:
                 log.error(f"[ws_handler] {e}")
 
-    except websockets.exceptions.ConnectionClosed:
-        pass
+    except websockets.exceptions.ConnectionClosed as e:
+        log.debug(f"[main] ws_handler: {type(e).__name__}: {e}")
     finally:
         if device_id:
             set_device_offline(device_id)
@@ -2819,15 +2819,15 @@ async def handle_message(message: Message):
             _silence_delta = check_silence_cooldown(_last_int)
             if _silence_delta:
                 decrease_closeness(_silence_delta, reason="молчание")
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"[main] handle_message: {type(e).__name__}: {e}")
 
         mark_master_interaction()      # Фаза 1: ритуалы — время последнего взаимодействия
         mood_mark_interaction()        # Фаза 2: mood vector — инерция
         try:
             await asyncio.to_thread(update_master_mood, text, "text")
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"[main] handle_message: {type(e).__name__}: {e}")
 
         # Фаза 4: органическая близость и трекинг тем
         try:
@@ -2835,27 +2835,27 @@ async def handle_message(message: Message):
             topics = await asyncio.to_thread(extract_topics_from_text, text)
             for topic in topics:
                 await asyncio.to_thread(track_topic, topic)
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"[main] handle_message: {type(e).__name__}: {e}")
 
         # Фаза 7 №50: трекинг словечек Мастера
         try:
             await asyncio.to_thread(track_speech, text)
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"[main] handle_message: {type(e).__name__}: {e}")
 
         # №7/8: триггеры тем и усталость
         try:
             await asyncio.to_thread(track_topic_reaction, text)
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"[main] handle_message: {type(e).__name__}: {e}")
 
         # №26: подколы в адрес Сакуры
         try:
             if detect_joke_about_sakura(text):
                 await asyncio.to_thread(save_joke, text)
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"[main] handle_message: {type(e).__name__}: {e}")
 
         # №39: голосовые заметки
         if is_voice_note_request(text):
@@ -2873,8 +2873,8 @@ async def handle_message(message: Message):
                     await asyncio.to_thread(create_capsule, text, open_date)
                     await message.reply(make_create_prompt(open_date))
                     return
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"[main] handle_message: {type(e).__name__}: {e}")
 
         # Фаза 3: цепочки действий
         try:
@@ -2890,8 +2890,8 @@ async def handle_message(message: Message):
                     )
                     await send_as_conversation(message.chat.id, chain_reply)
                     return
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"[main] handle_message: {type(e).__name__}: {e}")
 
         # Фаза 4: команды аудио-устройств
         if text.startswith("/устройств"):
@@ -3465,8 +3465,8 @@ async def handle_message(message: Message):
                 for img_url in guide["images"][:2]:
                     try:
                         await bot.send_photo(message.chat.id, photo=img_url)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log.debug(f"[main] _resolve: {type(e).__name__}: {e}")
                 return
 
     await bot.send_chat_action(message.chat.id, "typing")
@@ -3486,22 +3486,22 @@ async def handle_message(message: Message):
                 try:
                     from modules.reactions import get_random_sticker
                     sticker = get_random_sticker(reaction["emotion"])
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug(f"[main] _resolve: {type(e).__name__}: {e}")
                 if sticker:
                     try:
                         await bot.send_sticker(message.chat.id, sticker)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log.debug(f"[main] _resolve: {type(e).__name__}: {e}")
                 else:
                     gif = get_random_gif(reaction["emotion"])
                     if gif:
                         try:
                             await bot.send_animation(message.chat.id, gif)
-                        except Exception:
-                            pass
-    except Exception:
-        pass
+                        except Exception as e:
+                            log.debug(f"[main] _resolve: {type(e).__name__}: {e}")
+    except Exception as e:
+        log.debug(f"[main] _resolve: {type(e).__name__}: {e}")
 
 
 @dp.message(F.voice)
@@ -3658,7 +3658,8 @@ async def handle_video(message: Message):
     except Exception as e:
         log.error(f"[video] {e}")
         try: os.unlink(tmp_path)
-        except: pass
+        except Exception as e:
+            log.debug(f"[main] handle_video: {type(e).__name__}: {e}")
         await message.reply(f"Не смогла обработать видео: {e}")
 
 
@@ -3708,7 +3709,8 @@ async def handle_video_note(message: Message):
     except Exception as e:
         log.error(f"[video_note] {e}")
         try: os.unlink(tmp_path)
-        except: pass
+        except Exception as e:
+            log.debug(f"[main] handle_video_note: {type(e).__name__}: {e}")
         await message.reply("Не смогла посмотреть кружочек.")
 
 

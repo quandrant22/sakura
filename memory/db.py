@@ -369,8 +369,8 @@ def add_to_category(category: str, text: str, layer: str = "long_term") -> bool:
                 "UPDATE master_memory SET vec_rowid=? WHERE id=?",
                 (row_id, row_id)
             )
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"[db] add_to_category: {type(e).__name__}: {e}")
 
     conn.commit()
     _cache_clear("mem_ctx")   # новое воспоминание — обновляем кэш
@@ -499,8 +499,8 @@ def get_memory_context(query: str = "") -> str:
             WHERE id IN ({','.join('?' * len(ids))})
         """, ids)
         conn.commit()
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[db] get_memory_context: {type(e).__name__}: {e}")
 
     # Группируем по категории
     by_cat: dict[str, list[str]] = {}
@@ -586,8 +586,8 @@ def add_to_self(text: str, tag: str = "observation") -> None:
                 "UPDATE self_memory SET vec_rowid=? WHERE id=?",
                 (row_id, row_id)
             )
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"[db] add_to_self: {type(e).__name__}: {e}")
 
     conn.commit()
     log.debug(f"[self_memory] +{tag}: {text[:60]}")

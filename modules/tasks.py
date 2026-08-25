@@ -11,7 +11,7 @@ def load_tasks() -> list:
     try:
         with open(TASKS_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    except:
+    except Exception:
         return []
 
 def save_tasks(tasks: list):
@@ -72,7 +72,7 @@ def get_due_tasks() -> list:
                     task_dt = now.replace(hour=h, minute=m, second=0, microsecond=0)
                     if now >= task_dt:
                         due.append(t)
-                except:
+                except Exception:
                     due.append(t)
             else:
                 due.append(t)
@@ -101,7 +101,7 @@ def get_upcoming_tasks(hours_ahead: int = 2) -> list:
             diff = (task_dt - now).total_seconds() / 3600
             if 0 < diff <= hours_ahead:
                 upcoming.append(t)
-        except:
+        except Exception:
             pass
 
     return upcoming
@@ -134,7 +134,7 @@ def get_tasks_context() -> str:
                             status = f" [через {mins_left} мин]"
                         else:
                             status = " [СЕЙЧАС]"
-                    except:
+                    except Exception:
                         pass
         time_str = f" в {due_time}" if due_time else ""
         date_str = f" {due_date}" if due_date else ""

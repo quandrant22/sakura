@@ -133,24 +133,24 @@ async def handle_ping(websocket, data, ctx) -> None:
         try:
             from modules.vps_monitor import _apply_agent_temps
             _apply_agent_temps(sys_info)
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"[ws] handle_ping: {type(e).__name__}: {e}")
 
     # Фокус → context engine (долго в одном окне)
     if focus_sec and focus_sec > 120:
         try:
             from modules.context import set_focus_duration
             set_focus_duration(active_win, focus_sec)
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"[ws] handle_ping: {type(e).__name__}: {e}")
 
     # Активность → disposition willingness
     if act_level > 0:
         try:
             from modules.disposition import _set_activity_hint
             _set_activity_hint(act_level)
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"[ws] handle_ping: {type(e).__name__}: {e}")
 
     # Фаза 7 №15: трекинг паттернов поведения
     if active_win:
@@ -356,13 +356,13 @@ async def handle_command_result(websocket, data, ctx) -> None:
             if music.get("action") == "music_like" and st._current_track:
                 try:
                     like_artist(st._current_track.get("artist", ""), "лайк от Мастера")
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug(f"[ws] handle_command_result: {type(e).__name__}: {e}")
             elif music.get("action") == "music_dislike" and st._current_track:
                 try:
                     dislike_artist(st._current_track.get("artist", ""), "дизлайк от Мастера")
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug(f"[ws] handle_command_result: {type(e).__name__}: {e}")
             return  # молчим
         elif "tracks" in music and music["tracks"]:
             items = music["tracks"][:8]
@@ -407,8 +407,8 @@ async def handle_command_result(websocket, data, ctx) -> None:
             # Трекинг в музыкальной памяти
             try:
                 track_play(info.get("artist", ""), info.get("title", ""), info.get("album", ""))
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"[ws] handle_command_result: {type(e).__name__}: {e}")
             # Комментарий вкуса Сакуры (если есть мнение)
             _taste_comment = generate_taste_comment(info.get("artist", ""))
             if _taste_comment:
@@ -533,8 +533,8 @@ async def execute_critical_action(critical_action: str, ws_dev, device_id, text:
             arousal=_dep["arousal"],
             context=active_window,
         )
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[ws] execute_critical_action: {type(e).__name__}: {e}")
 
 
 async def handle_voice_command(websocket, data, ctx) -> None:
@@ -1114,8 +1114,8 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                 arousal=_dep["arousal"],
                 context=data.get("active_window", ""),
             )
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"[ws] _say: {type(e).__name__}: {e}")
         return
 
     _critical = route_critical(text)
@@ -1247,8 +1247,8 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                             if ws_dev:
                                 _cmd_id = _register_command(_corr_full, device_id or "laptop")
                                 await ws_dev.send(json.dumps({"type": "command", "action": _corr_full, "id": _cmd_id}))
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug(f"[ws] _say: {type(e).__name__}: {e}")
 
             del st._pending_clarify[_mk]
 
@@ -1299,8 +1299,8 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                             await ws_dev.send(json.dumps({"type": "command", "action": _fix_full, "id": _cmd_id}))
                         st._last_executed.pop(_mk, None)
                         return
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug(f"[ws] _say: {type(e).__name__}: {e}")
         st._last_executed.pop(_mk, None)
 
     # ── LLM-РОУТЕР (все остальные команды) ──────────────
@@ -1348,8 +1348,8 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                         "alt": _alt,
                         "ts": __import__("time").monotonic(),
                     }
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug(f"[ws] _say: {type(e).__name__}: {e}")
             else:
                 try:
                     _action = _routed.get("action", "")
@@ -1370,8 +1370,8 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                         "alt": None,
                         "ts": __import__("time").monotonic(),
                     }
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug(f"[ws] _say: {type(e).__name__}: {e}")
             return
 
         # Зона 4: низкая уверенность — честный отказ, планировщик НЕ строит
@@ -1388,8 +1388,8 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                             _deny, ws_dev, device_id or "laptop", literal=True)
                     else:
                         await bot.send_message(MASTER_ID, _deny)
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"[ws] _say: {type(e).__name__}: {e}")
             return
 
     # ── ПЛАНИРОВЩИК: route_command вернул None ──────────
@@ -1418,8 +1418,8 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                             "plan": _plan,
                             "ts": __import__("time").monotonic(),
                         }
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log.debug(f"[ws] _say: {type(e).__name__}: {e}")
                 else:
                     _plan_result, _plan_msg = await _execute_plan(
                         _plan, _mk, ws_dev, device_id)
@@ -1514,8 +1514,8 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                 try:
                     app_query = full_action.split(":", 1)[1]
                     await asyncio.to_thread(record_launch, app_query.lower())
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug(f"[ws] _say: {type(e).__name__}: {e}")
         else:
             # Все остальные команды — на агент
             dev = device_id or "laptop"
@@ -1553,8 +1553,8 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                 if _creply:
                     await stream_tts_to_device(
                         _creply, ws_dev, device_id or "laptop", literal=True)
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"[ws] _say: {type(e).__name__}: {e}")
 
         # Провод 3: действие становится эпизодом
         try:
@@ -1567,8 +1567,8 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                 arousal=_dep["arousal"],
                 context=data.get("active_window", ""),
             )
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"[ws] _say: {type(e).__name__}: {e}")
 
         return
 
@@ -1587,8 +1587,8 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                 _creply = await ask_gemini(_cmd_confirm, save_history=False)
                 if _creply:
                     await bot.send_message(MASTER_ID, _creply)
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"[ws] _say: {type(e).__name__}: {e}")
 
     active_win = data.get("active_window", "")
     # Обновляем контекст игрового хаба
@@ -1635,23 +1635,23 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                     try:
                         from modules.reactions import get_random_sticker
                         sticker = get_random_sticker(reaction["emotion"])
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log.debug(f"[ws] _maybe_prank_and_react: {type(e).__name__}: {e}")
 
                     if sticker:
                         log.info(f"[reactions] {reaction['emotion']} → sticker")
                         try:
                             await bot.send_sticker(MASTER_ID, sticker)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            log.debug(f"[ws] _maybe_prank_and_react: {type(e).__name__}: {e}")
                     else:
                         gif = get_random_gif(reaction["emotion"])
                         if gif:
                             log.info(f"[reactions] {reaction['emotion']} → GIF")
                             try:
                                 await bot.send_animation(MASTER_ID, gif)
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                log.debug(f"[ws] _maybe_prank_and_react: {type(e).__name__}: {e}")
         except Exception as e:
             log.debug(f"[pranks/react] error: {e}")
     asyncio.create_task(_maybe_prank_and_react())
@@ -1679,5 +1679,5 @@ def update_current_track(data) -> None:
                         track.get("title", ""),
                         track.get("album", ""),
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug(f"[ws] update_current_track: {type(e).__name__}: {e}")

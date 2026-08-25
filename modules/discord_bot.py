@@ -246,7 +246,7 @@ async def _send_tts(text: str, channel=None):
 
         def _after(err):
             try: os.unlink(tmp_wav)
-            except: pass
+            except Exception: pass
             if err:
                 log.error(f"[discord voice] {err}")
 

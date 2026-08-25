@@ -63,18 +63,18 @@ async def read_youtube(url: str) -> str:
             # Сначала пробуем русские
             try:
                 transcript = transcript_list.find_transcript(['ru'])
-            except:
+            except Exception:
                 pass
 
             # Потом английские с переводом
             if not transcript:
                 try:
                     transcript = transcript_list.find_transcript(['en'])
-                except:
+                except Exception:
                     # Берём что есть
                     try:
                         transcript = transcript_list.find_generated_transcript(['ru', 'en'])
-                    except:
+                    except Exception:
                         pass
 
             if transcript:

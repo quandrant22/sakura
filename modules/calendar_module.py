@@ -100,6 +100,6 @@ def get_urgent_event() -> dict | None:
                 if 0 < diff <= 60:
                     e['minutes_left'] = int(diff)
                     return e
-            except:
+            except Exception:
                 pass
     return None

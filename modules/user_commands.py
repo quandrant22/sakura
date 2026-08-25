@@ -130,8 +130,8 @@ def cleanup_auto(min_uses: int = 2, older_days: int = 30):
             try:
                 if datetime.fromisoformat(ts) > cutoff:
                     continue
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"[user_cmd] cleanup_auto: {type(e).__name__}: {e}")
         to_remove.append(key)
     for k in to_remove:
         del data[k]
