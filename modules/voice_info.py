@@ -115,7 +115,7 @@ def _seen_unlocked_between(start_ts: int, end_ts: int) -> list[dict]:
 
 async def steam_achievements(arg: str):
     """Ачивки за период. → (текст, ok)."""
-    from modules.steam_integration import get_library, get_achievements
+    from modules.steam_integration import get_library, get_achievements, load_library
 
     word = _default_period_word(arg)
     period = parse_period(word)
@@ -127,9 +127,14 @@ async def steam_achievements(arg: str):
     if not hits:
         return f"{_period_human(word)} новых ачивок нет.", True
 
+    # имена игр из локальной библиотеки; если ещё не загружена — грузим лениво
     try:
         lib_names = {g.get("appid"): g.get("name", "")
                      for g in (get_library() or [])}
+        if not lib_names:
+            await load_library()
+            lib_names = {g.get("appid"): g.get("name", "")
+                         for g in (get_library() or [])}
     except Exception as e:
         log.debug(f"[voice_info] библиотека steam недоступна: {e}")
         lib_names = {}
