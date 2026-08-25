@@ -8,6 +8,7 @@ No network, temp files only.
 import os
 import sys
 import json
+import time
 import asyncio
 import tempfile
 import shutil
@@ -268,6 +269,94 @@ class TestBlock3_TTS(unittest.TestCase):
         sc = cfg.speech_config
         lang = getattr(sc, "language_code", None) or (sc.get("language_code") if isinstance(sc, dict) else None)
         self.assertEqual(lang, "ru-RU")
+
+
+# ════════════════════════════════════════════════════════════════════
+# БЛОК 7 — TTS: короткие ответы и быстрый старт
+# ════════════════════════════════════════════════════════════════════
+
+class TestBlock7_TTSFastStart(unittest.TestCase):
+
+    def test_split_speech(self):
+        from modules.tts_server import _split_speech
+        self.assertEqual(_split_speech("Готово."),
+                         ["Готово."])
+        parts = _split_speech("Первое предложение. Второе предложение. Третье!")
+        self.assertEqual(parts, ["Первое предложение.", "Второе предложение.", "Третье!"])
+        # длинное предложение без точки режется по запятым/пробелам
+        long_one = "слово " * 80
+        parts = _split_speech(long_one.strip())
+        self.assertGreater(len(parts), 1)
+        for p in parts:
+            self.assertLessEqual(len(p), 200 + 10)
+
+    def test_short_answers_are_spoken(self):
+        """7.1: «Готово.» больше не отсекается порогом длины."""
+        import modules.tts_server as tts
+        synth = AsyncMock(return_value=3)
+        ws = MagicMock()
+        ws.send = AsyncMock()
+        with patch.object(tts, "_synthesize_and_stream", synth), \
+             patch.object(tts, "_send_end", new=AsyncMock()):
+            _run(tts.stream_tts_to_device("Готово.", ws, "laptop"))
+        synth.assert_awaited_once()
+        args = synth.await_args.args
+        self.assertEqual(args[0], "Готово.")
+        self.assertEqual(args[2], "laptop")
+
+    def test_empty_text_still_skipped(self):
+        import modules.tts_server as tts
+        synth = AsyncMock(return_value=0)
+        ws = MagicMock()
+        ws.send = AsyncMock()
+        with patch.object(tts, "_synthesize_and_stream", synth), \
+             patch.object(tts, "_send_end", new=AsyncMock()):
+            _run(tts.stream_tts_to_device("  .  ", ws, "laptop"))
+        synth.assert_not_awaited()
+
+    def test_two_stage_preserves_order(self):
+        """7.2: пакеты второй (мгновенной) сессии не обгоняют первую."""
+        import modules.tts_server as tts
+
+        async def fake_synth(text, emotion, on_packet):
+            chunks = {"first": ["F1", "F2"], "rest": ["R1", "R2"]}
+            key = "first" if text.startswith("Первое") else "rest"
+            if key == "rest":
+                # вторая сессия «молниеносна» — раньше ломало порядок
+                pass
+            else:
+                await asyncio.sleep(0.01)  # первая «медленная»
+            for c in chunks[key]:
+                await on_packet(c.encode())
+            return len(chunks[key])
+
+        sent_frames = []
+        ws = MagicMock()
+        async def fake_send(raw):
+            import json as _json
+            sent_frames.append(_json.loads(raw)["audio"])
+        ws.send = fake_send
+
+        with patch.object(tts, "_live_synthesize", fake_synth):
+            sent = _run(tts._stream_two_stage(
+                "Первое предложение.", "Второе предложение.",
+                ws, "laptop", "спокойная", time.monotonic()))
+
+        self.assertEqual(sent, 4)
+        import base64 as b64
+        decoded = [b64.b64decode(a).decode() for a in sent_frames]
+        self.assertEqual(decoded, ["F1", "F2", "R1", "R2"])
+
+    def test_both_paths_share_stream_tts_to_device(self):
+        """7.3: оба голосовых пути используют одну функцию озвучки
+        (единая обработка [ТОН:], очистки, эмоции)."""
+        import main
+        import modules.ws_handlers as wh
+        self.assertIs(main.stream_tts_to_device, wh.stream_tts_to_device)
+        # stream_llm_to_tts внутри тоже вызывает stream_tts_to_device
+        import inspect
+        src = inspect.getsource(main.tts_server.stream_llm_to_tts)
+        self.assertIn("stream_tts_to_device(", src)
 
 
 # ════════════════════════════════════════════════════════════════════

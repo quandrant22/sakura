@@ -1,12 +1,14 @@
 """
-modules/tts_server.py — оптимизированный TTS с истинным стримингом.
+modules/tts_server.py — TTS с быстрым первым звуком.
 
 Схема:
-  LLM стримит токены → накапливаем первое предложение
-  → сразу синтезируем TTS пока LLM генерирует следующее
-  → параллельно: синтез N+1 пока играет N
+  текст → [ТОН:]/очистка → разбивка на речевые чанки
+  короткий текст  → одна Live-сессия
+  длинный         → гибрид: первое предложение — отдельная быстрая сессия,
+                    остальное — вторая сессия ПАРАЛЛЕЛЬНО (asyncio),
+                    пакеты на устройство строго по порядку (FIFO-буфер)
 
-Итог: первый звук через ~3-4с вместо ~15с.
+Итог: первый звук < 3с, между предложениями нет слышимой паузы.
 """
 
 import asyncio
@@ -282,10 +284,21 @@ async def _synthesize_stream(text: str, websocket, device_id: str, t0: float, em
             return sent > 0
 
 
-async def _synthesize_and_stream(text: str, websocket, device_id: str,
-                                 emotion: str = "спокойная") -> int:
-    """Одна Live-сессия: шлёт весь текст, стримит аудио на устройство
-    по мере поступления пакетов. Возвращает число отправленных пакетов."""
+def _make_audio_sender(websocket, device_id: str):
+    """Фабрика отправщиков аудио-пакетов на устройство."""
+    async def send_audio(data: bytes):
+        await websocket.send(json.dumps({
+            "type":        "tts_chunk",
+            "device_id":   device_id,
+            "audio":       base64.b64encode(data).decode(),
+            "sample_rate": TTS_SAMPLE_RATE,
+        }))
+    return send_audio
+
+
+async def _live_synthesize(text: str, emotion: str, on_packet) -> int:
+    """Одна Live-сессия: шлёт текст, каждый аудио-пакет отдаёт в on_packet.
+    Возвращает число пакетов. Ошибки глотает (лог + сброс клиента)."""
     key = get_active_key()
     if not key:
         return 0
@@ -308,12 +321,7 @@ async def _synthesize_and_stream(text: str, websocket, device_id: str,
                 async with asyncio.timeout(timeout):
                     async for response in session.receive():
                         if response.data:
-                            await websocket.send(json.dumps({
-                                "type": "tts_chunk",
-                                "device_id": device_id,
-                                "audio": base64.b64encode(response.data).decode(),
-                                "sample_rate": TTS_SAMPLE_RATE,
-                            }))
+                            await on_packet(response.data)
                             sent += 1
                         if (response.server_content
                                 and response.server_content.turn_complete):
@@ -328,6 +336,102 @@ async def _synthesize_and_stream(text: str, websocket, device_id: str,
             return sent
 
 
+async def _synthesize_and_stream(text: str, websocket, device_id: str,
+                                 emotion: str = "спокойная") -> int:
+    """Одна Live-сессия на весь текст: пакеты сразу на устройство."""
+    send_audio = _make_audio_sender(websocket, device_id)
+    return await _live_synthesize(text, emotion, send_audio)
+
+
+# ── Быстрый старт: первое предложение — сразу, остальное — параллельно ──
+
+_SENT_SPLIT_RE = re.compile(r'(?<=[.!?…])\s+')
+_MAX_FIRST_CHUNK = 200  # символов; длиннее — режем по запятым/пробелам
+
+
+def _split_speech(text: str) -> list[str]:
+    """Режет текст на речевые чанки: по предложениям, слишком длинные
+    предложения — по запятым, затем по пробелам. Пустые не возвращаются."""
+    sentences = [s.strip() for s in _SENT_SPLIT_RE.split(text) if s and s.strip()]
+    if not sentences:
+        return [text.strip()] if text.strip() else []
+
+    parts: list[str] = []
+    for s in sentences:
+        while len(s) > _MAX_FIRST_CHUNK:
+            # режем по запятой в пределах лимита, иначе по пробелу
+            cut = s.rfind(",", 0, _MAX_FIRST_CHUNK)
+            sep = 1
+            if cut < _MAX_FIRST_CHUNK // 2:
+                cut = s.rfind(" ", 0, _MAX_FIRST_CHUNK)
+                sep = 0
+            if cut <= 0:
+                break
+            parts.append(s[:cut].strip())
+            s = s[cut + sep:].strip()
+        if s:
+            parts.append(s)
+    return parts
+
+
+async def _stream_two_stage(first: str, rest: str, websocket, device_id: str,
+                            emotion: str, t0: float) -> int:
+    """Гибрид быстрого старта БЕЗ пауз между предложениями.
+
+    Первое предложение синтезируется отдельной быстрой сессией и уходит
+    на устройство сразу. Остальной текст стартует ВТОРОЙ сессией
+    ПАРАЛЛЕЛЬНО — её ранние пакеты буферизуются в очереди и вытекают
+    строго после пакетов первой, поэтому порядок сохранён, а между
+    первым и вторым предложением нет слышимой паузы."""
+    send_audio = _make_audio_sender(websocket, device_id)
+
+    q_first: asyncio.Queue = asyncio.Queue()
+    q_rest: asyncio.Queue = asyncio.Queue()
+
+    task_first = asyncio.create_task(_live_synthesize(first, emotion, q_first.put))
+    task_rest  = asyncio.create_task(_live_synthesize(rest,  emotion, q_rest.put))
+
+    sent = 0
+    first_logged = False
+
+    async def drain(q: "asyncio.Queue", producer) -> None:
+        """Выкачивает очередь сессии на устройство до её завершения."""
+        nonlocal sent, first_logged
+        while True:
+            if not producer.done():
+                try:
+                    data = await asyncio.wait_for(q.get(), timeout=SESSION_TIMEOUT)
+                except asyncio.TimeoutError:
+                    log.warning("[TTS] two-stage: таймаут ожидания аудио-пакета")
+                    return
+            else:
+                try:
+                    data = q.get_nowait()
+                except asyncio.QueueEmpty:
+                    return
+            try:
+                await send_audio(data)
+            except Exception as e:
+                log.error(f"[TTS] Отправка: {e}")
+                return
+            sent += 1
+            if not first_logged:
+                log.info(f"[TTS] первый звук за {time.monotonic()-t0:.1f}с")
+                first_logged = True
+
+    # Фаза 1: первая сессия (быстрый старт)
+    await drain(q_first, task_first)
+    # Фаза 2: вторая сессия — её ранние пакеты уже ждут в очереди
+    await drain(q_rest, task_rest)
+
+    for t in (task_first, task_rest):
+        try:
+            await t
+        except Exception as e:
+            log.debug(f"[TTS] producer: {e}")
+    return sent
+
+
 async def _send_end(websocket, device_id: str):
     try:
         await websocket.send(json.dumps({
@@ -338,6 +442,12 @@ async def _send_end(websocket, device_id: str):
         pass
 
 
+# Порог отсечки пустоты/мусора. Прежний порог в 20 символов молчал на
+# коротких ответах («Принято.», «Готово.»); контентный мусор вычищает
+# _clean_tts_text, здесь оставляем только защиту от пустоты.
+MIN_TTS_LEN = 2
+
+
 async def stream_tts_to_device(
     text: str,
     websocket,
@@ -345,17 +455,30 @@ async def stream_tts_to_device(
     literal: bool = False,
     emotion: str = "спокойная",
 ):
-    """Одна Live-сессия на весь ответ: текст целиком → аудио-поток сразу на устройство."""
+    """Единая точка входа озвучки (голос и все фоновые пути).
+
+    Обработка одинаковая для обоих путей вызова:
+      main.py → stream_llm_to_tts → сюда; ws_handlers → напрямую сюда.
+    [ТОН:], очистка текста и эмоция применяются здесь же.
+
+    Схема: короткий текст — одна Live-сессия; длинный — гибрид быстрого
+    старта (_stream_two_stage): первое предложение звучит сразу (<3с),
+    остальное синтезируется параллельно без слышимых пауз."""
     tone, text = _extract_tone_tag(text)
     if tone:
         emotion = tone
 
     text = _clean_tts_text(text)
-    if not text.strip() or len(text.strip()) < 20:
+    if not text or len(text.strip()) < MIN_TTS_LEN:
         return
 
     t0 = time.monotonic()
-    sent = await _synthesize_and_stream(text, websocket, device_id, emotion)
+    parts = _split_speech(text)
+    if len(parts) <= 1:
+        sent = await _synthesize_and_stream(text, websocket, device_id, emotion)
+    else:
+        sent = await _stream_two_stage(
+            parts[0], " ".join(parts[1:]), websocket, device_id, emotion, t0)
     await _send_end(websocket, device_id)
     log.info(f"[TTS] Готово за {time.monotonic()-t0:.1f}с | {sent} пакетов | тон: {emotion}")
 
