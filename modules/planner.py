@@ -7,6 +7,7 @@ modules/planner.py — Планировщик произвольных зада�
 import asyncio
 import json
 import logging
+from config import MAIN_MODEL
 
 log = logging.getLogger("sakura.planner")
 
@@ -134,7 +135,7 @@ async def build_plan(text: str, context: dict, source: str = "voice",
         client = genai.Client(api_key=key)
         response = await asyncio.to_thread(
             client.models.generate_content,
-            model="gemini-3.1-flash-lite",
+            model=MAIN_MODEL,
             contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
             config=types.GenerateContentConfig(
                 temperature=0.0,

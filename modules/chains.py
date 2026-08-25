@@ -21,6 +21,7 @@ import logging
 import os
 import re
 from typing import Optional
+from config import MAIN_MODEL
 
 log = logging.getLogger("sakura.chains")
 
@@ -249,7 +250,7 @@ async def parse_chain_from_llm(text: str, ask_gemini_fn) -> Optional[dict]:
         client = genai.Client(api_key=key)
         r = await __import__("asyncio").to_thread(
             client.models.generate_content,
-            model    = "gemini-3.1-flash-lite",
+            model    = MAIN_MODEL,
             contents = [types.Content(role="user", parts=[types.Part(text=prompt)])]
         )
         raw = (r.text or "").strip().replace("```json", "").replace("```", "").strip()

@@ -21,6 +21,7 @@ import re
 import time
 from datetime import datetime, date
 from typing import Optional
+from config import MAIN_MODEL
 
 log = logging.getLogger("sakura.emotional_memory")
 
@@ -264,7 +265,7 @@ async def generate_spontaneous_thought() -> str:
         client = genai.Client(api_key=key)
         r = await __import__('asyncio').to_thread(
             client.models.generate_content,
-            model="gemini-3.1-flash-lite",
+            model=MAIN_MODEL,
             contents=[types.Content(role="user", parts=[types.Part(text=prompt)])]
         )
         mark_key_used(key)

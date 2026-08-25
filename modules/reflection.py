@@ -18,6 +18,7 @@ import logging
 import os
 import tempfile
 from datetime import datetime
+from config import MAIN_MODEL
 
 log = logging.getLogger(__name__)
 
@@ -137,7 +138,7 @@ async def run_night_reflection(ask_gemini_fn, add_to_category_fn,
 
         r = await asyncio.to_thread(
             client.models.generate_content,
-            model    = "gemini-3.1-flash-lite",
+            model    = MAIN_MODEL,
             contents = [types.Content(role="user", parts=[types.Part(text=prompt)])]
         )
         raw  = (r.text or "").strip().replace("```json", "").replace("```", "").strip()
@@ -438,7 +439,7 @@ async def run_morning_summary(bot, master_id: int, load_session_summary_fn):
 
         r = await asyncio.to_thread(
             client.models.generate_content,
-            model    = "gemini-3.1-flash-lite",
+            model    = MAIN_MODEL,
             contents = [types.Content(role="user", parts=[types.Part(text=prompt)])]
         )
         reply = (r.text or "").strip()

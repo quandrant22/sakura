@@ -14,6 +14,7 @@ import logging
 import random
 import time
 from datetime import datetime
+from config import MAIN_MODEL
 
 log = logging.getLogger("sakura.diary")
 
@@ -66,7 +67,7 @@ async def write_entry(conversation_summary: str, mood_label: str = "neutral"):
         client  = genai.Client(api_key=key)
         r = await asyncio.to_thread(
             client.models.generate_content,
-            model   = "gemini-3.1-flash-lite",
+            model   = MAIN_MODEL,
             contents= [types.Content(role="user", parts=[types.Part(text=prompt)])]
         )
         entry = (r.text or "").strip()

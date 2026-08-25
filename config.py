@@ -38,6 +38,14 @@ MASTER_DEVICES = set(
     d.strip() for d in os.getenv("MASTER_DEVICES", "laptop,pc").split(",") if d.strip()
 )
 
+# ── Основная текстовая LLM ────────────────────────────────────────
+# ЕДИНАЯ точка задания основной модели для всего кода (main.py и modules/*).
+# Переопределяется через .env: MAIN_MODEL=gemini-3.5-flash-lite
+# НЕ трогать здесь: TTS Live API (modules/tts_server.py TTS_MODEL) и
+# эмбеддинги — у них свои модели.
+MAIN_MODEL     = os.getenv("MAIN_MODEL", "gemini-3.5-flash-lite")
+FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "gemma-4-31b-it")
+
 GEMINI_KEYS = []
 i = 1
 while True:

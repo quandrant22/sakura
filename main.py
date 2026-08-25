@@ -20,7 +20,7 @@ from google import genai
 from google.genai import types
 
 from modules.calendar_module import get_calendar_context, get_urgent_event
-from config import TELEGRAM_TOKEN, MASTER_ID, GROUP_CHAT_ID, get_active_key, mark_key_used, mark_key_exhausted  # noqa
+from config import TELEGRAM_TOKEN, MASTER_ID, GROUP_CHAT_ID, get_active_key, mark_key_used, mark_key_exhausted, MAIN_MODEL, FALLBACK_MODEL  # noqa
 from personality import get_system_prompt, get_time_context
 from memory.memory import (
     add_to_history, get_history, clear_history,
@@ -233,8 +233,7 @@ def _get_active_ws():
         return ws, dev_id
     return None, None
 
-MAIN_MODEL     = "gemini-3.1-flash-lite"
-FALLBACK_MODEL = "gemma-4-31b-it"
+# Основная модель задаётся в config.py (env MAIN_MODEL), здесь не дублируется
 
 def _thinking(model: str):
     # У Gemini 3.x мышление включено по умолчанию (high) и ест бюджет ответа,
@@ -983,7 +982,7 @@ async def _analyze_screen_context(screenshot_b64: str, active_window: str, devic
 
         r = await asyncio.to_thread(
             client.models.generate_content,
-            model="gemini-3.1-flash-lite",
+            model=MAIN_MODEL,
             contents=[types.Content(parts=[
                 types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=img_bytes)),
                 types.Part(text=prompt),
@@ -3634,7 +3633,7 @@ async def handle_video(message: Message):
 
         r = await asyncio.to_thread(
             client.models.generate_content,
-            model    = "gemini-3.1-flash-lite",
+            model    = MAIN_MODEL,
             contents = [types.Content(parts=[
                 types.Part(inline_data=types.Blob(
                     mime_type="video/mp4",
@@ -3685,7 +3684,7 @@ async def handle_video_note(message: Message):
 
         r = await asyncio.to_thread(
             client.models.generate_content,
-            model    = "gemini-3.1-flash-lite",
+            model    = MAIN_MODEL,
             contents = [types.Content(parts=[
                 types.Part(inline_data=types.Blob(
                     mime_type="video/mp4",

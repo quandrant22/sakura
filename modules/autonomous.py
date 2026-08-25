@@ -16,6 +16,7 @@ import logging
 import time
 from datetime import datetime, date, timedelta
 from typing import Optional
+from config import MAIN_MODEL
 
 log = logging.getLogger("sakura.autonomous")
 
@@ -130,7 +131,7 @@ async def do_research() -> str:
         client = genai.Client(api_key=key)
         r = await asyncio.to_thread(
             client.models.generate_content,
-            model="gemini-3.1-flash-lite",
+            model=MAIN_MODEL,
             contents=[types.Content(role="user", parts=[types.Part(text=prompt)])]
         )
         mark_key_used(key)
@@ -231,7 +232,7 @@ async def save_voice_note(raw_text: str) -> str:
         client = genai.Client(api_key=key)
         r = await asyncio.to_thread(
             client.models.generate_content,
-            model="gemini-3.1-flash-lite",
+            model=MAIN_MODEL,
             contents=[types.Content(role="user", parts=[types.Part(text=prompt)])]
         )
         mark_key_used(key)

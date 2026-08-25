@@ -16,7 +16,7 @@ import re
 from typing import Optional
 from dataclasses import dataclass
 
-from config import get_active_key, mark_key_used
+from config import get_active_key, mark_key_used, MAIN_MODEL
 
 log = logging.getLogger("sakura.intent")
 
@@ -166,7 +166,7 @@ async def classify_intent(text: str) -> IntentResult:
 
         response = await asyncio.to_thread(
             client.models.generate_content,
-            model="gemini-3.1-flash-lite",
+            model=MAIN_MODEL,
             contents=[types.Content(
                 role="user",
                 parts=[types.Part(text=prompt)]

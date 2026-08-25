@@ -18,6 +18,7 @@ import time
 import urllib.request
 import urllib.parse
 from typing import Optional
+from config import MAIN_MODEL
 
 log = logging.getLogger("sakura.steam")
 
@@ -565,7 +566,7 @@ async def find_guide(game_name: str, question: str = "") -> dict:
         client = genai.Client(api_key=key)
         r = await asyncio.to_thread(
             client.models.generate_content,
-            model="gemini-3.1-flash-lite",
+            model=MAIN_MODEL,
             contents=[types.Content(role="user", parts=[types.Part(text=prompt)])]
         )
         mark_key_used(key)

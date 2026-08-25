@@ -12,7 +12,7 @@ import json
 import logging
 import re
 
-from config import get_active_key, mark_key_used, mark_key_rate_limited
+from config import get_active_key, mark_key_used, mark_key_rate_limited, MAIN_MODEL
 from modules.fuzzy import has_trigger
 
 log = logging.getLogger("sakura.router")
@@ -296,7 +296,7 @@ async def route_command(text: str, context: dict | None = None) -> dict | None:
             client = genai.Client(api_key=key)
             response = await asyncio.to_thread(
                 client.models.generate_content,
-                model="gemini-3.1-flash-lite",
+                model=MAIN_MODEL,
                 contents=[types.Content(
                     role="user",
                     parts=[types.Part(text=prompt)]

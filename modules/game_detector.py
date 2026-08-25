@@ -22,6 +22,7 @@ import json
 import logging
 import time
 from typing import Optional
+from config import MAIN_MODEL
 
 log = logging.getLogger("sakura.game_detector")
 
@@ -118,7 +119,7 @@ async def detect_game_from_screenshot(
         )
         response = await asyncio.to_thread(
             client.models.generate_content,
-            model="gemini-3.1-flash-lite",
+            model=MAIN_MODEL,
             contents=[types.Content(parts=[
                 types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=img_bytes)),
                 types.Part(text=prompt),
@@ -230,7 +231,7 @@ async def detect_game_event(
         )
         response = await asyncio.to_thread(
             client.models.generate_content,
-            model="gemini-3.1-flash-lite",
+            model=MAIN_MODEL,
             contents=[types.Content(parts=[
                 types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=img_bytes)),
                 types.Part(text=prompt),

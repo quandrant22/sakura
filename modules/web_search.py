@@ -11,6 +11,7 @@ import os
 import re
 import httpx
 from bs4 import BeautifulSoup
+from config import MAIN_MODEL
 
 log = logging.getLogger(__name__)
 
@@ -201,7 +202,7 @@ async def search_and_fetch(query: str, max_chars: int = 3000) -> str:
         client = genai.Client(api_key=key)
         response = await asyncio.to_thread(
             client.models.generate_content,
-            model="gemini-3.1-flash-lite",
+            model=MAIN_MODEL,
             contents=[types.Content(
                 role="user",
                 parts=[types.Part(text=query)]
