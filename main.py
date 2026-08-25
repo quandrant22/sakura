@@ -47,9 +47,14 @@ from modules.tasks import (
 )
 from modules.rules import detect_rule, apply_rule, get_rules_context
 from modules import device_commands
-from modules.tts_server import stream_tts_to_device, stream_llm_to_tts, warmup_cache
+from modules.tts_server import stream_tts_to_device, stream_llm_to_tts, warmup_cache, strip_tone
 from modules.state_arbiter import get_current_emotion
 import modules.tts_server as tts_server
+
+
+def _strip_tone(text: str) -> str:
+    """Убирает теги [ТОН: …] где бы они ни стояли (общая функция tts_server)."""
+    return strip_tone(text)[1]
 from modules.reflection import reflection_loop
 from modules.intimacy_mode import reset_reflection_flag
 from modules.mem_cache import apply_all_patches, get_json, set_json
@@ -710,19 +715,6 @@ def clean_reply(text: str) -> str:
         and l.strip() not in (',', '"')
     ]
     return '\n'.join(lines).strip()
-
-
-_TG_TONE_RE = re.compile(r'^\[ТОН:\s*(.+?)\]\s*')
-
-
-def _strip_tone(text: str) -> str:
-    if not text:
-        return text
-    stripped = text.strip()
-    m = _TG_TONE_RE.match(stripped)
-    if m:
-        return stripped[m.end():].strip()
-    return text
 
 
 async def send_to_master(text: str, **kwargs):

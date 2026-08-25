@@ -201,3 +201,70 @@ class TestBlock2_UserCommands(unittest.TestCase):
         entry = self._read()["опасное"]
         self.assertTrue(entry.get("risky"))
         self.assertEqual(entry.get("source"), "user")
+
+
+# ════════════════════════════════════════════════════════════════════
+# БЛОК 3 — TTS: отсебятина, язык, junk-фильтр, тег [ТОН:]
+# ════════════════════════════════════════════════════════════════════
+
+class TestBlock3_TTS(unittest.TestCase):
+
+    def test_tone_tag_mid_text_and_lowercase(self):
+        """3.4: тег в середине и в нижнем регистре вырезается."""
+        from modules.tts_server import strip_tone
+        emotion, clean = strip_tone("ну [тон: тихо] и что ты скажешь")
+        self.assertEqual(emotion, "тихо")
+        self.assertEqual(clean, "ну и что ты скажешь")
+        self.assertNotIn("[ТОН", clean.upper())
+
+    def test_tone_tag_multiple_occurrences(self):
+        from modules.tts_server import strip_tone
+        emotion, clean = strip_tone("[ТОН: насмешливо] Ну конечно [ТОН: тихо] господин")
+        self.assertEqual(emotion, "насмешливо")
+        self.assertEqual(clean, "Ну конечно господин")
+
+    def test_tone_tag_start_kept_compatible(self):
+        from modules.tts_server import _extract_tone_tag
+        tone, text = _extract_tone_tag("[ТОН: мягко] Привет")
+        self.assertEqual(tone, "мягко")
+        self.assertEqual(text, "Привет")
+
+    def test_main_strip_tone_removes_anywhere(self):
+        import main
+        self.assertEqual(main._strip_tone("текст [тон: хм] середина"), "текст середина")
+
+    def test_junk_filter_keeps_meaningful_words(self):
+        """3.3: «Google», «извините», «я не могу» в середине реплики не вырезаются."""
+        from modules.tts_server import _clean_tts_text
+        self.assertIn("Google", _clean_tts_text("Сейчас поищу в Google ответ"))
+        self.assertIn("я не могу открыть", _clean_tts_text("К сожалению я не могу открыть гараж"))
+        self.assertIn("извините", _clean_tts_text("Вы сказали извините дважды"))
+
+    def test_junk_filter_strips_leading_leak_sentence(self):
+        from modules.tts_server import _clean_tts_text
+        result = _clean_tts_text("Извините, я не могу найти файл. Вот путь к нему.")
+        self.assertNotIn("Извините", result)
+        self.assertNotIn("не могу", result)
+        self.assertIn("Вот путь", result)
+
+    def test_junk_filter_identity_leak_everywhere(self):
+        from modules.tts_server import _clean_tts_text
+        result = _clean_tts_text("Привет, я Gemini и я помогу")
+        self.assertNotIn("Gemini", result)
+
+    def test_prefix_is_not_roleplay(self):
+        """3.1: промпт — чистая инструкция озвучки без ролевой игры."""
+        from modules.tts_server import _tts_prefix
+        p = _tts_prefix("радостная")
+        self.assertNotIn("актриса", p)
+        self.assertNotIn("Сакуру", p)
+        self.assertIn("Озвучь текст ниже", p)
+        self.assertIn("радостная", p)
+
+    def test_live_config_pins_language(self):
+        """3.2: language_code зафиксирован."""
+        from modules.tts_server import _live_config
+        cfg = _live_config()
+        sc = cfg.speech_config
+        lang = getattr(sc, "language_code", None) or (sc.get("language_code") if isinstance(sc, dict) else None)
+        self.assertEqual(lang, "ru-RU")

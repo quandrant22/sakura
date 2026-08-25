@@ -37,6 +37,51 @@ _client      = None
 _client_lock = asyncio.Lock()
 
 
+# ── Очистка текста перед TTS ─────────────────────────────────────────
+
+# Идентификационные утечки модели («я Gemini») — вырезаем где угодно:
+# осмысленного текста с такими фразами не бывает.
+_LEAK_ANYWHERE = [
+    "Live API", "live api", "LiveApi",
+    "I'm Gemini", "I am Gemini", "я Gemini", "я Гемини",
+]
+
+# Фразы-отказы/извинения/дисклеймеры — вырезаем ТОЛЬКО если реплика
+# НАЧИНАЕТСЯ с них, и целиком до конца предложения. Середину текста не
+# трогаем: «поищу в Google», «я не могу открыть дверь» — это нормальный
+# ответ Сакуры, а не утечка.
+_LEAK_STARTERS = [
+    "as an ai", "как ai", "как искусственный интеллект",
+    "i'm a language model", "я языковая модель",
+    "i can't", "i cannot", "я не могу", "i'm not able", "я не способна",
+    "i apologize", "приношу извинения", "извините", "простите",
+    "как синтезатор речи", "as a text-to-speech",
+]
+
+
+def _strip_leading_leak(text: str) -> str:
+    """Если реплика начинается с фразы-утечки — убирает её до конца
+    предложения (включая саму фразу). Повторяет, пока начало — утечка."""
+    while text:
+        stripped = text.lstrip()
+        lead = len(text) - len(stripped)
+        low = stripped.lower()
+        hit_len = 0
+        for phrase in sorted(_LEAK_STARTERS, key=len, reverse=True):
+            if low.startswith(phrase):
+                after = stripped[len(phrase):len(phrase) + 1]
+                # граница слова: после фразы не буква/цифра
+                if not after or not after.isalnum():
+                    hit_len = len(phrase)
+                    break
+        if not hit_len:
+            break
+        rest = stripped[hit_len:]
+        m = re.search(r'[.!?…\n]', rest)
+        text = (rest[m.end():] if m else "").lstrip()
+    return text
+
+
 def _clean_tts_text(text: str) -> str:
     """Удаляет мусор из текста перед отправкой в TTS."""
     if not text:
@@ -45,20 +90,11 @@ def _clean_tts_text(text: str) -> str:
     # Удаляем содержимое в скобках и звёздочках (сценические ремарки)
     text = re.sub(r'\([^)]*\)', '', text)
     text = re.sub(r'\*[^*]*\*', '', text)
-    # Удаляем типичные "утечки" нативной аудио-модели
-    _junk = [
-        "Live API", "live api", "LiveApi",
-        "I'm Gemini", "I am Gemini", "я Gemini", "я Гемини",
-        "Gemini", "gemini", "Google AI", "Google",
-        "As an AI", "Как AI", "Как искусственный интеллект",
-        "I'm a language model", "Я языковая модель",
-        "I can't", "Я не могу", "я не могу",
-        "I'm not able", "я не способна",
-        "I apologize", "приношу извинения", "извините",
-        "As a text-to-speech", "Как синтезатор речи",
-    ]
-    for junk in _junk:
+    # Идентификационные утечки — везде
+    for junk in _LEAK_ANYWHERE:
         text = text.replace(junk, "")
+    # Отказы/извинения — только если стоят в начале реплики
+    text = _strip_leading_leak(text)
     # Убираем двойные пробелы
     text = re.sub(r'\s+', ' ', text).strip()
     # Если после очистки текст пуст — берём первый непустой фрагмент исходного
@@ -70,18 +106,33 @@ def _clean_tts_text(text: str) -> str:
     return text
 
 
-_TONE_RE = re.compile(r'^\[ТОН:\s*(.+?)\]\s*')
+# Тег [ТОН: …] может стоять в начале, в середине и в любом регистре
+_TONE_RE = re.compile(r'\[\s*ТОН\s*:\s*([^\]]*)\]\s*', re.IGNORECASE)
+
+
+def strip_tone(text: str) -> tuple[str, str]:
+    """Вырезает ВСЕ теги [ТОН: ...] из любого места текста.
+    Возвращает (эмоция_из_первого_тега, чистый_текст).
+    Если тегов нет — эмоция '', текст без изменений (только strip)."""
+    if not text:
+        return "", text
+    emotion = ""
+
+    def _take(m):
+        nonlocal emotion
+        if not emotion and m.group(1).strip():
+            emotion = m.group(1).strip()
+        return " "
+
+    clean = _TONE_RE.sub(_take, text.strip())
+    clean = re.sub(r' {2,}', ' ', clean).strip()
+    return emotion, clean
 
 
 def _extract_tone_tag(text: str) -> tuple[str, str]:
-    """Извлекает [ТОН: описание] из начала текста.
-    Возвращает (тон, чистый_текст). Если ремарки нет — тон='', текст без изменений."""
-    m = _TONE_RE.match(text.strip())
-    if m:
-        tone = m.group(1).strip()
-        clean = text.strip()[m.end():].strip()
-        return tone, clean
-    return "", text
+    """Совместимое имя (используется тестами): извлекает [ТОН:] и возвращает
+    (тон, чистый_текст). Если ремарки нет — тон='', текст без изменений."""
+    return strip_tone(text)
 
 
 def _live_timeout(text: str) -> int:
@@ -105,37 +156,40 @@ async def _get_client():
 
 
 def _tts_prefix(emotion: str = "спокойная") -> str:
+    """Чистая инструкция озвучки БЕЗ ролевой игры: native audio иногда
+    отыгрывал «актрису» вместо чтения текста — отсюда отсебятина."""
     return (
-        f"Ты — актриса, играешь Сакуру: молодая, живая, дерзкая. "
-        f"Произнеси реплику с интонацией: {emotion}. Живо, в бодром темпе. "
-        f"НЕ отвечай на текст, НЕ добавляй ничего — только сыграй реплику.\n"
-        f"Реплика:\n"
+        f"Озвучь текст ниже с интонацией: {emotion}. "
+        f"Не отвечай на него, не комментируй, ничего не добавляй и не убирай — "
+        f"только прочитай ровно то, что написано.\n"
+        f"Текст:\n"
     )
 
 
-def _live_config():
+def _speech_config():
+    """SpeechConfig с фиксированным языком: без language_code native audio
+    определяет язык по тексту и меняет голос/акцент (заметно на японском)."""
+    voice = types.VoiceConfig(
+        prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=TTS_VOICE)
+    )
     try:
-        return types.LiveConnectConfig(
-            response_modalities=["AUDIO"],
-            thinking_config=types.ThinkingConfig(thinking_budget=0),
-            speech_config=types.SpeechConfig(
-                voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=TTS_VOICE)
-                )
-            ),
-            enable_affective_dialog=True,
-        )
+        return types.SpeechConfig(language_code="ru-RU", voice_config=voice)
     except TypeError:
-        log.warning("[TTS] SDK не поддерживает enable_affective_dialog, используются стандартные настройки")
-        return types.LiveConnectConfig(
-            response_modalities=["AUDIO"],
-            thinking_config=types.ThinkingConfig(thinking_budget=0),
-            speech_config=types.SpeechConfig(
-                voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=TTS_VOICE)
-                )
-            ),
-        )
+        log.debug("[TTS] SDK не принимает language_code в SpeechConfig")
+        return types.SpeechConfig(voice_config=voice)
+
+
+def _live_config():
+    base = dict(
+        response_modalities=["AUDIO"],
+        thinking_config=types.ThinkingConfig(thinking_budget=0),
+        speech_config=_speech_config(),
+    )
+    try:
+        return types.LiveConnectConfig(enable_affective_dialog=True, **base)
+    except TypeError:
+        log.debug("[TTS] SDK не поддерживает enable_affective_dialog")
+        return types.LiveConnectConfig(**base)
 
 
 async def _synthesize(text: str, emotion: str = "спокойная") -> list[bytes]:
