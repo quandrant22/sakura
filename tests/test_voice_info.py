@@ -8,7 +8,7 @@ import os
 import sys
 import asyncio
 import unittest
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
 os.environ.setdefault("MASTER_ID", "123456789")
 os.environ.setdefault("TELEGRAM_TOKEN", "test:fake-token")
@@ -487,3 +487,63 @@ class TestCapsulesVoice(unittest.TestCase):
         """briefing:now присутствует в каталоге интентов."""
         from modules.command_router import INTENTS_PROMPT
         self.assertIn('"briefing:now"', INTENTS_PROMPT)
+
+
+# ════════════════════════════════════════════════════════════════════
+# ЧЕСТНОСТЬ: «данных нет» ≠ «не умею проверить»
+# ════════════════════════════════════════════════════════════════════
+
+class TestHonestyRule(unittest.TestCase):
+
+    def test_honesty_rule_in_system_prompt(self):
+        """Правило различия добавлено в личность (раздел ПАМЯТЬ И ЧЕСТНОСТЬ)."""
+        from personality import get_system_prompt
+        prompt = get_system_prompt()
+        low = prompt.lower()
+        self.assertIn("не умею это проверить", low)
+        self.assertIn("такой команды у меня нет", low)
+
+    def test_ok_false_speaks_literal_without_llm(self):
+        """ok=False → честный literal-ответ, LLM-стилизация НЕ вызывается."""
+        import modules.ws_handlers as wh
+        ag = AsyncMock(return_value="выдумка LLM")
+        bot = MagicMock()
+        bot.send_message = AsyncMock()
+        with patch("modules.voice_info.handle",
+                   new=AsyncMock(return_value=("Источник недоступен.", False))):
+            _run(wh.answer_voice_info(
+                "steam:progress", "x", "прогресс",
+                None, "laptop", ag, bot))
+        ag.assert_not_awaited()          # LLM молчит — не выдумывает
+        sent = bot.send_message.await_args.args[1]
+        self.assertEqual(sent, "Источник недоступен.")
+
+    def test_ok_true_styled_but_facts_first(self):
+        import modules.ws_handlers as wh
+        ag = AsyncMock(return_value="Стилизованный ответ.")
+        bot = MagicMock()
+        bot.send_message = AsyncMock()
+        with patch("modules.voice_info.handle",
+                   new=AsyncMock(return_value=("Факт: 13 из 42.", True))):
+            _run(wh.answer_voice_info(
+                "steam:progress", "x", "прогресс",
+                None, "laptop", ag, bot))
+        ag.assert_awaited_once()         # факты стилизуются...
+        sent = bot.send_message.await_args.args[1]
+        self.assertEqual(sent, "Стилизованный ответ.")
+
+    def test_no_device_sends_to_telegram(self):
+        """Инфо-команды работают без устройства — ответ уходит в ТГ."""
+        import modules.ws_handlers as wh
+        ag = AsyncMock(return_value="")
+        bot = MagicMock()
+        bot.send_message = AsyncMock()
+        with patch("modules.voice_info.handle",
+                   new=AsyncMock(return_value=("Активных задач нет.", True))), \
+             patch.object(wh, "stream_tts_to_device", new=AsyncMock()) as tts:
+            _run(wh.answer_voice_info(
+                "task:list", "", "какие задачи",
+                None, "laptop", ag, bot))
+        bot.send_message.assert_awaited_once()
+        self.assertIn("Активных задач нет", bot.send_message.await_args.args[1])
+        tts.assert_not_awaited()
