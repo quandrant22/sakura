@@ -95,11 +95,18 @@ YOUTUBE:
 - Игровой режим включить → {"action": "game_mode:on"}
 - Игровой режим выключить → {"action": "game_mode:off"}
 
+STEAM (игры и ачивки Мастера):
+- Ачивки за период: вчера/сегодня/на этой неделе → {"action": "steam:achievements", "arg": "вчера|сегодня|неделя"}
+- Во что играет сейчас → {"action": "steam:current"}
+- Сколько наиграно в игру X (часы всего или за 2 недели) → {"action": "steam:playtime", "arg": "X"}
+- Прогресс ачивок в игре X (сколько из скольких) → {"action": "steam:progress", "arg": "X"}
+- Во что играл недавно, последние игры → {"action": "steam:recent"}
+
 ВАЖНЫЕ ПРАВИЛА:
 1. Используй контекст! Если играет музыка → «лайк» = music_like. Если открыт YouTube → «лайк» = youtube_like.
 2. Если играет музыка → «следующий», «пауза», «стоп» относятся к музыке.
 3. Если открыт YouTube → «пауза», «следующее» относятся к YouTube.
-4. Вопросы, просьбы рассказать, «как дела», «который час», «что думаешь» → {"action": null}
+4. Вопросы-разговоры («как дела», «что думаешь», «который час») → {"action": null}. НО вопросы из каталога выше (ачивки, игры, задачи, погода, сервер) — это КОМАНДЫ, а не разговор.
 5. Для ЗАПРОС/НАЗВАНИЕ/URL — извлеки из фразы пользователя
 6. Неоднозначно без контекста → {"action": null}
 7. say: НЕ использовать — это внутренняя команда
@@ -209,6 +216,57 @@ _HARDCODED = [
 ]
 
 
+# ── Информационные команды без LLM (матч по границам слов!) ───────────
+
+_PERIOD_RE = re.compile(r"(?<!\w)(вчера|сегодня|на этой неделе|за неделю|за месяц|недел\w+|месяц\w+)")
+
+def _period_arg(tl: str) -> str:
+    """Вытаскивает каноничный период из фразы (для аргумента команды)."""
+    m = _PERIOD_RE.search(tl)
+    if not m:
+        return ""
+    p = m.group(1)
+    if p == "вчера":
+        return "вчера"
+    if p == "сегодня":
+        return "сегодня"
+    if "месяц" in p:
+        return "месяц"
+    return "неделя"
+
+
+def _info_hardcoded(tl: str) -> dict | None:
+    """Частые информационные вопросы — мгновенно, без LLM.
+    Все матчи по ГРАНИЦАМ СЛОВ (тот же класс защиты, что в блоке 4)."""
+    # Steam: ачивки
+    if re.search(r"(?<!\w)ачивк", tl):
+        if re.search(r"прогресс|\bиз\s+\d+", tl):
+            return None  # «прогресс по ачивкам» — пусть LLM вытащит игру
+        return {"action": "steam:achievements", "arg": _period_arg(tl)}
+
+    # Steam: что сейчас играет
+    if re.search(r"во что\b.{0,20}\bигра(?:ю|ет)\b|что\s+(?:я\s+)?сейчас\s+игра(?:ю|ет)", tl):
+        return {"action": "steam:current"}
+
+    # Steam: во что играл недавно
+    if re.search(r"играл\w*\s+(?:недавно|последнее время|в последнее время)|недавни\w+\s+игр", tl):
+        return {"action": "steam:recent"}
+
+    # Steam: сколько наиграно в X («в»/«во» — начало названия игры)
+    m = re.search(r"сколько\b.{0,30}?\b(?:наиграл|играл|игры)\w*", tl)
+    if m:
+        g = re.search(r"\b(?:в|во)\s+(?!этой)(.+?)\s*[?.!]?$", tl)
+        if g and g.group(1).strip():
+            return {"action": "steam:playtime", "arg": g.group(1).strip()}
+
+    # Steam: прогресс ачивок в игре X
+    m = re.search(r"прогресс\w*.{0,25}?(?:по|в)\s+(?:игре\s+)?(.+?)\s*[?.!]?$", tl)
+    if m and m.group(1).strip():
+        return {"action": "steam:progress", "arg": m.group(1).strip()}
+
+    return None
+
+
 def _hardcoded_match(text: str) -> dict | None:
     """Хардкод для самых частых команд — работает без LLM."""
     stop = ["пожалуйста", "пожалуйст", "нам", "ка", "же", "ну"]
@@ -229,6 +287,11 @@ def _hardcoded_match(text: str) -> dict | None:
                 pos = tl_clean.find(phrase)
                 if len(tl_clean) < 40 or pos < 30:
                     return action
+
+    # Информационные вопросы (Steam/сервер/задачи/...) — по границам слов
+    info = _info_hardcoded(tl_clean)
+    if info:
+        return info
 
     return None
 

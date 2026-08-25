@@ -37,6 +37,7 @@ from modules.integrations import (
 )
 from modules.game_detector import detect_game_event, make_event_prompt
 from modules.user_commands import parse_teaching, add as add_cmd, list_all as list_cmds
+from modules.voice_info import is_info_action
 from modules.reminders import parse_reminder, add_reminder, format_reminders_list
 from modules.translator import is_translation_request, try_quick_translate, build_translate_prompt
 from modules.fears import detect_fear_trigger
@@ -535,6 +536,53 @@ async def execute_critical_action(critical_action: str, ws_dev, device_id, text:
         )
     except Exception as e:
         log.debug(f"[ws] execute_critical_action: {type(e).__name__}: {e}")
+
+
+async def answer_voice_info(action: str, arg: str, text: str,
+                            ws_dev, device_id, ask_gemini, bot) -> None:
+    """Информационные команды (steam:/vps:/reminder:/task:/weather:/music_stats:/
+    capsule:/briefing:): факты берём из модуля-источника и озвучиваем/отправляем.
+
+    Работает БЕЗ устройства. Честность: если источник недоступен или пуст —
+    говорим это прямо (literal), НЕ пропуская через LLM-стилизацию."""
+    try:
+        if action == "briefing:now":
+            from modules.briefing import build_briefing_prompt
+            bp = await build_briefing_prompt()
+            reply = await ask_gemini(
+                bp + "\nОтветь Мастеру коротко: 3-4 самых важного пункта.",
+                save_history=False) if bp else ""
+            if not reply:
+                reply = "Брифинг сейчас собрать не удалось."
+            ok = bool(reply and "не удалось" not in reply)
+        else:
+            from modules import voice_info as _vinfo
+            reply, ok = await _vinfo.handle(action, arg, text)
+    except Exception as e:
+        log.error(f"[voice_info] {action}: {type(e).__name__}: {e}")
+        reply, ok = "Не смогла получить данные — источник недоступен.", False
+
+    if ok and reply:
+        # Факты есть — произносим своим голосом, НО только эти факты
+        try:
+            styled = await ask_gemini(
+                f"Факты:\n{reply}\n\n"
+                "Передай это Мастеру коротко и точно. НИЧЕГО не выдумывай, "
+                "не добавляй и не меняй числа и названия. Если данных мало — "
+                "скажи об этом прямо.",
+                save_history=False)
+        except Exception as e:
+            log.debug(f"[voice_info] стилизация не удалась: {e}")
+            styled = None
+        final = (styled or "").strip() or reply
+    else:
+        # Нет данных / источник недоступен — честный literal-ответ
+        final = (reply or "").strip() or "Не нашла данных."
+
+    if ws_dev:
+        await stream_tts_to_device(final, ws_dev, device_id or "laptop", literal=True)
+    else:
+        await bot.send_message(MASTER_ID, final)
 
 
 async def handle_voice_command(websocket, data, ctx) -> None:
@@ -1438,6 +1486,15 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                     else:
                         await bot.send_message(MASTER_ID, _plan_msg)
                 return
+
+    # ── ИНФОРМАЦИОННЫЕ КОМАНДЫ (steam/vps/задачи/погода/...) ──
+    # Не требуют устройства: данные с сервера, ответ голосом или в ТГ.
+    if _routed and is_info_action(_routed.get("action", "")):
+        st._last_command_ts = __import__('time').monotonic()
+        await answer_voice_info(
+            _routed.get("action", ""), _routed.get("arg", "") or "",
+            text, ws_dev, device_id, ask_gemini, bot)
+        return
 
     if _routed and ws_dev:
         # ── Навык-план: выполнять через _execute_plan ──────

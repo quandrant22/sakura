@@ -467,6 +467,23 @@ async def check_new_achievements(appid: int) -> list[dict]:
     return new
 
 
+async def get_recently_played(limit: int = 5) -> list[dict]:
+    """GetRecentlyPlayedGames → [{name, appid, playtime_2weeks, playtime_forever}]
+    (минуты). Пусто если API недоступен или игр нет."""
+    key, sid = _get_config()
+    if not key or not sid:
+        return []
+    url = (
+        f"http://api.steampowered.com/IPlayerService/GetRecentlyPlayedGames/v0001/"
+        f"?key={key}&steamid={sid}&format=json&count={limit}"
+    )
+    res = await asyncio.to_thread(_fetch, url)
+    if not res.get("ok"):
+        return []
+    games = (res.get("data") or {}).get("response", {}).get("games") or []
+    return games
+
+
 # ── Рекомендации ──────────────────────────────────────────────────────
 
 async def recommend_games(mood: str = "neutral", limit: int = 5,
