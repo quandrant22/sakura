@@ -275,3 +275,115 @@ class TestVpsVoice(unittest.TestCase):
         self.assertEqual(r["action"], "vps:status")
         r = _hardcoded_match("как твоё самочувствие")
         self.assertEqual(r["action"], "vps:feeling")
+
+
+class TestRemindersVoice(unittest.TestCase):
+
+    def test_add_parsed_and_confirmed(self):
+        from modules.voice_info import reminders_add
+        parsed = {"text": "проверить чайник", "delay": 1200, "type": "reminder"}
+        entry = {"trigger_at": 1000001200, "type": "reminder",
+                 "text": "проверить чайник"}
+        with patch("modules.reminders.parse_reminder", return_value=parsed), \
+             patch("modules.reminders.add_reminder", return_value=entry) as addm, \
+             patch("modules.voice_info._now", return_value=1000000000):
+            text, ok = _run(reminders_add("напомни через 20 минут проверить чайник"))
+        self.assertTrue(ok)
+        addm.assert_called_once_with("проверить чайник", 1200, "reminder")
+        self.assertIn("20 мин", text)
+        self.assertIn("проверить чайник", text)
+
+    def test_add_unparsed_is_honest(self):
+        from modules.voice_info import reminders_add
+        with patch("modules.reminders.parse_reminder", return_value=None):
+            text, ok = _run(reminders_add("напомни что-нибудь когда-нибудь"))
+        self.assertFalse(ok)
+        self.assertIn("Не разобрала время", text)
+
+    def test_list_empty(self):
+        from modules.voice_info import reminders_list
+        with patch("modules.reminders.format_reminders_list",
+                   return_value="Нет активных напоминаний."):
+            text, ok = _run(reminders_list())
+        self.assertTrue(ok)
+        self.assertIn("Нет активных напоминаний", text)
+
+
+class TestTasksVoice(unittest.TestCase):
+
+    def test_list_with_ids(self):
+        from modules.voice_info import tasks_list
+        due = [{"id": 111, "text": "Купить хлеб", "due_time": "", "due_date": ""}]
+        up = [{"id": 222, "text": "Позвонить в сервис", "due_time": "18:00"}]
+        with patch("modules.tasks.get_due_tasks", return_value=due), \
+             patch("modules.tasks.get_upcoming_tasks", return_value=up):
+            text, ok = _run(tasks_list())
+        self.assertTrue(ok)
+        self.assertIn("[111] Купить хлеб", text)
+        self.assertIn("[222] Позвонить в сервис", text)
+
+    def test_list_empty_honest(self):
+        from modules.voice_info import tasks_list
+        with patch("modules.tasks.get_due_tasks", return_value=[]), \
+             patch("modules.tasks.get_upcoming_tasks", return_value=[]):
+            text, ok = _run(tasks_list())
+        self.assertTrue(ok)
+        self.assertIn("Активных задач нет", text)
+
+    def test_add_task(self):
+        from modules.voice_info import tasks_add
+        created = {"id": 999, "text": "купить хлеб"}
+        with patch("modules.tasks.add_task", return_value=created) as addm:
+            text, ok = _run(tasks_add("купить хлеб"))
+        self.assertTrue(ok)
+        addm.assert_called_once_with("купить хлеб")
+        self.assertIn("Задача добавлена", text)
+
+    def test_done_marks_completed(self):
+        from modules.voice_info import tasks_done
+        tasks = [{"id": 111, "text": "Купить хлеб"}]
+        with patch("modules.tasks.load_tasks", return_value=tasks), \
+             patch("modules.tasks.complete_task") as comp:
+            text, ok = _run(tasks_done("выполнил задачу 111"))
+        self.assertTrue(ok)
+        comp.assert_called_once_with(111)
+
+    def test_done_unknown_id_no_fake_success(self):
+        """Несуществующий id — честно говорим, НЕ рапортуем «выполнено»."""
+        from modules.voice_info import tasks_done
+        with patch("modules.tasks.load_tasks", return_value=[]), \
+             patch("modules.tasks.complete_task") as comp:
+            text, ok = _run(tasks_done("задачу 555"))
+        self.assertTrue(ok)          # ответ корректный...
+        comp.assert_not_called()     # ...но ничего не «закрыто»
+        self.assertIn("нет", text)
+
+
+class TestRouterReminderTaskHardcode(unittest.TestCase):
+
+    def test_reminder_add_catches_word(self):
+        from modules.command_router import _hardcoded_match
+        r = _hardcoded_match("напомни через 20 минут полить цветы")
+        self.assertEqual(r["action"], "reminder:add")
+
+    def test_reminder_list_vs_add(self):
+        from modules.command_router import _hardcoded_match
+        r = _hardcoded_match("какие у меня напоминания")
+        self.assertEqual(r["action"], "reminder:list")
+
+    def test_task_add_extracts_text(self):
+        from modules.command_router import _hardcoded_match
+        r = _hardcoded_match("добавь задачу купить хлеб")
+        self.assertEqual(r["action"], "task:add")
+        self.assertEqual(r["arg"], "купить хлеб")
+
+    def test_task_done_extracts_number(self):
+        from modules.command_router import _hardcoded_match
+        r = _hardcoded_match("я выполнил задачу 5")
+        self.assertEqual(r["action"], "task:done")
+        self.assertEqual(r["arg"], "5")
+
+    def test_task_list(self):
+        from modules.command_router import _hardcoded_match
+        r = _hardcoded_match("какие у меня задачи?")
+        self.assertEqual(r["action"], "task:list")

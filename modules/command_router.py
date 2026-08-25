@@ -106,6 +106,13 @@ STEAM (игры и ачивки Мастера):
 - Как сервер, нагрузка CPU/RAM → {"action": "vps:status"}
 - Как твоё самочувствие (сервер — твоё тело) → {"action": "vps:feeling"}
 
+НАПОМИНАНИЯ И ЗАДАЧИ:
+- Напомни через N минут/часов ЧТО, таймер на N минут → {"action": "reminder:add"}
+- Какие у меня напоминания → {"action": "reminder:list"}
+- Добавить/создать задачу ТЕКСТ → {"action": "task:add", "arg": "ТЕКСТ"}
+- Какие задачи, что по задачам → {"action": "task:list"}
+- Выполнил/сделал задачу N → {"action": "task:done", "arg": "N"}
+
 ВАЖНЫЕ ПРАВИЛА:
 1. Используй контекст! Если играет музыка → «лайк» = music_like. Если открыт YouTube → «лайк» = youtube_like.
 2. Если играет музыка → «следующий», «пауза», «стоп» относятся к музыке.
@@ -276,6 +283,25 @@ def _info_hardcoded(tl: str) -> dict | None:
         return {"action": "vps:status"}
     if re.search(r"(?:какое\s+|твоё\s+)?самочувстви\w+", tl):
         return {"action": "vps:feeling"}
+
+    # Задачи
+    if re.search(r"(?<!\w)задач", tl):
+        m = re.search(r"(?:выполнил\w*|сделал\w*|закрыл\w*)\s+задач[уи]\s+#?\s*(\d+)", tl)
+        if m:
+            return {"action": "task:done", "arg": m.group(1)}
+        m = re.search(r"(?:добавь|создай|поставь)\s+задачу\s*[,:]?\s*(.+?)\s*$", tl)
+        if m and m.group(1).strip():
+            return {"action": "task:add", "arg": m.group(1).strip()}
+        if re.search(r"каки\w*\s+(?:у\s+меня\s+)?задач|(?:мои|мой)\s+задачи|список\s+задач"
+                     r"|что\s+по\s+задачам|у\s+меня\s+задач", tl):
+            return {"action": "task:list"}
+        # остальные «задач…» фразы — на усмотрение LLM-роутера
+
+    # Напоминания
+    if re.search(r"(?<!\w)напоминан\w+", tl):
+        return {"action": "reminder:list"}
+    if re.search(r"(?<!\w)(?:напомни|таймер)\b", tl):
+        return {"action": "reminder:add"}
 
     return None
 

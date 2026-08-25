@@ -277,6 +277,94 @@ async def vps_feeling():
             "ничего не давит."), True
 
 
+# ── Напоминания ───────────────────────────────────────────────────────
+
+async def reminders_add(text: str):
+    """«Напомни через N минут X» / «таймер на N минут». → (текст, ok)."""
+    from modules.reminders import parse_reminder, add_reminder
+    parsed = parse_reminder(text or "")
+    if not parsed:
+        return ("Не разобрала время. Скажи, например: "
+                "напомни через 20 минут проверить чайник."), False
+    entry = add_reminder(parsed["text"], parsed["delay"],
+                         parsed.get("type", "reminder"))
+    mins = max(1, round((entry["trigger_at"] - _now()) / 60))
+    what = entry["text"] if entry["type"] != "timer" else "таймер"
+    return f"Хорошо. Через {mins} мин напомню: {what}.", True
+
+
+async def reminders_list():
+    """Какие напоминания. → (текст, ok)."""
+    from modules.reminders import format_reminders_list
+    text = format_reminders_list()
+    if not text:
+        return "Список напоминаний пуст.", True
+    return text, True
+
+
+# ── Задачи ────────────────────────────────────────────────────────────
+
+def _tasks_list_text() -> str:
+    """Активные задачи с id — чтобы «выполнил задачу N» работал."""
+    from modules.tasks import get_due_tasks, get_upcoming_tasks
+    due = get_due_tasks() or []
+    upcoming_ids = {t.get("id") for t in due}
+    upcoming = [t for t in (get_upcoming_tasks(24) or [])
+                if t.get("id") not in upcoming_ids]
+    if not due and not upcoming:
+        return ""
+    lines = []
+    if due:
+        lines.append("На сегодня/просроченные:")
+        for t in due[:8]:
+            when = t.get("due_time") or t.get("due_date") or ""
+            lines.append(f"— [{t['id']}] {t['text']}" + (f" ({when})" if when else ""))
+    if upcoming:
+        lines.append("Скоро:")
+        for t in upcoming[:5]:
+            lines.append(f"— [{t['id']}] {t['text']}")
+    return "\n".join(lines)
+
+
+async def tasks_list():
+    """Какие задачи / что на сегодня. → (текст, ok)."""
+    text = _tasks_list_text()
+    if not text:
+        return "Активных задач нет.", True
+    return text, True
+
+
+async def tasks_add(arg: str):
+    """Добавить задачу. → (текст, ok)."""
+    from modules.tasks import add_task
+    name = (arg or "").strip()
+    if not name:
+        return "Не расслышала текст задачи.", False
+    task = add_task(name)
+    return f"Задача добавлена: {task['text']}.", True
+
+
+async def tasks_done(arg: str):
+    """Выполнил задачу N. → (текст, ok)."""
+    import re as _re
+    from modules import tasks as _tasks
+    m = _re.search(r"\d+", arg or "")
+    if not m:
+        return "Назови номер задачи — номера есть в списке задач.", False
+    task_id = int(m.group(0))
+    exists = any(t.get("id") == task_id for t in (_tasks.load_tasks() or []))
+    if not exists:
+        return (f"Задачи номер {task_id} в списке нет. "
+                f"Скажи «какие задачи» — покажу номера."), True
+    _tasks.complete_task(task_id)
+    return f"Отметила задачу {task_id} выполненной.", True
+
+
+def _now():
+    import time as _t
+    return _t.time()
+
+
 # ── Единая точка входа ────────────────────────────────────────────────
 
 async def handle(action: str, arg: str = "", text: str = ""):
@@ -302,6 +390,16 @@ async def handle(action: str, arg: str = "", text: str = ""):
             return await vps_status()
         if action == "vps:feeling":
             return await vps_feeling()
+        if action == "reminder:add":
+            return await reminders_add(text)
+        if action == "reminder:list":
+            return await reminders_list()
+        if action == "task:add":
+            return await tasks_add(arg)
+        if action == "task:list":
+            return await tasks_list()
+        if action == "task:done":
+            return await tasks_done(arg)
     except Exception as e:
         log.error(f"[voice_info] {action}: {type(e).__name__}: {e}")
         return "Не смогла получить данные у источника — он недоступен.", False
