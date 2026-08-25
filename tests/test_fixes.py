@@ -96,3 +96,108 @@ class TestBlock1_GameContext(unittest.TestCase):
         args, kwargs = gen_mock.call_args
         full_system = args[3] if len(args) >= 4 else kwargs.get("full_system")
         self.assertNotIn("ИГРА ИЗ БИБЛИОТЕКИ МАСТЕРА", full_system)
+
+
+# ════════════════════════════════════════════════════════════════════
+# БЛОК 2 — сценарии: потеря данных
+# ════════════════════════════════════════════════════════════════════
+
+class TestBlock2_UserCommands(unittest.TestCase):
+    """Сценарии переживают уборку, счётчик — перезапуск, план — валидацию."""
+
+    def setUp(self):
+        import modules.user_commands as uc
+        self.uc = uc
+        self._tmpdir = tempfile.mkdtemp(prefix="sakura_fix_ucmd_")
+        self._cmd_file = os.path.join(self._tmpdir, "user_commands.json")
+        self._patcher = patch.object(uc, "COMMANDS_FILE", self._cmd_file)
+        self._patcher.start()
+        uc._pending_data = None
+        uc._last_flush = 0.0
+
+    def tearDown(self):
+        self._patcher.stop()
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def _read(self):
+        if not os.path.exists(self._cmd_file):
+            return {}
+        with open(self._cmd_file, encoding="utf-8") as f:
+            return json.load(f)
+
+    def _write(self, data):
+        with open(self._cmd_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+
+    def test_scenario_survives_cleanup_auto(self):
+        """2.2 + 2.3: осознанный сценарий с created_at не удаляется уборкой."""
+        from datetime import datetime, timedelta
+        self.assertTrue(self.uc.add("заводи мотор",
+                                    {"action": "ext:start_motor"}, source="user"))
+        self.uc.cleanup_auto(min_uses=2, older_days=0)
+        data = self._read()
+        self.assertIn("заводи мотор", data)
+        # created_at проставлен автоматически и в ISO-формате
+        created = data["заводи мотор"]["created_at"]
+        datetime.fromisoformat(created)  # не бросит исключение = валидный ISO
+        # старая auto-запись при этом удаляется
+        old = (datetime.now() - timedelta(days=40)).isoformat()
+        data["мотор"] = {"action": "x", "source": "auto", "uses": 1,
+                         "created_at": old}
+        self._write(data)
+        removed = self.uc.cleanup_auto(min_uses=2, older_days=30)
+        self.assertEqual(removed, 1)
+        self.assertNotIn("мотор", self._read())
+        self.assertIn("заводи мотор", self._read())
+
+    def test_legacy_manual_survives_cleanup_auto(self):
+        self.uc.add("старая команда", {"action": "a"}, source="manual")
+        self.uc.cleanup_auto(min_uses=99, older_days=0)
+        self.assertIn("старая команда", self._read())
+
+    def test_uses_survive_reload(self):
+        """2.1: счётчик uses переживает перезапуск (перезагрузку с диска)."""
+        from datetime import datetime
+        self._write({"мотор": {"action": "a", "source": "plan", "uses": 1,
+                               "created_at": datetime.now().isoformat()}})
+        self.assertIsNotNone(self.uc.match("мотор"))
+        self.uc.flush_pending()          # как atexit при завершении процесса
+        self.assertEqual(self._read()["мотор"]["uses"], 2)
+        # второй матч после сброса буфера — снова +1
+        self.assertIsNotNone(self.uc.match("мотор"))
+        self.uc.flush_pending()
+        self.assertEqual(self._read()["мотор"]["uses"], 3)
+
+    def test_longest_trigger_wins(self):
+        """2.4: «ну давай заводи мотор уже» → «заводи мотор», а не «мотор»."""
+        self.uc.add("мотор", {"action": "short"})
+        self.uc.add("заводи мотор", {"action": "long"})
+        res = self.uc.match("ну давай заводи мотор уже")
+        self.assertEqual(res["action"], "long")
+        # точное совпадение по-прежнему приоритетнее частичного
+        self.assertEqual(self.uc.match("мотор")["action"], "short")
+
+    def test_invalid_plan_not_saved(self):
+        """2.5: несуществующий примитив → команда не сохраняется."""
+        ok = self.uc.add("сломанное", {
+            "action": "run_plan",
+            "plan": {"steps": [{"action": "несуществующий_примитив", "arg": ""}]},
+        })
+        self.assertFalse(ok)
+        self.assertNotIn("сломанное", self._read())
+
+    def test_too_many_steps_not_saved(self):
+        steps = [{"action": "wait", "arg": "1"} for _ in range(10)]
+        self.assertFalse(self.uc.add(
+            "длинное", {"action": "run_plan", "plan": {"steps": steps}}))
+        self.assertNotIn("длинное", self._read())
+
+    def test_valid_plan_saved_with_risky_flag(self):
+        self.assertTrue(self.uc.add("опасное", {
+            "action": "run_plan",
+            "plan": {"steps": [{"action": "powershell", "arg": "dir"}],
+                     "summary": "каталог"},
+        }, source="user"))
+        entry = self._read()["опасное"]
+        self.assertTrue(entry.get("risky"))
+        self.assertEqual(entry.get("source"), "user")
