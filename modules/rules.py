@@ -15,6 +15,8 @@ import json
 import os
 from datetime import datetime
 
+from modules.fuzzy import find_trigger
+
 RULES_FILE = "memory/rules.json"
 
 _ADDRESS_TRIGGERS = [
@@ -82,26 +84,31 @@ def detect_rule(text: str) -> dict | None:
     if any(t in tl for t in _FORGET_ADDRESS_TRIGGERS):
         return {"type": "address_reset", "value": None}
 
+    # Матчи — по границам слов, чтобы триггер не ловился внутри
+    # посторонних слов
     for trigger in _ADDRESS_TRIGGERS:
-        if trigger in tl:
-            name = tl.split(trigger, 1)[1].strip().strip(".,!?\"'")
+        m = find_trigger(trigger, tl)
+        if m:
+            name = tl[m.end():].strip().strip(".,!?\"'")
             name = name.split()[0] if name else ""
             if name and len(name) > 1:
                 return {"type": "address", "value": name}
 
     for trigger in _PERMISSION_TRIGGERS:
-        if trigger in tl:
-            topic = tl.split(trigger, 1)[1].strip().strip(".,!?")
+        m = find_trigger(trigger, tl)
+        if m:
+            topic = tl[m.end():].strip().strip(".,!?")
             if topic:
                 return {"type": "permission", "value": f"говорить открыто про {topic}"}
 
     for trigger, rule in _STYLE_TRIGGERS.items():
-        if trigger in tl:
+        if find_trigger(trigger, tl):
             return {"type": "style", "value": rule}
 
     for trigger in _CANCEL_TRIGGERS:
-        if trigger in tl:
-            topic = tl.split(trigger, 1)[1].strip().strip(".,!?")
+        m = find_trigger(trigger, tl)
+        if m:
+            topic = tl[m.end():].strip().strip(".,!?")
             if topic:
                 return {"type": "cancel", "value": topic}
 

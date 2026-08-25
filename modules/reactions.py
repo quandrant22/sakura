@@ -9,6 +9,8 @@ import logging
 import random
 import time
 
+from modules.fuzzy import find_trigger
+
 log = logging.getLogger(__name__)
 
 # ── Rate limiting ───────────────────────────────────────────────────
@@ -184,10 +186,10 @@ def detect_reaction(text: str, mood_valence: float = 0.0,
     candidates = []
 
     for emotion, data in REACTIONS.items():
-        # Проверяем триггерные слова
+        # Проверяем триггерные слова — по границам слов (без подстрок)
         matched = False
         for word in data["trigger_words"]:
-            if word in tl:
+            if find_trigger(word, tl):
                 matched = True
                 break
 

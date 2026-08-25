@@ -7,6 +7,8 @@ import logging
 import random
 from datetime import datetime
 
+from modules.fuzzy import find_trigger
+
 log = logging.getLogger(__name__)
 
 # ── Страхи Сакуры ──────────────────────────────────────────────────
@@ -74,9 +76,10 @@ def detect_fear_trigger(text: str, weather: str = "") -> dict | None:
     tl = text.lower()
 
     for fear_id, fear in FEARS.items():
-        # Проверяем текст
+        # Проверяем текст — по границам слов: «сделай громче» не должно
+        # будить страх «гром», «убавь громкость» — страх «громко»
         for trigger in fear["triggers"]:
-            if trigger in tl:
+            if find_trigger(trigger, tl):
                 return {
                     "fear": fear_id,
                     "name": fear["name"],

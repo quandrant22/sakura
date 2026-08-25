@@ -14,6 +14,35 @@ Whisper иногда искажает слова: «дублируй»→«до�
 """
 
 import difflib
+import re
+
+
+# ── Триггеры по границам слов ────────────────────────────────────────
+
+def find_trigger(trigger: str, text_lower: str, inflect: bool = False):
+    """Есть ли триггер в тексте ПО ГРАНИЦАМ СЛОВ. Возвращает re.Match|None.
+
+    Защита от класса ложных срабатываний-подстрок:
+      «сделай гром**че**» не матчит триггер «гром»,
+      «убавь **громко**сть» — триггер «громко».
+    Триггеры короче 4 символов («ого») из-за границ слов матчатся только
+    как отдельное слово — точное совпадение слова.
+
+    inflect=True — для существительных с падежами («чайник» → «в чайнике»,
+    «чайника»): после основы допускается русское окончание до 2 гласных/
+    согласных флексий, но чужие слова по-прежнему не матчатся."""
+    t = (trigger or "").lower().strip()
+    if not t:
+        return None
+    if inflect and len(t) >= 4:
+        return re.search(
+            rf"(?<!\w){re.escape(t)}(?:[ауеоияё]{{1,2}})?(?!\w)", text_lower)
+    return re.search(rf"(?<!\w){re.escape(t)}(?!\w)", text_lower)
+
+
+def has_trigger(trigger: str, text_lower: str, inflect: bool = False) -> bool:
+    """Булева обёртка над find_trigger."""
+    return find_trigger(trigger, text_lower, inflect=inflect) is not None
 
 
 def _similar(a: str, b: str) -> float:

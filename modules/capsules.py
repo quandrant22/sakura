@@ -23,6 +23,8 @@ import re
 from datetime import datetime, date, timedelta
 from typing import Optional
 
+from modules.fuzzy import find_trigger
+
 log = logging.getLogger("sakura.capsules")
 
 
@@ -120,7 +122,8 @@ def parse_open_date(text: str) -> Optional[date]:
             return date.today() + timedelta(days=n)
 
     for name, month in _MONTH_NAMES.items():
-        if name in tl:
+        # по границам слов: «май» не матчит «мастер»/«майнкрафт»
+        if find_trigger(name, tl):
             target = date.today().replace(month=month, day=1)
             if target <= date.today():
                 target = target.replace(year=target.year + 1)

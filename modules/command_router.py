@@ -13,6 +13,7 @@ import logging
 import re
 
 from config import get_active_key, mark_key_used, mark_key_rate_limited
+from modules.fuzzy import has_trigger
 
 log = logging.getLogger("sakura.router")
 
@@ -370,7 +371,9 @@ def route_critical(text: str) -> str | None:
         return _CRITICAL_EXACT[tl]
 
     m = re.search(r"нагрей.*?(\d+)\s*градус", tl)
-    if m and "чайник" in tl:
+    # «чайник» — по границам слов, но с падежами («в чайнике», «чайника»);
+    # чужие слова («чайничек самовара» в переносном смысле, «нечайниковый») не матчатся
+    if m and has_trigger("чайник", tl, inflect=True):
         temp = max(40, min(95, int(m.group(1))))
         return f"kettle:heat:{temp}"
 

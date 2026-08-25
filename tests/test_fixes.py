@@ -268,3 +268,68 @@ class TestBlock3_TTS(unittest.TestCase):
         sc = cfg.speech_config
         lang = getattr(sc, "language_code", None) or (sc.get("language_code") if isinstance(sc, dict) else None)
         self.assertEqual(lang, "ru-RU")
+
+
+# ════════════════════════════════════════════════════════════════════
+# БЛОК 4 — подстрочные матчи: ложные срабатывания
+# ════════════════════════════════════════════════════════════════════
+
+class TestBlock4_WordBoundaries(unittest.TestCase):
+
+    def test_volume_commands_do_not_trigger_fears(self):
+        """4.1: «сделай громче»/«убавь громкость» не будят страхи."""
+        from modules.fears import detect_fear_trigger
+        self.assertIsNone(detect_fear_trigger("сделай громче"))
+        self.assertIsNone(detect_fear_trigger("убавь громкость"))
+        self.assertIsNone(detect_fear_trigger("сделай тише"))
+        self.assertIsNone(detect_fear_trigger("следующий трек"))
+        self.assertIsNone(detect_fear_trigger("выключи компьютер"))
+
+    def test_storm_words_do_trigger_fears(self):
+        from modules.fears import detect_fear_trigger
+        hit = detect_fear_trigger("началась гроза")
+        self.assertIsNotNone(hit)
+        self.assertEqual(hit["fear"], "thunder")
+        hit = detect_fear_trigger("слышу гром")
+        self.assertIsNotNone(hit)
+        self.assertEqual(hit["fear"], "thunder")
+
+    def test_find_trigger_boundaries(self):
+        from modules.fuzzy import find_trigger, has_trigger
+        self.assertIsNone(find_trigger("гром", "сделай громче"))
+        self.assertIsNone(find_trigger("громко", "убавь громкость"))
+        self.assertIsNotNone(find_trigger("гром", "слышу гром над крышей"))
+        # короткий триггер — только целым словом
+        self.assertIsNotNone(find_trigger("ого", "ого, круто!"))
+        self.assertIsNone(find_trigger("ого", "магого"))
+        self.assertFalse(has_trigger("", "что угодно"))
+
+    def test_reactions_word_boundary(self):
+        """4.2: реакции — триггеры только целыми словами."""
+        from modules.reactions import detect_reaction
+        # «круто» есть, а «крутить»/«закрутить» не должны матчиться
+        self.assertIsNone(detect_reaction("закрути гайку", 0.5, 0.5))
+        hit = detect_reaction("вау, вот это да!", 0.5, 0.5)
+        self.assertIsNotNone(hit)
+
+    def test_rules_word_boundary(self):
+        from modules.rules import detect_rule
+        rule = detect_rule("зови меня Влад")
+        self.assertIsNotNone(rule)
+        self.assertEqual(rule["type"], "address")
+        self.assertEqual(rule["value"], "влад")
+        style = detect_rule("отвечай короче пожалуйста")
+        self.assertIsNotNone(style)
+        self.assertEqual(style["type"], "style")
+
+    def test_capsules_month_word_boundary(self):
+        from modules.capsules import parse_open_date
+        # «май» как слово — дата; внутри другого слова — нет
+        self.assertIsNotNone(parse_open_date("открой в мае"))
+        self.assertIsNone(parse_open_date("расскажи про майнкрафт"))
+
+    def test_router_kettle_word_boundary(self):
+        from modules.command_router import route_critical
+        self.assertEqual(route_critical("нагрей воду в чайнике до 80 градусов"),
+                         "kettle:heat:80")
+        self.assertIsNone(route_critical("нагрей до 80 градусов в чайничке самовара"))
