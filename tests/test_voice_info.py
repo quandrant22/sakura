@@ -6,6 +6,7 @@ Run: python3 -m pytest tests/test_voice_info.py -q
 """
 import os
 import sys
+import time
 import asyncio
 import unittest
 from unittest.mock import patch, MagicMock, AsyncMock
@@ -51,50 +52,120 @@ class TestParsePeriod(unittest.TestCase):
 
 class TestSteamAchievements(unittest.TestCase):
 
-    def test_period_data_formatted(self):
-        """Главный кейс Мастера: «какие ачивки я получил вчера»."""
+    def setUp(self):
+        import modules.voice_info as vi
+        self.vi = vi
+        vi._ach_query_cache.clear()   # свежий кэш между тестами
+
+    def _patch_candidates(self, games):
+        """Мок _candidate_games → [(appid, name)] + {appid: name}."""
+        names = {a: n for a, n in games}
+        return patch("modules.voice_info._candidate_games",
+                     new=AsyncMock(return_value=(games, names)))
+
+    def test_period_data_formatted_from_api(self):
+        """Главный кейс: ачивки за период из Steam API (не из seen-таблицы)."""
         from modules.voice_info import steam_achievements
-        rows = [
-            {"appid": 111, "apiname": "ach_first_blood", "ts": 1700000000},
-            {"appid": 111, "apiname": "ach_explorer", "ts": 1700000100},
-            {"appid": 222, "apiname": "ach_racer", "ts": 1700000200},
+        games = [(617290, "Remnant: From the Ashes"),
+                 (1282100, "Remnant II")]
+        now = int(time.time())
+        achs617 = [
+            {"apiname": "r1_a", "name": "Первый", "achieved": 1,
+             "unlocktime": now - 3600},          # 1 час назад — в окне «неделя»
+            {"apiname": "r1_b", "name": "Старый", "achieved": 1,
+             "unlocktime": now - 90 * 86400},    # 90 дней назад — вне
+            {"apiname": "r1_c", "name": "Невыбито", "achieved": 0,
+             "unlocktime": 0},
         ]
-        lib = [{"appid": 111, "name": "Palworld"},
-               {"appid": 222, "name": "Forza"}]
-        achs111 = [{"apiname": "ach_first_blood", "name": "Первая кровь"},
-                   {"apiname": "ach_explorer", "name": "Исследователь"}]
-        achs222 = [{"apiname": "ach_racer", "name": "Гонщик"}]
+        achs128 = [{"apiname": "r2_a", "name": "Второй", "achieved": 1,
+                    "unlocktime": now - 2 * 3600}]
 
         async def fake_achs(appid):
-            return {111: achs111, 222: achs222}[appid]
+            return {617290: (achs617, "ok"), 1282100: (achs128, "ok")}[appid]
 
-        with patch("modules.voice_info._seen_unlocked_between", return_value=rows), \
-             patch("modules.steam_integration.get_library", return_value=lib), \
-             patch("modules.steam_integration.get_achievements", side_effect=fake_achs):
-            text, ok = _run(steam_achievements("вчера"))
+        with self._patch_candidates(games), \
+             patch("modules.steam_integration._fetch_achievements",
+                   side_effect=fake_achs):
+            text, ok = _run(steam_achievements("неделя"))
 
         self.assertTrue(ok)
-        self.assertIn("Palworld", text)
-        self.assertIn("Forza", text)
-        self.assertIn("Первая кровь", text)   # человеческое имя из API
-        self.assertNotIn("ach_first_blood", text)
+        self.assertIn("Remnant: From the Ashes", text)
+        self.assertIn("«Первый»", text)             # из API, человеческое имя
+        self.assertIn("«Второй»", text)
+        self.assertNotIn("Старый", text)            # вне периода не попал
+        self.assertNotIn("r1_a", text)              # не код, а имя
 
     def test_period_empty_is_honest(self):
+        """Проверка прошла, ачивок не было → ok=True, «достижений нет»."""
         from modules.voice_info import steam_achievements
-        with patch("modules.voice_info._seen_unlocked_between", return_value=[]):
-            text, ok = _run(steam_achievements("вчера"))
+        with self._patch_candidates([(617290, "Remnant")]), \
+             patch("modules.steam_integration._fetch_achievements",
+                   new=AsyncMock(return_value=([], "ok"))):
+            text, ok = _run(steam_achievements("неделя"))
         self.assertTrue(ok)
-        self.assertIn("новых ачивок нет", text.lower())
+        self.assertIn("достижений нет", text)
 
-    def test_bad_unlocktime_skipped(self):
-        """unlocked_at хранится строкой: пустое/мусор не превращаем в дату."""
-        from modules.voice_info import _seen_unlocked_between
-        rows = [
-            {"appid": 1, "apiname": "a", "unlocked_at": ""},
-            {"appid": 1, "apiname": "b", "unlocked_at": "не число"},
-            {"appid": 1, "apiname": "c", "unlocked_at": "1700000000"},   # внутри
-            {"appid": 1, "apiname": "d", "unlocked_at": "1600000000"},   # вне
-        ]
+    def test_no_period_defaults_to_week(self):
+        from modules.voice_info import steam_achievements, _default_period_word
+        self.assertEqual(_default_period_word(""), "неделя")
+        with self._patch_candidates([(5778, "X")]), \
+             patch("modules.steam_integration._fetch_achievements",
+                   new=AsyncMock(return_value=([], True))):
+            text, ok = _run(steam_achievements(""))
+        self.assertTrue(ok)
+
+    def test_no_candidates_is_honest_success(self):
+        """Кандидатов (не в кого играть) нет → ok=True, не «Steam недоступен»."""
+        from modules.voice_info import steam_achievements
+        with self._patch_candidates([]), \
+             patch("modules.voice_info._seen_unlocked_between", return_value=[]):
+            text, ok = _run(steam_achievements("неделя"))
+        self.assertTrue(ok)
+        self.assertIn("достижений нет", text)
+
+    def test_api_down_fallback_and_honest_fail(self):
+        """API недоступен по всем кандидатам и кэша нет → ok=False."""
+        from modules.voice_info import steam_achievements
+        async def down(appid):
+            return None, "steam_down"
+        with self._patch_candidates([(617290, "Remnant")]), \
+             patch("modules.steam_integration._fetch_achievements",
+                   side_effect=down), \
+             patch("modules.voice_info._seen_unlocked_between", return_value=[]):
+            text, ok = _run(steam_achievements("неделя"))
+        self.assertFalse(ok)
+        self.assertIn("Steam недоступен", text)
+
+    def test_api_down_uses_local_cache_with_note(self):
+        """API недоступен, но seen-таблица есть → отдаём её с пометкой."""
+        from modules.voice_info import steam_achievements
+        seats = [{"appid": 617290, "apiname": "Кеш-ачивка", "ts": int(time.time())}]
+        async def fake(appid):
+            return None, "steam_down"
+        with self._patch_candidates([(617290, "Remnant")]), \
+             patch("modules.steam_integration._fetch_achievements", side_effect=fake), \
+             patch("modules.voice_info._seen_unlocked_between", return_value=seats):
+            text, ok = _run(steam_achievements("неделя"))
+        self.assertTrue(ok)
+        self.assertIn("Кеш-ачивка", text)
+        self.assertIn("могут быть неполными", text)
+
+    def test_parts_of_speech_formatted(self):
+        """Формат времени: «вчера в 22:14», «сегодня в 09:03»."""
+        from modules.voice_info import _fmt_unlock_ts
+        from datetime import datetime as _dt, timedelta as _td
+        now = int(time.time())
+        y_ts = int(_dt.fromtimestamp(now).replace(hour=22, minute=14,
+                                                  second=0, microsecond=0)
+                   .timestamp()) - 86400
+        self.assertIn("вчера в 22:14", _fmt_unlock_ts(y_ts))
+
+    def test_all_time_summary(self):
+        """«всё время» → сводка из локального журнала без десятков вызовов."""
+        from modules.voice_info import steam_achievements
+        rows = [{"appid": 617290, "n": 12}, {"appid": 3812600, "n": 10}]
+        lib = [{"appid": 617290, "name": "Remnant", "playtime_forever": 100},
+               {"appid": 3812600, "name": "ReStory", "playtime_forever": 200}]
 
         class FakeCursor:
             def fetchall(self):
@@ -104,26 +175,15 @@ class TestSteamAchievements(unittest.TestCase):
             def execute(self, q, p=None):
                 return FakeCursor()
 
-        with patch("memory.db._conn", return_value=FakeConn()):
-            out = _seen_unlocked_between(1650000000, 1750000000)
-        self.assertEqual(len(out), 1)
-        self.assertEqual(out[0]["apiname"], "c")
-
-    def test_api_down_marks_honestly(self):
-        """Steam API недоступен → коды остаются, но честно помечаем."""
-        from modules.voice_info import steam_achievements
-        rows = [{"appid": 111, "apiname": "ach_x", "ts": 1700000000}]
-
-        async def fake_achs(appid):
-            return []
-
-        with patch("modules.voice_info._seen_unlocked_between", return_value=rows), \
-             patch("modules.steam_integration.get_library",
-                   return_value=[{"appid": 111, "name": "Palworld"}]), \
-             patch("modules.steam_integration.get_achievements", side_effect=fake_achs):
-            text, ok = _run(steam_achievements("сегодня"))
-        self.assertIn("Palworld", text)
-        self.assertIn("API ответил не полностью", text)
+        with patch("modules.voice_info._candidate_games",
+                   new=AsyncMock(return_value=([], {}))), \
+             patch("memory.db._conn", return_value=FakeConn()), \
+             patch("modules.steam_integration.get_library", return_value=lib):
+            text, ok = _run(steam_achievements("всё"))
+        self.assertTrue(ok)
+        self.assertIn("22 достижения", text)
+        self.assertIn("Remnant: 12", text)
+        self.assertIn("ReStory: 10", text)
 
 
 class TestSteamOtherCommands(unittest.TestCase):
@@ -213,6 +273,40 @@ class TestRouterInfoHardcode(unittest.TestCase):
         r = _hardcoded_match("есть ачивки за месяц?")
         self.assertEqual(r["action"], "steam:achievements")
         self.assertEqual(r["arg"], "месяц")
+
+    def test_achievements_all_time_phrases(self):
+        from modules.command_router import _hardcoded_match
+        for phrase in ("сколько у меня ачивок всего",
+                       "какие ачивки за всё время",
+                       "сколько ачивок за все время"):
+            r = _hardcoded_match(phrase)
+            self.assertEqual(r["action"], "steam:achievements", phrase)
+            self.assertEqual(r["arg"], "всё", phrase)
+
+    def test_achievements_week_variants(self):
+        from modules.command_router import _hardcoded_match
+        for phrase in ("какие ачивки на этой неделе",
+                       "ачивки за 7 дней",
+                       "какие ачивки за неделю",
+                       "какие ачивки я получил"):   # без периода → неделя
+            r = _hardcoded_match(phrase)
+            self.assertEqual(r["action"], "steam:achievements", phrase)
+            self.assertEqual(r["arg"], "неделя", phrase)
+
+    def test_achievements_today_variants(self):
+        from modules.command_router import _hardcoded_match
+        for phrase in ("какие ачивки сегодня",
+                       "ачивки за сегодня",
+                       "какие ачивки за день"):
+            r = _hardcoded_match(phrase)
+            self.assertEqual(r["arg"], "сегодня", phrase)
+
+    def test_achievements_unknown_period_downgrades_to_week(self):
+        from modules.command_router import _hardcoded_match
+        # «позавчера» не входит в словарь периодов → arg пусто → неделя
+        r = _hardcoded_match("ачивки позавчера")
+        self.assertEqual(r["action"], "steam:achievements")
+        self.assertEqual(r["arg"], "неделя")
 
     def test_achievements_word_boundary_negative(self):
         from modules.command_router import _hardcoded_match

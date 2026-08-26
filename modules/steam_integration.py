@@ -125,6 +125,7 @@ def _ensure_table():
             name            TEXT    NOT NULL,
             playtime_forever INTEGER NOT NULL DEFAULT 0,
             playtime_2weeks  INTEGER NOT NULL DEFAULT 0,
+            rtime_last_played INTEGER NOT NULL DEFAULT 0,
             img_icon_url    TEXT,
             updated_at      TEXT    NOT NULL DEFAULT (datetime('now'))
         );
@@ -139,6 +140,12 @@ def _ensure_table():
             PRIMARY KEY (appid, apiname)
         );
     """)
+    # Миграция старых БД: колонка rtime_last_played могла не существовать
+    try:
+        conn.execute("ALTER TABLE steam_games ADD COLUMN rtime_last_played INTEGER NOT NULL DEFAULT 0")
+        conn.commit()
+    except Exception:
+        pass  # колонка уже есть
     conn.commit()
 
 
@@ -150,12 +157,13 @@ def _save_to_db(games: list[dict]):
         conn = _conn()
         for g in games:
             conn.execute("""
-                INSERT INTO steam_games(appid, name, playtime_forever, playtime_2weeks, img_icon_url)
-                VALUES(?, ?, ?, ?, ?)
+                INSERT INTO steam_games(appid, name, playtime_forever, playtime_2weeks, rtime_last_played, img_icon_url)
+                VALUES(?, ?, ?, ?, ?, ?)
                 ON CONFLICT(appid) DO UPDATE SET
                     name=excluded.name,
                     playtime_forever=excluded.playtime_forever,
                     playtime_2weeks=excluded.playtime_2weeks,
+                    rtime_last_played=excluded.rtime_last_played,
                     img_icon_url=excluded.img_icon_url,
                     updated_at=datetime('now')
             """, (
@@ -163,6 +171,7 @@ def _save_to_db(games: list[dict]):
                 g.get("name", ""),
                 g.get("playtime_forever", 0),
                 g.get("playtime_2weeks", 0),
+                g.get("rtime_last_played", 0) or 0,
                 g.get("img_icon_url", ""),
             ))
         conn.commit()
@@ -177,7 +186,7 @@ def _load_from_db() -> list[dict]:
         _ensure_table()
         from memory.db import _conn
         rows = _conn().execute(
-            "SELECT appid, name, playtime_forever, playtime_2weeks, img_icon_url "
+            "SELECT appid, name, playtime_forever, playtime_2weeks, rtime_last_played, img_icon_url "
             "FROM steam_games ORDER BY playtime_forever DESC"
         ).fetchall()
         return [dict(r) for r in rows]
@@ -369,27 +378,31 @@ def get_session_context() -> str:
 # ── Достижения ────────────────────────────────────────────────────────
 
 async def get_achievements(app_id: int) -> list[dict]:
-    # TTL-кэш: храним (данные, timestamp), перезапрашиваем после 30 минут
+    """TTL-кэш поверх _fetch_achievements (для совместимости)."""
     cached = _achievements_cache.get(app_id)
     if cached and time.monotonic() - cached[1] < _ACHIEVEMENTS_TTL:
         return cached[0]
+    ach, _reason = await _fetch_achievements(app_id)
+    if ach is not None:
+        _achievements_cache[app_id] = (ach, time.monotonic())
+    return ach if ach is not None else []
+
+
+async def _fetch_achievements(app_id: int) -> tuple[Optional[list], str]:
+    """GetPlayerAchievements БЕЗ кэша. → (achievements|None, reason).
+    reason: 'ok' | 'steam_down' | 'private' | 'invalid_key' | 'no_stats' | 'no_data'."""
     key, sid = _get_config()
     if not key or not sid:
-        return []
+        return None, "invalid_key"
     url = (
         f"http://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v0001/"
         f"?appid={app_id}&key={key}&steamid={sid}&format=json&l=russian"
     )
     res = await asyncio.to_thread(_fetch, url)
     if not res.get("ok"):
-        # steam_down / private / invalid_key — НЕ считаем отсутствием ачивок.
-        # Возвращаем прежние данные если есть, не затираем кэш пустотой.
-        if cached:
-            return cached[0]
-        return []
+        return None, res.get("reason", "steam_down")
     achievements = res["data"].get("playerstats", {}).get("achievements", [])
-    _achievements_cache[app_id] = (achievements, time.monotonic())
-    return achievements
+    return achievements, "ok"
 
 
 async def get_achievement_stats(app_id: int) -> dict:
@@ -654,37 +667,68 @@ _last_achievement_reaction: float = 0.0
 
 async def steam_achievements_loop():
     """Фоновый цикл: раз в 10 минут проверяет новые ачивки, ТОЛЬКО если
-    Мастер сейчас в игре. Реакция редкая — не чаще раза в час, ~50%."""
+    Мастер сейчас в игре. Реакция редкая — не чаще раза в час, ~50%.
+
+    Фолбэк: если текущая игра НЕ определилась по окну (полноэкранный режим,
+    заголовок не отдан агентом) — берём игры из GetRecentlyPlayedGames со
+    свежим rtime_last_played (последние 14 часов) и проверяем их ачивки."""
     global _last_achievement_reaction
     while True:
         await asyncio.sleep(_ACHIEVEMENTS_CHECK_INTERVAL)
         try:
-            if not _current_game:
-                continue  # не дёргаем API, когда Мастер не играет
-            appid = _current_game.get("appid")
-            if not appid:
-                continue
-            new = await check_new_achievements(appid)
-            if not new:
-                continue
-            # Реакция редкая: не чаще раза в час + ~50% вероятность
-            now = time.monotonic()
-            if now - _last_achievement_reaction < _ACHIEVEMENTS_REACTION_COOLDOWN:
-                continue
-            import random
-            if random.random() > _ACHIEVEMENTS_REACTION_PROB:
-                continue
-            _last_achievement_reaction = now
-            # Выбираем одну ачивку: самую редкую (по глобальному проценту) или последнюю
-            chosen = _pick_rarest_achievement(new)
-            game_name = _current_game.get("name", "игра")
-            log.info(f"[steam] Новая ачивка: {chosen.get('name', chosen.get('apiname', '?'))} в {game_name}")
-            # Передаём в проактивный канал через callback (устанавливается в main.py)
-            cb = _achievement_callback
-            if cb:
-                await cb(game_name, chosen)
+            check_ids = []
+            if _current_game and _current_game.get("appid"):
+                check_ids.append(_current_game["appid"])
+            else:
+                # Фолбэк: недавние игры по API/БД
+                check_ids = await _recent_played_appids(hours=14)
+
+            for appid in check_ids:
+                if not appid:
+                    continue
+                new = await check_new_achievements(appid)
+                if not new:
+                    continue
+                # Реакция редкая: не чаще раза в час + ~50% вероятность
+                now = time.monotonic()
+                if now - _last_achievement_reaction < _ACHIEVEMENTS_REACTION_COOLDOWN:
+                    continue
+                import random
+                if random.random() > _ACHIEVEMENTS_REACTION_PROB:
+                    continue
+                _last_achievement_reaction = now
+                chosen = _pick_rarest_achievement(new)
+                game_name = (_current_game or {}).get("name", "игра")
+                log.info(f"[steam] Новая ачивка: {chosen.get('name', chosen.get('apiname', '?'))} в {game_name}")
+                cb = _achievement_callback
+                if cb:
+                    await cb(game_name, chosen)
         except Exception as e:
             log.debug(f"[steam] achievements loop error: {e}")
+
+
+async def _recent_played_appids(hours: int = 14) -> list[int]:
+    """Игры со свежим rtime_last_played — из БД, с фолбэком на API."""
+    now = time.time()
+    limit_ts = int(now - hours * 3600)
+    try:
+        _ensure_table()
+        from memory.db import _conn
+        rows = _conn().execute(
+            "SELECT appid FROM steam_games "
+            "WHERE rtime_last_played >= ? ORDER BY rtime_last_played DESC LIMIT 5",
+            (limit_ts,)).fetchall()
+        if rows:
+            return [r["appid"] for r in rows]
+    except Exception as e:
+        log.debug(f"[steam] recent played db error: {e}")
+    # Фолбэк на API
+    try:
+        games = await get_recently_played(5)
+        return [g.get("appid") for g in (games or []) if g.get("appid")]
+    except Exception as e:
+        log.debug(f"[steam] recent played api error: {e}")
+        return []
 
 
 _achievement_callback = None

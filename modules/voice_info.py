@@ -13,6 +13,7 @@ ws_handlers озвучивает. Сами модули не переписыв�
 """
 
 import logging
+import time as _time
 from datetime import date, datetime, timedelta
 
 log = logging.getLogger("sakura.voice_info")
@@ -51,9 +52,11 @@ def parse_period(text: str):
     if has("на этой неделе", "эту неделю", "эта неделя"):
         week_start = today - timedelta(days=today.weekday())
         return week_start, today + timedelta(days=1)
-    if has("за неделю", "неделю", "недели", "неделя"):
+    if has("за несколько дней", "несколько дней"):
         return today - timedelta(days=7), today + timedelta(days=1)
-    if has("за месяц", "месяц", "месяца"):
+    if has("неделю", "недели", "неделя", "7 дней", "за неделю"):
+        return today - timedelta(days=7), today + timedelta(days=1)
+    if has("месяц", "месяца", "30 дней", "за месяц"):
         return today - timedelta(days=30), today + timedelta(days=1)
     return None
 
@@ -67,16 +70,21 @@ def _range_to_ts(period):
 
 
 def _default_period_word(arg: str) -> str:
-    """Нормализует слово периода из аргумента роутера."""
+    """Нормализует слово периода из аргумента роутера.
+    Пять вариантов: сегодня / вчера / неделя / месяц / всё время.
+    Без периода → по умолчанию неделя."""
     a = (arg or "").lower().strip()
-    if not a:
-        return "неделя"
     if "вчер" in a:
         return "вчера"
-    if "сегодн" in a:
+    if "сегодн" in a or a in ("за день", "за сегодня"):
         return "сегодня"
-    if "месяц" in a:
-        return "за месяц"
+    if any(k in a for k in ("месяц", "30 дней")):
+        return "месяц"
+    if any(k in a for k in ("всё время", "все время", "вообще", "всего",
+                            "за всегда", "всё", "за все время", "за всё время")):
+        return "всё"
+    if "за день" in a:
+        return "сегодня"
     return "неделя"
 
 
@@ -84,8 +92,9 @@ def _period_human(word: str) -> str:
     return {
         "вчера": "За вчера",
         "сегодня": "За сегодня",
-        "за месяц": "За последний месяц",
-    }.get(word, "На этой неделе")
+        "месяц": "За последний месяц",
+        "всё": "За всё время",
+    }.get(word, "За эту неделю")
 
 
 # ── Steam ─────────────────────────────────────────────────────────────
@@ -113,67 +122,229 @@ def _seen_unlocked_between(start_ts: int, end_ts: int) -> list[dict]:
     return out
 
 
-async def steam_achievements(arg: str):
-    """Ачивки за период. → (текст, ok)."""
-    from modules.steam_integration import get_library, get_achievements, load_library
+# Кэш повторных вопросов по ачивкам (TTL ~15 минут)
+_ACH_QUERY_TTL = 15 * 60
+_ach_query_cache: dict[str, tuple[float, str, bool]] = {}
 
+
+def _fmt_unlock_ts(ts: int) -> str:
+    """«вчера в 22:14», «сегодня в 09:03», «12.05 в 18:40»."""
+    from datetime import datetime as _dt
+    dt = _dt.fromtimestamp(ts)
+    today = date.today()
+    d = dt.date()
+    if d == today - timedelta(days=1):
+        day = "вчера"
+    elif d == today:
+        day = "сегодня"
+    else:
+        day = dt.strftime("%d.%m")
+    return f"{day} в {dt.strftime('%H:%M')}"
+
+
+def _plural_ach(n: int) -> str:
+    if n % 10 == 1 and n % 100 != 11:
+        return "достижение"
+    if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
+        return "достижения"
+    return "достижений"
+
+
+def _format_period_hits(word: str, found: list, total_count: int) -> str:
+    """Дворецкий регистр: «За эту неделю: N достижений.» +
+    по играм: Game — «Ачивка» (вчера в 22:14). Больше 10 → последние 5."""
+    head = f"{_period_human(word)}: {total_count} {_plural_ach(total_count)}."
+    LIMIT = 10
+    lines = []
+    shown = 0
+    for game, items in found:
+        for ts, name in items:
+            if shown >= LIMIT:
+                break
+            lines.append(f"{game} — «{name}» ({_fmt_unlock_ts(ts)}).")
+            shown += 1
+        if shown >= LIMIT:
+            break
+    tail = f"\nИ ещё {total_count - LIMIT} более ранних." \
+        if total_count > LIMIT else ""
+    return head + "\n" + "\n".join(lines) + tail
+
+
+async def steam_achievements(arg: str):
+    """Ачивки за период. Основной источник — Steam API
+    (GetPlayerAchievements); таблица seen — только кэш-фолбэк.
+    → (текст, ok)."""
     word = _default_period_word(arg)
+
+    cached = _ach_query_cache.get(word)
+    if cached and _time.monotonic() - cached[0] < _ACH_QUERY_TTL:
+        return cached[1], cached[2]
+
+    text, ok = await _steam_achievements_uncached(word)
+    _ach_query_cache[word] = (_time.monotonic(), text, ok)
+    return text, ok
+
+
+async def _candidate_games(word: str, start_date):
+    """Игры-кандидаты по периоду — НЕ вся библиотека.
+    сегодня/вчера/неделя → GetRecentlyPlayedGames; месяц → + игры из
+    steam_games с playtime_2weeks>0 или свежим rtime_last_played."""
+    from modules.steam_integration import (
+        get_recently_played, load_library, get_library)
+
+    ids: list = []
+    names: dict = {}
+
+    try:
+        for g in (await get_recently_played(10) or []):
+            appid = g.get("appid")
+            if appid and appid not in ids:
+                ids.append(appid)
+                names[appid] = g.get("name", "")
+    except Exception as e:
+        log.debug(f"[voice_info] recently played: {e}")
+
+    if word == "месяц":
+        start_ts = int(datetime(start_date.year, start_date.month,
+                                start_date.day).timestamp())
+        try:
+            from memory.db import _conn
+            rows = _conn().execute(
+                "SELECT appid, name FROM steam_games "
+                "WHERE playtime_2weeks > 0 OR rtime_last_played >= ?",
+                (start_ts,)).fetchall()
+            for r in rows:
+                if r["appid"] not in ids:
+                    ids.append(r["appid"])
+                    names[r["appid"]] = r["name"]
+        except Exception as e:
+            log.debug(f"[voice_info] steam_games месяц: {e}")
+
+    # Имена из библиотеки (лениво грузим при пустом кэше)
+    try:
+        lib = get_library() or []
+        if not lib:
+            await load_library()
+            lib = get_library() or []
+        for g in lib:
+            names.setdefault(g.get("appid"), g.get("name", ""))
+    except Exception as e:
+        log.debug(f"[voice_info] библиотека: {e}")
+
+    return [(i, names.get(i, "")) for i in ids], names
+
+
+def _achievements_all_time():
+    """«За всё время» → сводка из локального журнала, БЕЗ десятков вызовов API."""
+    from modules.steam_integration import load_library, get_library
+    from memory.db import _conn
+
+    rows = _conn().execute(
+        "SELECT appid, COUNT(*) AS n FROM steam_achievements_seen "
+        "GROUP BY appid ORDER BY n DESC").fetchall()
+
+    lib = get_library() or []
+    played_total = sum(1 for g in lib if (g.get("playtime_forever", 0) or 0) > 0)
+
+    if not rows:
+        return ("Локальный журнал достижений пока пуст — он наполняется "
+                "по мере игры."), True
+
+    total = sum(r["n"] for r in rows)
+    games_n = len(rows)
+    head = f"Всего выбито {total} {_plural_ach(total)} в {games_n} играх."
+    lines = []
+    for r in rows[:5]:
+        appid = r["appid"]
+        name = next((g.get("name", "") for g in lib if g.get("appid") == appid),
+                    f"appid {appid}")
+        lines.append(f"— {name}: {r['n']}")
+    tail = ""
+    if played_total > games_n:
+        tail = (f"\nПолная статистика есть по {games_n} играм "
+                f"из {played_total} — остальное собирается по мере игры.")
+    return head + "\n" + "\n".join(lines) + tail, True
+
+
+async def _steam_achievements_uncached(word: str):
+    from modules.steam_integration import _fetch_achievements
+
+    # Особый период: всё время → сводка из локального журнала
+    if word == "всё":
+        return _achievements_all_time()
+
     period = parse_period(word)
     if not period:
         period = parse_period("неделя")
+    start_d, end_d = period
     start_ts, end_ts = _range_to_ts(period)
 
-    hits = _seen_unlocked_between(start_ts, end_ts)
-    if not hits:
-        return f"{_period_human(word)} новых ачивок нет.", True
+    candidates, names = await _candidate_games(word, start_d)
 
-    # имена игр из локальной библиотеки; если ещё не загружена — грузим лениво
-    try:
-        lib_names = {g.get("appid"): g.get("name", "")
-                     for g in (get_library() or [])}
-        if not lib_names:
-            await load_library()
-            lib_names = {g.get("appid"): g.get("name", "")
-                         for g in (get_library() or [])}
-    except Exception as e:
-        log.debug(f"[voice_info] библиотека steam недоступна: {e}")
-        lib_names = {}
+    # Нет кандидатов вовсе (никто не играл за период) — не ставим ok=False
+    if not candidates:
+        hits_seen = _seen_unlocked_between(start_ts, end_ts)
+        if hits_seen:
+            return _fallback_seen(word, hits_seen, names), True
+        return f"{_period_human(word)} достижений нет.", True
 
-    by_app: dict[int, list[dict]] = {}
-    for h in hits:
-        by_app.setdefault(h["appid"], []).append(h)
+    found: list = []
+    api_ok = False
+    api_error = False
 
-    lines = []
-    api_down = False
-    total_shown = 0
-    for appid, items in sorted(by_app.items(), key=lambda kv: -len(kv[1])):
-        game = lib_names.get(appid) or f"appid {appid}"
-        names = [it["apiname"] for it in items]
+    for appid, cname in candidates[:12]:
         try:
-            achs = await get_achievements(appid)
-            if achs:
-                disp = {a.get("apiname"): (a.get("name") or a.get("displayName"))
-                        for a in achs}
-                names = [disp.get(n) or n for n in names]
-            else:
-                # API недоступен — остаются коды, честно пометим в хвосте
-                api_down = True
+            achs, reason = await _fetch_achievements(appid)
         except Exception as e:
             log.debug(f"[voice_info] ачивки {appid}: {e}")
-            api_down = True
-        extra = ""
-        if len(names) < len(items):
-            extra = f" и ещё {len(items) - len(names)}"
-            names = names[:12]
-        lines.append(f"— {game}: {', '.join(names)}{extra}")
-        total_shown += len(items)
-        if total_shown >= 30:
-            break
+            api_error = True
+            continue
+        if achs is None:
+            api_error = True
+            continue
+        api_ok = True   # ответили данными для этой игры
+        game = names.get(appid) or cname or f"appid {appid}"
+        hits = []
+        for a in achs:
+            if a.get("achieved") != 1:
+                continue
+            ts = int(a.get("unlocktime", 0) or 0)
+            if start_ts <= ts < end_ts:
+                nm = a.get("name") or a.get("displayName") or a.get("apiname", "?")
+                hits.append((ts, nm))
+        if hits:
+            hits.sort(key=lambda x: -x[0])
+            found.append((game, hits))
 
-    head = f"{_period_human(word)} получены ачивки:"
-    tail = "\n(Steam API ответил не полностью — часть названий могла остаться кодами)" \
-        if api_down else ""
-    return head + "\n" + "\n".join(lines) + tail, True
+    total = sum(len(items) for _, items in found)
+
+    if total:
+        return _format_period_hits(word, found, total), True
+
+    # Ачивок не найдено: если хоть по одной игре API честно ответил (achieved=1
+    # не было) — считаем, что достижений за период нет. Иначе — недоступен.
+    if api_ok:
+        return f"{_period_human(word)} достижений нет.", True
+
+    # Steam недоступен → локальная таблица как кэш-фолбэк
+    hits_seen = _seen_unlocked_between(start_ts, end_ts)
+    if hits_seen:
+        return _fallback_seen(word, hits_seen, names), True
+    return "Не смогла проверить, Steam недоступен.", False
+
+
+def _fallback_seen(word: str, hits_seen, names: dict) -> str:
+    """Оформление ответа из локального журнала при недоступном API."""
+    by_app: dict = {}
+    for h in hits_seen:
+        by_app.setdefault(h["appid"], []).append((h["ts"], (h.get("name")
+                        or h.get("displayName") or h.get("apiname", "?"))))
+    found = [(names.get(a, f"appid {a}"), v) for a, v in by_app.items()]
+    total = sum(len(v) for _, v in found)
+    text = _format_period_hits(word, found, total)
+    text += ("\n(по локальному журналу — данные могут быть неполными: "
+             "Steam был недоступен)")
+    return text
 
 
 async def steam_current():
