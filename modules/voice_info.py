@@ -234,6 +234,14 @@ async def _candidate_games(word: str, start_date):
     return [(i, names.get(i, "")) for i in ids], names
 
 
+def _plural_game(n: int) -> str:
+    if n % 10 == 1 and n % 100 != 11:
+        return "игре"
+    if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
+        return "играх"
+    return "играх"
+
+
 def _achievements_all_time():
     """«За всё время» → сводка из локального журнала, БЕЗ десятков вызовов API."""
     from modules.steam_integration import load_library, get_library
@@ -252,7 +260,8 @@ def _achievements_all_time():
 
     total = sum(r["n"] for r in rows)
     games_n = len(rows)
-    head = f"Всего выбито {total} {_plural_ach(total)} в {games_n} играх."
+    word_games = "игре" if games_n == 1 else "играх"
+    head = f"Всего выбито {total} {_plural_ach(total)} в {games_n} {word_games}."
     lines = []
     for r in rows[:5]:
         appid = r["appid"]
@@ -261,7 +270,7 @@ def _achievements_all_time():
         lines.append(f"— {name}: {r['n']}")
     tail = ""
     if played_total > games_n:
-        tail = (f"\nПолная статистика есть по {games_n} играм "
+        tail = (f"\nПолная статистика есть по {games_n} {_plural_game(games_n)} "
                 f"из {played_total} — остальное собирается по мере игры.")
     return head + "\n" + "\n".join(lines) + tail, True
 
