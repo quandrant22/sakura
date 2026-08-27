@@ -235,16 +235,15 @@ async def _candidate_games(word: str, start_date):
 
 
 def _plural_game(n: int) -> str:
+    """Дательный падеж для фразы «статистика по N …»: по 1 игре / по 3 играм."""
     if n % 10 == 1 and n % 100 != 11:
         return "игре"
-    if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
-        return "играх"
-    return "играх"
+    return "играм"
 
 
 def _achievements_all_time():
     """«За всё время» → сводка из локального журнала, БЕЗ десятков вызовов API."""
-    from modules.steam_integration import load_library, get_library
+    from modules.steam_integration import get_library
     from memory.db import _conn
 
     rows = _conn().execute(
@@ -299,17 +298,14 @@ async def _steam_achievements_uncached(word: str):
 
     found: list = []
     api_ok = False
-    api_error = False
 
     for appid, cname in candidates[:12]:
         try:
             achs, reason = await _fetch_achievements(appid)
         except Exception as e:
             log.debug(f"[voice_info] ачивки {appid}: {e}")
-            api_error = True
             continue
         if achs is None:
-            api_error = True
             continue
         api_ok = True   # ответили данными для этой игры
         game = names.get(appid) or cname or f"appid {appid}"
