@@ -164,7 +164,9 @@ from modules.ws_handlers import (
     handle_command_result, handle_kettle_ready, handle_notification,
     handle_tg_message, handle_voice_command, update_current_track,
     execute_critical_action, _DANGEROUS_SYSTEM_ACTIONS, _SYSTEM_CONFIRM_PROMPTS,
+    answer_voice_info,
 )
+from modules.voice_info import is_info_action
 
 # ─────────────────────────────────────────────
 #  Инициализация
@@ -2100,7 +2102,11 @@ async def _gemini_generate(client, model, contents, full_system,
 
 
 async def ask_gemini(user_message: str, save_history: bool = True) -> str:
+    _t_mono = __import__("time").monotonic
+    _t0 = _t_mono()
+
     full_system = _build_system(query="")
+    _t_build = _t_mono() - _t0
 
     # Дополнительный контекст
     try:
@@ -2127,19 +2133,32 @@ async def ask_gemini(user_message: str, save_history: bool = True) -> str:
     url_ctx = await maybe_read_url(user_message)
     if url_ctx:
         full_system += f"\n\n{url_ctx}"
+    _t_ctx = _t_mono() - _t0
 
     key = get_active_key()
     if not key:
         return "Мастер, все API ключи исчерпаны на сегодня."
+    _t_prep = _t_ctx
+    _t_llm = None
     try:
         client   = _gemini_client(key)
         contents = _build_contents(user_message)
+        _t_prep = _t_mono() - _t0
         response = await _gemini_generate(client, MAIN_MODEL, contents, full_system)
+        _t_llm = _t_mono() - _t0
         reply    = clean_reply((response.text or "").strip())
         mark_key_used(key)
     except Exception as e:
         log.error(f"[ask_gemini] {e}")
         reply = ""
+    _t_total = _t_mono() - _t0
+    _llm_s    = (_t_total - _t_prep) if _t_llm is None else (_t_llm - _t_prep)
+    _proc_s   = (_t_total - _t_prep) if _t_llm is None else (_t_total - _t_llm)
+    log.info(
+        f"[ask_gemini time] всего={_t_total:.1f}с | сборка={_t_build:.2f}с | "
+        f"контекст={_t_ctx - _t_build:.2f}с | LLM={_llm_s:.1f}с | "
+        f"обработка={_proc_s:.2f}с | system={len(full_system)}симв | history={len(contents)}"
+    )
 
     if not reply:
         reply = "Мастер, что-то мешает мне ответить. Попробуй ещё раз."
@@ -2771,6 +2790,11 @@ async def device_control(message: Message):
 
 @dp.message(F.text)
 async def handle_message(message: Message):
+    # Короткие реплики-реакции: не гоняем через командный роутер (экономия LLM)
+    _TG_ROUTER_SKIP = {"привет", "приветик", "здравствуй", "здаров", "ладно",
+                       "ок", "окей", "ага", "угу", "да", "нет", "спасибо",
+                       "благодарю", "понял", "понятно", "класс", "круто",
+                       "отлично", "давай", "хорошо", "доброе утро", "добрый вечер"}
     from modules.youtube import youtube_command
     from modules.capsules import (is_capsule_request, parse_open_date,
         create_capsule, make_create_prompt)
@@ -3003,6 +3027,107 @@ async def handle_message(message: Message):
                 del _pending_system["tg"]
         else:
             del _pending_system["tg"]
+    # ── LITERAL-МЕХАНИКИ ГОЛОСА, ПОДКЛЮЧЁННЫЕ К TG ──
+    # Те же ворота, что в handle_voice_command (ws_handlers), в том же порядке:
+    # переводчик → страхи → игра в слова → калькулятор → печенье.
+    # Музыкальная память в TG покрыта информационным путём (music_stats:*).
+    # ── ПЕРЕВОДЧИК ──
+    if is_translation_request(text):
+        _quick = try_quick_translate(text)
+        if not _quick:
+            _tr_reply = await ask_gemini(build_translate_prompt(text), save_history=False)
+            _quick = (_tr_reply or "").strip() or None
+        if _quick:
+            log.info(f"[tg/translate] {text[:60]!r} → {_quick[:60]!r}")
+            await send_as_conversation(message.chat.id, _quick)
+            return
+    # ── СТРАХИ САКУРЫ ──
+    _tg_fear = detect_fear_trigger(text)
+    if _tg_fear:
+        log.info(f"[tg/fears] сработал: {_tg_fear['name']}")
+        await send_as_conversation(message.chat.id, _tg_fear["response"])
+        return
+    # ── ИГРА В СЛОВА ──
+    _tg_word = is_word_game_request(text)
+    if _tg_word:
+        if _tg_word["action"] == "start_game":
+            _w_reply = start_game() + "\n\n" + format_word_teach(get_random_word())
+        else:
+            _w_reply = format_word_teach(get_random_word())
+        log.info(f"[tg/word_game] {_tg_word['action']}")
+        await send_as_conversation(message.chat.id, _w_reply)
+        return
+    if is_game_active():
+        _tg_session = {}
+        _tg_sess_path = "memory/word_game_session.json"
+        if os.path.exists(_tg_sess_path):
+            try:
+                with open(_tg_sess_path, encoding="utf-8") as _tgf:
+                    _tg_session = json.load(_tgf)
+            except Exception as _tge:
+                log.debug(f"[tg/word_game] session read: {type(_tge).__name__}: {_tge}")
+        _tg_used = _tg_session.get("used_words", [])
+        if _tg_used:
+            _tg_last = find_word(_tg_used[-1])
+            if _tg_last:
+                _tg_ok = check_answer(text, _tg_last)
+                record_score(_tg_ok)
+                _tg_next = get_random_word()
+                if _tg_ok:
+                    _w_reply = (f"Правильно! {_tg_last['jp']} — {_tg_last['ru']}. "
+                                f"{_tg_last['note']}\n\nСледующее: {_tg_next['jp']} "
+                                f"({_tg_next['romaji']}) — {_tg_next['ru']}")
+                else:
+                    _w_reply = (f"Не совсем. Правильно: {_tg_last['jp']} — {_tg_last['ru']}. "
+                                f"{_tg_last['note']}\n\nСледующее: {_tg_next['jp']} "
+                                f"({_tg_next['romaji']}) — {_tg_next['ru']}")
+                await send_as_conversation(message.chat.id, _w_reply)
+                return
+    for _wq, _wf in (("слово дня", lambda: format_word_of_the_day()),
+                     ("счёт слов", get_score), ("сколько слов", get_score),
+                     ("результат игры", get_score),
+                     ("хватит играть", end_game), ("стоп игра", end_game),
+                     ("закончим игру", end_game), ("выход из игры", end_game)):
+        if _wq in text_lower:
+            await send_as_conversation(message.chat.id, _wf())
+            return
+    # ── КАЛЬКУЛЯТОР (без LLM) ──
+    _tg_calc = calculate(text)
+    if _tg_calc:
+        log.info(f"[tg/calc] {text[:60]!r} → {_tg_calc}")
+        await send_as_conversation(message.chat.id, _tg_calc)
+        return
+    # ── ПЕЧЕНЬЕ С ПРЕДСКАЗАНИЯМИ (без LLM) ──
+    if is_fortune_request(text):
+        _tg_fortune = format_fortune(get_fortune())
+        log.info("[tg/fortune] выдано предсказание")
+        await send_as_conversation(message.chat.id, _tg_fortune)
+        return
+
+    # ── ИНФОРМАЦИОННЫЕ КОМАНДЫ (ачивки/сервер/задачи/погода/...) ──
+
+    # ── ИНФОРМАЦИОННЫЕ КОМАНДЫ (ачивки/сервер/задачи/погода/...) ──
+    # Тот же путь, что у голоса (voice_info.handle + answer_voice_info).
+    # Ставим ДО системных команд и обычного разговора.
+    # Reply на сообщение = продолжение разговора — команды там не ждут.
+    # Короткие реплики-реакции не гоняем через роутер зря (он бы дёрнул LLM).
+    _tg_short = text_lower.strip().rstrip("!.?,")
+    if (not message.reply_to_message
+            and _tg_short not in _TG_ROUTER_SKIP
+            and len(_tg_short.split()) > 1):
+        try:
+            _tg_routed = await route_command(text, context=None)
+        except Exception as e:
+            log.debug(f"[main] info route: {type(e).__name__}: {e}")
+            _tg_routed = None
+        if _tg_routed and is_info_action(_tg_routed.get("action", "")):
+            import modules.state as _st
+            _st._last_command_ts = __import__("time").monotonic()
+            log.info(f"[tg/voice_info] {text[:80]!r} → {_tg_routed}")
+            await answer_voice_info(
+                _tg_routed.get("action", ""), _tg_routed.get("arg", "") or "",
+                text, None, None, ask_gemini, bot)
+            return
 
     # ── написать VIP текстом ──
     _wl = text_lower.replace(",", " ").split()

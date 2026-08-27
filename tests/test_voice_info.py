@@ -597,6 +597,105 @@ class TestHonestyRule(unittest.TestCase):
         self.assertIn("не умею это проверить", low)
         self.assertIn("такой команды у меня нет", low)
 
+
+# ════════════════════════════════════════════════════════════════════
+# БАГ 1: информационные команды в Telegram (main.handle_message)
+# ════════════════════════════════════════════════════════════════════
+
+class TestTelegramInfoPath(unittest.TestCase):
+    """Инфо-команда из Telegram идёт через voice_info (как голос), а не в LLM."""
+
+    def _make_msg(self, text):
+        from config import MASTER_ID
+        msg = MagicMock()
+        msg.chat.id = MASTER_ID
+        msg.from_user.id = MASTER_ID
+        msg.from_user.full_name = "Мастер"
+        msg.text = text
+        msg.reply_to_message = None
+        return msg
+
+    def test_achievements_query_routes_to_voice_info(self):
+        """«какие ачивки я выбил за эту неделю» → voice_info('steam:achievements','неделя')."""
+        with patch("aiogram.Bot"):
+            import main
+
+        msg = self._make_msg("какие ачивки я выбил за эту неделю")
+        routed = {"action": "steam:achievements", "arg": "неделя",
+                  "confidence": 1.0, "alt": None}
+
+        with patch.object(main, "get_role", return_value="master"), \
+             patch.object(main, "update_master_status"), \
+             patch.object(main, "route_command",
+                          new=AsyncMock(return_value=routed)), \
+             patch.object(main, "answer_voice_info",
+                          new=AsyncMock()) as av, \
+             patch.object(main, "ask_gemini", new=AsyncMock()) as ag:
+            _run(main.handle_message(msg))
+
+        # Обращение к voice_info произошло, LLM-разговор — НЕТ
+        av.assert_awaited_once()
+        call_args = av.await_args.args
+        self.assertEqual(call_args[0], "steam:achievements")
+        self.assertEqual(call_args[1], "неделя")
+        self.assertEqual(call_args[3], None)      # ws_dev — нет устройства
+        self.assertEqual(call_args[4], None)      # device_id — нет устройства
+        self.assertEqual(call_args[5], ag)        # в answer_voice_info ушёл ask_gemini
+        ag.assert_not_awaited()   # ответ не выдуман разговорным LLM
+
+    def test_conversation_reply_not_routed(self):
+        """Reply на сообщение (продолжение разговора) не гоняем через роутер."""
+        with patch("aiogram.Bot"):
+            import main
+
+        msg = self._make_msg("какие ачивки?")
+        msg.reply_to_message = MagicMock()   # это reply на обсуждение
+
+        bot = MagicMock()
+        bot.send_chat_action = AsyncMock()
+        bot.send_message = AsyncMock()
+
+        with patch.object(main, "get_role", return_value="master"), \
+             patch.object(main, "update_master_status"), \
+             patch.object(main, "route_command",
+                          new=AsyncMock(return_value=None)) as rc, \
+             patch.object(main, "answer_voice_info", new=AsyncMock()) as av, \
+             patch.object(main, "bot", bot), \
+             patch.object(main, "ask_gemini",
+                          new=AsyncMock(return_value="ответ")), \
+             patch.object(main, "send_as_conversation",
+                          new=AsyncMock()):
+            _run(main.handle_message(msg))
+
+        rc.assert_not_awaited()
+        av.assert_not_awaited()
+
+    def test_unknown_phrase_falls_through_to_llm(self):
+        """Не-инфо реплика НЕ перехватывается: доходит до обычного разговора."""
+        with patch("aiogram.Bot"):
+            import main
+
+        msg = self._make_msg("что ты думаешь про закат?")
+        bot = MagicMock()
+        bot.send_chat_action = AsyncMock()
+        bot.send_message = AsyncMock()
+
+        with patch.object(main, "get_role", return_value="master"), \
+             patch.object(main, "update_master_status"), \
+             patch.object(main, "route_command",
+                          new=AsyncMock(return_value=None)) as rc, \
+             patch.object(main, "answer_voice_info", new=AsyncMock()) as av, \
+             patch.object(main, "bot", bot), \
+             patch.object(main, "ask_gemini",
+                          new=AsyncMock(return_value="ответ")), \
+             patch.object(main, "send_as_conversation",
+                          new=AsyncMock()) as sc:
+            _run(main.handle_message(msg))
+
+        rc.assert_awaited_once()      # роутер спросили...
+        av.assert_not_awaited()       # ...но это не инфо-команда
+        sc.assert_awaited_once()      # и ответил обычный LLM-путь
+
     def test_ok_false_speaks_literal_without_llm(self):
         """ok=False → честный literal-ответ, LLM-стилизация НЕ вызывается."""
         import modules.ws_handlers as wh
@@ -641,3 +740,79 @@ class TestHonestyRule(unittest.TestCase):
         bot.send_message.assert_awaited_once()
         self.assertIn("Активных задач нет", bot.send_message.await_args.args[1])
         tts.assert_not_awaited()
+
+
+# ════════════════════════════════════════════════════════════════════
+# БАГ 3: literal-механики голоса, подключённые к Telegram
+# (переводчик, страхи, игра в слова, калькулятор, печенье)
+# ════════════════════════════════════════════════════════════════════
+
+class TestTelegramLiteralMechanics(unittest.TestCase):
+    """Механики, которые работали только голосом, отвечают и в Telegram."""
+
+    def _make_msg(self, text):
+        from config import MASTER_ID
+        msg = MagicMock()
+        msg.chat.id = MASTER_ID
+        msg.from_user.id = MASTER_ID
+        msg.from_user.full_name = "Мастер"
+        msg.text = text
+        msg.reply_to_message = None
+        return msg
+
+    def _run(self, text):
+        with patch("aiogram.Bot"):
+            import main
+        bot = MagicMock()
+        bot.send_chat_action = AsyncMock()
+        bot.send_message = AsyncMock()
+        with patch.object(main, "get_role", return_value="master"), \
+             patch.object(main, "update_master_status"), \
+             patch.object(main, "bot", bot), \
+             patch.object(main, "send_as_conversation",
+                          new=AsyncMock()) as sc, \
+             patch.object(main, "route_command",
+                          new=AsyncMock(return_value=None)), \
+             patch.object(main, "answer_voice_info", new=AsyncMock()), \
+             patch.object(main, "ask_gemini",
+                          new=AsyncMock(return_value="болтовня")) as ag:
+            _run(main.handle_message(self._make_msg(text)))
+        return sc, ag
+
+    def test_fear_via_telegram(self):
+        """«началась гроза» в TG → страх-ответ, а не LLM-болтовня."""
+        sc, ag = self._run("началась гроза, слышу гром")
+        sc.assert_awaited_once()
+        ag.assert_not_awaited()
+
+    def test_calculator_via_telegram(self):
+        """«сколько будет 12 умножить на 8» в TG → калькулятор без LLM."""
+        sc, ag = self._run("сколько будет 12 умножить на 8")
+        sc.assert_awaited_once()
+        self.assertIn("12 умножить на 8 = 96", sc.await_args.args[1])
+        ag.assert_not_awaited()
+
+    def test_fortune_via_telegram(self):
+        """«дай печенье» в TG → предсказание, LLM не дёргается."""
+        with patch("aiogram.Bot"):
+            import main
+        with patch.object(main, "get_role", return_value="master"), \
+             patch.object(main, "update_master_status"), \
+             patch.object(main, "send_as_conversation",
+                          new=AsyncMock()) as sc, \
+             patch.object(main, "ask_gemini",
+                          new=AsyncMock(return_value="болтовня")) as ag, \
+             patch.object(main, "get_fortune",
+                          return_value={"period": "день"}), \
+             patch.object(main, "format_fortune",
+                          side_effect=lambda f: "ТЕСТ-ПРЕДСКАЗАНИЕ"):
+            _run(main.handle_message(self._make_msg("дай печенье")))
+        sc.assert_awaited_once()
+        self.assertEqual(sc.await_args.args[1], "ТЕСТ-ПРЕДСКАЗАНИЕ")
+        ag.assert_not_awaited()
+
+    def test_word_game_teach_via_telegram(self):
+        """«придумай слово» в TG → японское слово без LLM."""
+        sc, ag = self._run("придумай слово")
+        sc.assert_awaited_once()
+        ag.assert_not_awaited()
