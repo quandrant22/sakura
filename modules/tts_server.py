@@ -296,29 +296,38 @@ def _make_audio_sender(websocket, device_id: str):
     return send_audio
 
 
-async def _live_synthesize(text: str, emotion: str, on_packet) -> int:
+async def _live_synthesize(text: str, emotion: str, on_packet,
+                           label: str = "") -> int:
     """Одна Live-сессия: шлёт текст, каждый аудио-пакет отдаёт в on_packet.
-    Возвращает число пакетов. Ошибки глотает (лог + сброс клиента)."""
+    Возвращает число пакетов. Ошибки глотает (лог + сброс клиента).
+    label — метка в логах для двухстадийного пути («стадия 1»/«стадия 2»)."""
     key = get_active_key()
     if not key:
         return 0
     sent = 0
+    tag = f"[TTS] {label}: " if label else "[TTS] "
     async with _sem:
         s0 = time.monotonic()
         try:
             client = await _get_client()
             timeout = _live_timeout(text)
-            async with client.aio.live.connect(
-                model=TTS_MODEL, config=_live_config()
-            ) as session:
-                await session.send_client_content(
-                    turns=types.Content(
-                        role="user",
-                        parts=[types.Part(text=_tts_prefix(emotion) + text)]
-                    ),
-                    turn_complete=True,
-                )
-                async with asyncio.timeout(timeout):
+            # ВАЖНО: connect под общим таймаутом. Раньше коннект был ВНЕ
+            # asyncio.timeout — зависший handshake висел вечно, drain
+            # уходил по аварийному таймауту, а финальный await задачи
+            # дожидался этого зависшего коннекта (лишние секунды в
+            # «Готово за Nс»).
+            async with asyncio.timeout(timeout):
+                async with client.aio.live.connect(
+                    model=TTS_MODEL, config=_live_config()
+                ) as session:
+                    log.info(f"{tag}коннект за {time.monotonic()-s0:.1f}с | таймаут: {timeout}с")
+                    await session.send_client_content(
+                        turns=types.Content(
+                            role="user",
+                            parts=[types.Part(text=_tts_prefix(emotion) + text)]
+                        ),
+                        turn_complete=True,
+                    )
                     async for response in session.receive():
                         if response.data:
                             await on_packet(response.data)
@@ -327,10 +336,10 @@ async def _live_synthesize(text: str, emotion: str, on_packet) -> int:
                                 and response.server_content.turn_complete):
                             break
             mark_key_used(key)
-            log.info(f"[TTS] синтез за {time.monotonic()-s0:.1f}с | {sent} пакетов | тон: {emotion} | таймаут: {timeout}с")
+            log.info(f"{tag}синтез за {time.monotonic()-s0:.1f}с | {sent} пакетов | тон: {emotion}")
             return sent
         except Exception as e:
-            log.error(f"[TTS] Ошибка синтеза: {e!r}")
+            log.error(f"{tag}Ошибка синтеза: {e!r}")
             global _client
             _client = None
             return sent
@@ -382,33 +391,59 @@ async def _stream_two_stage(first: str, rest: str, websocket, device_id: str,
     на устройство сразу. Остальной текст стартует ВТОРОЙ сессией
     ПАРАЛЛЕЛЬНО — её ранние пакеты буферизуются в очереди и вытекают
     строго после пакетов первой, поэтому порядок сохранён, а между
-    первым и вторым предложением нет слышимой паузы."""
+    первым и вторым предложением нет слышимой паузы.
+
+    Завершение: каждый продюсер кладёт в свою очередь sentinel None
+    (гарантированно, в finally) — drain заканчивается СРАЗУ по этому
+    признаку конца потока, а не ждёт пакетов до аварийного таймаута.
+    Сам таймаут остался только страховкой: если продюсер молчит дольше
+    SESSION_TIMEOUT — предупреждение в лог (однократно) и продолжение
+    ожидания, пакеты НЕ бросаются (продюсер ограничен своим внутренним
+    таймаутом сессии и в любом случае поставит sentinel)."""
     send_audio = _make_audio_sender(websocket, device_id)
 
     q_first: asyncio.Queue = asyncio.Queue()
     q_rest: asyncio.Queue = asyncio.Queue()
 
-    task_first = asyncio.create_task(_live_synthesize(first, emotion, q_first.put))
-    task_rest  = asyncio.create_task(_live_synthesize(rest,  emotion, q_rest.put))
+    async def _produce(text: str, q: "asyncio.Queue", stage: int) -> None:
+        """Продюсер стадии: синтез + гарантированный sentinel конца потока."""
+        log.info(f"[TTS] стадия {stage}: старт (+{time.monotonic()-t0:.1f}с от начала, {len(text)} симв)")
+        try:
+            await _live_synthesize(text, emotion, q.put, label=f"стадия {stage}")
+        finally:
+            await q.put(None)
+
+    task_first = asyncio.create_task(_produce(first, q_first, 1))
+    task_rest  = asyncio.create_task(_produce(rest,  q_rest, 2))
 
     sent = 0
     first_logged = False
 
-    async def drain(q: "asyncio.Queue", producer) -> None:
-        """Выкачивает очередь сессии на устройство до её завершения."""
+    async def drain(q: "asyncio.Queue", stage: int) -> None:
+        """Выкачивает очередь стадии на устройство до sentinel-а конца.
+
+        Раньше выход по таймауту БРОСАЛ остаток очереди, а заблокированное
+        ожидание не замечало завершения продюсера — отсюда лишние секунды
+        после «синтез за …» обеих стадий. Теперь конец потока приходит
+        sentinel-ом немедленно."""
         nonlocal sent, first_logged
+        warned = False
         while True:
-            if not producer.done():
-                try:
-                    data = await asyncio.wait_for(q.get(), timeout=SESSION_TIMEOUT)
-                except asyncio.TimeoutError:
-                    log.warning("[TTS] two-stage: таймаут ожидания аудио-пакета")
-                    return
-            else:
-                try:
-                    data = q.get_nowait()
-                except asyncio.QueueEmpty:
-                    return
+            try:
+                data = await asyncio.wait_for(q.get(), timeout=SESSION_TIMEOUT)
+            except asyncio.TimeoutError:
+                # Аварийная страховка: продюсер молчит. НЕ выходим и НЕ
+                # бросаем очередь — его внутренний таймаут гарантированно
+                # завершит продюсер (sentinel в finally). Ждём дальше.
+                if not warned:
+                    log.warning(
+                        f"[TTS] two-stage: стадия {stage} молчит >{SESSION_TIMEOUT}с "
+                        f"— продолжаем ждать sentinel (пакеты не бросаем)")
+                    warned = True
+                continue
+            if data is None:
+                log.info(f"[TTS] стадия {stage}: поток завершён (+{time.monotonic()-t0:.1f}с)")
+                return
             try:
                 await send_audio(data)
             except Exception as e:
@@ -420,13 +455,20 @@ async def _stream_two_stage(first: str, rest: str, websocket, device_id: str,
                 first_logged = True
 
     # Фаза 1: первая сессия (быстрый старт)
-    await drain(q_first, task_first)
+    await drain(q_first, 1)
     # Фаза 2: вторая сессия — её ранние пакеты уже ждут в очереди
-    await drain(q_rest, task_rest)
+    await drain(q_rest, 2)
 
+    # Нормальный путь: оба продюсера уже завершены (sentinel приходит из
+    # их finally). Если вышли раньше (ошибка отправки) — снимаем задачи,
+    # чтобы не дожидаться зависшую сессию.
     for t in (task_first, task_rest):
+        if not t.done():
+            t.cancel()
         try:
             await t
+        except asyncio.CancelledError:
+            pass
         except Exception as e:
             log.debug(f"[TTS] producer: {e}")
     return sent

@@ -318,7 +318,7 @@ class TestBlock7_TTSFastStart(unittest.TestCase):
         """7.2: пакеты второй (мгновенной) сессии не обгоняют первую."""
         import modules.tts_server as tts
 
-        async def fake_synth(text, emotion, on_packet):
+        async def fake_synth(text, emotion, on_packet, label=""):
             chunks = {"first": ["F1", "F2"], "rest": ["R1", "R2"]}
             key = "first" if text.startswith("Первое") else "rest"
             if key == "rest":
@@ -346,6 +346,68 @@ class TestBlock7_TTSFastStart(unittest.TestCase):
         import base64 as b64
         decoded = [b64.b64decode(a).decode() for a in sent_frames]
         self.assertEqual(decoded, ["F1", "F2", "R1", "R2"])
+
+    def test_two_stage_ends_without_timeout_wait(self):
+        """Баг: обе стадии завершились, а код ещё ждал пакет до таймаута
+        (лишние ~13с в «Готово за 33.9с»). Теперь продюсер ставит в очередь
+        sentinel конца потока (в finally) — drain завершается сразу."""
+        import modules.tts_server as tts
+
+        async def fake_synth(text, emotion, on_packet, label=""):
+            if text.startswith("Первое"):
+                await on_packet(b"F1")
+                await asyncio.sleep(0.05)
+                await on_packet(b"F2")
+            else:
+                await asyncio.sleep(0.3)   # вторая стадия «молчит» и завершается
+            return 2
+
+        ws = MagicMock()
+        ws.send = AsyncMock()
+        t0 = time.monotonic()
+        with patch.object(tts, "_live_synthesize", fake_synth):
+            sent = _run(tts._stream_two_stage(
+                "Первое предложение.", "Второе предложение.",
+                ws, "laptop", "спокойная", t0))
+        elapsed = time.monotonic() - t0
+        self.assertEqual(sent, 2)
+        # Старый код ждал бы SESSION_TIMEOUT=25с после конца потока
+        self.assertLess(elapsed, 5, "drain ждал таймаут после конца потока")
+
+    def test_two_stage_does_not_drop_packets_on_silence(self):
+        """Баг: выход drain по аварийному таймауту БРОСАЛ остаток очереди
+        («синтез за 21.4с | 337 пакетов», а отправлено меньше). Теперь
+        таймаут только предупреждает — ждём sentinel, пакеты не теряем."""
+        import modules.tts_server as tts
+
+        async def fake_synth(text, emotion, on_packet, label=""):
+            key = "first" if text.startswith("Первое") else "rest"
+            if key == "first":
+                await on_packet(b"F1")
+            else:
+                await on_packet(b"R1")
+                await asyncio.sleep(0.5)   # молчание дольше аварийного таймаута
+                await on_packet(b"R2")
+                await on_packet(b"R3")
+            return 3
+
+        sent_frames = []
+        ws = MagicMock()
+        async def fake_send(raw):
+            import json as _json
+            sent_frames.append(_json.loads(raw)["audio"])
+        ws.send = fake_send
+
+        with patch.object(tts, "_live_synthesize", fake_synth), \
+             patch.object(tts, "SESSION_TIMEOUT", 0.15):
+            sent = _run(tts._stream_two_stage(
+                "Первое предложение.", "Второе предложение.",
+                ws, "laptop", "спокойная", time.monotonic()))
+
+        import base64 as b64
+        decoded = [b64.b64decode(a).decode() for a in sent_frames]
+        self.assertEqual(decoded, ["F1", "R1", "R2", "R3"])
+        self.assertEqual(sent, 4)
 
     def test_both_paths_share_stream_tts_to_device(self):
         """7.3: оба голосовых пути используют одну функцию озвучки

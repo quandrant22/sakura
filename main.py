@@ -2268,13 +2268,14 @@ async def ask_gemini_voice(
     len_hint = _LEN_HINT.get(length, "")
     if len_hint:
         full_system = f"{full_system}\n\n{len_hint}"
+    max_tok = _LEN_TOKENS.get(length, 150)
+    log.info(f"[voice] len={length} → hint={'да' if len_hint else 'нет'}, max_tokens={max_tok}")
     log.info(f"[voice] _build_system за {__import__('time').monotonic()-_t_build:.2f}с")
 
     contents  = _build_contents(user_message)
     client    = _gemini_client(key)
     emotion   = "neutral"
     full_text = ""
-    max_tok   = _LEN_TOKENS.get(length, 150)
 
     try:
         if websocket:
