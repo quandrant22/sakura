@@ -546,6 +546,19 @@ class TestMusicStatsVoice(unittest.TestCase):
         r = _hardcoded_match("кого я слушаю чаще всего")
         self.assertEqual(r["action"], "music_stats:top")
 
+    def test_router_music_extra_phrasings(self):
+        """Формулировки из голосового пути (_music_queries в ws_handlers.py) —
+        должны узнаваться и в текстовом (ТГ) роутере, не только «что я слушал»."""
+        from modules.command_router import _hardcoded_match
+        for phrase in ("что мы слушали вчера", "что слушали сегодня",
+                       "последние треки", "какие треки", "история музыки",
+                       "что играло", "что было в плейлисте"):
+            r = _hardcoded_match(phrase)
+            self.assertEqual(r["action"], "music_stats:recent", phrase)
+        for phrase in ("топ исполнителей", "топ треков"):
+            r = _hardcoded_match(phrase)
+            self.assertEqual(r["action"], "music_stats:top", phrase)
+
 
 class TestCapsulesVoice(unittest.TestCase):
 
@@ -724,6 +737,21 @@ class TestTelegramInfoPath(unittest.TestCase):
         ag.assert_awaited_once()         # факты стилизуются...
         sent = bot.send_message.await_args.args[1]
         self.assertEqual(sent, "Стилизованный ответ.")
+
+    def test_tone_tag_stripped_when_sent_as_telegram_text(self):
+        """[ТОН: ...] управляет голосом TTS, а не текстом — в ТГ его не видно."""
+        import modules.ws_handlers as wh
+        ag = AsyncMock(return_value="[ТОН: спокойно] Стилизованный ответ.")
+        bot = MagicMock()
+        bot.send_message = AsyncMock()
+        with patch("modules.voice_info.handle",
+                   new=AsyncMock(return_value=("Факт: 13 из 42.", True))):
+            _run(wh.answer_voice_info(
+                "steam:progress", "x", "прогресс",
+                None, "laptop", ag, bot))
+        sent = bot.send_message.await_args.args[1]
+        self.assertEqual(sent, "Стилизованный ответ.")
+        self.assertNotIn("[ТОН:", sent)
 
     def test_no_device_sends_to_telegram(self):
         """Инфо-команды работают без устройства — ответ уходит в ТГ."""

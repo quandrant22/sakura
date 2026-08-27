@@ -321,11 +321,13 @@ def _info_hardcoded(tl: str) -> dict | None:
             and re.search(r"(?<!\w)(?:какая|какова\w*|что\s+с|на\s+улице)", tl):
         return {"action": "weather:now"}
 
-    # Музыкальная статистика
-    if re.search(r"что\s+я\s+слушал\w*", tl):
+    # Музыкальная статистика (те же формулировки, что в голосовом пути —
+    # см. _music_queries в modules/ws_handlers.py).
+    if re.search(r"что\s+(?:я\s+|мы\s+)?слушал\w*|последни\w+\s+трек\w*|каки\w+\s+трек\w*"
+                 r"|истори\w+\s+музык\w*|что\s+играло|что\s+был\w*\s+в\s+плейлист", tl):
         return {"action": "music_stats:recent", "arg": _period_arg(tl)}
     if re.search(r"(?:кого\s+(?:я\s+)?слуша\w*\s+чащ|чаще\s+всего\s+слуша"
-                 r"|топ\s+исполнител|любим\w*\s+исполнител)", tl):
+                 r"|топ\s+исполнител|топ\s+трек\w*|любим\w*\s+исполнител)", tl):
         return {"action": "music_stats:top"}
 
     # Капсулы — только вопросы о них, не создание

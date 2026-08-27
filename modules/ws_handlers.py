@@ -20,7 +20,7 @@ from config import MASTER_ID, get_active_key, mark_key_used, MAIN_MODEL
 from modules.command_router import route_command, route_critical, is_irreversible, EXEC_THRESHOLD, GRAY_THRESHOLD
 from modules.intent_classifier import classify_intent, is_command as _is_command_check
 from modules.chains import match_voice_trigger, list_voice_triggers, list_custom_chains
-from modules.tts_server import stream_tts_to_device
+from modules.tts_server import stream_tts_to_device, strip_tone
 from modules.ws_auth import is_master_device
 from modules.rituals import should_greet_device, get_greeting_prompt
 from modules.briefing import should_brief, run_briefing
@@ -582,7 +582,9 @@ async def answer_voice_info(action: str, arg: str, text: str,
     if ws_dev:
         await stream_tts_to_device(final, ws_dev, device_id or "laptop", literal=True)
     else:
-        await bot.send_message(MASTER_ID, final)
+        # Текстом (нет устройства для TTS — либо это TG) — [ТОН: ...] тут не нужен,
+        # это указание для голоса, а не для чтения. Та же чистка, что у send_to_master.
+        await bot.send_message(MASTER_ID, strip_tone(final)[1])
 
 
 async def handle_voice_command(websocket, data, ctx) -> None:
