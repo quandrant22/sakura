@@ -131,6 +131,25 @@ class Test1_SearchTriggered(unittest.TestCase):
         self.assertFalse(needs_search("перенайди мне песню"))
         self.assertFalse(needs_search("громко сказала"))
 
+    def test_short_direct_request_searches(self):
+        """Короткая прямая просьба: глагол поиска в начале + продолжение."""
+        from modules.web_search import needs_search
+        for t in ("найди рецепт борща", "поищи погоду",
+                  "найди информацию о Марсе", "погугли что такое MCP",
+                  "загугли курс биткоина", "найдите рецепт борща",
+                  "поищи в интернете погода", "найди"):
+            self.assertTrue(needs_search(t), f"должно искать: {t!r}")
+
+    def test_leading_verb_word_boundary(self):
+        """Глагол поиска ловится только с начала и по границам слов."""
+        from modules.web_search import needs_search
+        # «перенайди» начинается не с «найди» — не поиск
+        self.assertFalse(needs_search("перенайди мне песню"))
+        # «найдись» — другой глагол, не прямая просьба искать
+        self.assertFalse(needs_search("найдись в моём плейлисте"))
+        # приветствие важнее глагола: STOP подавляет ведущий глагол
+        self.assertFalse(needs_search("привет найди борщ"))
+
     def test_word_boundary_no_false_positive(self):
         from modules.web_search import needs_search
         self.assertFalse(needs_search("гром"))
