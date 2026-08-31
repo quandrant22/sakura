@@ -46,6 +46,13 @@ MASTER_DEVICES = set(
 MAIN_MODEL     = os.getenv("MAIN_MODEL", "gemini-3.5-flash-lite")
 FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "gemma-4-31b-it")
 
+# ── Поиск в интернете через Gemini Search grounding ─────────────────────
+# Search grounding на бесплатном тире работает ТОЛЬКО для моделей 2.x:
+# Gemini 2 / 2.5 / Default — 1500 запросов/день; Gemini 3 — 0.
+# Основная модель проекта (gemini-3.5-flash-lite) на ней НЕ работает,
+# поэтому поиск идёт отдельным вызовом именно на SEARCH_MODEL.
+SEARCH_MODEL = os.getenv("SEARCH_MODEL", "gemini-2.5-flash")
+
 GEMINI_KEYS = []
 i = 1
 while True:

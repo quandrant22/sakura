@@ -9,9 +9,10 @@ import gc
 import logging
 import os
 import re
+import time
 import httpx
 from bs4 import BeautifulSoup
-from config import MAIN_MODEL
+from config import MAIN_MODEL, SEARCH_MODEL, get_active_key, mark_key_used
 
 log = logging.getLogger(__name__)
 
@@ -49,20 +50,98 @@ SEARCH_STOP = [
 ]
 
 
+# ── Вспомогательные константы для needs_search ────────────────────────
+_QUESTION_WORDS = (
+    "кто", "какой", "какая", "какие", "что", "где", "когда",
+    "как", "почему", "зачем", "сколько",
+)
+# Маркеры актуальности — «сейчас / сегодня / последний / текущий / …»
+_TIME_MARKERS = (
+    "сейчас", "сегодня", "вчера", "недавно", "недавней",
+    "последний", "последняя", "последние",
+    "крайний", "крайняя", "крайние",
+    "текущий", "текущая", "текущие",
+    "актуальн", "свеж", "свежие", "новости", "курс",
+)
+_TIME_MARKER_SET = set(_TIME_MARKERS)
+_QUESTION_WORD_SET = set(_QUESTION_WORDS)
+
+
+def _word_in(text: str, phrases: list[str]) -> bool:
+    """True, если фраза встречается в *text* целиком — по границам слов.
+
+    Решает класс бага подстрочного матча («гром» ловил «громче», «свет» — «рассвет»).
+    """
+    for phrase in phrases:
+        pat = r"(?<![\w])" + re.escape(phrase) + r"(?![\w])"
+        if re.search(pat, text):
+            return True
+    return False
+
+
+def _has_question_word(words: list[str]) -> bool:
+    for w in words:
+        w = w.strip("«»\"',.?!-…")
+        if w and w.lower() in _QUESTION_WORD_SET:
+            return True
+    return False
+
+
+def _has_proper_noun(orig_words: list[str]) -> bool:
+    """Имя собственное — слово с заглавной буквы НЕ на первом месте."""
+    for i, w in enumerate(orig_words):
+        w = w.strip("«»\"',.?!-…")
+        if i > 0 and len(w) > 1 and w[0].isalpha() and w[0].isupper():
+            return True
+    return False
+
+
+def _has_time_marker(text_lower: str) -> bool:
+    return _word_in(text_lower, list(_TIME_MARKERS))
+
+
 def needs_search(text: str) -> bool:
+    """Решает, идёт ли запрос в поиск (grounding → Tavily fallback).
+
+    Правила:
+      * Приветы / команды / творческие просьбы — НЕ в поиск (по границам слов);
+      * Жёсткие и мягкие триггеры — ДА (по границам слов);
+      * Убрано ограничение len < 15: короткие вопросы типа
+        «кто президент Франции» пошли в поиск;
+      * Вопросительное слово + имя собственное — ДА
+        («кто президент Франции»);
+      * Маркер времени (сейчас/сегодня/последний/текущий/…) + существенное
+        слово — ДА («кто сейчас президент Франции», «сколько сейчас стоит биткоин»).
+    """
+    if not text:
+        return False
     tl = text.lower().strip()
-    if any(s in tl for s in SEARCH_STOP):
+    if not tl:
         return False
-    if any(t in tl for t in SEARCH_TRIGGERS_HARD):
-        return True
-    if len(tl) < 15:
+    words = tl.split()
+    orig_words = text.split()
+
+    # Приветы / команды / творческое — не ищем (по границам слов)
+    if _word_in(tl, SEARCH_STOP):
         return False
-    if any(t in tl for t in SEARCH_TRIGGERS_SOFT):
+    # Жёсткие триггеры — ищем
+    if _word_in(tl, SEARCH_TRIGGERS_HARD):
         return True
-    words = text.split()
-    if len(words) > 3:
-        capitalized = sum(1 for w in words[1:] if w and w[0].isupper())
-        if capitalized >= 1 and "?" in text:
+    # Мягкие триггеры — ищем
+    if _word_in(tl, SEARCH_TRIGGERS_SOFT):
+        return True
+
+    has_q = _has_question_word(words)
+    has_proper = _has_proper_noun(orig_words)
+    has_time = _has_time_marker(tl)
+
+    # Вопросительное слово + имя собственное
+    if has_q and has_proper:
+        return True
+    # Маркер времени + существительное (хотя бы одно «весомое» слово)
+    if has_time:
+        rest = [w for w in words if w not in _TIME_MARKER_SET and not _has_question_word([w])]
+        if rest:
             return True
     return False
 
@@ -259,3 +338,134 @@ async def download_bytes(url: str) -> bytes | None:
     except Exception as e:
         log.error(f"download error: {e}")
     return None
+
+
+# ── Поиск через Gemini Search grounding (SEARCH_MODEL) ──────────────────
+# Ответственный за «Сакура сама ищет в интернете». Grounding работает ТОЛЬКО
+# на моделях 2.x (gemini-3.5-flash-lite НЕ поддерживает), поэтому поиск
+# идёт на SEARCH_MODEL. Если grounding недоступен/упал/лимит перерасходован —
+# fallback на Tavily «как сейчас». Результат кэшируется 30 мин.
+
+_SEARCH_CACHE: dict = {}   # {нормализованный_запрос: (answer, sources, ok, ts)}
+_SEARCH_CACHE_TTL = 30 * 60  # 30 минут
+
+
+def _normalize_query(q: str) -> str:
+    q = (q or "").lower().strip()
+    q = re.sub(r"\s+", " ", q)
+    return q
+
+
+def _clear_search_cache() -> None:
+    """Сбрасывает кэш поиска (для тестов)."""
+    _SEARCH_CACHE.clear()
+
+
+def _extract_sources(resp) -> list[str]:
+    """Из grounding_metadata ответа Gemini забирает ссылки на источники."""
+    out: list[str] = []
+    try:
+        cands = getattr(resp, "candidates", None) or []
+        cand = cands[0] if cands else None
+        if cand is None:
+            return out
+        gmd = getattr(cand, "grounding_metadata", None)
+        chunks = (getattr(gmd, "grounding_chunks", None) or []) if gmd else []
+        for ch in chunks:
+            src = getattr(ch, "web", None)
+            if src is None:
+                src = getattr(ch, "retrieved_context", None)
+            uri = getattr(src, "uri", None) if src else None
+            if uri:
+                out.append(uri)
+    except Exception as e:
+        log.debug(f"[search] source extraction error: {e}")
+    seen: set[str] = set()
+    uniq: list[str] = []
+    for u in out:
+        if u and u not in seen:
+            seen.add(u)
+            uniq.append(u)
+    return uniq
+
+
+async def _grounding_query(query: str) -> tuple[str, list[str], bool]:
+    """Один запрос к Gemini SEARCH_MODEL с включённым Google Search grounding."""
+    try:
+        key = get_active_key()
+        if not key:
+            return "", [], False
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=key)
+        google_search_tool = types.Tool(google_search=types.GoogleSearch())
+        cfg = types.GenerateContentConfig(
+            tools=[google_search_tool],
+            max_output_tokens=1500,
+            temperature=0.3,
+        )
+        response = await asyncio.to_thread(
+            client.models.generate_content,
+            SEARCH_MODEL,
+            [types.Content(role="user", parts=[types.Part(text=query)])],
+            cfg,
+        )
+        mark_key_used(key)
+        text = (response.text or "").strip()
+        sources = _extract_sources(response)
+        if text:
+            log.info(f"[search] grounding: {len(sources)} источников")
+            return text, sources, True
+        return text, sources, False
+    except Exception as e:
+        # grounding недоступен/упал/лимит — фолбэк на Tavily
+        log.warning(f"[search] grounding error: {e}")
+        return "", [], False
+
+
+async def _tavily_fallback(query: str) -> tuple[str, list[str], bool]:
+    """Фолбэк на Tavily («как сейчас»), но с разбивкой ответ/источники."""
+    tavily_key = os.getenv("TAVILY_API_KEY", "").strip()
+    if not tavily_key:
+        return "", [], False
+    try:
+        from tavily import AsyncTavilyClient
+        tavily = AsyncTavilyClient(api_key=tavily_key)
+        resp = await tavily.search(query=query, max_results=3, search_depth="basic")
+        results = resp.get("results", [])
+        parts = [r.get("content", "") for r in results[:3] if r.get("content")]
+        urls = [r.get("url", "") for r in results[:3] if r.get("url")]
+        text = "\n\n".join(parts)
+        if text:
+            log.info("[search] tavily fallback")
+            return text, urls, True
+    except Exception as e:
+        log.warning(f"[search] tavily fallback error: {e}")
+    return "", [], False
+
+
+async def search_grounded(query: str) -> tuple[str, list[str], bool]:
+    """Интернет-поиск Сакуры через Gemini grounding.
+
+    Возвращает (ответ, источники, ok):
+      * ответ — короткий фактический ответ (формат «По данным поиска: …»
+        собирает вызывающая сторона);
+      * источники — список URL (в Telegram прикрепляются, в голосе опущаются);
+      * ok — True, если поиск дал результат (grounding или Tavily fallback).
+
+    Кэш результата по нормализованному запросу, TTL 30 минут: повторный вопрос
+    не тратит квоту.
+    """
+    norm = _normalize_query(query)
+    cached = _SEARCH_CACHE.get(norm)
+    if cached:
+        answer, sources, ok, ts = cached
+        if time.time() - ts < _SEARCH_CACHE_TTL:
+            return answer, sources, ok
+
+    answer, sources, ok = await _grounding_query(query)
+    if not ok or not answer:
+        answer, sources, ok = await _tavily_fallback(query)
+    _SEARCH_CACHE[norm] = (answer, sources, ok, time.time())
+    return answer, sources, ok

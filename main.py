@@ -22,6 +22,7 @@ from google.genai import types
 from modules.calendar_module import get_calendar_context, get_urgent_event
 from config import TELEGRAM_TOKEN, MASTER_ID, GROUP_CHAT_ID, get_active_key, mark_key_used, mark_key_exhausted, MAIN_MODEL, FALLBACK_MODEL  # noqa
 from personality import get_system_prompt, get_time_context
+from modules.web_search import needs_search
 from memory.memory import (
     add_to_history, get_history, clear_history,
     needs_daily_analysis, mark_analysis_done,
@@ -2126,23 +2127,47 @@ async def ask_gemini(user_message: str, save_history: bool = True) -> str:
     except Exception as e:
         log.debug(f"[main] ask_gemini: {type(e).__name__}: {e}")
 
-    web_ctx = await maybe_fetch_web(user_message)
-    if web_ctx:
-        full_system += f"\n\nКОНТЕНТ ИЗ ИНТЕРНЕТА:\n{web_ctx}"
+    search_facts = None
+    search_sources = []
+    if needs_search(user_message):
+        from modules.web_search import search_grounded as _grounded
+        g_answer, g_sources, g_ok = await _grounded(user_message)
+        if g_ok and g_answer:
+            # Факты от поиска — единственный источник правды по этому вопросу.
+            # Формулирует их МОДЕЛЬ (голос и стиль Сакуры сохраняются), как в
+            # answer_voice_info: менять числа/имена/факты запрещено.
+            search_facts = g_answer.strip()
+            search_sources = list(g_sources or [])
+            log.info("[search] grounding → факты в контекст LLM")
+        else:
+            # Ни grounding, ни Tavily ничего не дали → честно.
+            web_ctx = await maybe_fetch_web(user_message)
+            if web_ctx:
+                full_system += f"\n\nКОНТЕНТ ИЗ ИНТЕРНЕТА:\n{web_ctx}"
 
     url_ctx = await maybe_read_url(user_message)
     if url_ctx:
         full_system += f"\n\n{url_ctx}"
+
+    if search_facts:
+        full_system += (
+            "\n\nСВЕЖИЕ ФАКТЫ ИЗ ИНТЕРНЕТА (только что проверено поиском):\n"
+            f"{search_facts}\n"
+            "Это ЕДИНСТВЕННЫЙ источник правды для ответа Мастеру. Ответь на его "
+            "вопрос, опираясь ТОЛЬКО на эти факты, своим голосом и в своём стиле. "
+            "ЗАПРЕЩЕНО: менять, округлять или выдумывать числа, имена, названия и "
+            "даты; добавлять факты от себя. Если данных мало — скажи об этом прямо."
+        )
     _t_ctx = _t_mono() - _t0
 
     key = get_active_key()
-    if not key:
-        return "Мастер, все API ключи исчерпаны на сегодня."
     _t_prep = _t_ctx
     _t_llm = None
+    if not key:
+        return "Мастер, все API ключи исчерпаны на сегодня."
+    contents = _build_contents(user_message)
     try:
         client   = _gemini_client(key)
-        contents = _build_contents(user_message)
         _t_prep = _t_mono() - _t0
         response = await _gemini_generate(client, MAIN_MODEL, contents, full_system)
         _t_llm = _t_mono() - _t0
@@ -2151,6 +2176,10 @@ async def ask_gemini(user_message: str, save_history: bool = True) -> str:
     except Exception as e:
         log.error(f"[ask_gemini] {e}")
         reply = ""
+
+    if search_sources and reply:
+        # Источники — дописываем в Telegram к сформулированному ответу.
+        reply += "\n\nИсточники:\n" + "\n".join(f"• {u}" for u in search_sources)
     _t_total = _t_mono() - _t0
     _llm_s    = (_t_total - _t_prep) if _t_llm is None else (_t_llm - _t_prep)
     _proc_s   = (_t_total - _t_prep) if _t_llm is None else (_t_total - _t_llm)
@@ -2276,6 +2305,37 @@ async def ask_gemini_voice(
     client    = _gemini_client(key)
     emotion   = "neutral"
     full_text = ""
+
+    # веб-поиск grounding для голоса: источники не озвучиваются, факты
+    # прогоняем через модель — Сакура отвечает своим голосом
+    search_needed = needs_search(user_message)
+    search_facts  = None
+    if search_needed:
+        from modules.web_search import search_grounded as _grounded
+        g_ans, _g_srcs, g_ok = await _grounded(user_message)
+        if g_ok and g_ans:
+            search_facts = g_ans.strip()
+            log.info("[search] grounding → голосовой контекст")
+        else:
+            web_ctx = await maybe_fetch_web(user_message)
+            if web_ctx:
+                search_facts = web_ctx.strip()
+
+    if search_facts:
+        full_system += (
+            "\n\nСВЕЖИЕ ФАКТЫ ИЗ ИНТЕРНЕТА (только что проверено поиском):\n"
+            f"{search_facts}\n"
+            "Это ЕДИНСТВЕННЫЙ источник правды для ответа Мастеру. Ответь на его "
+            "вопрос, опираясь ТОЛЬКО на эти факты, своим голосом и в своём стиле. "
+            "ЗАПРЕЩЕНО: менять, округлять или выдумывать числа, имена, названия и "
+            "даты; добавлять факты от себя. Если данных мало — скажи об этом прямо."
+        )
+    elif search_needed:
+        full_system += (
+            "\n\nПоиск свежих данных в интернете сейчас не удался. Если для ответа "
+            "нужны актуальные данные — честно скажи Мастеру, что не нашла, и не "
+            "выдумывай факты."
+        )
 
     try:
         if websocket:
