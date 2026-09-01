@@ -1189,6 +1189,10 @@ async def extract_and_remember(user_message: str, reply: str):
                         layer = "working"
                         item = item[3:].strip()
 
+                    from modules.intimacy_mode import is_intimate_content
+                    if is_intimate_content(item):
+                        log.info(f"[memory] интимный контент отфильтрован: {item[:40]}")
+                        continue
                     ok = await asyncio.to_thread(db_add_to_category, cat, item, layer)
                     if ok is not False:
                         saved.append(f"{cat}: {item[:40]}")
@@ -1286,6 +1290,10 @@ async def daily_analysis():
                         elif item.startswith("[W]"):
                             layer = "working"
                             item = item[3:].strip()
+                        from modules.intimacy_mode import is_intimate_content
+                        if is_intimate_content(item):
+                            log.info(f"[memory] интимный фильтр (daily): {item[:40]}")
+                            continue
                         await asyncio.to_thread(db_add_to_category, cat, item, layer)
             mark_analysis_done()
             # Очистка автоалиасов
@@ -3756,10 +3764,17 @@ async def _init_weather():
 
 
 def _guarded_add(cat: str, item: str):
-    """Обёртка для reflection_loop: блокирует запись если был интим-режим с момента последней рефлексии."""
-    from modules.intimacy_mode import consume_check
+    """Обёртка для reflection_loop: два барьера.
+
+    1. consume_check — блокирует запись целиком если был интим-режим с последней рефлексии.
+    2. is_intimate_content — фильтрует отдельные факты по содержимому (подстраховка).
+    """
+    from modules.intimacy_mode import consume_check, is_intimate_content
     if consume_check():
         log.info("[memory] reflection write skipped: intimacy in window")
+        return False
+    if is_intimate_content(item):
+        log.info(f"[memory] интимный фильтр (reflection): {item[:40]}")
         return False
     return db_add_to_category(cat, item)
 
