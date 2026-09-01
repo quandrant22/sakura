@@ -2698,7 +2698,7 @@ async def handle_message(message: Message):
             return
 
         if role == "himari" or (message.from_user.is_bot and is_himari(user_id)):
-            log.info("[группа/химари] " + text[:80])
+            log.info("[группа/химари] " + text[:300])
             add_guest_message(user_id, "user", text, name="Химари")
             reply = await ask_gemini_as_guest(user_id, text, "Химари", "himari")
             await message.reply(reply)
@@ -2810,7 +2810,7 @@ async def handle_message(message: Message):
             await message.reply(reply)
             return
 
-        log.info("[группа/гость] " + user_name + ": " + text[:80])
+        log.info("[группа/гость] " + user_name + ": " + text[:300])
         reply = await ask_gemini_as_guest(user_id, text, user_name, "guest")
         await message.reply(reply)
         try:
@@ -2834,7 +2834,7 @@ async def handle_message(message: Message):
     # ── Гости и Химари ─────────────────────────────────────────────────────────
     if role != "master":
         text = message.text
-        log.info(f"[{role}] {user_name}: {text[:80]}")
+        log.info(f"[{role}] {user_name}: {text[:300]}")
 
         await bot.send_chat_action(message.chat.id, "typing")
         reply = await ask_gemini_as_guest(user_id, text, user_name, role)
@@ -2885,7 +2885,9 @@ async def handle_message(message: Message):
     # ── Мастер ─────────────────────────────────────────────────────────────────
     text       = message.text
     text_lower = text.lower()
-    log.info(f"[вход] {text[:80]!r}")
+    # Обрезка только в ЛОГЕ (текст обрабатывается целиком) — 300 символов,
+    # чтобы хвост фразы («… фром зе эшс») не выглядел потерянным
+    log.info(f"[вход] {text[:300]!r}")
     update_master_status(text)
 
     # ── ПОДТВЕРЖДЕНИЕ ОПАСНОЙ СИСТЕМНОЙ КОМАНДЫ (shutdown/restart/sleep) ──
@@ -3011,7 +3013,7 @@ async def handle_message(message: Message):
         if _tg_routed and is_info_action(_tg_routed.get("action", "")):
             import modules.state as _st
             _st._last_command_ts = __import__("time").monotonic()
-            log.info(f"[tg/voice_info] {text[:80]!r} → {_tg_routed}")
+            log.info(f"[tg/voice_info] {text[:300]!r} → {_tg_routed}")
             await answer_voice_info(
                 _tg_routed.get("action", ""), _tg_routed.get("arg", "") or "",
                 text, None, None, ask_gemini, bot)

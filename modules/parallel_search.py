@@ -192,10 +192,11 @@ async def build_search_queries(query: str) -> list[str]:
             extra = _fallback_query(query)
             if extra and extra not in queries:
                 queries.append(extra)   # подстраховка сырой фразой, ≤3 всего
+            log.info(f"[parallel] queries (model): {queries[:3]}")
             return queries[:3]
-        log.warning("[parallel] model queries пусты → резерв _keywords()")
+        log.info(f"[parallel] queries (fallback): {_keywords(query)} — причина: ответ модели пуст")
     except Exception as e:
-        log.warning(f"[parallel] query build failed: {type(e).__name__}: {e} → резерв _keywords()")
+        log.info(f"[parallel] queries (fallback): {_keywords(query)} — причина: {type(e).__name__}: {e}")
     return _keywords(query)
 
 
@@ -279,8 +280,8 @@ async def parallel_search(query: str, max_results: int = 5) -> tuple[str, list[s
                 log.debug(f"[parallel] initialized notify: {type(e).__name__}: {e}")
 
             # 3) tools/call web_search — запросы составляет MAIN_MODEL
+            # (лог "[parallel] queries (model|fallback)" — в build_search_queries)
             queries = await build_search_queries(query)
-            log.info(f"[parallel] search_queries: {queries}")
             args = {
                 "objective": query,
                 "search_queries": queries,
