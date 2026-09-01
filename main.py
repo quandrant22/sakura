@@ -2138,9 +2138,9 @@ async def ask_gemini(user_message: str, save_history: bool = True) -> str:
             # answer_voice_info: менять числа/имена/факты запрещено.
             search_facts = g_answer.strip()
             search_sources = list(g_sources or [])
-            log.info("[search] grounding → факты в контекст LLM")
+            log.info("[search] parallel → факты в контекст LLM")
         else:
-            # Поиск (grounding) не дал результатов → честно.
+            # Поиск не дал результатов → честно.
             web_ctx = await maybe_fetch_web(user_message)
             if web_ctx:
                 full_system += f"\n\nКОНТЕНТ ИЗ ИНТЕРНЕТА:\n{web_ctx}"
@@ -2315,7 +2315,7 @@ async def ask_gemini_voice(
         g_ans, _g_srcs, g_ok = await _grounded(user_message)
         if g_ok and g_ans:
             search_facts = g_ans.strip()
-            log.info("[search] grounding → голосовой контекст")
+            log.info("[search] parallel → голосовой контекст")
         else:
             web_ctx = await maybe_fetch_web(user_message)
             if web_ctx:

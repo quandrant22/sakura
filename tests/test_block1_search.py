@@ -1,24 +1,24 @@
 """
-Регрессионные тесты БЛОКА 1 — поиск через Gemini grounding.
+Регрессионные тесты БЛОКА 1 — поиск через Parallel Search MCP.
 
 Run:  python3 -m pytest tests/test_block1_search.py -q
 
-Моки: никакого сетевого доступа. Имитируются ответы Gemini grounding
-(включая формат grounding_metadata). Сторонние фолбэки убраны из проекта —
-при сбое grounding ожидается честный отказ (ok=False).
+Моки: никакого сетевого доступа. Имитируются ответы MCP-сервера Parallel
+(реальный формат tools/call web_search: structuredContent + content.text).
+При сбое поиска ожидается честный отказ (ok=False).
 """
 import os
 import sys
 import asyncio
+import json
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 os.environ.setdefault("MASTER_ID", "123456789")
 os.environ.setdefault("TELEGRAM_TOKEN", "test:fake-token")
 os.environ.setdefault("GEMINI_KEY_1", "fake-gemini-key")
 os.environ.setdefault("WS_SECRET", "test-secret-minimum-16-chars")
 os.environ.setdefault("MASTER_DEVICES", "laptop,pc")
-os.environ.setdefault("SEARCH_MODEL", "gemini-2.5-flash")
 
 _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _root not in sys.path:
@@ -33,56 +33,41 @@ def _run(coro):
         loop.close()
 
 
-# фиктивные объекты API Gemini (grounding)
+# ── фиктивный источник поиска (Parallel MCP) ────────────────────────────
 
-class _FakeWeb:
-    def __init__(self, uri, title="источник"):
-        self.uri = uri
-        self.title = title
+def _mcp_result(items, is_error=False, structured=True):
+    """MCP-ответ tools/call web_search в реальном формате Parallel.
 
-
-class _FakeChunk:
-    def __init__(self, uri):
-        self.web = _FakeWeb(uri)
-        self.retrieved_context = None
-
-
-class _FakeGMD:
-    def __init__(self, uris):
-        self.grounding_chunks = [_FakeChunk(u) for u in uris]
-        self.web_search_queries = []
-
-
-class _FakeCand:
-    def __init__(self, text, uris):
-        self.text = text
-        self.grounding_metadata = _FakeGMD(uris)
+    items: [(url, title, [excerpts]), ...]
+    structured=True → structuredContent; False → тот же JSON в content[0].text.
+    """
+    results = [
+        {"url": u, "title": t, "publish_date": None, "excerpts": e}
+        for (u, t, e) in items
+    ]
+    payload = {"search_id": "search_test", "results": results,
+               "warnings": [], "session_id": "test-session"}
+    if structured:
+        return {"isError": is_error, "structuredContent": payload, "content": []}
+    return {"isError": is_error, "structuredContent": {},
+            "content": [{"type": "text",
+                         "text": json.dumps(payload, ensure_ascii=False)}]}
 
 
-class _FakeResp:
-    def __init__(self, text, uris):
-        self.text = text
-        self.candidates = [_FakeCand(text, uris)]
+class _FakeParallel:
+    """Подменяет modules.parallel_search.parallel_search (импорт внутри вызова)."""
 
-
-class _FakeModels:
-    def __init__(self, resp, exc=None):
-        self._resp = resp
-        self._exc = exc
+    def __init__(self, result):
+        self._result = result
         self.calls = 0
-        self.last_kwargs = None
+        self.last_query = None
 
-    def generate_content(self, *a, **k):
+    async def __call__(self, query, max_results=5):
         self.calls += 1
-        self.last_kwargs = k
-        if self._exc:
-            raise self._exc
-        return self._resp
-
-
-class _FakeClient:
-    def __init__(self, models):
-        self.models = models
+        self.last_query = query
+        if isinstance(self._result, Exception):
+            raise self._result
+        return self._result
 
 
 class Test1_SearchTriggered(unittest.TestCase):
@@ -150,112 +135,164 @@ class Test1_SearchTriggered(unittest.TestCase):
         self.assertFalse(needs_search("громче"))
 
 
-class Test1_GroundingPath(unittest.TestCase):
-    """1.2: search_grounded — успешный grounding — ответ + источники."""
+class Test1_ParallelPath(unittest.TestCase):
+    """1.2: search_grounded → Parallel MCP: ответ + источники + кэш."""
 
-    def test_grounding_returns_answer_and_sources(self):
+    def test_search_returns_answer_and_sources(self):
+        import modules.parallel_search as ps
         import modules.web_search as ws
         ws._clear_search_cache()
-        resp = _FakeResp("Эммануил Макрон — президент Франции.", ["https://ru.wikipedia.org/wiki/Франция"])
-        models = _FakeModels(resp)
-        with patch("google.genai.Client", lambda **kw: _FakeClient(models)), patch.object(ws, "get_active_key", return_value="fake-key"), patch.object(ws, "mark_key_used", return_value=None):
+        fake = _FakeParallel((
+            "Макрон — действующий президент Франции с 2017 года.",
+            ["https://ru.wikipedia.org/wiki/Франция"],
+            True,
+        ))
+        with patch.object(ps, "parallel_search", fake):
             answer, sources, ok = _run(ws.search_grounded("кто сейчас президент Франции"))
         self.assertTrue(ok)
         self.assertIn("Макрон", answer)
-        self.assertIn("https://ru.wikipedia.org/wiki/Франция", sources)
-        self.assertEqual(models.calls, 1)
+        self.assertEqual(sources, ["https://ru.wikipedia.org/wiki/Франция"])
+        self.assertEqual(fake.calls, 1)
+        self.assertEqual(fake.last_query, "кто сейчас президент Франции")
 
-    def test_grounding_cached_no_repeat_call(self):
+    def test_sources_deduped_by_domain_and_capped(self):
+        import modules.parallel_search as ps
         import modules.web_search as ws
         ws._clear_search_cache()
-        resp = _FakeResp("ответ", ["https://x.ru"])
-        models = _FakeModels(resp)
-        with patch("google.genai.Client", lambda **kw: _FakeClient(models)), patch.object(ws, "get_active_key", return_value="fake-key"), patch.object(ws, "mark_key_used", return_value=None):
-            _run(ws.search_grounded("кто президент Франции"))
-            _run(ws.search_grounded("КТО ПРЕЗИДЕНТ ФРАНЦИИ"))
-        self.assertEqual(models.calls, 1), "повторный запрос не должен тратить квоту"
-
-    def test_no_key_returns_not_ok(self):
-        import modules.web_search as ws
-        ws._clear_search_cache()
-        with patch("google.genai.Client", lambda **kw: _FakeClient(_FakeModels(None))), patch.object(ws, "get_active_key", return_value=None):
-            answer, sources, ok = _run(ws.search_grounded("кто президент Франции"))
-        self.assertFalse(ok)
-        self.assertEqual(answer, "")
-        self.assertEqual(sources, [])
-
-
-class Test1_GroundingFailure(unittest.TestCase):
-    """1.3: если grounding упал — честный отказ (ok=False), без фолбэков."""
-
-    def test_grounding_error_returns_not_ok(self):
-        import modules.web_search as ws
-        ws._clear_search_cache()
-        models = _FakeModels(None, exc=RuntimeError("grounding disabled"))
-        with patch("google.genai.Client", lambda **kw: _FakeClient(models)), patch.object(ws, "get_active_key", return_value="fake-key"), patch.object(ws, "mark_key_used", return_value=None):
-            answer, sources, ok = _run(ws.search_grounded("сколько стоит биткоин"))
-        self.assertFalse(ok)
-        self.assertEqual(answer, "")
-        self.assertEqual(sources, [])
-        self.assertEqual(models.calls, 1), "фолбэков больше нет — ровно один вызов grounding"
-
-    def test_empty_response_returns_not_ok(self):
-        import modules.web_search as ws
-        ws._clear_search_cache()
-        with patch("google.genai.Client", lambda **kw: _FakeClient(_FakeModels(None))), patch.object(ws, "get_active_key", return_value="fake-key"), patch.object(ws, "mark_key_used", return_value=None):
-            answer, sources, ok = _run(ws.search_grounded("кто президент Франции"))
-        self.assertFalse(ok)
-        self.assertEqual(answer, "")
-        self.assertEqual(sources, [])
-
-    def test_named_args_regression(self):
-        """Регресс: generate_content вызывается ТОЛЬКО именованными аргументами.
-
-        Позиционная передача падала на реальном SDK:
-        «Models.generate_content() takes 1 positional argument but 4 were given».
-        """
-        import modules.web_search as ws
-        ws._clear_search_cache()
-        models = _FakeModels(_FakeResp("ответ", ["https://x.ru"]))
-        with patch("google.genai.Client", lambda **kw: _FakeClient(models)), patch.object(ws, "get_active_key", return_value="fake-key"), patch.object(ws, "mark_key_used", return_value=None):
-            _run(ws.search_grounded("кто президент Франции"))
-        self.assertIsNotNone(models.last_kwargs)
-        self.assertIn("model", models.last_kwargs)
-        self.assertIn("contents", models.last_kwargs)
-        self.assertIn("config", models.last_kwargs)
-        self.assertEqual(models.last_kwargs["model"], ws.SEARCH_MODEL)
-
-
-class Test1_SourceExclusion(unittest.TestCase):
-    def test_extract_sources_dedupes(self):
-        import modules.web_search as ws
-        resp = _FakeResp("x", ["https://a", "https://a", "https://b"])
-        self.assertEqual(ws._extract_sources(resp), ["https://a", "https://b"])
-
-    def test_extract_sources_dedupes_by_domain(self):
-        import modules.web_search as ws
-        resp = _FakeResp("x", [
+        urls = [
             "https://ru.wikipedia.org/wiki/Франция",
             "https://ru.wikipedia.org/wiki/Макрон",
             "https://www.lenta.ru/news/1",
             "https://lenta.ru/news/2",
-        ])
+            "https://a.example/1",
+            "https://b.example/1",
+            "https://c.example/1",
+        ]
+        fake = _FakeParallel(("факты", urls, True))
+        with patch.object(ps, "parallel_search", fake):
+            _, sources, ok = _run(ws.search_grounded("кто президент Франции"))
+        self.assertTrue(ok)
+        # ru.wikipedia/Макрон и www.lenta/news/2 дедупнуты по домену; кап 5
         self.assertEqual(
-            ws._extract_sources(resp),
+            sources,
+            ["https://ru.wikipedia.org/wiki/Франция", "https://www.lenta.ru/news/1",
+             "https://a.example/1", "https://b.example/1", "https://c.example/1"],
+        )
+
+    def test_cached_no_repeat_call(self):
+        import modules.parallel_search as ps
+        import modules.web_search as ws
+        ws._clear_search_cache()
+        fake = _FakeParallel(("ответ", ["https://x.ru"], True))
+        with patch.object(ps, "parallel_search", fake):
+            _run(ws.search_grounded("кто президент Франции"))
+            _run(ws.search_grounded("КТО ПРЕЗИДЕНТ ФРАНЦИИ"))
+        self.assertEqual(fake.calls, 1), "кэш 30 минут: повтор не бьёт по rate-лимитам"
+
+    def test_facts_capped_at_4000_chars(self):
+        import modules.parallel_search as ps
+        import modules.web_search as ws
+        ws._clear_search_cache()
+        fake = _FakeParallel(("Предложение фактов. " * 400, ["https://x.ru"], True))
+        with patch.object(ps, "parallel_search", fake):
+            answer, _, ok = _run(ws.search_grounded("кто президент Франции"))
+        self.assertTrue(ok)
+        self.assertLessEqual(len(answer), 4000)
+
+
+class Test1_ParallelFailure(unittest.TestCase):
+    """1.3: если поиск упал — честный отказ (ok=False), без фолбэков."""
+
+    def test_not_ok_passthrough(self):
+        import modules.parallel_search as ps
+        import modules.web_search as ws
+        ws._clear_search_cache()
+        fake = _FakeParallel(("", [], False))
+        with patch.object(ps, "parallel_search", fake):
+            answer, sources, ok = _run(ws.search_grounded("кто президент Франции"))
+        self.assertFalse(ok)
+        self.assertEqual(answer, "")
+        self.assertEqual(sources, [])
+        self.assertEqual(fake.calls, 1), "фолбэков нет — ровно один вызов поиска"
+
+    def test_exception_returns_not_ok(self):
+        import modules.parallel_search as ps
+        import modules.web_search as ws
+        ws._clear_search_cache()
+        fake = _FakeParallel(RuntimeError("mcp down"))
+        with patch.object(ps, "parallel_search", fake):
+            answer, sources, ok = _run(ws.search_grounded("кто президент Франции"))
+        self.assertFalse(ok)
+        self.assertEqual((answer, sources), ("", []))
+
+
+class Test1_ParallelParsing(unittest.TestCase):
+    """Парсер tools/call web_search — реальный формат Parallel MCP."""
+
+    def test_structured_content(self):
+        from modules.parallel_search import _parse_result
+        res = _mcp_result([
+            ("https://ru.wikipedia.org/wiki/Франция", "Президент Франции",
+             ["Макрон — президент Франции."]),
+            ("https://www.elysee.fr/en/", "Élysée", []),
+        ])
+        text, urls, ok = _parse_result(res)
+        self.assertTrue(ok)
+        self.assertIn("Макрон", text)
+        self.assertEqual(urls, ["https://ru.wikipedia.org/wiki/Франция",
+                                "https://www.elysee.fr/en/"])
+
+    def test_text_json_fallback(self):
+        from modules.parallel_search import _parse_result
+        res = _mcp_result([("https://x.ru", "Титул", ["факт"])], structured=False)
+        text, urls, ok = _parse_result(res)
+        self.assertTrue(ok)
+        self.assertIn("факт", text)
+        self.assertEqual(urls, ["https://x.ru"])
+
+    def test_is_error_returns_not_ok(self):
+        from modules.parallel_search import _parse_result
+        self.assertEqual(_parse_result(_mcp_result([], is_error=True)), ("", [], False))
+
+    def test_empty_results_returns_not_ok(self):
+        from modules.parallel_search import _parse_result
+        self.assertEqual(_parse_result(_mcp_result([])), ("", [], False))
+
+    def test_max_results_cap(self):
+        from modules.parallel_search import _parse_result
+        res = _mcp_result([(f"https://s{i}.example/p", "t", ["e"]) for i in range(8)])
+        _, urls, ok = _parse_result(res, max_results=5)
+        self.assertTrue(ok)
+        self.assertEqual(len(urls), 5)
+
+    def test_keywords_strips_punctuation(self):
+        from modules.parallel_search import _keywords
+        self.assertEqual(_keywords("кто сейчас президент Франции?"),
+                         ["кто сейчас президент Франции"])
+        self.assertTrue(_keywords("тест")[0])
+
+
+class Test1_DedupDomains(unittest.TestCase):
+    def test_dedupes_by_domain(self):
+        import modules.web_search as ws
+        self.assertEqual(
+            ws._dedup_domains([
+                "https://ru.wikipedia.org/wiki/Франция",
+                "https://ru.wikipedia.org/wiki/Макрон",
+                "https://www.lenta.ru/news/1",
+                "https://lenta.ru/news/2",
+            ]),
             ["https://ru.wikipedia.org/wiki/Франция", "https://www.lenta.ru/news/1"],
         )
 
-    def test_extract_sources_cap_five(self):
+    def test_cap_five(self):
         import modules.web_search as ws
         urls = [f"https://site{i}.example/page" for i in range(8)]
-        self.assertEqual(len(ws._extract_sources(_FakeResp("x", urls))), 5)
+        self.assertEqual(len(ws._dedup_domains(urls)), 5)
 
-    def test_extract_sources_no_chunks(self):
+    def test_skips_empty(self):
         import modules.web_search as ws
-
-        class _Empty:
-            candidates = [MagicMock(grounding_metadata=None)]
-        self.assertEqual(ws._extract_sources(_Empty()), [])
+        self.assertEqual(ws._dedup_domains(["", "https://a.ru", None]), ["https://a.ru"])
 
 
 class Test1_ClipAnswer(unittest.TestCase):

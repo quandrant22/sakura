@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 
 import httpx
 from bs4 import BeautifulSoup
-from config import MAIN_MODEL, SEARCH_MODEL, get_active_key, mark_key_used
+from config import MAIN_MODEL, get_active_key, mark_key_used
 
 log = logging.getLogger(__name__)
 
@@ -127,7 +127,7 @@ def _has_time_marker(text_lower: str) -> bool:
 
 
 def needs_search(text: str) -> bool:
-    """Решает, идёт ли запрос в поиск (Google Search grounding).
+    """Решает, идёт ли запрос в поиск (Parallel Search MCP).
 
     Правила:
       * Приветы / команды / творческие просьбы — НЕ в поиск (по границам слов);
@@ -351,12 +351,14 @@ async def download_bytes(url: str) -> bytes | None:
     return None
 
 
-# ── Поиск через Gemini Search grounding (SEARCH_MODEL) ──────────────────
-# Ответственный за «Сакура сама ищет в интернете». ЖИВАЯ ПРОВЕРКА 2026-09:
-# 2.x модели отдают 404 «no longer available to new users», grounding на
-# 3.x — 429 (нужен платный тир). Поиск идёт отдельным вызовом на
-# SEARCH_MODEL; при недоступности grounding — честный отказ (ok=False),
-# без фолбэков на сырые страницы. Результат кэшируется 30 мин.
+# ── Поиск через Parallel Search MCP ─────────────────────────────────────
+# Источник фактов «Сакура сама ищет в интернете» — Parallel Search MCP
+# (modules/parallel_search.py): анонимно, без ключей и карты.
+# Google Search grounding НЕДОСТУПЕН на аккаунте Мастера (живая проверка
+# 2026-09): gemini-2.5-flash → 404 «no longer available to new users»
+# (2.x выведен для новых аккаунтов), grounding на 3.x → 429 (квоты нет
+# на бесплатном тире). Выдержки Parallel — сжатые под запрос, не сырые
+# страницы. Результат кэшируется 30 мин.
 
 _SEARCH_CACHE: dict = {}   # {нормализованный_запрос: (answer, sources, ok, ts)}
 _SEARCH_CACHE_TTL = 30 * 60  # 30 минут
@@ -374,10 +376,10 @@ def _clear_search_cache() -> None:
 
 
 def _clip_answer(text: str, limit: int = 2000) -> str:
-    """Ограничивает ответ лимитом символов, обрезая по границе предложения.
+    """Ограничивает текст лимитом символов, обрезая по границе предложения.
 
-    Ответ grounding — уже связный текст от модели, чистить его от мусора
-    не нужно; режем только на всякий случай, чтобы не отправлять простыню.
+    Выдержки Parallel уже сжатые, чистить их от мусора не нужно; режем
+    только на всякий случай, чтобы не отправлять в промпт простыню.
     """
     text = (text or "").strip()
     if len(text) <= limit:
@@ -391,33 +393,17 @@ def _clip_answer(text: str, limit: int = 2000) -> str:
     return cut.rsplit(" ", 1)[0].rstrip(",;: ") + "…"
 
 
-def _extract_sources(resp, limit: int = 5) -> list[str]:
-    """Из grounding_metadata ответа Gemini забирает ссылки на источники.
+def _dedup_domains(urls: list[str], limit: int = 5) -> list[str]:
+    """Уникальные URL с дедупом по домену (первый URL каждого домена).
 
-    Уникальные URL с дедупом по домену (первый URL каждого домена),
-    максимум limit — в Telegram идёт список 2-5 ссылок, в голосе источники
+    Максимум limit — в Telegram идёт список 2-5 ссылок, в голосе источники
     не зачитываются.
     """
-    out: list[str] = []
-    try:
-        cands = getattr(resp, "candidates", None) or []
-        cand = cands[0] if cands else None
-        if cand is None:
-            return out
-        gmd = getattr(cand, "grounding_metadata", None)
-        chunks = (getattr(gmd, "grounding_chunks", None) or []) if gmd else []
-        for ch in chunks:
-            src = getattr(ch, "web", None)
-            if src is None:
-                src = getattr(ch, "retrieved_context", None)
-            uri = getattr(src, "uri", None) if src else None
-            if uri:
-                out.append(uri)
-    except Exception as e:
-        log.debug(f"[search] source extraction error: {e}")
     seen_domains: set[str] = set()
     uniq: list[str] = []
-    for u in out:
+    for u in urls:
+        if not u:
+            continue
         try:
             domain = (urlparse(u).netloc or u).lower().removeprefix("www.")
         except Exception:
@@ -431,62 +417,20 @@ def _extract_sources(resp, limit: int = 5) -> list[str]:
     return uniq
 
 
-async def _grounding_query(query: str) -> tuple[str, list[str], bool]:
-    """Один запрос к Gemini SEARCH_MODEL с включённым Google Search grounding.
-
-    Все аргументы generate_content — ИМЕНОВАННЫЕ (SDK принимает только
-    keyword-only, позиционная передача падала с «takes 1 positional
-    argument but 4 were given»). Синхронный вызов обёрнут в
-    asyncio.to_thread — тем же паттерном, что _gemini_generate в main.py.
-    """
-    try:
-        key = get_active_key()
-        if not key:
-            return "", [], False
-        from google import genai
-        from google.genai import types
-
-        client = genai.Client(api_key=key)
-        google_search_tool = types.Tool(google_search=types.GoogleSearch())
-        cfg = types.GenerateContentConfig(
-            tools=[google_search_tool],
-            max_output_tokens=1500,
-            temperature=0.3,
-        )
-        response = await asyncio.to_thread(
-            client.models.generate_content,
-            model    = SEARCH_MODEL,
-            contents = [types.Content(role="user", parts=[types.Part(text=query)])],
-            config   = cfg,
-        )
-        mark_key_used(key)
-        text = _clip_answer(getattr(response, "text", None) or "")
-        sources = _extract_sources(response)
-        if text:
-            log.info(f"[search] grounding: {len(sources)} источников")
-            return text, sources, True
-        log.warning("[search] grounding failed: пустой ответ модели")
-        return "", sources, False
-    except Exception as e:
-        # grounding недоступен/упал/лимит исчерпан — честный отказ:
-        # Сакура скажет, что не смогла найти, а не зачитает мусор
-        log.warning(f"[search] grounding failed: {e}")
-        return "", [], False
-
-
 async def search_grounded(query: str) -> tuple[str, list[str], bool]:
-    """Интернет-поиск Сакуры через Gemini grounding.
+    """Интернет-поиск Сакуры через Parallel Search MCP.
 
+    Имя сохранено ради контракта с main.py (раньше был Gemini grounding).
     Возвращает (ответ, источники, ok):
-      * ответ — короткий фактический ответ (формат «По данным поиска: …»
-        собирает вызывающая сторона);
+      * ответ — выдержки из поиска, сжатые под запрос (сырой текст Мастеру
+        не показывается: факты формулирует MAIN_MODEL голосом Сакуры);
       * источники — список URL, дедуп по домену, до 5 штук (в Telegram
         прикрепляются, в голосе опускаются);
-      * ok — True, если grounding дал результат. При сбое — ("", [], False):
+      * ok — True, если поиск дал результат. При сбое — ("", [], False):
         Сакура честно говорит, что не смогла найти, без фолбэков и мусора.
 
-    Кэш результата по нормализованному запросу, TTL 30 минут: повторный вопрос
-    не тратит квоту.
+    Кэш результата по нормализованному запросу, TTL 30 минут: повторный
+    вопрос не бьёт по rate-лимитам.
     """
     norm = _normalize_query(query)
     cached = _SEARCH_CACHE.get(norm)
@@ -495,6 +439,16 @@ async def search_grounded(query: str) -> tuple[str, list[str], bool]:
         if time.time() - ts < _SEARCH_CACHE_TTL:
             return answer, sources, ok
 
-    answer, sources, ok = await _grounding_query(query)
+    from modules.parallel_search import parallel_search
+    try:
+        answer, sources, ok = await parallel_search(query)
+    except Exception as e:
+        # параноидальная защита: parallel_search ловит всё сам, но если
+        # что-то улетело — честный отказ вместо падения бота
+        log.warning(f"[search] parallel failed: {type(e).__name__}: {e}")
+        answer, sources, ok = "", [], False
+    if ok and answer:
+        sources = _dedup_domains(sources, limit=5)
+        answer = _clip_answer(answer, limit=4000)   # бюджет промпта ~4к симв.
     _SEARCH_CACHE[norm] = (answer, sources, ok, time.time())
     return answer, sources, ok
