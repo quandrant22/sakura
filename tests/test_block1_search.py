@@ -295,6 +295,79 @@ class Test1_DedupDomains(unittest.TestCase):
         self.assertEqual(ws._dedup_domains(["", "https://a.ru", None]), ["https://a.ru"])
 
 
+class Test1_BuildQueries(unittest.TestCase):
+    """search_queries составляет MAIN_MODEL; резерв _keywords() при сбое."""
+
+    def test_parse_model_queries_json_array(self):
+        from modules.parallel_search import _parse_model_queries
+        raw = ('["Remnant: From the Ashes трейт \\"Мастер поиска уязвимостей\\" '
+               'как получить", "Palworld как получить ресурсы"]')
+        self.assertEqual(
+            _parse_model_queries(raw),
+            ['Remnant: From the Ashes трейт "Мастер поиска уязвимостей" как получить',
+             "Palworld как получить ресурсы"],
+        )
+
+    def test_parse_model_queries_tolerates_noise(self):
+        from modules.parallel_search import _parse_model_queries
+        raw = 'Вот запросы:\n["ремнант трейт", "второй"]\nГотово.'
+        self.assertEqual(_parse_model_queries(raw), ["ремнант трейт", "второй"])
+
+    def test_parse_model_queries_cap_and_junk(self):
+        from modules.parallel_search import _parse_model_queries
+        self.assertEqual(_parse_model_queries('["a", "b", "c", "d"]'), ["a", "b", "c"])
+        self.assertEqual(_parse_model_queries('["", "  ", "ok"]'), ["ok"])
+        self.assertEqual(_parse_model_queries("вообще не json"), [])
+        self.assertEqual(_parse_model_queries(""), [])
+
+    def test_build_uses_model_queries(self):
+        import modules.parallel_search as ps
+        composed = ['Remnant: From the Ashes трейт "Мастер поиска уязвимостей"']
+
+        async def fake_model_queries(query):
+            return list(composed)
+
+        with patch.object(ps, "_model_queries", fake_model_queries):
+            out = _run(ps.build_search_queries("ремнант трейт мастер поиска уязвимостей"))
+        self.assertEqual(out[0], composed[0])
+        self.assertEqual(len(out), 2), "вторым — подстраховка сырой фразой"
+
+    def test_build_normalizes_guillemets_to_ascii_quotes(self):
+        import modules.parallel_search as ps
+
+        async def composed(query):
+            return ["Remnant: From the Ashes трейт «Мастер поиска уязвимостей»"]
+
+        with patch.object(ps, "_model_queries", composed):
+            out = _run(ps.build_search_queries("ремнант трейт"))
+        self.assertEqual(
+            out[0], 'Remnant: From the Ashes трейт "Мастер поиска уязвимостей"')
+
+    def test_fallback_query_strips_search_verb(self):
+        from modules.parallel_search import _fallback_query, _keywords
+        self.assertEqual(_fallback_query("найди: как получить трейт Мастер"),
+                         _keywords("как получить трейт Мастер")[0])
+
+    def test_build_falls_back_to_keywords_on_model_failure(self):
+        import modules.parallel_search as ps
+
+        async def broken(query):
+            raise RuntimeError("keys exhausted")
+
+        with patch.object(ps, "_model_queries", broken):
+            out = _run(ps.build_search_queries("ремнант фром зе эшс трейт"))
+        self.assertEqual(out, ps._keywords("ремнант фром зе эшс трейт"))
+
+    def test_build_empty_query_skips_model(self):
+        import modules.parallel_search as ps
+
+        async def must_not_call(query):
+            raise AssertionError("модель не должна вызываться для пустой фразы")
+
+        with patch.object(ps, "_model_queries", must_not_call):
+            self.assertEqual(_run(ps.build_search_queries("")), ps._keywords(""))
+
+
 class Test1_HonestyPrompt(unittest.TestCase):
     """Пустая/нерелевантная выдача ≠ «не существует»: правило в промпте фактов.
 

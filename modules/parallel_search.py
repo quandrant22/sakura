@@ -16,8 +16,10 @@ modules/parallel_search.py — веб-поиск Сакуры через Paralle
 ключевых запросов 3-6 слов) — поэтому keywords синтезируются из запроса.
 """
 
+import asyncio
 import json
 import logging
+import re
 import uuid
 
 import httpx
@@ -79,6 +81,122 @@ def _keywords(query: str) -> list[str]:
         if len(words) >= 6:
             break
     return [" ".join(words)] if words else [query.strip()[:50] or "новости"]
+
+
+# Резерв важен: сырые первые слова теряют названия игр и навыков, поэтому
+# основной путь — build_search_queries() через MAIN_MODEL (см. ниже).
+
+_QUERY_PROMPT = (
+    "Составь 1-3 поисковых запроса для веб-поиска по фразе Мастера. Правила:\n"
+    "1. Сохраняй имена собственные, названия игр и точные названия предметов, "
+    "навыков, трейтов — в кавычках, если они были в кавычках во фразе.\n"
+    "2. Сохраняй тип предмета из фразы (трейт, навык, оружие, босс, материал) — "
+    "это слово сужает поиск до нужного раздела гайдов.\n"
+    "3. Русскую транслитерацию заменяй на оригинал: «ремнант фром зе эшс» → "
+    "Remnant: From the Ashes, «палворлд» → Palworld, «ельден ринг» → Elden Ring.\n"
+    "4. Добавь уточняющий контекст, если он ясен из вопроса (игра, платформа, "
+    "год, «как получить», «патчноут»). Но не добавляй того, чего во фразе нет.\n"
+    "5. Каждый запрос — 3-7 ключевых слов, без воды и пояснений.\n"
+    "Ответь ТОЛЬКО JSON-массивом строк, без текста вокруг.\n\n"
+    "Фраза Мастера: "
+)
+
+
+def _strip_wrap_quotes(q: str) -> str:
+    """Снимает только полностью обрамляющие кавычки-пару (мусор модели).
+
+    Внутренние кавычки названий («трейт „Мастер…"») сохраняются.
+    """
+    for a, b in (("«", "»"), ('"', '"'), ("“", "”")):
+        if len(q) >= 2 and q.startswith(a) and q.endswith(b):
+            return q[1:-1].strip()
+    return q
+
+
+def _parse_model_queries(text: str, limit: int = 3) -> list[str]:
+    """Ответ модели → список запросов (JSON-массив строк, ≤limit, без мусора)."""
+    if not text:
+        return []
+    m = re.search(r"\[.*\]", text, re.S)
+    if not m:
+        return []
+    try:
+        arr = json.loads(m.group(0))
+    except json.JSONDecodeError:
+        return []
+    out: list[str] = []
+    for item in arr if isinstance(arr, list) else []:
+        if isinstance(item, str):
+            q = _strip_wrap_quotes(item.strip())
+            if q and len(q) <= 200:
+                out.append(q)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _fallback_query(query: str) -> str:
+    """Сырая фраза без глагола поиска — подстраховка, если модель промахнулась."""
+    q = re.sub(
+        r"^(найдите|поищите|загуглите|погуглите|найди|поищи|загугли|погугли|поиши)\s*[::,-]?\s*",
+        "", (query or "").strip(), flags=re.I)
+    return _keywords(q)[0]
+
+
+async def _model_queries(query: str) -> list[str]:
+    """Один дешёвый вызов MAIN_MODEL: фраза Мастера → 1-3 поисковых запроса.
+
+    Сбой/пустой ответ → [] (вызывающая сторона уйдёт в резерв _keywords()).
+    Все аргументы generate_content — именованные (SDK keyword-only).
+    """
+    from config import MAIN_MODEL, get_active_key, mark_key_used
+    key = get_active_key()
+    if not key:
+        return []
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client(api_key=key)
+    cfg_kw: dict = dict(max_output_tokens=300, temperature=0.2)
+    if MAIN_MODEL.startswith("gemini-3"):
+        # Gemini 3.x думает по умолчанию и съедает бюджет ответа
+        # (тот же приём, что main._thinking)
+        cfg_kw["thinking_config"] = types.ThinkingConfig(thinking_level="minimal")
+    response = await asyncio.to_thread(
+        client.models.generate_content,
+        model    = MAIN_MODEL,
+        contents = _QUERY_PROMPT + query,
+        config   = types.GenerateContentConfig(**cfg_kw),
+    )
+    mark_key_used(key)
+    return _parse_model_queries(getattr(response, "text", None) or "")
+
+
+async def build_search_queries(query: str) -> list[str]:
+    """1-3 поисковых запроса из фразы Мастера: MAIN_MODEL, резерв _keywords().
+
+    Именно здесь определяется качество поиска: модель сохраняет названия игр
+    и точные названия навыков/предметов, разворачивает транслитерацию
+    («ремнант фром зе эшс» → Remnant: From the Ashes) и добавляет уточняющий
+    контекст (игра/платформа/год). Любой сбой → старое поведение _keywords().
+    """
+    query = (query or "").strip()
+    if not query:
+        return _keywords(query)
+    try:
+        queries = await _model_queries(query)
+        # Поисковику нужны ASCII-кавычки (оператор точного совпадения),
+        # а не типографские «»
+        queries = [q.replace("«", '"').replace("»", '"') for q in queries]
+        if queries:
+            extra = _fallback_query(query)
+            if extra and extra not in queries:
+                queries.append(extra)   # подстраховка сырой фразой, ≤3 всего
+            return queries[:3]
+        log.warning("[parallel] model queries пусты → резерв _keywords()")
+    except Exception as e:
+        log.warning(f"[parallel] query build failed: {type(e).__name__}: {e} → резерв _keywords()")
+    return _keywords(query)
 
 
 def _parse_result(res: dict, max_results: int = 5) -> tuple[str, list[str], bool]:
@@ -160,10 +278,12 @@ async def parallel_search(query: str, max_results: int = 5) -> tuple[str, list[s
             except Exception as e:
                 log.debug(f"[parallel] initialized notify: {type(e).__name__}: {e}")
 
-            # 3) tools/call web_search
+            # 3) tools/call web_search — запросы составляет MAIN_MODEL
+            queries = await build_search_queries(query)
+            log.info(f"[parallel] search_queries: {queries}")
             args = {
                 "objective": query,
-                "search_queries": _keywords(query),
+                "search_queries": queries,
                 "session_id": _SESSION_ID,
             }
             status, _, msgs = await _rpc(client, sid, {
