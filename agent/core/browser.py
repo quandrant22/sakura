@@ -226,10 +226,18 @@ def browser_search(query: str) -> str:
 
 # ── Медиаклавиши (не трогают фокус) ──────────────────────────────────
 
-def _media(vk_code: int):
-    ctypes.windll.user32.keybd_event(vk_code, 0, 0, 0)
-    time.sleep(0.05)
-    ctypes.windll.user32.keybd_event(vk_code, 0, 0x0002, 0)
+def _media(vk_code: int) -> bool:
+    """Отправка медиаклавиши. Возвращает ok (False если платформа не поддерживает)."""
+    import os
+    if os.name != "nt":
+        return False
+    try:
+        ctypes.windll.user32.keybd_event(vk_code, 0, 0, 0)
+        time.sleep(0.05)
+        ctypes.windll.user32.keybd_event(vk_code, 0, 0x0002, 0)
+        return True
+    except Exception:
+        return False
 
 def music_play_pause() -> str:
     _media(0xB3); return "пауза/воспроизведение"
@@ -241,13 +249,13 @@ def music_prev() -> str:
     _media(0xB1); return "предыдущий трек"
 
 def music_volume_up() -> str:
-    _media(0xAF); return "громче"
+    return "громче" if _media(0xAF) else "тихо"
 
 def music_volume_down() -> str:
-    _media(0xAE); return "тише"
+    return "тише" if _media(0xAE) else "тихо"
 
 def music_mute() -> str:
-    _media(0xAD); return "mute"
+    return "mute" if _media(0xAD) else "не удалось выключить звук"
 
 
 # ── Яндекс Музыка — навигация ─────────────────────────────────────────
