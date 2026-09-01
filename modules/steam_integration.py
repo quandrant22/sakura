@@ -375,6 +375,16 @@ def get_session_context() -> str:
     return f"СЕЙЧАС: Мастер играет в {name}, {minutes} минут"
 
 
+def get_current_session() -> Optional[dict]:
+    """Текущая игровая сессия структурированно: {name, minutes} или None."""
+    if not _session:
+        return None
+    return {
+        "name":    (_session.get("game") or {}).get("name", "игра"),
+        "minutes": int((time.monotonic() - _session["started_at"]) / 60),
+    }
+
+
 # ── Достижения ────────────────────────────────────────────────────────
 
 async def get_achievements(app_id: int) -> list[dict]:

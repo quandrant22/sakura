@@ -39,9 +39,8 @@ from modules.context import build_context_block, get_full_context, is_home_alone
 from modules.timeline import get_timeline_context, get_achievements_context, extract_and_save_from_dialogue
 from modules.mood_vector import mark_interaction, auto_detect_mood_from_reply
 from modules.proactive import (
-    can_send_message, mark_sent, get_trigger, update_master_status,
-    mark_work_event, get_silence_context, load_state, has_recent_semantic_duplicate,
-    should_skip_by_probability
+    can_send_message, mark_sent, get_fact_trigger, update_master_status,
+    get_silence_context, load_state, has_recent_semantic_duplicate,
 )
 from modules.tasks import (
     add_task, get_due_tasks, get_upcoming_tasks,
@@ -70,7 +69,7 @@ from modules.mood_vector import (get_mood_context as get_mood_vector_context,
     update_master_mood, get_master_mood_hint)
 from modules.mood_broadcast import broadcast_mood_after_reply
 from modules.briefing import should_brief, run_briefing
-from modules.window_watcher import update as watcher_update, is_quiet_mode, get_insight
+from modules.window_watcher import update as watcher_update, is_quiet_mode
 from modules.chains import (
     parse_chain, run_chain, parse_chain_from_llm,
     add_custom_chain, get_custom_chain, list_custom_chains, delete_custom_chain,
@@ -124,15 +123,14 @@ from modules.game_detector   import detect_game_from_screenshot, get_game_contex
 from modules.secret_diary    import get_leak_hint, write_entry as diary_write
 from modules.sakura_narrative import get_narrative_hint, ensure_narrative
 from modules.speech_style    import track_message as track_speech, get_style_hint
-from modules.proactive_recs  import track_activity as track_rec_activity, get_recommendation
+from modules.proactive_recs  import track_activity as track_rec_activity
 from modules.emotional_memory import (
     track_topic_reaction, get_trigger_hint, detect_joke_about_sakura,
-    save_joke, get_revenge_hint, get_version_hint, get_season_hint,
-    should_send_thought, mark_thought_sent, generate_spontaneous_thought
+    save_joke, get_revenge_hint, get_version_hint, get_season_hint
 )
 from modules.autonomous import (
     is_voice_note_request, save_voice_note, get_unreminded_notes,
-    mark_reminded, update_sprint, should_do_research, do_research
+    mark_reminded, update_sprint
 )
 from modules.integrations import (
     check_new_achievements, make_achievement_prompt,
@@ -1301,60 +1299,11 @@ async def daily_analysis():
 # ─────────────────────────────────────────────
 #  Проактивные сообщения
 # ─────────────────────────────────────────────
-
-_PROACTIVE_PROMPTS = [
-    "Напиши Мастеру что-нибудь интересное — мысль, наблюдение, вопрос который тебя занимает. Не про ожидание и не про молчание. Одно предложение.",
-    "Вспомни что-то из прошлых разговоров с Мастером и напиши ему об этом. Коротко, живо. Не спрашивай как он.",
-    "Напиши Мастеру что-нибудь неожиданное — шутку, странную мысль, что-то что тебя раздражает или удивляет. Одно-два предложения.",
-    "Напиши Мастеру короткое сообщение про что угодно кроме того что ждёшь его или скучаешь. Что-то своё.",
-    "Напиши короткую живую мысль о сегодняшнем дне, а не упрёк. Может быть про мелочь, вкус, настроение или воспоминание.",
-]
-
-
-def _build_proactive_prompt(base_prompt: str, devices: dict, trigger: str, silence: dict) -> str:
-    device_lines = []
-    if devices:
-        for device_id, dev in sorted(devices.items()):
-            status = dev.get("online", False)
-            last_seen = dev.get("last_seen") or "нет данных"
-            icon = "online" if status else "offline"
-            device_lines.append(f"- {device_id}: {icon}; last_seen={last_seen}")
-    else:
-        device_lines.append("- нет данных по устройствам")
-
-    presence_ctx = "Контекст устройств:\n" + "\n".join(device_lines)
-    recent_state = load_state()
-    recent_items = recent_state.get("recent_messages", [])[-5:]
-    recent_lines = []
-    for item in recent_items:
-        if isinstance(item, dict):
-            text = (item.get("text") or "").strip()
-            if text:
-                recent_lines.append(f"- {text}")
-    recent_ctx = ""
-    if recent_lines:
-        recent_ctx = "Недавние отправленные сообщения:\n" + "\n".join(recent_lines) + "\n"
-
-    rules = (
-        "Правила: не называй конкретные числа часов/дней, если они не переданы как факт; "
-        "не утверждай, где Мастер и что он делает, если это не подтверждено статусом устройств; "
-        "если устройство offline, не говори про ноутбук/ПК/работу за ним; "
-        "упрёки про долгую работу за ноутбуком не чаще раза в 3 дня; "
-        "ты уже писала это недавно — НЕ повторяй тему и формулировки, найди другой повод или промолчи."
-    )
-    # Реальное время тишины передаём как факт (раньше считалось, но в промпт
-    # не попадало — модель не знала реальную паузу)
-    s_min = (silence or {}).get("silence_minutes") or 0
-    if s_min > 0:
-        hours, mins = divmod(s_min, 60)
-        pretty = f"{hours} ч {mins} мин" if hours else f"{mins} мин"
-        silence_ctx = f"Прошло с последнего сообщения Мастера (факт): {pretty}.\n"
-    else:
-        silence_ctx = ""
-    return f"{base_prompt}\n\n{presence_ctx}\n{recent_ctx}{silence_ctx}{rules}"
-
-_proactive_prompt_idx = 0
-
+# ЗАКРЫТЫЙ СПИСОК ПОВОДОВ (решение Мастера): только факты из
+# get_fact_trigger() — ачивка, диск/память/нагрузка сервера, устройство
+# offline, долгая сессия. Свободные размышления удалены, поиск в
+# проактиве запрещён: инициатора запроса нет — искать нечего.
+# Напоминания (задачи/календарь) — не проактив, живут здесь же.
 
 async def proactive_loop():
     from modules.capsules import (get_due_capsules, make_open_prompt, mark_opened,
@@ -1376,8 +1325,6 @@ async def proactive_loop():
 
         try:
             devices = load_devices().get("devices", {})
-            mem_ctx = db_get_memory_context()
-            silence = get_silence_context()
             trigger = None
             is_crit = False
             prompt  = None
@@ -1413,70 +1360,34 @@ async def proactive_loop():
                 except Exception as e:
                     log.debug(f"[main] proactive_loop: {type(e).__name__}: {e}")
 
+            # ── Закрытый список фактических поводов (без LLM, без поиска) ──
+            # ачивка / диск / память / нагрузка / устройство offline / сессия
             if not trigger:
-                trigger, is_crit = get_trigger(devices, mem_ctx)
-
-            if not trigger or not can_send_message(is_critical=is_crit):
+                ftopic, fcrit, ftext = get_fact_trigger(devices)
+                if ftopic and can_send_message(is_critical=fcrit, topic=ftopic):
+                    await send_telegram_text(MASTER_ID, ftext)
+                    mark_sent(topic=ftopic, text=ftext)
+                    log.info(f"[proactive] факт ({ftopic}): {ftext}")
                 continue
 
-            if not prompt:
-                if trigger == "work_start":
-                    prompt = "Начало рабочего дня у Мастера. Напиши одно короткое сообщение — тепло, без упоминания работы и без 'доброе утро'."
-                elif trigger == "work_end":
-                    prompt = "Рабочий день закончился. Одно короткое сообщение — не про работу, не про ожидание."
-                elif trigger == "long_silence":
-                    prompt = "Напиши Мастеру одно короткое сообщение — о чём угодно интересном, своя мысль или наблюдение. Не упоминай его молчание, отсутствие или время. Просто что-нибудь своё."
-                elif trigger == "proactive_thought":
-                    prompt = _PROACTIVE_PROMPTS[_proactive_prompt_idx % len(_PROACTIVE_PROMPTS)]
-                    _proactive_prompt_idx += 1
-                elif trigger == "boredom":
-                    prompt = (
-                        "Тебе скучновато — энергия есть, а делать нечего. "
-                        "Напиши что-нибудь своё — не потому что скучаешь, а потому что хочется поделиться мыслью. "
-                        "Про что угодно. Одно-два предложения."
-                    )
-                elif trigger == "creative":
-                    prompt = (
-                        "У тебя творческий импульс — настроение хорошее, энергия есть. "
-                        "Напиши мини-стихотворение (2-4 строки) или короткую зарисовку — "
-                        "про что угодно. Не для Мастера, для себя. "
-                        "Потом можешь обронить вскользь если захочется."
-                    )
-                else:
-                    prompt = f"Напиши Мастеру коротко: {trigger}"
+            # Дальше — только напоминания (задачи/календарь), это не проактив
+            if not can_send_message(is_critical=is_crit):
+                continue
 
-            prompt = _build_proactive_prompt(prompt, devices, trigger, silence)
             reply = await ask_gemini(prompt, save_history=False)
 
             if reply and not is_crit and has_recent_semantic_duplicate(reply):
-                log.info("[proactive] skip duplicate message: %s", reply)
-                continue
-
-            state = load_state()
-            if reply and not is_crit and should_skip_by_probability(state):
-                log.info("[proactive] skip by probability")
+                log.info("[proactive] skip duplicate reminder: %s", reply)
                 continue
 
             # Финальная проверка — вдруг пока генерировали пришла команда
             if __import__('time').monotonic() - _last_command_ts < 30:
                 continue
 
-            # Фаза 3: тихий режим (созвон / игра) — пропускаем
+            # Тихий режим (созвон / игра) — пропускаем
             try:
                 if await asyncio.to_thread(is_quiet_mode):
                     await asyncio.sleep(120)
-                    continue
-            except Exception as e:
-                log.debug(f"[main] proactive_loop: {type(e).__name__}: {e}")
-
-            # Фаза 3: инсайт наблюдателя окна
-            try:
-                insight = await asyncio.to_thread(get_insight)
-                if insight and can_send_message(is_critical=False):
-                    reply = await ask_gemini(insight["prompt"], save_history=False)
-                    if reply:
-                        await send_telegram_text(MASTER_ID, reply)
-                        mark_sent("window_insight", text=reply)
                     continue
             except Exception as e:
                 log.debug(f"[main] proactive_loop: {type(e).__name__}: {e}")
@@ -1493,39 +1404,8 @@ async def proactive_loop():
                 log.debug(f"[main] proactive_loop: {type(e).__name__}: {e}")
 
             # Фаза 7 №15: инициативные рекомендации
-            try:
-                rec = await asyncio.to_thread(get_recommendation)
-                if rec and can_send_message(is_critical=False):
-                    reply = await ask_gemini(rec["prompt"], save_history=False)
-                    if reply:
-                        await send_telegram_text(MASTER_ID, reply)
-                        mark_sent("proactive_rec", text=reply)
-            except Exception as e:
-                log.debug(f"proactive_rec: {e}")
-
-            # №11: спонтанные мысли вслух
-            try:
-                if should_send_thought() and can_send_message(is_critical=False):
-                    thought = await generate_spontaneous_thought()
-                    if thought:
-                        await send_telegram_text(MASTER_ID, thought)
-                        mark_thought_sent()
-            except Exception as e:
-                log.debug(f"thought: {e}")
-
-            # №28: Steam ачивки — отключено, заменено на steam_achievements_loop
-            # (новая механика в steam_integration.py: таблица seen, редкая реакция)
-            # Старый check_new_achievements() из integrations.py больше не вызывается,
-            # чтобы не было ДУБЛЯ реакций на одну ачивку.
-
-            # №12: автономный ресёрч (раз в неделю)
-            try:
-                if should_do_research():
-                    digest = await do_research()
-                    if digest:
-                        await send_telegram_text(MASTER_ID, digest)
-            except Exception as e:
-                log.debug(f"research: {e}")
+            # №28: Steam ачивки — реакция фактом в steam_achievements_loop
+            # (таблица seen; формат «Выбито достижение: …» в _achievement_cb).
 
             # №1: реакция на игровые события (event-тик)
             try:
@@ -1575,53 +1455,9 @@ async def proactive_loop():
             except Exception as e:
                 log.debug(f"[main] proactive_loop: {type(e).__name__}: {e}")
 
-            # Фаза 4: вечерний пульс
-            try:
-                if await asyncio.to_thread(should_send_pulse):
-                    pulse_prompt = await asyncio.to_thread(get_pulse_prompt)
-                    pulse_reply = await ask_gemini(pulse_prompt, save_history=False)
-                    if pulse_reply:
-                        await send_telegram_text(MASTER_ID, pulse_reply)
-                        await asyncio.to_thread(mark_pulse_sent)
-            except Exception as e:
-                log.debug(f"[main] proactive_loop: {type(e).__name__}: {e}")
-
-            # VPS алерт — если сервер перегружен
-            try:
-                vps_alert = get_vps_alert()
-                if vps_alert and can_send_message(is_critical=True):
-                    alert_reply = await ask_gemini(vps_alert, save_history=False)
-                    if alert_reply:
-                        await send_telegram_text(MASTER_ID, alert_reply)
-            except Exception as e:
-                log.debug(f"vps_alert: {e}")
-
-            # Нити разговора — напомнить о старой теме
-            try:
-                recall = await asyncio.to_thread(get_thread_recall)
-                if recall and can_send_message(is_critical=False):
-                    recall_reply = await ask_gemini(recall, save_history=False)
-                    if recall_reply:
-                        await send_telegram_text(MASTER_ID, recall_reply)
-            except Exception as e:
-                log.debug(f"thread_recall: {e}")
-
-            # Фаза 4: ежемесячный журнал взросления
-            try:
-                if await asyncio.to_thread(should_write_journal):
-                    journal_prompt = await asyncio.to_thread(get_growth_journal_prompt)
-                    journal_reply = await ask_gemini(journal_prompt, save_history=False)
-                    if journal_reply:
-                        await send_telegram_text(MASTER_ID, f"📓 {journal_reply}")
-                        await asyncio.to_thread(mark_journal_written)
-            except Exception as e:
-                log.debug(f"[main] proactive_loop: {type(e).__name__}: {e}")
-
             await send_telegram_text(MASTER_ID, reply)
             mark_sent(trigger, text=reply)
-            if trigger in ("work_start", "work_end"):
-                mark_work_event(trigger)
-            log.info(f"Проактивное сообщение: {trigger}")
+            log.info(f"Проактивное напоминание: {trigger}")
         except Exception as e:
             log.error(f"Proactive error: {e}")
 
@@ -3980,20 +3816,13 @@ async def main():
 
     ws_server = await websockets.serve(ws_handler, "0.0.0.0", 8765, max_size=None)
 
-    # Steam ачивки: callback → проактивный канал (Сакура реагирует своими словами)
+    # Steam ачивки: факт в Telegram (формат из закрытого списка поводов)
     async def _achievement_cb(game_name: str, ach: dict):
-        """Реакция на новую ачивку — передаём как факты, не выдумываем."""
+        """Новая ачивка — только факт, без LLM-реакции и без голоса."""
         ach_name = ach.get("name") or ach.get("apiname") or "достижение"
-        desc = ach.get("description") or ""
-        prompt = (
-            f"Мастер только что получил ачивку «{ach_name}»"
-            f"{f' ({desc})' if desc else ''} в игре «{game_name}». "
-            "Отреагируй живо — одна фраза, как подруга которая следила за игрой. "
-            "Не «поздравляю», а что-то своё. Название ачивки и игры — только как факты, не выдумывай."
-        )
-        reply = await ask_gemini(prompt, save_history=False)
-        if reply:
-            await send_telegram_text(MASTER_ID, reply)
+        text = f"Выбито достижение: {ach_name} ({game_name})."
+        await send_telegram_text(MASTER_ID, text)
+        mark_sent(topic="achievement", text=text)
     set_achievement_callback(_achievement_cb)
 
     # Discord бот в основном event loop (discord.py + voice_recv)

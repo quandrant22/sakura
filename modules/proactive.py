@@ -1,11 +1,16 @@
 """
 proactive.py — Проактивность Сакуры.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ЗАКРЫТЫЙ СПИСОК ПОВОДОВ (решение Мастера):
+  Проактивное сообщение — ТОЛЬКО факт: новая ачивка, диск сервера >90%,
+  память >90% дольше 10 мин, нагрузка > ядра×2 дольше 10 мин, устройство
+  offline >30 мин, сессия 3+ часа. Никаких свободных размышлений и поиска:
+  проактив НИКОГДА не ходит в интернет — поиск только по обращению Мастера.
+
 Жёсткие правила:
-  - Минимум 2 часа между любыми сообщениями
-  - Максимум 4-10 проактивных сообщения в день
-  - Никакого "жду", "здесь", "молчишь" — это запрещено в промптах
-  - Разнообразие тем — одна тема не повторяется чаще раза в сутки
+  - Минимум 2 часа между любыми сообщениями (напоминания — отдельно)
+  - Критичные (диск/память/устройство) — дедуп до изменения состояния
+  - Необязательные (ачивка, долгая сессия) — вероятностный пропуск 50%
 """
 
 import json
@@ -18,16 +23,15 @@ PROACTIVE_FILE = "memory/proactive.json"
 
 # Минимальные интервалы между сообщениями на одну тему (часы)
 TOPIC_COOLDOWN = {
-    "work_start":        24,
-    "work_end":          24,
-    "long_silence":      6,    # было 4 — теперь реже
     "task_due":          2,
     "task_overdue":      1,
     "calendar":          1,
-    "battery":           2,
-    "proactive_thought": 2,    # было 3 — теперь реже
-    "boredom":           4,    # скука — не чаще раза в 4 часа
-    "creative":          8,    # творчество — не чаще раза в 8 часов
+    "monitor_disk":      2,
+    "monitor_mem":       2,
+    "monitor_load":      2,
+    "monitor_device":    2,
+    "long_session":      6,
+    "achievement":       1,
 }
 
 NIGHT_SILENT_START = 2
@@ -325,110 +329,106 @@ def mark_work_event(event: str):
     save_state(state)
 
 
-def get_trigger(devices: dict, memory_ctx: str) -> tuple:
-    now     = datetime.now()
-    hour    = now.hour
-    minute  = now.minute
-    weekday = now.weekday()
-    status  = get_master_status()
-    state   = load_state()
-    today   = str(now.date())
-    # (silence-контекст здесь не нужен: реальное время тишины передаётся
-    #  в промпт через _build_proactive_prompt в main.py)
+def get_fact_trigger(devices: dict) -> tuple:
+    """Закрытый список фактических поводов проактива. → (topic, is_critical, текст).
 
-    if NIGHT_SILENT_START <= hour < NIGHT_SILENT_END:
-        return None, False
+    Никакой генерации и поиска — только готовый факт из таблицы поводов.
+    Критичные (диск/память/нагрузка/устройство) дедупятся до изменения
+    состояния; долгая сессия — один раз за сессию, с пропуском 50%.
+    """
+    now   = datetime.now()
+    state = load_state()
+    ms    = state.setdefault("monitor_state", {})
 
-    if hour >= LATE_NIGHT_START:
-        return None, False
-
-    # Критичные — батарея и нагрузка
-    laptop = devices.get("laptop", {})
-    if laptop.get("online"):
-        sys_info = laptop.get("system_info", {})
-        battery  = sys_info.get("battery")
-        plugged  = sys_info.get("plugged", True)
-        cpu      = sys_info.get("cpu", 0)
-        ram      = sys_info.get("ram", 0)
-
-        if battery and battery < 15 and not plugged:
-            return f"Заряд ноутбука критический — {battery}%.", True
-
-        if cpu > 95 and ram > 95:
-            return f"Нагрузка критическая — CPU {cpu}%, RAM {ram}%.", True
-
-        if battery and battery < 25 and not plugged and status != "busy":
-            if not _topic_on_cooldown(state, "battery"):
-                return f"Заряд ноутбука {battery}%, не подключён.", False
-
-    # Начало рабочего дня
-    if weekday < 5 and hour == 9 and minute < 30:
-        if state.get("work_start_sent") != today:
-            return "work_start", False
-
-    # Конец рабочего дня
-    if weekday < 5 and hour == 17 and minute < 30:
-        if state.get("work_end_sent") != today:
-            return "work_end", False
-
-    # Долгое молчание — отключено полностью.
-    # Сакура не пишет про отсутствие — она понимает что человек спит/занят.
-    # Если нужно написать — напишет что-то своё через proactive_thought.
-    pass  # long_silence триггер убран
-
-    has_online_device = any((device or {}).get("online", False) for device in devices.values())
-
-    # Инициативное сообщение — редко, только со своей мыслью
-    if memory_ctx and status in ["free", "normal"] and 10 <= hour < 21:
-        if not _topic_on_cooldown(state, "proactive_thought"):
-            if not has_online_device:
-                return None, False
-            last = state.get("last_message")
-            if last:
-                try:
-                    last_dt = datetime.fromisoformat(last)
-                    if (now - last_dt) >= timedelta(hours=4):
-                        return "proactive_thought", False
-                except Exception:
-                    pass
-
-    # Скука и творческий импульс — когда энергия есть, а делать нечего
+    # ── Сервер: диск / память / нагрузка (vps_monitor) ──
     try:
-        from modules.disposition import current as _disp_cur
-        _d = _disp_cur()
-        if _d["willingness"] > 0.6 and status in ["free", "normal"] and 10 <= hour < 21:
-            if not _topic_on_cooldown(state, "boredom"):
-                if not has_online_device:
-                    return None, False
-                last = state.get("last_message")
-                if last:
-                    try:
-                        last_dt = datetime.fromisoformat(last)
-                        if (now - last_dt) >= timedelta(hours=6):
-                            return "boredom", False
-                    except Exception:
-                        pass
+        from modules.vps_monitor import get_metrics
+        m = get_metrics() or {}
     except Exception:
-        pass
+        m = {}
 
-    # Творческий импульс — когда настроение стабильно хорошее и есть энергия
+    disk = float(m.get("disk") or 0)
+    if disk > 90:
+        if ms.get("disk_sent") != round(disk):
+            ms["disk_sent"] = round(disk)
+            save_state(state)
+            return "monitor_disk", True, f"Диск сервера заполнен на {disk:.0f}%."
+    elif ms.pop("disk_sent", None) is not None:
+        save_state(state)
+
+    ram = float(m.get("ram") or 0)
+    if ram > 90:
+        since = ms.get("mem_high_since")
+        if not since:
+            ms["mem_high_since"] = str(now)
+            save_state(state)
+        elif now - datetime.fromisoformat(since) >= timedelta(minutes=10):
+            if ms.get("mem_sent") != round(ram):
+                ms["mem_sent"] = round(ram)
+                save_state(state)
+                return "monitor_mem", True, f"Память сервера: {ram:.0f}%."
+    else:
+        had = ms.pop("mem_high_since", None) is not None
+        had = ms.pop("mem_sent", None) is not None or had
+        if had:
+            save_state(state)
+
+    load1 = float(m.get("load1") or 0)
+    cores = os.cpu_count() or 1
+    if load1 > cores * 2:
+        since = ms.get("load_high_since")
+        if not since:
+            ms["load_high_since"] = str(now)
+            save_state(state)
+        elif now - datetime.fromisoformat(since) >= timedelta(minutes=10):
+            if ms.get("load_sent") != round(load1, 1):
+                ms["load_sent"] = round(load1, 1)
+                save_state(state)
+                return "monitor_load", True, f"Нагрузка на сервер высокая: {load1:.1f}."
+    else:
+        had = ms.pop("load_high_since", None) is not None
+        had = ms.pop("load_sent", None) is not None or had
+        if had:
+            save_state(state)
+
+    # ── Устройство offline > 30 минут (было online) ──
+    notified = ms.setdefault("offline_notified", {})
+    dev_dirty = False
+    for dev_id, dev in (devices or {}).items():
+        online = bool((dev or {}).get("online"))
+        if not online:
+            if notified.get(dev_id):
+                continue
+            last_seen = (dev or {}).get("last_seen") or ""
+            try:
+                dt = datetime.fromisoformat(last_seen)
+                if now - dt < timedelta(minutes=30):
+                    continue
+                hhmm = dt.strftime("%H:%M")
+            except Exception:
+                continue
+            notified[dev_id] = True
+            dev_dirty = True
+            save_state(state)
+            return "monitor_device", True, f"Устройство {dev_id} недоступно с {hhmm}."
+        elif notified.pop(dev_id, None) is not None:
+            dev_dirty = True
+    if dev_dirty:
+        save_state(state)
+
+    # ── Долгая сессия: 3+ часа в одной игре (один раз за сессию, пропуск 50%) ──
     try:
-        from modules.disposition import current as _disp_cr
-        _dc = _disp_cr()
-        if (_dc["willingness"] > 0.75 and _dc["valence"] > 0.3
-                and status in ["free", "normal"] and 12 <= hour < 22):
-            if not _topic_on_cooldown(state, "creative"):
-                if not has_online_device:
-                    return None, False
-                last = state.get("last_message")
-                if last:
-                    try:
-                        last_dt = datetime.fromisoformat(last)
-                        if (now - last_dt) >= timedelta(hours=3):
-                            return "creative", False
-                    except Exception:
-                        pass
+        from modules.steam_integration import get_current_session
+        sess = get_current_session()
     except Exception:
-        pass
+        sess = None
+    if sess and sess.get("minutes", 0) >= 180:
+        if ms.get("long_session_game") != sess.get("name"):
+            ms["long_session_game"] = sess.get("name")
+            save_state(state)
+            if random.random() < 0.5:
+                return "long_session", False, f"В игре {sess['name']} три часа."
+    elif sess is None and ms.pop("long_session_game", None) is not None:
+        save_state(state)
 
-    return None, False
+    return None, False, ""
