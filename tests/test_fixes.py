@@ -50,7 +50,9 @@ class TestBlock1_NoNameErrors(unittest.TestCase):
             import main
             with patch.object(main, "bot", MagicMock()) as bot:
                 _run(main.send_telegram_text(123456789, "[ТОН: мягко] Привет"))
-                bot.send_message.assert_called_once_with(123456789, "Привет")
+                args, kwargs = bot.send_message.call_args
+                self.assertEqual(args, (123456789, "Привет"))
+                self.assertTrue(kwargs["link_preview_options"].is_disabled)
 
 
 class TestBlock1_GameContext(unittest.TestCase):

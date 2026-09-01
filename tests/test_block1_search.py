@@ -403,6 +403,52 @@ class Test1_SearchOnlyOnRequest(unittest.TestCase):
         self.assertTrue(needs_search("какая погода сегодня?"))
 
 
+class Test1_FormatSources(unittest.TestCase):
+    """Блок 3: декод URL, укорачивание, максимум 3 источника, без превью."""
+
+    def test_short_urls_passed(self):
+        from modules.web_search import format_sources
+        out = format_sources(["https://example.com/a", "https://x.ru/b"])
+        self.assertIn("https://example.com/a", out)
+        self.assertIn("• ", out)
+
+    def test_percent_encoded_url_decoded(self):
+        from modules.web_search import format_sources
+        out = format_sources(["https://vk.com/wall?x=%D1%80%D0%B0%D0%B1%D0%BE%D1%82%D0%B0"])
+        self.assertIn("работа", out)
+        self.assertNotIn("%D1%80", out)
+
+    def test_long_url_shortened_to_domain(self):
+        from modules.web_search import format_sources
+        long_url = ("https://ru.wikipedia.org/wiki/"
+                    "%D0%9F%D1%80%D0%B5%D0%B7%D0%B8%D0%B4%D0%B5%D0%BD%D1%82_%D0%A4%D1%80%D0%B0%D0%BD%D1%86%D0%B8%D0%B8_"
+                    "%D0%B8_%D0%B5%D0%B3%D0%BE_%D0%BA%D0%BE%D0%BC%D0%BF%D0%B5%D1%82%D0%B5%D0%BD%D1%86%D0%B8%D0%B8_"
+                    "%D1%80%D0%B0%D0%B7%D0%B4%D0%B5%D0%BB_%D0%B8%D1%81%D1%82%D0%BE%D1%80%D0%B8%D0%B8_%D0%98_%D0%B7%D0%B0")
+        out = format_sources([long_url])
+        self.assertLessEqual(len(out), 90)
+        self.assertIn("ru.wikipedia.org", out)
+        self.assertIn("…", out)
+
+    def test_max_three_sources(self):
+        from modules.web_search import format_sources
+        out = format_sources([f"https://s{i}.example/" for i in range(6)])
+        self.assertEqual(out.count("• "), 3)
+
+    def test_empty_returns_empty(self):
+        from modules.web_search import format_sources
+        self.assertEqual(format_sources([]), "")
+        self.assertEqual(format_sources(None), "")
+
+
+class Test1_SendToMasterDisablesPreview(unittest.TestCase):
+    def test_link_preview_disabled(self):
+        import inspect
+        import main
+        src = inspect.getsource(main.send_to_master)
+        self.assertIn("LinkPreviewOptions", src)
+        self.assertIn("is_disabled=True", src)
+
+
 class Test1_HonestyPrompt(unittest.TestCase):
     """Пустая/нерелевантная выдача ≠ «не существует»: правило в промпте фактов.
 

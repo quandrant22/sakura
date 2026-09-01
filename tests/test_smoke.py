@@ -739,7 +739,12 @@ class Test10_ProactiveBehavior(unittest.TestCase):
                 asyncio.get_event_loop().run_until_complete(
                     main.send_telegram_text(123456789, "[ТОН: мягко] Привет")
                 )
-                bot.send_message.assert_called_once_with(123456789, "Привет")
+                args, kwargs = bot.send_message.call_args
+                self.assertEqual(args, (123456789, "Привет"))
+                # превью ссылок выключено (Блок 3) — подпись без карточки Telegram
+                opts = kwargs.get("link_preview_options")
+                self.assertIsNotNone(opts)
+                self.assertTrue(opts.is_disabled)
 
 
 class Test12_SteamFetch(unittest.TestCase):

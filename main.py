@@ -14,7 +14,7 @@ import psutil
 import websockets
 from datetime import datetime, date
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, BufferedInputFile
+from aiogram.types import Message, BufferedInputFile, LinkPreviewOptions
 from aiogram.filters import CommandStart, Command
 from google import genai
 from google.genai import types
@@ -22,7 +22,7 @@ from google.genai import types
 from modules.calendar_module import get_calendar_context, get_urgent_event
 from config import TELEGRAM_TOKEN, MASTER_ID, GROUP_CHAT_ID, get_active_key, mark_key_used, mark_key_exhausted, MAIN_MODEL, FALLBACK_MODEL  # noqa
 from personality import get_system_prompt, get_time_context
-from modules.web_search import needs_search, facts_prompt
+from modules.web_search import needs_search, facts_prompt, format_sources
 from memory.memory import (
     add_to_history, get_history, clear_history,
     needs_daily_analysis, mark_analysis_done,
@@ -723,6 +723,10 @@ def clean_reply(text: str) -> str:
 
 async def send_to_master(text: str, **kwargs):
     cleaned = _strip_tone(text)
+    # Без превью ссылок: карточки Telegram разворачивают пол-экрана рядом
+    # со списком источников (link_preview_options для aiogram 3.26).
+    kwargs = dict(kwargs)
+    kwargs.setdefault("link_preview_options", LinkPreviewOptions(is_disabled=True))
     result = bot.send_message(MASTER_ID, cleaned, **kwargs)
     if inspect.isawaitable(result):
         return await result
@@ -2007,8 +2011,9 @@ async def ask_gemini(user_message: str, save_history: bool = True) -> str:
         reply = ""
 
     if search_sources and reply:
-        # Источники — дописываем в Telegram к сформулированному ответу.
-        reply += "\n\nИсточники:\n" + "\n".join(f"• {u}" for u in search_sources)
+        # Источники — дописываем в Telegram к сформулированному ответу:
+        # декод URL, без превью, максимум 3 ссылки.
+        reply += format_sources(search_sources, limit=3)
     _t_total = _t_mono() - _t0
     _llm_s    = (_t_total - _t_prep) if _t_llm is None else (_t_llm - _t_prep)
     _proc_s   = (_t_total - _t_prep) if _t_llm is None else (_t_total - _t_llm)

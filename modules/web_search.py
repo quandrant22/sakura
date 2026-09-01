@@ -438,6 +438,33 @@ def _dedup_domains(urls: list[str], limit: int = 5) -> list[str]:
     return uniq
 
 
+def format_sources(urls: list[str], limit: int = 3) -> str:
+    """Список источников для Telegram: декод, укорачивание, максимум limit.
+
+    URL декодируется (исключает %D1%80...-простыни), ссылки длиннее 80
+    символов показываются как «домен…». Возвращает "" или
+    "\\n\\nИсточники:\\n• url…".
+    """
+    lines: list[str] = []
+    for u in (urls or [])[:limit]:
+        if not u:
+            continue
+        try:
+            from urllib.parse import unquote
+            shown = unquote(u)
+        except Exception:
+            shown = u
+        if len(shown) > 80:
+            try:
+                shown = (urlparse(shown).netloc or shown) + "…"
+            except Exception:
+                shown = shown[:77] + "…"
+        lines.append(f"• {shown}")
+    if not lines:
+        return ""
+    return "\n\nИсточники:\n" + "\n".join(lines)
+
+
 # Правило честности поиска: пустая/нерелевантная выдача НЕ доказывает,
 # что предмета вопроса не существует (кейс: Сакура заявила «такого навыка
 # нет», опираясь на статьи Лайфхакера про личностный рост).
