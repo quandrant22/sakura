@@ -610,6 +610,14 @@ class TestHonestyRule(unittest.TestCase):
         self.assertIn("не умею это проверить", low)
         self.assertIn("такой команды у меня нет", low)
 
+    def test_search_nonexistence_rule_in_system_prompt(self):
+        """Третий случай: «не нашла» ≠ «этого не существует» (пустая выдача)."""
+        from personality import get_system_prompt
+        prompt = get_system_prompt()
+        self.assertIn("Различай «не нашла» и «этого не существует»", prompt)
+        self.assertIn("НЕ доказывает", prompt)
+        self.assertIn("дезинформация", prompt)
+
 
 # ════════════════════════════════════════════════════════════════════
 # БАГ 1: информационные команды в Telegram (main.handle_message)

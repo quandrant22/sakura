@@ -22,7 +22,7 @@ from google.genai import types
 from modules.calendar_module import get_calendar_context, get_urgent_event
 from config import TELEGRAM_TOKEN, MASTER_ID, GROUP_CHAT_ID, get_active_key, mark_key_used, mark_key_exhausted, MAIN_MODEL, FALLBACK_MODEL  # noqa
 from personality import get_system_prompt, get_time_context
-from modules.web_search import needs_search
+from modules.web_search import needs_search, facts_prompt
 from memory.memory import (
     add_to_history, get_history, clear_history,
     needs_daily_analysis, mark_analysis_done,
@@ -2150,14 +2150,7 @@ async def ask_gemini(user_message: str, save_history: bool = True) -> str:
         full_system += f"\n\n{url_ctx}"
 
     if search_facts:
-        full_system += (
-            "\n\nСВЕЖИЕ ФАКТЫ ИЗ ИНТЕРНЕТА (только что проверено поиском):\n"
-            f"{search_facts}\n"
-            "Это ЕДИНСТВЕННЫЙ источник правды для ответа Мастеру. Ответь на его "
-            "вопрос, опираясь ТОЛЬКО на эти факты, своим голосом и в своём стиле. "
-            "ЗАПРЕЩЕНО: менять, округлять или выдумывать числа, имена, названия и "
-            "даты; добавлять факты от себя. Если данных мало — скажи об этом прямо."
-        )
+        full_system += facts_prompt(search_facts)
     _t_ctx = _t_mono() - _t0
 
     key = get_active_key()
@@ -2322,14 +2315,7 @@ async def ask_gemini_voice(
                 search_facts = web_ctx.strip()
 
     if search_facts:
-        full_system += (
-            "\n\nСВЕЖИЕ ФАКТЫ ИЗ ИНТЕРНЕТА (только что проверено поиском):\n"
-            f"{search_facts}\n"
-            "Это ЕДИНСТВЕННЫЙ источник правды для ответа Мастеру. Ответь на его "
-            "вопрос, опираясь ТОЛЬКО на эти факты, своим голосом и в своём стиле. "
-            "ЗАПРЕЩЕНО: менять, округлять или выдумывать числа, имена, названия и "
-            "даты; добавлять факты от себя. Если данных мало — скажи об этом прямо."
-        )
+        full_system += facts_prompt(search_facts)
     elif search_needed:
         full_system += (
             "\n\nПоиск свежих данных в интернете сейчас не удался. Если для ответа "

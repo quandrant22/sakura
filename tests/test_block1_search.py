@@ -295,6 +295,28 @@ class Test1_DedupDomains(unittest.TestCase):
         self.assertEqual(ws._dedup_domains(["", "https://a.ru", None]), ["https://a.ru"])
 
 
+class Test1_HonestyPrompt(unittest.TestCase):
+    """Пустая/нерелевантная выдача ≠ «не существует»: правило в промпте фактов.
+
+    Кейс: Сакура заявила «такого навыка нет», опираясь на нерелевантную
+    выдачу (статьи Лайфхакера) — уверенная дезинформация опаснее «не нашла».
+    """
+
+    def test_facts_prompt_forbids_existence_denial(self):
+        from modules.web_search import facts_prompt
+        p = facts_prompt("нерелевантные выдержки про личностный рост")
+        self.assertIn("СВЕЖИЕ ФАКТЫ ИЗ ИНТЕРНЕТА", p)
+        self.assertIn("нерелевантные выдержки", p)
+        # жёсткое правило: пустая выдача — не доказательство отсутствия
+        self.assertIn("НЕ означает", p)
+        self.assertIn("не нашла", p)
+        self.assertIn("ЗАПРЕЩЕНЫ", p)
+        self.assertIn("не существует", p)
+        # и прежние правила целостности фактов не потеряны
+        self.assertIn("ЕДИНСТВЕННЫЙ источник правды", p)
+        self.assertIn("выдумывать числа", p)
+
+
 class Test1_ClipAnswer(unittest.TestCase):
     def test_short_answer_untouched(self):
         from modules.web_search import _clip_answer
