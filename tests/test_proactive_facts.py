@@ -132,19 +132,23 @@ class TestFactTriggers(unittest.TestCase):
     def test_long_session_fires_once_per_session(self):
         with _TmpState() as pr:
             sess = {"name": "Palworld", "minutes": 200}
+            with patch("modules.steam_integration.get_current_session", return_value=sess), \
+                 patch("modules.proactive.random.random", return_value=0.0):
+                topic, crit, text = pr.get_fact_trigger({})
+                self.assertEqual(topic, "long_session")
+                self.assertEqual(text, "В игре Palworld три часа.")
+                # один раз за сессию: дальше — тишина при той же сессии
+                topic2, _, _ = pr.get_fact_trigger({})
+                self.assertIsNone(topic2)
+
+    def test_long_session_skips_by_probability(self):
+        with _TmpState() as pr:
+            sess = {"name": "Palworld", "minutes": 200}
             with patch("modules.steam_integration.get_current_session",
-                       return_value=sess):
-                got_fact = False
-                for _ in range(10):
-                    topic, _, text = pr.get_fact_trigger({})
-                    if topic == "long_session":
-                        got_fact = True
-                        self.assertEqual(text, "В игре Palworld три часа.")
-                        break
-                self.assertTrue(got_fact), "сессия 3+ часа должна дать повод"
-                for _ in range(5):
-                    topic2, _, _ = pr.get_fact_trigger({})
-                    self.assertIsNone(topic2), "один раз за сессию"
+                       return_value=sess), \
+                 patch("modules.proactive.random.random", return_value=0.99):
+                topic, _, _ = pr.get_fact_trigger({})
+                self.assertIsNone(topic), "пропуск 50% разрешает промолчать"
 
 
 class TestProactiveRestrictions(unittest.TestCase):
