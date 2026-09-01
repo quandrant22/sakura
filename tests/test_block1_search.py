@@ -368,6 +368,41 @@ class Test1_BuildQueries(unittest.TestCase):
             self.assertEqual(_run(ps.build_search_queries("")), ps._keywords(""))
 
 
+class Test1_SearchOnlyOnRequest(unittest.TestCase):
+    """Поиск — только по прямому запросу: глагол в начале или вопрос."""
+
+    def test_required_cases(self):
+        from modules.web_search import needs_search
+        # утверждения / бытовое / эмоции — НЕ поиск
+        self.assertFalse(needs_search("еду домой, устал"))
+        self.assertFalse(needs_search("дорога домой затянулась"))
+        self.assertFalse(needs_search("как дела"))
+        # фактические вопросы — поиск
+        self.assertTrue(needs_search("сколько стоит биткоин"))
+        self.assertTrue(needs_search("найди рецепт борща"))
+        self.assertTrue(needs_search("какой навык в Remnant даёт больше урона"))
+
+    def test_statements_with_nouns_not_searched(self):
+        from modules.web_search import needs_search
+        # повествовательные реплики даже с существительными/временем
+        self.assertFalse(needs_search("сегодня был в парке весь день"))
+        self.assertFalse(needs_search("еду на работу"))
+        self.assertFalse(needs_search("устал после работы"))
+        self.assertFalse(needs_search("вернулся из магазина"))
+
+    def test_question_with_question_mark_searches(self):
+        from modules.web_search import needs_search
+        self.assertTrue(needs_search("сколько сегодня стоит биткоин?"))
+        self.assertTrue(needs_search("Когда выйдет новая версия Elden Ring?"))
+        self.assertTrue(needs_search("как получить трейт в Remnant?"))
+
+    def test_time_marker_statement_not_searched(self):
+        from modules.web_search import needs_search
+        # «погода сейчас» — утверждение, не вопрос → мимо
+        self.assertFalse(needs_search("погода сейчас хорошая"))
+        self.assertTrue(needs_search("какая погода сегодня?"))
+
+
 class Test1_HonestyPrompt(unittest.TestCase):
     """Пустая/нерелевантная выдача ≠ «не существует»: правило в промпте фактов.
 
