@@ -2140,7 +2140,7 @@ async def ask_gemini(user_message: str, save_history: bool = True) -> str:
             search_sources = list(g_sources or [])
             log.info("[search] grounding → факты в контекст LLM")
         else:
-            # Ни grounding, ни Tavily ничего не дали → честно.
+            # Поиск (grounding) не дал результатов → честно.
             web_ctx = await maybe_fetch_web(user_message)
             if web_ctx:
                 full_system += f"\n\nКОНТЕНТ ИЗ ИНТЕРНЕТА:\n{web_ctx}"

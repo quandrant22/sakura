@@ -3,7 +3,9 @@
 
 Run:  python3 -m pytest tests/test_block1_search.py -q
 
-Моки: никакого сетевого доступа. Имитируются ответы Gemini и Tavily.
+Моки: никакого сетевого доступа. Имитируются ответы Gemini grounding
+(включая формат grounding_metadata). Сторонние фолбэки убраны из проекта —
+при сбое grounding ожидается честный отказ (ok=False).
 """
 import os
 import sys
@@ -68,9 +70,11 @@ class _FakeModels:
         self._resp = resp
         self._exc = exc
         self.calls = 0
+        self.last_kwargs = None
 
     def generate_content(self, *a, **k):
         self.calls += 1
+        self.last_kwargs = k
         if self._exc:
             raise self._exc
         return self._resp
@@ -79,16 +83,6 @@ class _FakeModels:
 class _FakeClient:
     def __init__(self, models):
         self.models = models
-
-
-class _FakeTavilyClient:
-    def __init__(self, results):
-        self._results = results
-        self.calls = 0
-
-    async def search(self, *a, **k):
-        self.calls += 1
-        return {"results": self._results}
 
 
 class Test1_SearchTriggered(unittest.TestCase):
@@ -184,31 +178,52 @@ class Test1_GroundingPath(unittest.TestCase):
     def test_no_key_returns_not_ok(self):
         import modules.web_search as ws
         ws._clear_search_cache()
-        # герметично: отключаем Tavily fallback через env
-        with patch.dict(os.environ, {"TAVILY_API_KEY": ""}), patch("google.genai.Client", lambda **kw: _FakeClient(_FakeModels(None))), patch.object(ws, "get_active_key", return_value=None):
+        with patch("google.genai.Client", lambda **kw: _FakeClient(_FakeModels(None))), patch.object(ws, "get_active_key", return_value=None):
             answer, sources, ok = _run(ws.search_grounded("кто президент Франции"))
         self.assertFalse(ok)
         self.assertEqual(answer, "")
+        self.assertEqual(sources, [])
 
 
-class Test1_TavilyFallback(unittest.TestCase):
-    """1.3: если grounding упал — fallback на Tavily."""
+class Test1_GroundingFailure(unittest.TestCase):
+    """1.3: если grounding упал — честный отказ (ok=False), без фолбэков."""
 
-    def test_tavily_fallback_on_grounding_error(self):
+    def test_grounding_error_returns_not_ok(self):
         import modules.web_search as ws
         ws._clear_search_cache()
-        os.environ["TAVILY_API_KEY"] = "fake-tavily"
         models = _FakeModels(None, exc=RuntimeError("grounding disabled"))
-        tavily = _FakeTavilyClient([
-            {"content": "Биткоин стоит около 80 млн рублей.", "url": "https://t.co/bitcoin"},
-            {"content": "Цена биткоина в реальном времени.", "url": "https://t.co/price"},
-        ])
-        with patch("google.genai.Client", lambda **kw: _FakeClient(models)), patch.object(ws, "get_active_key", return_value="fake-key"), patch.object(ws, "mark_key_used", return_value=None), patch("tavily.AsyncTavilyClient", lambda **kw: tavily):
+        with patch("google.genai.Client", lambda **kw: _FakeClient(models)), patch.object(ws, "get_active_key", return_value="fake-key"), patch.object(ws, "mark_key_used", return_value=None):
             answer, sources, ok = _run(ws.search_grounded("сколько стоит биткоин"))
-        self.assertTrue(ok)
-        self.assertIn("биткоин", answer.lower())
-        self.assertIn("https://t.co/bitcoin", sources)
-        self.assertEqual(tavily.calls, 1)
+        self.assertFalse(ok)
+        self.assertEqual(answer, "")
+        self.assertEqual(sources, [])
+        self.assertEqual(models.calls, 1), "фолбэков больше нет — ровно один вызов grounding"
+
+    def test_empty_response_returns_not_ok(self):
+        import modules.web_search as ws
+        ws._clear_search_cache()
+        with patch("google.genai.Client", lambda **kw: _FakeClient(_FakeModels(None))), patch.object(ws, "get_active_key", return_value="fake-key"), patch.object(ws, "mark_key_used", return_value=None):
+            answer, sources, ok = _run(ws.search_grounded("кто президент Франции"))
+        self.assertFalse(ok)
+        self.assertEqual(answer, "")
+        self.assertEqual(sources, [])
+
+    def test_named_args_regression(self):
+        """Регресс: generate_content вызывается ТОЛЬКО именованными аргументами.
+
+        Позиционная передача падала на реальном SDK:
+        «Models.generate_content() takes 1 positional argument but 4 were given».
+        """
+        import modules.web_search as ws
+        ws._clear_search_cache()
+        models = _FakeModels(_FakeResp("ответ", ["https://x.ru"]))
+        with patch("google.genai.Client", lambda **kw: _FakeClient(models)), patch.object(ws, "get_active_key", return_value="fake-key"), patch.object(ws, "mark_key_used", return_value=None):
+            _run(ws.search_grounded("кто президент Франции"))
+        self.assertIsNotNone(models.last_kwargs)
+        self.assertIn("model", models.last_kwargs)
+        self.assertIn("contents", models.last_kwargs)
+        self.assertIn("config", models.last_kwargs)
+        self.assertEqual(models.last_kwargs["model"], ws.SEARCH_MODEL)
 
 
 class Test1_SourceExclusion(unittest.TestCase):
@@ -217,12 +232,49 @@ class Test1_SourceExclusion(unittest.TestCase):
         resp = _FakeResp("x", ["https://a", "https://a", "https://b"])
         self.assertEqual(ws._extract_sources(resp), ["https://a", "https://b"])
 
+    def test_extract_sources_dedupes_by_domain(self):
+        import modules.web_search as ws
+        resp = _FakeResp("x", [
+            "https://ru.wikipedia.org/wiki/Франция",
+            "https://ru.wikipedia.org/wiki/Макрон",
+            "https://www.lenta.ru/news/1",
+            "https://lenta.ru/news/2",
+        ])
+        self.assertEqual(
+            ws._extract_sources(resp),
+            ["https://ru.wikipedia.org/wiki/Франция", "https://www.lenta.ru/news/1"],
+        )
+
+    def test_extract_sources_cap_five(self):
+        import modules.web_search as ws
+        urls = [f"https://site{i}.example/page" for i in range(8)]
+        self.assertEqual(len(ws._extract_sources(_FakeResp("x", urls))), 5)
+
     def test_extract_sources_no_chunks(self):
         import modules.web_search as ws
 
         class _Empty:
             candidates = [MagicMock(grounding_metadata=None)]
         self.assertEqual(ws._extract_sources(_Empty()), [])
+
+
+class Test1_ClipAnswer(unittest.TestCase):
+    def test_short_answer_untouched(self):
+        from modules.web_search import _clip_answer
+        self.assertEqual(_clip_answer("Короткий ответ."), "Короткий ответ.")
+
+    def test_long_answer_clipped_at_sentence(self):
+        from modules.web_search import _clip_answer
+        text = "Предложение один. " * 300  # ~5400 символов
+        out = _clip_answer(text)
+        self.assertLessEqual(len(out), 2000)
+        self.assertTrue(out.endswith("."))
+
+    def test_long_answer_no_sentence_fallback(self):
+        from modules.web_search import _clip_answer
+        out = _clip_answer("а" * 2500)
+        self.assertLessEqual(len(out), 2001)  # обрезок + многоточие
+        self.assertTrue(out.endswith("…"))
 
 
 if __name__ == "__main__":

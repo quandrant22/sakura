@@ -47,10 +47,13 @@ MAIN_MODEL     = os.getenv("MAIN_MODEL", "gemini-3.5-flash-lite")
 FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "gemma-4-31b-it")
 
 # ── Поиск в интернете через Gemini Search grounding ─────────────────────
-# Search grounding на бесплатном тире работает ТОЛЬКО для моделей 2.x:
-# Gemini 2 / 2.5 / Default — 1500 запросов/день; Gemini 3 — 0.
-# Основная модель проекта (gemini-3.5-flash-lite) на ней НЕ работает,
-# поэтому поиск идёт отдельным вызовом именно на SEARCH_MODEL.
+# Имя модели — по решению Мастера: gemini-2.5-flash (категория «Gemini 2.5»,
+# квота 1.5K/день). НЕ менять на другое. ЖИВАЯ ПРОВЕРКА 2026-09: вызов с
+# именованными аргументами доходит до API, но на обоих ключах пула Google
+# отвечает 404 «models/gemini-2.5-flash is no longer available to new
+# users» (модель числится в ListModels, но не обслуживается на этих
+# аккаунтах). До изменения ситуации на стороне Google — честный отказ
+# (ok=False). Переопределяется через .env: SEARCH_MODEL=...
 SEARCH_MODEL = os.getenv("SEARCH_MODEL", "gemini-2.5-flash")
 
 GEMINI_KEYS = []

@@ -10,6 +10,8 @@ import logging
 import os
 import re
 import time
+from urllib.parse import urlparse
+
 import httpx
 from bs4 import BeautifulSoup
 from config import MAIN_MODEL, SEARCH_MODEL, get_active_key, mark_key_used
@@ -125,7 +127,7 @@ def _has_time_marker(text_lower: str) -> bool:
 
 
 def needs_search(text: str) -> bool:
-    """Решает, идёт ли запрос в поиск (grounding → Tavily fallback).
+    """Решает, идёт ли запрос в поиск (Google Search grounding).
 
     Правила:
       * Приветы / команды / творческие просьбы — НЕ в поиск (по границам слов);
@@ -245,28 +247,8 @@ async def _get_search_links(query: str, count: int = 4) -> list[str]:
 
 
 async def search_and_fetch(query: str, max_chars: int = 3000) -> str:
-    """Поиск: Tavily (быстро, ~200мс) → Brave Search → Gemini fallback."""
-    # 1. Tavily — быстрый AI-поиск
-    tavily_key = os.getenv("TAVILY_API_KEY", "").strip()
-    if tavily_key:
-        try:
-            from tavily import AsyncTavilyClient
-            tavily = AsyncTavilyClient(api_key=tavily_key)
-            response = await tavily.search(query=query, max_results=3, search_depth="basic")
-            results = response.get("results", [])
-            if results:
-                parts = [r.get("content", "") for r in results[:3] if r.get("content")]
-                text = "\n\n".join(parts)
-                urls = [r.get("url", "") for r in results[:3] if r.get("url")]
-                if urls:
-                    text += "\n\nИсточники:\n" + "\n".join(f"• {u}" for u in urls)
-                if len(text) > 50:
-                    log.info(f"[search] Tavily: {len(results)} результатов")
-                    return text[:max_chars]
-        except Exception as e:
-            log.warning(f"[search] Tavily error: {e}")
-
-    # 2. Brave Search — HTTP API (бесплатно 2000/мес)
+    """Поиск: Brave Search → Gemini fallback (из памяти модели)."""
+    # 1. Brave Search — HTTP API (бесплатно 2000/мес)
     brave_key = os.getenv("BRAVE_API_KEY", "").strip()
     if brave_key:
         try:
@@ -298,7 +280,7 @@ async def search_and_fetch(query: str, max_chars: int = 3000) -> str:
         except Exception as e:
             log.warning(f"[search] Brave error: {e}")
 
-    # 3. Fallback — Gemini без поиска (из памяти)
+    # 2. Fallback — Gemini без поиска (из памяти)
     try:
         from config import get_active_key, mark_key_used
         from google import genai
@@ -370,10 +352,11 @@ async def download_bytes(url: str) -> bytes | None:
 
 
 # ── Поиск через Gemini Search grounding (SEARCH_MODEL) ──────────────────
-# Ответственный за «Сакура сама ищет в интернете». Grounding работает ТОЛЬКО
-# на моделях 2.x (gemini-3.5-flash-lite НЕ поддерживает), поэтому поиск
-# идёт на SEARCH_MODEL. Если grounding недоступен/упал/лимит перерасходован —
-# fallback на Tavily «как сейчас». Результат кэшируется 30 мин.
+# Ответственный за «Сакура сама ищет в интернете». ЖИВАЯ ПРОВЕРКА 2026-09:
+# 2.x модели отдают 404 «no longer available to new users», grounding на
+# 3.x — 429 (нужен платный тир). Поиск идёт отдельным вызовом на
+# SEARCH_MODEL; при недоступности grounding — честный отказ (ok=False),
+# без фолбэков на сырые страницы. Результат кэшируется 30 мин.
 
 _SEARCH_CACHE: dict = {}   # {нормализованный_запрос: (answer, sources, ok, ts)}
 _SEARCH_CACHE_TTL = 30 * 60  # 30 минут
@@ -390,8 +373,31 @@ def _clear_search_cache() -> None:
     _SEARCH_CACHE.clear()
 
 
-def _extract_sources(resp) -> list[str]:
-    """Из grounding_metadata ответа Gemini забирает ссылки на источники."""
+def _clip_answer(text: str, limit: int = 2000) -> str:
+    """Ограничивает ответ лимитом символов, обрезая по границе предложения.
+
+    Ответ grounding — уже связный текст от модели, чистить его от мусора
+    не нужно; режем только на всякий случай, чтобы не отправлять простыню.
+    """
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    last_end = None
+    for m in re.finditer(r"[.!?…]+[»\"')\]]*(?=\s|$)", cut):
+        last_end = m.end()
+    if last_end and last_end > limit // 2:
+        return cut[:last_end].strip()
+    return cut.rsplit(" ", 1)[0].rstrip(",;: ") + "…"
+
+
+def _extract_sources(resp, limit: int = 5) -> list[str]:
+    """Из grounding_metadata ответа Gemini забирает ссылки на источники.
+
+    Уникальные URL с дедупом по домену (первый URL каждого домена),
+    максимум limit — в Telegram идёт список 2-5 ссылок, в голосе источники
+    не зачитываются.
+    """
     out: list[str] = []
     try:
         cands = getattr(resp, "candidates", None) or []
@@ -409,17 +415,30 @@ def _extract_sources(resp) -> list[str]:
                 out.append(uri)
     except Exception as e:
         log.debug(f"[search] source extraction error: {e}")
-    seen: set[str] = set()
+    seen_domains: set[str] = set()
     uniq: list[str] = []
     for u in out:
-        if u and u not in seen:
-            seen.add(u)
-            uniq.append(u)
+        try:
+            domain = (urlparse(u).netloc or u).lower().removeprefix("www.")
+        except Exception:
+            domain = u
+        if domain in seen_domains:
+            continue
+        seen_domains.add(domain)
+        uniq.append(u)
+        if len(uniq) >= limit:
+            break
     return uniq
 
 
 async def _grounding_query(query: str) -> tuple[str, list[str], bool]:
-    """Один запрос к Gemini SEARCH_MODEL с включённым Google Search grounding."""
+    """Один запрос к Gemini SEARCH_MODEL с включённым Google Search grounding.
+
+    Все аргументы generate_content — ИМЕНОВАННЫЕ (SDK принимает только
+    keyword-only, позиционная передача падала с «takes 1 positional
+    argument but 4 were given»). Синхронный вызов обёрнут в
+    asyncio.to_thread — тем же паттерном, что _gemini_generate в main.py.
+    """
     try:
         key = get_active_key()
         if not key:
@@ -436,42 +455,23 @@ async def _grounding_query(query: str) -> tuple[str, list[str], bool]:
         )
         response = await asyncio.to_thread(
             client.models.generate_content,
-            SEARCH_MODEL,
-            [types.Content(role="user", parts=[types.Part(text=query)])],
-            cfg,
+            model    = SEARCH_MODEL,
+            contents = [types.Content(role="user", parts=[types.Part(text=query)])],
+            config   = cfg,
         )
         mark_key_used(key)
-        text = (response.text or "").strip()
+        text = _clip_answer(getattr(response, "text", None) or "")
         sources = _extract_sources(response)
         if text:
             log.info(f"[search] grounding: {len(sources)} источников")
             return text, sources, True
-        return text, sources, False
+        log.warning("[search] grounding failed: пустой ответ модели")
+        return "", sources, False
     except Exception as e:
-        # grounding недоступен/упал/лимит — фолбэк на Tavily
-        log.warning(f"[search] grounding error: {e}")
+        # grounding недоступен/упал/лимит исчерпан — честный отказ:
+        # Сакура скажет, что не смогла найти, а не зачитает мусор
+        log.warning(f"[search] grounding failed: {e}")
         return "", [], False
-
-
-async def _tavily_fallback(query: str) -> tuple[str, list[str], bool]:
-    """Фолбэк на Tavily («как сейчас»), но с разбивкой ответ/источники."""
-    tavily_key = os.getenv("TAVILY_API_KEY", "").strip()
-    if not tavily_key:
-        return "", [], False
-    try:
-        from tavily import AsyncTavilyClient
-        tavily = AsyncTavilyClient(api_key=tavily_key)
-        resp = await tavily.search(query=query, max_results=3, search_depth="basic")
-        results = resp.get("results", [])
-        parts = [r.get("content", "") for r in results[:3] if r.get("content")]
-        urls = [r.get("url", "") for r in results[:3] if r.get("url")]
-        text = "\n\n".join(parts)
-        if text:
-            log.info("[search] tavily fallback")
-            return text, urls, True
-    except Exception as e:
-        log.warning(f"[search] tavily fallback error: {e}")
-    return "", [], False
 
 
 async def search_grounded(query: str) -> tuple[str, list[str], bool]:
@@ -480,8 +480,10 @@ async def search_grounded(query: str) -> tuple[str, list[str], bool]:
     Возвращает (ответ, источники, ok):
       * ответ — короткий фактический ответ (формат «По данным поиска: …»
         собирает вызывающая сторона);
-      * источники — список URL (в Telegram прикрепляются, в голосе опущаются);
-      * ok — True, если поиск дал результат (grounding или Tavily fallback).
+      * источники — список URL, дедуп по домену, до 5 штук (в Telegram
+        прикрепляются, в голосе опускаются);
+      * ok — True, если grounding дал результат. При сбое — ("", [], False):
+        Сакура честно говорит, что не смогла найти, без фолбэков и мусора.
 
     Кэш результата по нормализованному запросу, TTL 30 минут: повторный вопрос
     не тратит квоту.
@@ -494,7 +496,5 @@ async def search_grounded(query: str) -> tuple[str, list[str], bool]:
             return answer, sources, ok
 
     answer, sources, ok = await _grounding_query(query)
-    if not ok or not answer:
-        answer, sources, ok = await _tavily_fallback(query)
     _SEARCH_CACHE[norm] = (answer, sources, ok, time.time())
     return answer, sources, ok
