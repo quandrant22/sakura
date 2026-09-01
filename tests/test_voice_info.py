@@ -490,9 +490,52 @@ class TestWeatherVoice(unittest.TestCase):
         w = {"temp": -3.4, "desc": "небольшой снег", "category": "snow",
              "wind": 4.2, "daily": [{"t_min": -6, "t_max": -1}]}
         with patch("modules.weather.get_weather", new=AsyncMock(return_value=w)):
-            text, ok = _run(weather_now())
+                    text, ok = _run(weather_now())
         self.assertTrue(ok)
         self.assertIn("-3.4°C", text)
+
+
+class TestMusicDispatch(unittest.TestCase):
+    """Проверка таблицы music_action в core/browser.py (блок 6)."""
+
+    def setUp(self):
+        import agent.core.browser as browser
+        self._browser = browser
+
+    def test_shuffle_dispatches(self):
+        with patch.object(self._browser, "music_shuffle",
+                          MagicMock(return_value="перемешать")) as m:
+            r = self._browser.music_action("music:shuffle")
+            m.assert_called_once()
+            self.assertTrue(r["ok"])
+            self.assertEqual(r["detail"], "перемешать")
+
+    def test_podcasts_dispatches(self):
+        with patch.object(self._browser, "music_podcasts",
+                          MagicMock(return_value="открыла подкасты")) as m:
+            r = self._browser.music_action("music:podcasts")
+            m.assert_called_once()
+            self.assertEqual(r["detail"], "открыла подкасты")
+
+    def test_repeat_dispatches(self):
+        with patch.object(self._browser, "music_repeat",
+                          MagicMock(return_value="повтор")) as m:
+            r = self._browser.music_action("music:repeat")
+            m.assert_called_once()
+            self.assertEqual(r["detail"], "повтор")
+
+    def test_unknown_action_returns_false(self):
+        r = self._browser.music_action("music:nonexistent")
+        self.assertFalse(r["ok"])
+        self.assertIn("неизвестная", r["detail"])
+
+    def test_intents_prompt_has_music_commands(self):
+        """INTENTS_PROMPT в command_router должен содержать все music-* команды."""
+        from modules.command_router import INTENTS_PROMPT
+        for action in ("music:shuffle", "music:repeat", "music:seek_forward",
+                       "music:seek_back", "music:podcasts", "music:mute",
+                       "music:volume_up", "music:volume_down"):
+            self.assertIn(action, INTENTS_PROMPT, f"INTENTS_PROMPT missing {action}")
         self.assertIn("небольшой снег", text)
         self.assertIn("от -6 до -1", text)
 

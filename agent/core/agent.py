@@ -311,6 +311,26 @@ class Agent:
                 await _send_ack(False, f"music error: {e}")
             return
 
+                # ── music browser-команды (shuffle/repeat/seek/volume/mute/podcasts) ──
+        if action in (
+            "music:shuffle", "music:repeat", "music:seek_forward",
+            "music:seek_back", "music:podcasts", "music:mute",
+            "music:volume_up", "music:volume_down",
+            "music_info", "music_history",
+        ):
+            try:
+                from core import browser as _br
+                result = _br.music_action(action)
+                await _send_ack(
+                    result.get("ok", True),
+                    result.get("detail", action),
+                    extra={"browser": result},
+                )
+            except Exception as e:
+                log.error(f"[music] browser dispatch error: {e}")
+                await _send_ack(False, f"music browser error: {e}")
+            return
+
         # Команды через расширение браузера
         if action.startswith("ext:"):
             try:

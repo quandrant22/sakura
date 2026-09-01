@@ -41,7 +41,11 @@ INTENTS_PROMPT = """
 - Дизлайкнуть трек → {"action": "music_dislike"}
 - Что играет, текущий трек → {"action": "music_info"}
 - Перемешать, случайный порядок → {"action": "music:shuffle"}
-- Повтор трека → {"action": "music:repeat"}
+- Повтор трека/повторить плейлист → {"action": "music:repeat"}
+- Перемотать вперёд/назад (10с) → {"action": "music:seek_forward"} / {"action": "music:seek_back"}
+- Громче/тише (без числа) → {"action": "music:volume_up"} / {"action": "music:volume_down"}
+- Список/пауза звука → {"action": "music:mute"}
+- Подкасты → {"action": "music:podcasts"}
 - Моя волна → {"action": "music_play_wave"}
 - Включить/поставь/найди конкретный трек или исполнителя → {"action": "music_play_track:ЗАПРОС"}
 - Включить плейлист → {"action": "music_play_playlist:НАЗВАНИЕ"}
@@ -97,6 +101,7 @@ YOUTUBE:
 
 STEAM (игры и ачивки Мастера):
 - Ачивки за период (сегодня/вчера/неделя/месяц/всё время) → {"action": "steam:achievements", "arg": "сегодня|вчера|неделя|месяц|всё"}
+- Какая последняя/крайняя ачивка, что выбил последнее, какую получил недавно → {"action": "steam:last"}
 - Во что играет сейчас → {"action": "steam:current"}
 - Сколько наиграно в игру X (часы всего или за 2 недели) → {"action": "steam:playtime", "arg": "X"}
 - Прогресс ачивок в игре X (сколько из скольких) → {"action": "steam:progress", "arg": "X"}

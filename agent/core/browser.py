@@ -353,6 +353,42 @@ def music_seek_back() -> str:
     return "перемотка назад" if ok else "Яндекс Музыка не открыта"
 
 
+# ── Таблица dispatch для music-команд из agent ─────────────────────────
+# mapping action-string → (function, human-label)
+
+MUSIC_ACTIONS = {
+    "music_info":            (None,             "инфо о треке"),
+    "music_history":         (None,             "история"),
+    "music:shuffle":         (music_shuffle,    "перемешать"),
+    "music:repeat":          (music_repeat,     "повтор"),
+    "music:seek_forward":    (music_seek_forward, "вперёд"),
+    "music:seek_back":       (music_seek_back,  "назад"),
+    "music:podcasts":        (music_podcasts,   "подкасты"),
+    "music:mute":            (music_mute,       "mute"),
+    "music:volume_up":       (music_volume_up,  "громче"),
+    "music:volume_down":     (music_volume_down,"тише"),
+}
+
+
+def music_action(action: str) -> dict:
+    """Dispatch music-команды из agent.core.agent._run_command.
+
+    Возвращает dict: {"ok": bool, "detail": str}.
+    Команды с fn=None — делегируются в core/music.py (SMTC/YM API).
+    """
+    entry = MUSIC_ACTIONS.get(action)
+    if entry is None:
+        # music_info / music_history — через core/music.py
+        if action in ("music_info", "music_history"):
+            return {"ok": True, "detail": f"через core/music.py: {action}"}
+        return {"ok": False, "detail": f"неизвестная команда: {action}"}
+    fn, _label = entry
+    if fn is None:
+        return {"ok": True, "detail": action}
+    ok = fn()
+    return {"ok": bool(ok), "detail": ok if isinstance(ok, str) else str(ok)}
+
+
 # ── YouTube хоткеи плеера ────────────────────────────────────────────
 # Работают когда вкладка YouTube активна в Opera.
 # Временно фокусируем вкладку, шлём хоткей, возвращаем фокус.
