@@ -19,7 +19,7 @@ echo "Syntax: OK"
 
 echo ""
 echo "=== Smoke tests ==="
-$PYTHON -m pytest tests/ -q 2>/dev/null || $PYTHON tests/test_smoke.py
+$PYTHON -m pytest tests/ -q
 
 echo ""
 echo "=== ALL CHECKS PASSED ==="

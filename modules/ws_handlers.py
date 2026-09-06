@@ -38,6 +38,7 @@ from modules.integrations import (
 from modules.game_detector import detect_game_event, make_event_prompt
 from modules.user_commands import parse_teaching, add as add_cmd, list_all as list_cmds
 from modules.voice_info import is_info_action
+from modules.voice_info import pending_forget_active, memory_forget_confirm
 from modules.reminders import parse_reminder, add_reminder, format_reminders_list
 from modules.translator import is_translation_request, try_quick_translate, build_translate_prompt
 from modules.fears import detect_fear_trigger
@@ -1215,6 +1216,17 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                 del st._pending_system[_mk]
         else:
             del st._pending_system[_mk]
+
+    # ── ПОДТВЕРЖДЕНИЕ ЗАБЫВАНИЯ («забудь про Х» → «да») ──
+    if pending_forget_active():
+        _fg = memory_forget_confirm(text)
+        if _fg is not None:
+            if ws_dev:
+                await stream_tts_to_device(_fg[0], ws_dev, device_id or "laptop", literal=True)
+            else:
+                await bot.send_message(MASTER_ID, _fg[0])
+            return
+
     if _mk in st._pending_plan:
         _pp = st._pending_plan[_mk]
         if _now_ts - _pp["ts"] < 60:

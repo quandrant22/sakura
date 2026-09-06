@@ -723,6 +723,11 @@ def clean_reply(text: str) -> str:
 
 async def send_to_master(text: str, **kwargs):
     cleaned = _strip_tone(text)
+    if not cleaned.strip():
+        # После вырезания тегов [ТОН: …] не осталось текста — Telegram
+        # отвергнет пустое сообщение ("message text is empty").
+        log.warning(f"[send_to_master] Пустой текст после strip_tone: {text!r}")
+        return None
     # Без превью ссылок: карточки Telegram разворачивают пол-экрана рядом
     # со списком источников (link_preview_options для aiogram 3.26).
     kwargs = dict(kwargs)
@@ -734,9 +739,12 @@ async def send_to_master(text: str, **kwargs):
 
 
 async def send_telegram_text(chat_id: int, text: str, **kwargs):
-    if chat_id == MASTER_ID:
-        return await send_to_master(text, **kwargs)
     cleaned = _strip_tone(text)
+    if not cleaned.strip():
+        log.warning(f"[send_telegram_text] Пустой текст после strip_tone: {text!r}")
+        return None
+    if chat_id == MASTER_ID:
+        return await send_to_master(cleaned, **kwargs)
     result = bot.send_message(chat_id, cleaned, **kwargs)
     if inspect.isawaitable(result):
         return await result
@@ -748,6 +756,9 @@ def _gemini_client(key: str) -> genai.Client:
 
 
 async def send_safe(chat_id: int, text: str):
+    if not (text or "").strip():
+        log.warning(f"[send_safe] Попытка отправить пустое сообщение в {chat_id}")
+        return
     limit = 4096
     if len(text) <= limit:
         await send_telegram_text(chat_id, text)
@@ -2031,7 +2042,9 @@ async def ask_gemini(user_message: str, save_history: bool = True) -> str:
         f"обработка={_proc_s:.2f}с | system={len(full_system)}симв | history={len(contents)}"
     )
 
-    if not reply:
+    # Пустым считается и ответ, состоящий только из тегов [ТОН: …]:
+    # при отправке они вырезаются и Telegram отвергнет пустое сообщение.
+    if not reply or not _strip_tone(reply).strip():
         reply = "Мастер, что-то мешает мне ответить. Попробуй ещё раз."
 
     if save_history:
@@ -2925,6 +2938,16 @@ async def handle_message(message: Message):
                 del _pending_system["tg"]
         else:
             del _pending_system["tg"]
+
+    # ── ПОДТВЕРЖДЕНИЕ ЗАБЫВАНИЯ («забудь про Х» → «да») ──
+    # Тот же pending из voice_info, что и в голосовом пути (ws_handlers).
+    from modules.voice_info import pending_forget_active as _pfa, memory_forget_confirm as _mfc
+    if _pfa():
+        _fg = _mfc(text)
+        if _fg is not None:
+            await message.answer(_fg[0])
+            return
+
     # ── LITERAL-МЕХАНИКИ ГОЛОСА, ПОДКЛЮЧЁННЫЕ К TG ──
     # Те же ворота, что в handle_voice_command (ws_handlers), в том же порядке:
     # переводчик → страхи → игра в слова → калькулятор → печенье.

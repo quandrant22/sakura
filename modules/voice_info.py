@@ -13,6 +13,7 @@ ws_handlers озвучивает. Сами модули не переписыв�
 """
 
 import logging
+import re
 import time as _time
 from datetime import date, datetime, timedelta
 
@@ -20,7 +21,7 @@ log = logging.getLogger("sakura.voice_info")
 
 # Корни действий, которые обрабатываются здесь (для ws_handlers)
 INFO_ROOTS = ("steam", "vps", "reminder", "task", "weather",
-              "music_stats", "capsule")
+              "music_stats", "capsule", "memory")
 
 
 def is_info_action(action: str) -> bool:
@@ -71,9 +72,11 @@ def _range_to_ts(period):
 
 def _default_period_word(arg: str) -> str:
     """Нормализует слово периода из аргумента роутера.
-    Пять вариантов: сегодня / вчера / неделя / месяц / всё время.
+    Шесть вариантов: сегодня / вчера / неделя / месяц / всё время / последняя.
     Без периода → по умолчанию неделя."""
     a = (arg or "").lower().strip()
+    if re.search(r"(?<!\w)(?:последн|крайн)\w*", a) or "недавно" in a:
+        return "последняя"
     if "вчер" in a:
         return "вчера"
     if "сегодн" in a or a in ("за день", "за сегодня"):
@@ -173,8 +176,11 @@ def _format_period_hits(word: str, found: list, total_count: int) -> str:
 async def steam_achievements(arg: str):
     """Ачивки за период. Основной источник — Steam API
     (GetPlayerAchievements); таблица seen — только кэш-фолбэк.
+    Период «последняя» → одна последняя ачивка (steam_last).
     → (текст, ok)."""
     word = _default_period_word(arg)
+    if word == "последняя":
+        return await steam_last()
 
     cached = _ach_query_cache.get(word)
     if cached and _time.monotonic() - cached[0] < _ACH_QUERY_TTL:
@@ -183,6 +189,31 @@ async def steam_achievements(arg: str):
     text, ok = await _steam_achievements_uncached(word)
     _ach_query_cache[word] = (_time.monotonic(), text, ok)
     return text, ok
+
+
+_RU_MONTHS = ("января", "февраля", "марта", "апреля", "мая", "июня",
+              "июля", "августа", "сентября", "октября", "ноября", "декабря")
+
+
+async def steam_last() -> tuple:
+    """Одна ПОСЛЕДНЯЯ ачивка (по unlocktime, без ограничения датой).
+    Формат: «Последнее достижение: ИГРА — «Название» (24 августа в 22:44).»
+    API недоступен → ok=False; ачивок нет → «Достижений пока нет»."""
+    from modules.steam_integration import get_last_achievement
+    game_name, ach, ok = await get_last_achievement()
+    if not ok:
+        return "Steam API сейчас не отвечает.", False
+    if not ach:
+        return "Достижений пока нет.", True
+    name = ach.get("name") or ach.get("apiname") or "достижение"
+    ts   = int(ach.get("unlocktime") or 0)
+    if ts > 0:
+        from datetime import datetime as _dt
+        dt = _dt.fromtimestamp(ts)
+        when = f"{dt.day} {_RU_MONTHS[dt.month - 1]} в {dt.strftime('%H:%M')}"
+    else:
+        when = "недавно"
+    return f"Последнее достижение: {game_name} — «{name}» ({when}).", True
 
 
 async def _candidate_games(word: str, start_date):
@@ -612,6 +643,77 @@ def _now():
     return _t.time()
 
 
+# ── Забывание по запросу Мастера («забудь про Х») ─────────────────────
+
+_pending_forget: dict | None = None   # {"ids": [...], "pattern": str, "ts": float}
+_FORGET_TTL = 60  # секунд на подтверждение
+
+_FORGET_CONFIRM = ("да", "давай", "подтверждаю", "точно", "ага", "угу", "удаляй")
+_FORGET_DENY = ("нет", "отмена", "стоп", "не надо", "оставь")
+
+
+def memory_forget(arg: str) -> tuple[str, bool]:
+    """«Забудь про Х»: найти записи и спросить подтверждение.
+
+    Сама НЕ удаляет — удаление только после «да» (memory_forget_confirm).
+    """
+    global _pending_forget
+    pattern = (arg or "").strip()
+    if not pattern:
+        return "Уточните, что именно забыть: «забудь про …».", False
+
+    from memory.db import find_memories
+    rows = find_memories(pattern, limit=20)
+    if not rows:
+        return f"В памяти ничего про «{pattern}» не нашлось.", True
+
+    _pending_forget = {
+        "ids": [r["id"] for r in rows],
+        "pattern": pattern,
+        "ts": _now(),
+    }
+    lines = [f"Нашла {len(rows)} зап. про «{pattern}»:"]
+    for r in rows[:5]:
+        lines.append(f"— [{r['category']}] {r['text'][:50]}")
+    if len(rows) > 5:
+        lines.append(f"…и ещё {len(rows) - 5}.")
+    lines.append("Удалить? («да» — удалить, «нет» — оставить).")
+    return "\n".join(lines), True
+
+
+def pending_forget_active() -> bool:
+    """Активно ли ожидание подтверждения забывания (с учётом TTL)."""
+    global _pending_forget
+    if _pending_forget is None:
+        return False
+    if _now() - _pending_forget["ts"] > _FORGET_TTL:
+        _pending_forget = None
+        return False
+    return True
+
+
+def memory_forget_confirm(text: str) -> tuple[str, bool] | None:
+    """Обработка «да/нет» после «забудь про Х». Возвращает (текст, ok)
+    или None, если реплика не подтверждение (передать обычному пути).
+    """
+    global _pending_forget
+    if not pending_forget_active():
+        return None
+    t = (text or "").lower().strip().rstrip(".!?,")
+    ids = _pending_forget["ids"]
+    pattern = _pending_forget["pattern"]
+    if t in _FORGET_CONFIRM:
+        from memory.db import delete_memory
+        n = sum(1 for i in ids if delete_memory(i))
+        _pending_forget = None
+        return f"Забыла: удалено {n} зап. про «{pattern}».", True
+    if t in _FORGET_DENY:
+        _pending_forget = None
+        return "Хорошо, оставила в памяти.", True
+    _pending_forget = None  # сменил тему — отмена без ответа
+    return None
+
+
 # ── Единая точка входа ────────────────────────────────────────────────
 
 async def handle(action: str, arg: str = "", text: str = ""):
@@ -621,6 +723,10 @@ async def handle(action: str, arg: str = "", text: str = ""):
     try:
         if action == "steam:achievements":
             return await steam_achievements(arg)
+        if action == "memory:forget":
+            return memory_forget(arg)
+        if action == "steam:last":
+            return await steam_last()
         if action == "steam:current":
             return await steam_current()
         if action == "steam:playtime":

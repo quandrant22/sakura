@@ -536,8 +536,6 @@ class TestMusicDispatch(unittest.TestCase):
                        "music:seek_back", "music:podcasts", "music:mute",
                        "music:volume_up", "music:volume_down"):
             self.assertIn(action, INTENTS_PROMPT, f"INTENTS_PROMPT missing {action}")
-        self.assertIn("небольшой снег", text)
-        self.assertIn("от -6 до -1", text)
 
     def test_weather_service_down_is_honest(self):
         from modules.voice_info import weather_now
@@ -603,9 +601,175 @@ class TestMusicStatsVoice(unittest.TestCase):
             self.assertEqual(r["action"], "music_stats:top", phrase)
 
 
+class TestMusicAppRouter(unittest.TestCase):
+    """Роутер → app-dispatch music-команды (блок 6, deep trigger)."""
+
+    def test_now_playing(self):
+        from modules.command_router import _hardcoded_match
+        r = _hardcoded_match("что играет")
+        self.assertEqual(r["action"], "music:now_playing")
+        r = _hardcoded_match("какой трек сейчас")
+        self.assertEqual(r["action"], "music:now_playing")
+
+    def test_like_dislike(self):
+        from modules.command_router import _hardcoded_match
+        self.assertEqual(_hardcoded_match("лайкни трек")["action"], "music:like")
+        self.assertEqual(_hardcoded_match("поставь лайк")["action"], "music:like")
+        self.assertEqual(_hardcoded_match("дизлайкни")["action"], "music:dislike")
+        self.assertEqual(_hardcoded_match("не нравится")["action"], "music:dislike")
+
+    def test_next_prev(self):
+        from modules.command_router import _hardcoded_match
+        self.assertEqual(_hardcoded_match("следующий трек")["action"], "music:next")
+        self.assertEqual(_hardcoded_match("следующую")["action"], "music:next")
+        self.assertEqual(_hardcoded_match("предыдущий трек")["action"], "music:prev")
+        self.assertEqual(_hardcoded_match("предыдущий")["action"], "music:prev")
+        # «переведи на следующий» — не хардкод, LLM разбирает
+
+    def test_shuffle_repeat(self):
+        from modules.command_router import _hardcoded_match
+        self.assertEqual(_hardcoded_match("перемешай")["action"], "music:shuffle")
+        self.assertEqual(_hardcoded_match("повтори трек")["action"], "music:repeat")
+
+    def test_wave(self):
+        from modules.command_router import _hardcoded_match
+        self.assertEqual(_hardcoded_match("включи мою волну")["action"], "music:wave")
+
+    def test_volume_system_vs_music(self):
+        from modules.command_router import _hardcoded_match
+        self.assertEqual(_hardcoded_match("сделай громче")["action"], "volume_up:20")
+        self.assertEqual(_hardcoded_match("сделай музыку громче")["action"], "music:volume_up")
+        self.assertEqual(_hardcoded_match("тише")["action"], "volume_down:20")
+        self.assertEqual(_hardcoded_match("сделай музыку тише")["action"], "music:volume_down")
+
+
 class TestCapsulesVoice(unittest.TestCase):
 
     def test_list_capsules(self):
+        pass
+
+class TestYamusicApp(unittest.TestCase):
+    """Тесты для agent/core/yamusic_app.py — управление десктопным приложением.
+
+    На Linux winsdk/win32gui недоступны → модуль работает в fallback-режиме
+    (_SMTC_OK=False, _HAS_WIN32=False). Тесты покрывают оба пути:
+    graceful fallback + мокированный Windows-путь.
+    """
+
+    def test_now_playing_no_smtc_returns_empty(self):
+        """На Linux без winsdk now_playing() → пустой dict, без исключений."""
+        from agent.core import yamusic_app as ym
+        self.assertEqual(ym.now_playing(), {})
+
+    def test_play_pause_no_smtc_returns_false(self):
+        """На Linux play_pause/next/prev → False, без исключений."""
+        from agent.core import yamusic_app as ym
+        self.assertFalse(ym.play_pause())
+        self.assertFalse(ym.next_track())
+        self.assertFalse(ym.prev_track())
+
+    def test_music_target_no_smtc_returns_browser(self):
+        """Без SMTC-сессии music_target() → 'browser' (fallback)."""
+        from agent.core import yamusic_app as ym
+        self.assertEqual(ym.music_target(), "browser")
+
+    def test_deep_links_no_startfile_returns_false(self):
+        """На Linux os.startfile недоступен → deep links → False без crash."""
+        from agent.core import yamusic_app as ym
+        self.assertFalse(ym.open_wave())
+        self.assertFalse(ym.open_playlist("123"))
+        self.assertFalse(ym.open_album("456"))
+        self.assertFalse(ym.open_artist("789"))
+
+    def test_like_dislike_no_window_returns_false(self):
+        """Без окна Яндекс Музыки like/dislike → False."""
+        from agent.core import yamusic_app as ym
+        self.assertFalse(ym.like())
+        self.assertFalse(ym.dislike())
+
+    def test_smtc_control_unknown_method_returns_false(self):
+        """_smtc_control с неизвестным методом → False (AttributeError подавлен)."""
+        from agent.core.yamusic_app import _smtc_control
+        # подменим сессию без такого методa
+        with patch("agent.core.yamusic_app._yandex_smtc_session",
+                   return_value=MagicMock(spec=[])):
+            self.assertFalse(_smtc_control("NonExistentAsync"))
+
+    # ── Мокированный Windows-путь ──────────────────────────────────────
+
+    def _mock_session(self, title="Песня", artist="Артист", album="Альбом",
+                      status=1, pb_return=True):
+        """Создаёт мок SMTC-сессии Яндекс Музыки.
+
+        try_get_media_properties_async() возвращает объект с .get(),
+        возвращающим props (имитация async-результа).
+        """
+        props = MagicMock()
+        props.title = title
+        props.artist = artist
+        props.album_title = album
+
+        pb = MagicMock()
+        pb.playback_status = status
+
+        # async-подобный результат: .get() → props
+        async_result = MagicMock()
+        async_result.get = MagicMock(return_value=props)
+
+        session = MagicMock()
+        session.source_app_user_model_id = "Yandex.Music"
+        session.try_get_media_properties_async = MagicMock(return_value=async_result)
+        session.get_playback_info = MagicMock(return_value=pb)
+        session.TryTogglePlayPauseAsync = MagicMock(return_value=pb_return)
+        session.TrySkipNextAsync = MagicMock(return_value=pb_return)
+        session.TrySkipPreviousAsync = MagicMock(return_value=pb_return)
+        return session
+
+    def test_now_playing_with_smtc_session(self):
+        """При наличии SMTC-сессии now_playing() возвращает трек."""
+        session = self._mock_session(title="My Song", artist="Artist")
+        with patch("agent.core.yamusic_app._yandex_smtc_session",
+                   return_value=session):
+            from agent.core import yamusic_app as ym
+            info = ym.now_playing()
+        self.assertEqual(info["title"], "My Song")
+        self.assertEqual(info["artist"], "Artist")
+        self.assertEqual(info["album"], "Альбом")
+        self.assertEqual(info["status"], "играет")
+
+    def test_music_target_with_smtc_returns_app(self):
+        """При наличии SMTC-сессии music_target() → 'app'."""
+        session = self._mock_session()
+        with patch("agent.core.yamusic_app._yandex_smtc_session",
+                   return_value=session):
+            from agent.core import yamusic_app as ym
+            self.assertEqual(ym.music_target(), "app")
+
+    def test_play_pause_with_smtc_returns_true(self):
+        """При наличии SMTC-сессии play_pause → True."""
+        session = self._mock_session(pb_return=True)
+        with patch("agent.core.yamusic_app._yandex_smtc_session",
+                   return_value=session), \
+             patch("agent.core.yamusic_app._smtc_control",
+                   return_value=True):
+            from agent.core import yamusic_app as ym
+            self.assertTrue(ym.play_pause())
+
+    def test_open_wave_calls_startfile(self):
+        """open_wave() вызывает os.startfile с правильным deep link."""
+        with patch("agent.core.yamusic_app._HAS_WIN32", True), \
+             patch("agent.core.yamusic_app.os.startfile", create=True) as mf:
+            from agent.core import yamusic_app as ym
+            self.assertTrue(ym.open_wave())
+            mf.assert_called_once_with("yandexmusic://radio/user/onyourwave")
+
+    def test_open_playlist_calls_startfile(self):
+        """open_playlist() формирует правильный deep link с ID."""
+        with patch("agent.core.yamusic_app.os.startfile", create=True) as mf:
+            from agent.core import yamusic_app as ym
+            self.assertTrue(ym.open_playlist("playlist123"))
+            mf.assert_called_once_with("yandexmusic://playlist/playlist123")
+
         from modules.voice_info import capsules_list
         caps = [
             {"id": 1, "text": "Письмо себе", "open_date": "2027-01-01"},

@@ -717,3 +717,76 @@ def ensure_ready():
     stats = db_stats()
     total = sum(v for k, v in stats.items() if k not in ("db_path", "self"))
     log.info(f"[db] Готово. Воспоминаний: {total}, самопамять: {stats['self']}")
+
+
+# ── Удаление и очистка памяти ────────────────────────────────────────
+
+def delete_memory(row_id: int) -> bool:
+    """Удалить одну запись по id из master_memory и векторного индекса.
+
+    Возвращает True если запись существовала и удалена.
+    """
+    conn = _conn()
+    row = conn.execute(
+        "SELECT id, vec_rowid FROM master_memory WHERE id = ?", (row_id,)
+    ).fetchone()
+    if row is None:
+        return False
+    if row["vec_rowid"]:
+        try:
+            conn.execute("DELETE FROM vec_master WHERE rowid = ?", (row["vec_rowid"],))
+        except Exception as e:
+            log.debug(f"[db] delete vec row: {type(e).__name__}: {e}")
+    conn.execute("DELETE FROM master_memory WHERE id = ?", (row_id,))
+    conn.commit()
+    _cache_clear("mem_ctx")
+    log.info(f"[db] удалена запись #{row_id}")
+    return True
+
+
+def find_memories(pattern: str, limit: int = 50) -> list[dict]:
+    """Найти записи по подстроке — для предпросмотра перед удалением.
+
+    Возвращает [{id, category, text, created_at}], до limit штук.
+    """
+    conn = _conn()
+    rows = conn.execute(
+        "SELECT id, category, text, created_at FROM master_memory "
+        "WHERE text LIKE ? ORDER BY id LIMIT ?",
+        (f"%{pattern}%", limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def purge_intimate(dry_run: bool = True) -> list[dict]:
+    """Найти (и при dry_run=False удалить) записи, которые
+    is_intimate_content() считает интимными.
+
+    Возвращает список [{id, category, text, deleted}] для отчёта.
+    Удаляет и из master_memory, и из vec_master (иначе останется
+    «призрак» в семантическом поиске). После удаления — сброс кэша.
+    """
+    from modules.intimacy_mode import is_intimate_content
+
+    conn = _conn()
+    rows = conn.execute(
+        "SELECT id, category, text FROM master_memory ORDER BY id"
+    ).fetchall()
+    result = []
+    for r in rows:
+        if not is_intimate_content(r["text"]):
+            continue
+        item = {
+            "id": r["id"],
+            "category": r["category"],
+            "text": r["text"],
+            "deleted": False,
+        }
+        if not dry_run:
+            item["deleted"] = delete_memory(r["id"])
+        result.append(item)
+    if dry_run:
+        log.info(f"[db] purge_intimate (dry_run): найдено {len(result)}")
+    else:
+        log.info(f"[db] purge_intimate: удалено {sum(1 for i in result if i['deleted'])}")
+    return result

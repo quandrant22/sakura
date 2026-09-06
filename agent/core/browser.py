@@ -362,19 +362,21 @@ def music_seek_back() -> str:
 
 
 # ── Таблица dispatch для music-команд из agent ─────────────────────────
-# mapping action-string → (function, human-label)
+# mapping action-string → (function-name, human-label)
+# Имена, не ссылки: резолв через globals() в момент вызова — иначе
+# патчинг функций в тестах не работает (dict держит старый объект).
 
 MUSIC_ACTIONS = {
     "music_info":            (None,             "инфо о треке"),
     "music_history":         (None,             "история"),
-    "music:shuffle":         (music_shuffle,    "перемешать"),
-    "music:repeat":          (music_repeat,     "повтор"),
-    "music:seek_forward":    (music_seek_forward, "вперёд"),
-    "music:seek_back":       (music_seek_back,  "назад"),
-    "music:podcasts":        (music_podcasts,   "подкасты"),
-    "music:mute":            (music_mute,       "mute"),
-    "music:volume_up":       (music_volume_up,  "громче"),
-    "music:volume_down":     (music_volume_down,"тише"),
+    "music:shuffle":         ("music_shuffle",    "перемешать"),
+    "music:repeat":          ("music_repeat",     "повтор"),
+    "music:seek_forward":    ("music_seek_forward", "вперёд"),
+    "music:seek_back":       ("music_seek_back",  "назад"),
+    "music:podcasts":        ("music_podcasts",   "подкасты"),
+    "music:mute":            ("music_mute",       "mute"),
+    "music:volume_up":       ("music_volume_up",  "громче"),
+    "music:volume_down":     ("music_volume_down","тише"),
 }
 
 
@@ -382,7 +384,7 @@ def music_action(action: str) -> dict:
     """Dispatch music-команды из agent.core.agent._run_command.
 
     Возвращает dict: {"ok": bool, "detail": str}.
-    Команды с fn=None — делегируются в core/music.py (SMTC/YM API).
+    Команды с name=None — делегируются в core/music.py (SMTC/YM API).
     """
     entry = MUSIC_ACTIONS.get(action)
     if entry is None:
@@ -390,9 +392,12 @@ def music_action(action: str) -> dict:
         if action in ("music_info", "music_history"):
             return {"ok": True, "detail": f"через core/music.py: {action}"}
         return {"ok": False, "detail": f"неизвестная команда: {action}"}
-    fn, _label = entry
-    if fn is None:
+    name, _label = entry
+    if name is None:
         return {"ok": True, "detail": action}
+    fn = globals().get(name)
+    if fn is None:
+        return {"ok": False, "detail": f"функция {name} не найдена"}
     ok = fn()
     return {"ok": bool(ok), "detail": ok if isinstance(ok, str) else str(ok)}
 
