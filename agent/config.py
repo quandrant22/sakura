@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 # ── Подключение к VPS ───────────────────────────────────────────────
-VPS_WS_URL   = os.getenv("VPS_WS_URL",   "ws://144.31.47.139:8765")
+VPS_WS_URL   = os.getenv("VPS_WS_URL",   "ws://31.76.80.5:8765")
 DEVICE_ID    = os.getenv("DEVICE_ID",     "laptop")
 WS_TOKEN     = os.getenv("WS_TOKEN",      "ae89231d100bd2adf5981a079e2c7de8e5ae7c35dbfc58347ad30c97df69fe20")
 PING_INTERVAL = int(os.getenv("PING_INTERVAL", "25"))
@@ -37,7 +37,7 @@ VOSK_MODEL_PATH = os.path.join(BASE_DIR, "vosk-model-small-ru-0.22")
 WAKE_WORDS      = ("сакура", "сакуру", "сакуре", "сакурой", "сакур", "sakura")
 
 # ── Vosk STT (основная модель для распознавания речи) ────────────────
-VOSK_STT_MODEL  = os.getenv("VOSK_STT_MODEL", "vosk-model-ru-0.42")
+VOSK_STT_MODEL  = os.getenv("VOSK_STT_MODEL", "vosk-model-small-ru-0.22")
 VOSK_STT_RATE   = 16000
 
 # ── Захват микрофона ────────────────────────────────────────────────

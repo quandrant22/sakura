@@ -36,6 +36,7 @@ file_index.json
 
 # Маппинги приложений (машино-специфичные)
 memory/apps_mapping_*.json
+agent/apps_cache.json
 
 # Python
 __pycache__/

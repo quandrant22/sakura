@@ -311,7 +311,7 @@ class Agent:
                 await _send_ack(False, f"music error: {e}")
             return
 
-                # ── music browser-команды (shuffle/repeat/seek/volume/mute/podcasts) ──
+        # ── music browser-команды (shuffle/repeat/seek/volume/mute/podcasts) ──
         if action in (
             "music:shuffle", "music:repeat", "music:seek_forward",
             "music:seek_back", "music:podcasts", "music:mute",
@@ -329,6 +329,52 @@ class Agent:
             except Exception as e:
                 log.error(f"[music] browser dispatch error: {e}")
                 await _send_ack(False, f"music browser error: {e}")
+            return
+
+        # ── music app-команды (SMTC / deep links / hotkeys через yamusic_app) ──
+        if action in (
+            "music:like", "music:dislike", "music:now_playing",
+            "music:wave", "music:play", "music:pause",
+            "music:next", "music:prev",
+        ):
+            try:
+                from core import yamusic_app as _ym
+                if action == "music:like":
+                    ok = _ym.like()
+                    detail = "лайк" if ok else "не удалось поставить лайк"
+                elif action == "music:dislike":
+                    ok = _ym.dislike()
+                    detail = "дизлайк" if ok else "не удалось поставить дизлайк"
+                elif action == "music:now_playing":
+                    info = _ym.now_playing()
+                    if info:
+                        detail = f"{info.get('artist','')} — {info.get('title','')}"
+                        if info.get("status") != "играет":
+                            detail += f" ({info['status']})"
+                    else:
+                        detail = "Яндекс Музыка не запущена"
+                    ok = bool(info)
+                elif action == "music:wave":
+                    ok = _ym.open_wave()
+                    detail = "Моя волна" if ok else "не удалось открыть"
+                elif action == "music:play":
+                    ok = _ym.play_pause()
+                    detail = "играет" if ok else "SMTC сессия не найдена"
+                elif action == "music:pause":
+                    ok = _ym.play_pause()
+                    detail = "пауза" if ok else "SMTC сессия не найдена"
+                elif action == "music:next":
+                    ok = _ym.next_track()
+                    detail = "след. трек" if ok else "SMTC сессия не найдена"
+                elif action == "music:prev":
+                    ok = _ym.prev_track()
+                    detail = "пред. трек" if ok else "SMTC сессия не найдена"
+                else:
+                    ok, detail = False, f"unknown: {action}"
+                await _send_ack(bool(ok), detail, extra={"yamusic": True})
+            except Exception as e:
+                log.error(f"[yamusic] dispatch error: {e}")
+                await _send_ack(False, f"music app error: {e}")
             return
 
         # Команды через расширение браузера

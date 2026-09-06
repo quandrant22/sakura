@@ -1059,3 +1059,119 @@ class TestTelegramLiteralMechanics(unittest.TestCase):
         sc, ag = self._run("придумай слово")
         sc.assert_awaited_once()
         ag.assert_not_awaited()
+
+class TestSteamAchievementsGame(unittest.TestCase):
+    """Ачивки по КОНКРЕТНОЙ игре: steam:achievements:game.<НАЗВАНИЕ>.
+
+    Резолв названия — через search_game() (неточные названия, кириллица).
+    Период может сочетаться: «достижения в Remnant за месяц».
+    Честность: игра не найдена в библиотеке ≠ «игра не существует».
+    """
+
+    # ── Роутинг ────────────────────────────────────────────────────────
+
+    def _route(self, phrase):
+        from modules.command_router import _hardcoded_match
+        return _hardcoded_match(phrase)
+
+    def test_router_game_variants(self):
+        cases = {
+            "какие достижения в Remnant": "remnant",
+            "мои ачивки в Palworld": "palworld",
+            "достижения по Fallout Shelter": "fallout shelter",
+            "сколько достижений в Hollow Knight": "hollow knight",
+            "достижения в Remnant за месяц": "remnant",   # период не съедает игру
+            "какие ачивки по игре Remnant": "remnant",
+        }
+        for phrase, game in cases.items():
+            r = self._route(phrase)
+            self.assertIsNotNone(r, phrase)
+            self.assertEqual(r["action"], "steam:achievements:game", phrase)
+            self.assertEqual(r["arg"], game, phrase)
+
+    def test_router_period_without_game_stays_periodic(self):
+        # «в игре» без названия — общий вопрос по периоду, прежнее поведение
+        r = self._route("мои достижения в игре")
+        self.assertEqual(r["action"], "steam:achievements")
+        r = self._route("какие ачивки я получил вчера")
+        self.assertEqual(r["action"], "steam:achievements")
+        self.assertEqual(r["arg"], "вчера")
+
+    # ── Обработчик (источники мокаются на границе модулей) ─────────────
+
+    def _run_handler(self, name, text="", game=None, achievements=None):
+        from modules.voice_info import steam_achievements_game
+        with patch("modules.steam_integration.search_game", return_value=game), \
+             patch("modules.steam_integration.load_library", new=AsyncMock()), \
+             patch("modules.steam_integration.get_achievements",
+                   new=AsyncMock(return_value=achievements or [])):
+            return _run(steam_achievements_game(name, text))
+
+    def test_counts_and_last_achievements(self):
+        game = {"appid": 1245620, "name": "ELDEN RING"}
+        now = int(time.time())
+        achievements = [
+            {"name": "Первый шаг", "apiname": "ACH_1",
+             "achieved": 1, "unlocktime": now - 3600},
+            {"name": "Второй шаг", "apiname": "ACH_2",
+             "achieved": 1, "unlocktime": now},
+            {"name": "Дальний", "apiname": "ACH_3",
+             "achieved": 0, "unlocktime": 0},
+        ]
+        text, ok = self._run_handler("ELDEN RING",
+                                     game=game, achievements=achievements)
+        self.assertTrue(ok)
+        self.assertIn("выбито 2 из 3", text)
+        self.assertIn("Второй шаг", text)
+        self.assertIn("Первый шаг", text)
+        self.assertIn("сегодня", text)
+
+    def test_game_not_found_is_honest(self):
+        """Не нашли в библиотеке — честно говорим это, НЕ утверждая,
+        что игра не существует (правило честности)."""
+        text, ok = self._run_handler("Несуществующая 12345", game=None)
+        self.assertTrue(ok)
+        self.assertIn("в библиотеке не нашла", text)
+        self.assertNotIn("не существует", text)
+
+    def test_period_filters_unlocktime(self):
+        from datetime import datetime, timedelta
+        game = {"appid": 1, "name": "Remnant"}
+        old_ts = int((datetime.now() - timedelta(days=90)).timestamp())
+        new_ts = int(time.time()) - 3600
+        achievements = [
+            {"name": "Старая", "achieved": 1, "unlocktime": old_ts},
+            {"name": "Свежая", "achieved": 1, "unlocktime": new_ts},
+        ]
+        text, ok = self._run_handler(
+            "Remnant", text="достижения в Remnant за месяц",
+            game=game, achievements=achievements)
+        self.assertTrue(ok)
+        self.assertIn("выбито 1 из 2", text)
+        self.assertIn("Свежая", text)
+        self.assertNotIn("Старая", text)
+
+    def test_many_shows_five_and_total(self):
+        game = {"appid": 2, "name": "Palworld"}
+        now = int(time.time())
+        achievements = [{"name": f"A{i}", "achieved": 1,
+                         "unlocktime": now - i * 3600} for i in range(8)]
+        text, ok = self._run_handler("Palworld",
+                                     game=game, achievements=achievements)
+        self.assertTrue(ok)
+        self.assertIn("выбито 8 из 8", text)
+        self.assertIn("И ещё 3 более ранних", text)
+        shown = sum(1 for i in range(8) if f"«A{i}»" in text)
+        self.assertEqual(shown, 5)
+
+    def test_steam_api_no_answer_not_masked(self):
+        """Steam не ответил → ok=False, честно, не маскируем под «достижений нет»."""
+        text, ok = self._run_handler("Palworld",
+                                     game={"appid": 3, "name": "Palworld"})
+        self.assertFalse(ok)
+        self.assertIn("не ответил", text)
+
+
+if __name__ == "__main__":
+    unittest.main()
+

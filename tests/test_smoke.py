@@ -416,7 +416,7 @@ class Test4_RouterThresholds(unittest.TestCase):
         from modules.command_router import _hardcoded_match
         result = _hardcoded_match("следующий трек пожалуйста")
         self.assertIsNotNone(result)
-        self.assertEqual(result["action"], "music_next")
+        self.assertEqual(result["action"], "music:next")
 
     def test_hardcoded_match_no_match(self):
         from modules.command_router import _hardcoded_match

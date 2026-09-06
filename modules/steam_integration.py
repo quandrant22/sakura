@@ -757,3 +757,53 @@ def _pick_rarest_achievement(achievements: list[dict]) -> dict:
     if with_pct:
         return min(with_pct, key=lambda a: a.get("global_percent", 100))
     return max(achievements, key=lambda a: a.get("unlocktime", 0))
+
+
+async def get_last_achievement() -> tuple:
+    """Самая свежая ачивка по unlocktime среди недавно игранных игр.
+
+    БЕЗ ограничения датой (не «за неделю»): недавно игранные игры берутся
+    по факту, а внутри — любая их ачивка с максимальным unlocktime.
+    → (game_name, ach_dict, ok):
+      ok=False — Steam API ни разу не ответил (не путать с «достижений нет»);
+      ok=True и ach=None — достижений пока нет.
+    """
+    try:
+        games = await get_recently_played(10) or []
+        appids = [g.get("appid") for g in games if g.get("appid")]
+        names  = {g.get("appid"): g.get("name", "игра") for g in games}
+    except Exception as e:
+        log.debug(f"[steam] last ach: recently played: {e}")
+        appids = []
+        names  = {}
+        try:
+            appids = await _recent_played_appids(hours=24 * 365)
+        except Exception:
+            appids = []
+
+    if not appids:
+        return "игра", None, True   # недавних игр нет — «достижений пока нет»
+
+    best = None      # (appid, game_name, ach)
+    any_api = False
+    for appid in appids:
+        try:
+            achs = await get_achievements(appid)
+        except Exception as e:
+            log.debug(f"[steam] last ach: {appid}: {e}")
+            continue
+        if not achs:
+            continue
+        any_api = True
+        unlocked = [a for a in achs if a.get("achieved") == 1 and a.get("unlocktime")]
+        if not unlocked:
+            continue
+        top = max(unlocked, key=lambda a: a.get("unlocktime", 0))
+        if best is None or top["unlocktime"] > best[2]["unlocktime"]:
+            best = (appid, names.get(appid, "игра"), top)
+
+    if not any_api:
+        return "игра", None, False  # API недоступен — честно
+    if not best:
+        return "игра", None, True   # достижений нет
+    return best[1], best[2], True

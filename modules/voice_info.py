@@ -432,6 +432,67 @@ async def steam_progress(name: str):
             f"({stats['percent']}%)."), True
 
 
+async def steam_achievements_game(name: str, text: str = ""):
+    """Ачивки по КОНКРЕТНОЙ игре: сколько выбито из скольких +
+    последние 5 с датами. Резолв названия — через search_game() (неточные
+    названия и кириллица). Период из реплики («достижения в Remnant за месяц»)
+    фильтрует даты разблокировки. → (текст, ok).
+    Честность: игра не найдена в библиотеке ≠ «игра не существует»."""
+    from modules.steam_integration import search_game, get_achievements, load_library
+
+    q = re.sub(r"^(?:игру|игре|игра|игры)\s+", "", (name or "").strip()).strip()
+    if not q:
+        return "Не расслышала название игры.", False
+
+    game = search_game(q)
+    if not game:
+        try:
+            await load_library()          # библиотека могла быть ещё не загружена
+            game = search_game(q)
+        except Exception as e:
+            log.debug(f"[voice_info] ach_game load_library: {e}")
+    if not game:
+        return f"Игру «{q}» в библиотеке не нашла.", True
+
+    appid = game.get("appid")
+    achievements = await get_achievements(appid) if appid else []
+    if not achievements:
+        return (f"По «{game.get('name')}» Steam не ответил по ачивкам. "
+                f"Это не значит, что достижений нет — попробуй позже."), False
+
+    total = len(achievements)
+    unlocked = [a for a in achievements if a.get("achieved") == 1]
+
+    # Период, упомянутый в реплике («... за месяц») — фильтр по unlocktime.
+    period = parse_period(text) if text else None
+    period_tail = ""
+    if period:
+        start_ts, _end_ts = _range_to_ts(period)
+        in_period = [a for a in unlocked
+                     if int(a.get("unlocktime") or 0) >= start_ts]
+        if not in_period:
+            return (f"В «{game.get('name')}» за этот период новых достижений нет "
+                    f"(всего выбито {len(unlocked)} из {total})."), True
+        unlocked = in_period
+        period_tail = " за этот период"
+
+    unlocked.sort(key=lambda a: int(a.get("unlocktime") or 0), reverse=True)
+
+    if not unlocked:
+        return f"В «{game.get('name')}» пока ничего не выбито (0 из {total}).", True
+
+    pct = round(len(unlocked) / total * 100) if total else 0
+    head = (f"{game.get('name')}: выбито {len(unlocked)} из {total} "
+            f"({pct}%){period_tail}.")
+
+    last = unlocked[:5]
+    lines = [f"«{a.get('name') or a.get('apiname') or 'достижение'}» "
+             f"({_fmt_unlock_ts(int(a.get('unlocktime') or 0))})" for a in last]
+    more = len(unlocked) - len(last)
+    tail = f"\nИ ещё {more} более ранних." if more > 0 else ""
+    return head + "\n" + "\n".join(lines) + tail, True
+
+
 async def steam_recent():
     """Во что играл недавно. → (текст, ok)."""
     from modules.steam_integration import get_recently_played
@@ -723,6 +784,14 @@ async def handle(action: str, arg: str = "", text: str = ""):
     try:
         if action == "steam:achievements":
             return await steam_achievements(arg)
+        if (action == "steam:achievements:game"
+                or action.startswith("steam:achievements:game:")):
+            game = arg.strip()
+            if not game:  # вариант с названием в самом action: steam:achievements:game:Remnant
+                game = action.split("steam:achievements:game:", 1)[1].strip()
+            if not game:
+                return "Не расслышала название игры.", False
+            return await steam_achievements_game(game, text)
         if action == "memory:forget":
             return memory_forget(arg)
         if action == "steam:last":
