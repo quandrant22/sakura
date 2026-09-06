@@ -79,65 +79,88 @@ file_index = FileIndex(
 )
 
 
-# ── Трансфитерация и нормализация ───────────────────────────────────
-_TRANSLITERATION_MAP = {
-    # Комбинации
-    'дж': 'j', 'дз': 'dz', 'кс': 'x',
-    # Гласные
-    'а': 'a', 'е': 'e', 'ё': 'yo', 'и': 'i', 'о': 'o', 'у': 'u', 'ы': 'y', 'э': 'e',
-    'я': 'ya',
-    # Согласные
-    'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'ж': 'zh', 'з': 'z', 'й': 'y', 'к': 'k',
-    'л': 'l', 'м': 'm', 'н': 'n', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'ф': 'f', 'х': 'kh',
-    'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'sch', 'ъ': '', 'ь': '',
-    'ю': 'yu',
-    # Английские буквы (на случай смешанного ввода)
-}
+# ── Транслитерация и нормализация ────────────────────────────────────
+# ЕДИНАЯ реализация живёт в modules/translit.py (тот же репозиторий;
+# агент импортирует её напрямую — одна реализация, не две копии).
+try:
+    from modules.translit import (
+        transliterate as _transliterate,
+        phonetic_normalize as _phonetic_normalize,
+        normalize_name as _normalize_name_shared,
+        normalize_tokens as _normalize_tokens_shared,
+    )
+    _NORMALIZATION_SOURCE = "modules.translit"
+except ImportError:
+    # Автономная сборка агента (PyInstaller, без modules/): ЭТО КОПИЯ
+    # modules/translit.py. НЕ править здесь независимо — править общий
+    # модуль и переносить. Паритет проверяет
+    # tests/test_translit.py::TestHandsNormalizationParity.
+    _NORMALIZATION_SOURCE = "local-copy"
 
+    _TRANSLITERATION_MAP = {
+        # Сочетания (проверяются ДО одиночных букв)
+        'дж': 'j', 'дз': 'dz', 'кс': 'x',
+        # Гласные
+        'а': 'a', 'е': 'e', 'ё': 'yo', 'и': 'i', 'о': 'o', 'у': 'u',
+        'ы': 'y', 'э': 'e', 'я': 'ya', 'ю': 'yu',
+        # Согласные
+        'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'ж': 'zh', 'з': 'z',
+        'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm', 'н': 'n', 'п': 'p',
+        'р': 'r', 'с': 's', 'т': 't', 'ф': 'f', 'х': 'kh', 'ц': 'ts',
+        'ч': 'ch', 'ш': 'sh', 'щ': 'sch', 'ъ': '', 'ь': '',
+    }
 
-def _transliterate(text: str) -> str:
-    """Преобразовать кириллицу в латиницу, включая частые сочетания."""
-    text = text.lower()
-    result = []
-    i = 0
-    while i < len(text):
-        pair = text[i:i+2]
-        if pair in _TRANSLITERATION_MAP:
-            result.append(_TRANSLITERATION_MAP[pair])
-            i += 2
-            continue
-        result.append(_TRANSLITERATION_MAP.get(text[i], text[i]))
-        i += 1
-    return ''.join(result)
+    def _transliterate(text: str) -> str:
+        """Кириллица → латиница, включая частые сочетания (дж/кс/...)."""
+        text = (text or "").lower()
+        result = []
+        i = 0
+        while i < len(text):
+            pair = text[i:i + 2]
+            if pair in _TRANSLITERATION_MAP:
+                result.append(_TRANSLITERATION_MAP[pair])
+                i += 2
+                continue
+            result.append(_TRANSLITERATION_MAP.get(text[i], text[i]))
+            i += 1
+        return "".join(result)
 
+    def _phonetic_normalize(text: str) -> str:
+        """Фонетическая нормализация: ph→f, ck→k, oo→u, ee→i, w↔v, o↔a,
+        схлопывание удвоенных согласных."""
+        text = (text or "").lower()
+        text = re.sub(r'ph', 'f', text)
+        text = re.sub(r'ck', 'k', text)
+        text = re.sub(r'oo', 'u', text)
+        text = re.sub(r'ee', 'i', text)
+        text = text.replace('w', 'v')
+        text = re.sub(r'(.)\1+', r'\1', text)
+        text = re.sub(r'[oa]', 'a', text)
+        return text
 
-def _phonetic_normalize(text: str) -> str:
-    """Фонетическая нормализация латинских строк для более стабильного резолва."""
-    text = text.lower()
-    text = re.sub(r'ph', 'f', text)
-    text = re.sub(r'ck', 'k', text)
-    text = re.sub(r'oo', 'u', text)
-    text = re.sub(r'ee', 'i', text)
-    text = text.replace('w', 'v')
-    text = re.sub(r'(.)\1+', r'\1', text)
-    text = re.sub(r'[oa]', 'a', text)
-    return text
+    _SEP_RE = r'[\s\-_:;,.()\[\]\'"!+&/]'
+
+    def _normalize_name_shared(name: str) -> str:
+        name = _transliterate(name)
+        name = _phonetic_normalize(name)
+        name = re.sub(_SEP_RE, '', name)
+        return name.strip()
+
+    def _normalize_tokens_shared(name: str) -> list:
+        name = _transliterate(name)
+        name = _phonetic_normalize(name)
+        name = re.sub(_SEP_RE, ' ', name)
+        return [t for t in name.split() if t]
 
 
 def _normalize_app_name(name: str) -> str:
     """Нормализовать имя приложения: транслит, фонетика, удалить спец. символы."""
-    name = _transliterate(name)
-    name = _phonetic_normalize(name)
-    name = re.sub(r'[\s\-_:;,.]', '', name)
-    return name
+    return _normalize_name_shared(name)
 
 
 def _normalize_app_name_tokens(name: str) -> list[str]:
     """Разбить имя приложения на нормализованные токены для поиска по словам."""
-    name = _transliterate(name)
-    name = _phonetic_normalize(name)
-    name = re.sub(r'[\s\-_:;,.]+', ' ', name)
-    return [token for token in name.split() if token]
+    return _normalize_tokens_shared(name)
 
 
 def _load_apps_cache() -> dict | None:

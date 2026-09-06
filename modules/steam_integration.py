@@ -266,29 +266,65 @@ def get_library() -> list[dict]:
 def search_game(query: str) -> Optional[dict]:
     """
     Ищет игру в библиотеке по частичному названию.
-    Порядок: точное совпадение → вхождение → fuzzy.
+    Нормализуются И запрос, И названия (транслит+фонетика, modules/translit.py):
+    «ремнант» → remnant, «палворлд» → palworld, «фоллаут шелтер» → fallout shelter.
+    Порядок матча:
+      1. точное совпадение (как ввели)
+      2. по нормализованным (полное равенство, затем вхождение строки —
+         частичное название: «remnant» ⊂ «remnant from the ashes»)
+      3. вхождение по словам (все значимые токены запроса есть в названии;
+         артикли/предлоги игнорируются: «ремнант фром зе эйс» = «remnant from the ashes»)
+      4. fuzzy по нормализованным названиям
     Используется когда Мастер спрашивает об игре по имени.
     """
     if not query or not _library:
         return None
     q = query.lower().strip()
 
+    from modules.translit import normalize_name, content_tokens
+
     # 1. Точное совпадение
     for g in _library:
         if g.get("name", "").lower() == q:
             return g
 
-    # 2. Вхождение (название содержит запрос или наоборот)
+    # 2. По нормализованным
+    norm_q = normalize_name(q)
+    if not norm_q:
+        return None
+    norm_names = {id(g): normalize_name(g.get("name", "")) for g in _library}
     for g in _library:
-        name = g.get("name", "").lower()
-        if q in name or name in q:
+        if norm_names[id(g)] == norm_q:
+            return g
+    # вхождение нормализованной строки (частичное название)
+    for g in _library:
+        n = norm_names[id(g)]
+        if n and norm_q in n:
             return g
 
-    # 3. Fuzzy — ближайшее по схожести
+    # 3. Вхождение по словам (стоп-токены «the/from/зе/фром/...» отброшены).
+    # Подстрочное вхождение токена — только для длинных (>=4 симв.),
+    # иначе короткие осколки матчатся внутри чужих слов («na» ⊂ «remnant»).
+    q_tokens = content_tokens(q)
+    if q_tokens:
+        for g in _library:
+            n_tokens = content_tokens(g.get("name", ""))
+            if not n_tokens:
+                continue
+            if all(any(qt == nt
+                       or (len(qt) >= 4 and qt in nt)
+                       or (len(nt) >= 4 and nt in qt)
+                       for nt in n_tokens)
+                   for qt in q_tokens):
+                return g
+
+    # 4. Fuzzy — ближайшее по схожести среди нормализованных названий
     names = [g.get("name", "") for g in _library]
-    matches = difflib.get_close_matches(query, names, n=1, cutoff=0.55)
+    matches = difflib.get_close_matches(
+        norm_q, [norm_names[id(g)] for g in _library], n=1, cutoff=0.55)
     if matches:
-        return next((g for g in _library if g.get("name") == matches[0]), None)
+        return next((g for g in _library
+                     if norm_names[id(g)] == matches[0]), None)
 
     return None
 

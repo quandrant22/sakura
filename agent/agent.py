@@ -16,7 +16,7 @@ import websockets
 
 import config
 from core.eyes import get_active_window, get_system_info
-from core.hands import execute_command, scan_start_menu
+from core.hands import execute_command, _scan_start_menu as scan_start_menu
 from core.hearing import Hearing
 from core.voice import Player
 from core.protocol import (
