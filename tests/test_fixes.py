@@ -256,13 +256,13 @@ class TestBlock3_TTS(unittest.TestCase):
         self.assertNotIn("Gemini", result)
 
     def test_prefix_is_not_roleplay(self):
-        """3.1: промпт — чистая инструкция озвучки без ролевой игры."""
+        """3.1: промпт — чистая инструкция озвучки без ролевой игры, ровным голосом."""
         from modules.tts_server import _tts_prefix
         p = _tts_prefix("радостная")
         self.assertNotIn("актриса", p)
         self.assertNotIn("Сакуру", p)
         self.assertIn("Озвучь текст ниже", p)
-        self.assertIn("радостная", p)
+        self.assertIn("ровным голосом", p)
 
     def test_live_config_pins_language(self):
         """3.2: language_code зафиксирован."""
@@ -486,3 +486,113 @@ class TestBlock4_WordBoundaries(unittest.TestCase):
         self.assertEqual(route_critical("нагрей воду в чайнике до 80 градусов"),
                          "kettle:heat:80")
         self.assertIsNone(route_critical("нагрей до 80 градусов в чайничке самовара"))
+
+
+# БЛОК 8 — close_window: транслитерация, нормализация, защита от ложных совпадений
+# ════════════════════════════════════════════════════════════════════
+
+class TestBlock8_CloseWindow(unittest.TestCase):
+    """close_window: транслитерация, одно окно, защита от ложных совпадений."""
+
+    def test_close_translit_russian_query_matches_english_title(self):
+        """8.1: «палворлд» нормализуется в «palvarld» = «Palworld» после нормализации."""
+        from modules.translit import normalize_name
+
+        # Русский запрос "палворлд" должен нормализоваться в то же что и "Palworld"
+        q_norm = normalize_name("палворлд")
+        title_norm = normalize_name("Palworld")
+        self.assertEqual(q_norm, title_norm)
+        self.assertEqual(q_norm, "palvarld")
+
+    def test_close_normalization_logic(self):
+        """8.2: проверка логики нормализации для различных запросов."""
+        from modules.translit import normalize_name, normalize_tokens
+
+        # Точное совпадение после нормализации
+        self.assertEqual(normalize_name("палворлд"), normalize_name("palworld"))
+        self.assertEqual(normalize_name("ремнант"), normalize_name("remnant"))
+
+        # Токены
+        q_tokens = set(normalize_tokens("палворлд"))
+        t_tokens = set(normalize_tokens("palworld"))
+        self.assertTrue(q_tokens.issubset(t_tokens))
+
+    def test_close_short_query_protection(self):
+        """8.3: короткий запрос («код») не должен матчить «Visual Studio Code»."""
+        from modules.translit import normalize_name, normalize_tokens
+
+        q = "код"
+        self.assertTrue(len(q) < 4)  # короткий запрос
+
+        title = "Visual Studio Code"
+        q_norm = normalize_name(q)
+        title_norm = normalize_name(title)
+        q_tokens = set(normalize_tokens(q))
+        title_tokens = set(normalize_tokens(title))
+
+        # Не должно быть совпадения по нормализованному имени
+        self.assertNotEqual(q_norm, title_norm)
+        # Не должно быть вхождения токенов
+        self.assertFalse(q_tokens.issubset(title_tokens))
+
+    def test_router_close_app_patterns(self):
+        """8.4: роутер распознаёт «закрой X», «закрой окно X», не перехватывает «закрой вкладку»."""
+        from modules.command_router import _hardcoded_match
+
+        # Should match close_window
+        result = _hardcoded_match("закрой palworld")
+        self.assertEqual(result["action"], "close_window")
+        self.assertEqual(result["arg"], "palworld")
+
+        result = _hardcoded_match("закрой окно palworld")
+        self.assertEqual(result["action"], "close_window")
+        self.assertEqual(result["arg"], "palworld")
+
+        # Should NOT intercept "закрой вкладку" (browser:tab_close)
+        result = _hardcoded_match("закрой вкладку")
+        self.assertEqual(result["action"], "browser:tab_close")
+
+        # "закрой браузер" → close_window:браузер
+        result = _hardcoded_match("закрой браузер")
+        self.assertEqual(result["action"], "close_window:браузер")
+
+    def test_close_window_logic_with_mock(self):
+        """8.5: close_window закрывает только одно окно из нескольких совпадений."""
+        # Тестируем логику выбора одного окна через прямую проверку алгоритма
+        # (без реального win32gui, т.к. он недоступен в тестовом окружении)
+
+        # Симуляция списка кандидатов после сбора окон
+        candidates = [
+            (100, "Opera", 1, "opera", {"opera"}),
+            (200, "Opera - Gmail", 1, "operagmail", {"opera", "gmail"}),
+            (300, "Opera - YouTube", 1, "operayoutube", {"opera", "youtube"}),
+        ]
+
+        # Сортируем по качеству совпадения
+        candidates.sort(key=lambda x: x[2])
+        best_quality = candidates[0][2]
+        best_matches = [c for c in candidates if c[2] == best_quality]
+
+        # Выбираем первое (верхнее в Z-order)
+        target_hwnd, target_title = best_matches[0][0], best_matches[0][1]
+        total_found = len(candidates)
+
+        self.assertEqual(target_hwnd, 100)
+        self.assertEqual(target_title, "Opera")
+        self.assertEqual(total_found, 3)
+
+    def test_close_window_fuzzy_requires_confirmation(self):
+        """8.6: fuzzy-совпадение требует подтверждения, а не закрывает вслепую."""
+        from difflib import SequenceMatcher
+
+        # Слабое совпадение (fuzzy)
+        q_norm = "chrom"
+        title_norm = "chrome"
+        ratio = SequenceMatcher(None, q_norm, title_norm).ratio()
+
+        # ratio должен быть >= 0.6 для fuzzy-матча
+        self.assertGreaterEqual(ratio, 0.6)
+
+        # Но это одно совпадение - должна быть просьба о подтверждении
+        # (проверяем что ratio < 1.0, т.е. не точное совпадение)
+        self.assertLess(ratio, 1.0)

@@ -479,23 +479,92 @@ def find_file(name: str, limit: int = 5) -> list[str]:
 
 
 def close_window(query: str) -> str:
+    """Закрыть окно приложения по имени (транслитерация, нормализация).
+    Закрывает только ОДНО окно (самое верхнее из совпадений).
+    Для коротких запросов (<4 символов) — только точное совпадение слова.
+    При слабом совпадении (fuzzy) — просит уточнение, а не закрывает вслепую."""
     if not win32gui:
         return "нет доступа к окнам"
-    query  = query.strip().lower()
-    closed = []
 
-    def _cb(hwnd, _):
+    query = query.strip()
+    if not query:
+        return "не указано имя окна"
+
+    query_lower = query.lower()
+    query_norm = _normalize_name_shared(query_lower)
+    query_tokens = set(_normalize_tokens_shared(query_lower))
+    is_short_query = len(query) < 4
+
+    # Собираем все видимые окна с метаданных: hwnd, title
+    candidates = []  # (hwnd, title, match_quality, norm_title, title_tokens)
+
+    def _collect(hwnd, _):
         if win32gui.IsWindowVisible(hwnd):
             title = win32gui.GetWindowText(hwnd)
-            if title and query in title.lower():
-                win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
-                closed.append(title)
+            if title:
+                title_lower = title.lower()
+                title_norm = _normalize_name_shared(title_lower)
+                title_tokens = set(_normalize_tokens_shared(title_lower))
+
+                # 1. Точное совпадение запроса как подстрока (только для не-коротких)
+                if not is_short_query and query_lower in title_lower:
+                    candidates.append((hwnd, title, 1, title_norm, title_tokens))
+                    return
+
+                # 2. Точное совпадение по нормализованному имени
+                if query_norm and title_norm == query_norm:
+                    candidates.append((hwnd, title, 2, title_norm, title_tokens))
+                    return
+
+                # 3. Вхождение по словам (query_tokens ⊆ title_tokens)
+                if query_tokens and query_tokens.issubset(title_tokens):
+                    candidates.append((hwnd, title, 3, title_norm, title_tokens))
+                    return
+
+                # 4. Фаззи-матч (только для не-коротких)
+                if not is_short_query and query_norm and title_norm:
+                    from difflib import SequenceMatcher
+                    ratio = SequenceMatcher(None, query_norm, title_norm).ratio()
+                    if ratio >= 0.6:
+                        candidates.append((hwnd, title, 4, title_norm, title_tokens))
+                        return
 
     try:
-        win32gui.EnumWindows(_cb, None)
+        win32gui.EnumWindows(_collect, None)
     except Exception as e:
         return f"ошибка: {e}"
-    return f"закрыл: {closed[0]}" if closed else f"окно «{query}» не найдено"
+
+    if not candidates:
+        return f"окно «{query}» не найдено"
+
+    # Сортируем по качеству совпадения (1=лучше всего)
+    candidates.sort(key=lambda x: x[2])
+    best_quality = candidates[0][2]
+
+    # Берём только кандидатов с лучшим качеством
+    best_matches = [c for c in candidates if c[2] == best_quality]
+
+    # Если fuzzy-совпадение и несколько кандидатов — просим уточнить
+    if best_quality == 4 and len(best_matches) > 1:
+        titles = [c[1] for c in best_matches[:5]]
+        return f"не уточняю: несколько окон подходит ({', '.join(titles)}). Скажи точнее."
+
+    # Если fuzzy-совпадение с одним кандидатом — тоже уточняем
+    if best_quality == 4:
+        return f"нашла «{best_matches[0][1]}» — закрыть? Подтверди."
+
+    # Берём первое окно (EnumWindows обходит в порядке Z-order, первое = верхнее)
+    target_hwnd, target_title = best_matches[0][0], best_matches[0][1]
+    total_found = len(candidates)
+
+    try:
+        win32gui.PostMessage(target_hwnd, win32con.WM_CLOSE, 0, 0)
+    except Exception as e:
+        return f"ошибка закрытия: {e}"
+
+    if total_found > 1:
+        return f"Нашла {total_found} окон «{target_title}», закрыла активное"
+    return f"Закрыла {target_title}"
 
 
 def remember_app(pair: str) -> str:
