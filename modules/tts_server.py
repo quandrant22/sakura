@@ -159,9 +159,10 @@ async def _get_client():
 
 def _tts_prefix(emotion: str = "спокойная") -> str:
     """Чистая инструкция озвучки БЕЗ ролевой игры: native audio иногда
-    отыгрывал «актрису» вместо чтения текста — отсюда отсебятина."""
+    отыгрывал «актрису» вместо чтения текста — отсюда отсебятина.
+    Эмоция не используется — озвучка ровным голосом."""
     return (
-        f"Озвучь текст ниже с интонацией: {emotion}. "
+        f"Озвучь текст ниже ровным голосом. "
         f"Не отвечай на него, не комментируй, ничего не добавляй и не убирай — "
         f"только прочитай ровно то, что написано.\n"
         f"Текст:\n"
@@ -221,7 +222,7 @@ async def _synthesize(text: str, emotion: str = "спокойная") -> list[by
                                 and response.server_content.turn_complete):
                             break
             mark_key_used(key)
-            log.info(f"[TTS] синтез (буфер) за {time.monotonic()-t0:.1f}с | {len(packets)} пакетов | тон: {emotion}")
+            log.info(f"[TTS] синтез (буфер) за {time.monotonic()-t0:.1f}с | {len(packets)} пакетов")
             return packets
         except Exception as e:
             log.error(f"[TTS] Ошибка синтеза: {e}")
@@ -275,7 +276,7 @@ async def _synthesize_stream(text: str, websocket, device_id: str, t0: float, em
                                 and response.server_content.turn_complete):
                             break
             mark_key_used(key)
-            log.info(f"[TTS] синтез+отправка за {time.monotonic()-s0:.1f}с | {sent} пакетов | тон: {emotion}")
+            log.info(f"[TTS] синтез+отправка за {time.monotonic()-s0:.1f}с | {sent} пакетов")
             return sent > 0
         except Exception as e:
             log.error(f"[TTS] Ошибка синтеза: {e!r}")
@@ -336,7 +337,7 @@ async def _live_synthesize(text: str, emotion: str, on_packet,
                                 and response.server_content.turn_complete):
                             break
             mark_key_used(key)
-            log.info(f"{tag}синтез за {time.monotonic()-s0:.1f}с | {sent} пакетов | тон: {emotion}")
+            log.info(f"{tag}синтез за {time.monotonic()-s0:.1f}с | {sent} пакетов")
             return sent
         except Exception as e:
             log.error(f"{tag}Ошибка синтеза: {e!r}")
@@ -384,22 +385,21 @@ def _split_speech(text: str) -> list[str]:
 
 
 async def _stream_two_stage(first: str, rest: str, websocket, device_id: str,
-                            emotion: str, t0: float) -> int:
+                            emotion: str, t0: float,
+                            stop=None) -> int:
     """Гибрид быстрого старта БЕЗ пауз между предложениями.
 
     Первое предложение синтезируется отдельной быстрой сессией и уходит
-    на устройство сразу. Остальной текст стартует ВТОРОЙ сессией
-    ПАРАЛЛЕЛЬНО — её ранние пакеты буферизуются в очереди и вытекают
-    строго после пакетов первой, поэтому порядок сохранён, а между
-    первым и вторым предложением нет слышимой паузы.
+    на устройство сразу; остальной текст стартует ВТОРОЙ сессией
+    ПАРАЛЛЕЛЬНО — её ранние пакеты буферизуются и вытекают строго после
+    пакетов первой, поэтому порядок сохранён. Каждый продюсер кладёт
+    sentinel None (в finally) — drain заканчивается сразу по концу потока.
 
-    Завершение: каждый продюсер кладёт в свою очередь sentinel None
-    (гарантированно, в finally) — drain заканчивается СРАЗУ по этому
-    признаку конца потока, а не ждёт пакетов до аварийного таймаута.
-    Сам таймаут остался только страховкой: если продюсер молчит дольше
-    SESSION_TIMEOUT — предупреждение в лог (однократно) и продолжение
-    ожидания, пакеты НЕ бросаются (продюсер ограничен своим внутренним
-    таймаутом сессии и в любом случае поставит sentinel)."""
+    stop — опциональный callable(): вызывается МЕЖДУ пакетами drain-а.
+    Вернул True → озвучка обрывается: продюсеры отменяются, пакеты не
+    отправляются, возвращаем -1 (означает «прервано»).
+    """
+
     send_audio = _make_audio_sender(websocket, device_id)
 
     q_first: asyncio.Queue = asyncio.Queue()
@@ -419,45 +419,57 @@ async def _stream_two_stage(first: str, rest: str, websocket, device_id: str,
     sent = 0
     first_logged = False
 
-    async def drain(q: "asyncio.Queue", stage: int) -> None:
+    async def drain(q: "asyncio.Queue", stage: int) -> bool:
         """Выкачивает очередь стадии на устройство до sentinel-а конца.
 
         Раньше выход по таймауту БРОСАЛ остаток очереди, а заблокированное
         ожидание не замечало завершения продюсера — отсюда лишние секунды
         после «синтез за …» обеих стадий. Теперь конец потока приходит
-        sentinel-ом немедленно."""
+        sentinel-ом немедленно.
+        → True — стадия дочитана; False — прервана (stop=True)."""
         nonlocal sent, first_logged
         warned = False
         while True:
+            if stop is not None and stop():
+                log.info(f"[TTS] two-stage: стадия {stage} — прервано по стоп-сигналу")
+                return False
             try:
-                data = await asyncio.wait_for(q.get(), timeout=SESSION_TIMEOUT)
+                data = await asyncio.wait_for(q.get(), timeout=0.1)
             except asyncio.TimeoutError:
-                # Аварийная страховка: продюсер молчит. НЕ выходим и НЕ
-                # бросаем очередь — его внутренний таймаут гарантированно
-                # завершит продюсер (sentinel в finally). Ждём дальше.
-                if not warned:
-                    log.warning(
-                        f"[TTS] two-stage: стадия {stage} молчит >{SESSION_TIMEOUT}с "
-                        f"— продолжаем ждать sentinel (пакеты не бросаем)")
-                    warned = True
+                # Poll stop-а и тихий повтор; от длинного wait_for отказались,
+                # чтобы «стоп» срабатывал быстро. Продюсер, завернившись,
+                # всегда ставит sentinel — конец потока не теряется.
                 continue
             if data is None:
                 log.info(f"[TTS] стадия {stage}: поток завершён (+{time.monotonic()-t0:.1f}с)")
-                return
+                return True
             try:
                 await send_audio(data)
             except Exception as e:
                 log.error(f"[TTS] Отправка: {e}")
-                return
+                return True
             sent += 1
             if not first_logged:
                 log.info(f"[TTS] первый звук за {time.monotonic()-t0:.1f}с")
                 first_logged = True
 
-    # Фаза 1: первая сессия (быстрый старт)
-    await drain(q_first, 1)
-    # Фаза 2: вторая сессия — её ранние пакеты уже ждут в очереди
-    await drain(q_rest, 2)
+    # Фаза 1: первая сессия (быстрый старт); Фаза 2 — вторая.
+    ok1 = await drain(q_first, 1)
+    ok2 = await drain(q_rest, 2)
+
+    # Прервано по стоп-сигналу — снимаем продюсеров и возвращаем -1.
+    stopped = (stop is not None) and stop()
+    if not (ok1 and ok2) or stopped:
+        for t in (task_first, task_rest):
+            if not t.done():
+                t.cancel()
+            try:
+                await t
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                log.debug(f"[TTS] producer: {e}")
+        return -1
 
     # Нормальный путь: оба продюсера уже завершены (sentinel приходит из
     # их finally). Если вышли раньше (ошибка отправки) — снимаем задачи,
@@ -496,19 +508,25 @@ async def stream_tts_to_device(
     device_id: str,
     literal: bool = False,
     emotion: str = "спокойная",
+    stop=None,
 ):
     """Единая точка входа озвучки (голос и все фоновые пути).
 
     Обработка одинаковая для обоих путей вызова:
       main.py → stream_llm_to_tts → сюда; ws_handlers → напрямую сюда.
-    [ТОН:], очистка текста и эмоция применяются здесь же.
+    Очистка текста и удаление [ТОН:] применяются здесь же.
 
     Схема: короткий текст — одна Live-сессия; длинный — гибрид быстрого
     старта (_stream_two_stage): первое предложение звучит сразу (<3с),
-    остальное синтезируется параллельно без слышимых пауз."""
-    tone, text = _extract_tone_tag(text)
-    if tone:
-        emotion = tone
+    остальное синтезируется параллельно без слышимых пауз.
+
+    stop — опциональный callable(): вернул True → озвучка прекращается
+    (между пакетами). Полезно для прерывания длинного списка голосом."""
+    from modules.state import tts_stop_requested
+    if stop is None:
+        stop = lambda: tts_stop_requested(device_id)
+
+    _, text = _extract_tone_tag(text)
 
     text = _clean_tts_text(text)
     if not text or len(text.strip()) < MIN_TTS_LEN:
@@ -516,13 +534,17 @@ async def stream_tts_to_device(
 
     t0 = time.monotonic()
     parts = _split_speech(text)
+    sent = 0
     if len(parts) <= 1:
         sent = await _synthesize_and_stream(text, websocket, device_id, emotion)
     else:
         sent = await _stream_two_stage(
-            parts[0], " ".join(parts[1:]), websocket, device_id, emotion, t0)
+            parts[0], " ".join(parts[1:]), websocket, device_id, emotion, t0, stop)
     await _send_end(websocket, device_id)
-    log.info(f"[TTS] Готово за {time.monotonic()-t0:.1f}с | {sent} пакетов | тон: {emotion}")
+    if sent == -1:
+        log.info(f"[TTS] Озвучка прервана по стоп-сигналу | {device_id}")
+    else:
+        log.info(f"[TTS] Готово за {time.monotonic()-t0:.1f}с | {sent} пакетов")
 
 
 async def stream_llm_to_tts(
