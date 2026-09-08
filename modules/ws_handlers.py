@@ -633,7 +633,6 @@ async def answer_voice_info(action: str, arg: str, text: str,
                 f"{summary}. Полный список отправила в Telegram.",
                 ws_dev, device_id or "laptop", literal=True)
         # Telegram (или фоновый путь без TTS) — текстом, с разбивкой по 4096
-        from modules.telegram_clean import strip_tone
         tl = strip_tone(reply)[1]
         for chunk in _split_tg(tl):
             await bot.send_message(MASTER_ID, chunk)
