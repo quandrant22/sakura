@@ -382,9 +382,15 @@ async def music_command(action: str) -> dict:
         info = await _smtc_get_info()
         if not info or not info.get("title"):
             return {"ok": False, "result": "Ничего не играет"}
-        # Обогащаем через YM API (обложка, жанр, год, track_id)
+        # Обогащаем через YM API (обложка, жанр, год) — с жёстким лимитом 2с.
+        # Для голосового «что играет» нужны только исполнитель и название:
+        # если Яндекс тормозит — отдаём базовые данные из SMTC сразу
+        # (цель: ответ агента за 2-3 секунды).
         try:
-            ym = await asyncio.to_thread(_enrich_with_ym, info["artist"], info["title"])
+            ym = await asyncio.wait_for(
+                asyncio.to_thread(_enrich_with_ym, info["artist"], info["title"]),
+                timeout=2.0,
+            )
             if ym:
                 info["cover_url"]  = ym.get("cover_url", "")
                 info["genre"]      = ym.get("genre", "")

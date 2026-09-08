@@ -348,11 +348,27 @@ async def handle_command_result(websocket, data, ctx) -> None:
     # Музыкальный ответ — приоритет
     if data.get("music"):
         music  = data["music"]
-        # помечаем: ответ на now_playing будет озвучен здесь с реальными
-        # данными — waiter в handle_voice_command не должен дублировать
+        _late_answered = False
         if _cmd_id_from_agent and _cmd_id_from_agent in st._pending_commands:
-            st._pending_commands[_cmd_id_from_agent]["spoken"] = True
+            _pend = st._pending_commands[_cmd_id_from_agent]
+            # Отказ уже озвучен по таймауту (answered) — поздний реальный
+            # результат обновляем МОЛЧА: двойной ответ хуже медленного
+            _late_answered = bool(_pend.get("answered")) and not _pend.get("spoken")
+            # помечаем: ответ будет озвучен здесь с реальными данными —
+            # waiter в handle_voice_command не должен дублировать
+            _pend["spoken"] = True
         dev_m  = data.get("device_id", "laptop")
+        if _late_answered:
+            _info_late = music.get("info") or {}
+            log.info(f"[music] поздний результат для уже отвеченного "
+                     f"now_playing — молча: {_info_late.get('artist','?')} — {_info_late.get('title','?')}")
+            try:
+                track_play(_info_late.get("artist", ""),
+                           _info_late.get("title", ""),
+                           _info_late.get("album", ""))
+            except Exception as e:
+                log.debug(f"[ws] late now_playing: {type(e).__name__}: {e}")
+            return
         ws_m   = st.connected_devices.get(dev_m)
         # Простые управляющие команды не озвучиваем
         _silent_actions = {"music_next", "music_prev", "music_play_pause",
@@ -677,7 +693,8 @@ async def _speak_now_playing_result(cmd_id: str, ws_dev, device_id: str, bot) ->
     не видит плеер — честное «не вижу, что играет», БЕЗ выдумок.
     """
     try:
-        for _ in range(50):  # 10 сек / 0.2с
+        for _ in range(125):  # 25 сек / 0.2с — агенту нужно время на SMTC +
+            # обогащение через Yandex API; двойной ответ хуже медленного
             await asyncio.sleep(0.2)
             _cmd = st._pending_commands.get(cmd_id, {})
             if _cmd.get("spoken") or _cmd.get("status") in ("executed", "failed"):
@@ -693,6 +710,9 @@ async def _speak_now_playing_result(cmd_id: str, ws_dev, device_id: str, bot) ->
         else:
             _reply = ("Не вижу, что сейчас играет — Яндекс Музыка не отвечает. "
                       "Похоже, она не запущена.")
+        # Помечаем «уже отвечено»: если реальный результат придёт ПОЗЖЕ,
+        # handle_command_result обновит данные молча — без второго ответа
+        _cmd["answered"] = True
         log.info(f"[голос] ответ: {_reply!r}")
         if ws_dev:
             await stream_tts_to_device(_reply, ws_dev, device_id, literal=True)
