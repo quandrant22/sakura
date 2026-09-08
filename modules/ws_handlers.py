@@ -342,11 +342,16 @@ async def handle_command_result(websocket, data, ctx) -> None:
             if _page_prompt:
                 _page_reply = await ask_gemini(_page_prompt, save_history=False)
                 if _page_reply and ext_ws:
+                    log.info(f"[голос] ответ: {_page_reply!r}")
                     await stream_tts_to_device(_page_reply, ext_ws, ext_dev, literal=True)
         return
     # Музыкальный ответ — приоритет
     if data.get("music"):
         music  = data["music"]
+        # помечаем: ответ на now_playing будет озвучен здесь с реальными
+        # данными — waiter в handle_voice_command не должен дублировать
+        if _cmd_id_from_agent and _cmd_id_from_agent in st._pending_commands:
+            st._pending_commands[_cmd_id_from_agent]["spoken"] = True
         dev_m  = data.get("device_id", "laptop")
         ws_m   = st.connected_devices.get(dev_m)
         # Простые управляющие команды не озвучиваем
@@ -388,9 +393,9 @@ async def handle_command_result(websocket, data, ctx) -> None:
         elif "info" in music:
             info = music["info"]
             prompt = (
-                f"Сейчас играет: {info['artist']} — {info['title']}. "
-                f"Статус: {info['status']}. "
-                f"Прогресс: {info['position']} из {info['duration']} ({info['progress']}%). "
+                f"Сейчас играет: {info.get('artist','?')} — {info.get('title','?')}. "
+                f"Статус: {info.get('status','?')}. "
+                f"Прогресс: {info.get('position','?:??')} из {info.get('duration','?:??')} ({info.get('progress',0)}%). "
             )
             if info.get("genre"):
                 prompt += f"Жанр: {info['genre']}. "
@@ -420,6 +425,7 @@ async def handle_command_result(websocket, data, ctx) -> None:
             prompt = f"Результат: {music.get('result', 'готово')}. Скажи коротко."
         music_reply = await ask_gemini(prompt, save_history=False)
         if music_reply:
+            log.info(f"[голос] ответ: {music_reply!r}")
             if ws_m:
                 await stream_tts_to_device(music_reply, ws_m, dev_m, literal=True)
             await bot.send_message(MASTER_ID, music_reply)
@@ -661,6 +667,41 @@ async def answer_voice_info(action: str, arg: str, text: str,
         # Текстом (нет устройства для TTS — либо это TG) — [ТОН: ...] тут не нужен,
         # это указание для голоса, а не для чтения. Та же чистка, что у send_to_master.
         await bot.send_message(MASTER_ID, strip_tone(final)[1])
+
+
+async def _speak_now_playing_result(cmd_id: str, ws_dev, device_id: str, bot) -> None:
+    """music:now_playing: ждём command_result от агента (до 10с) и озвучиваем.
+
+    Если результат уже озвучен в handle_command_result (payload music с
+    реальным треком — поле spoken) — молчим. Если агент не ответил или SMTC
+    не видит плеер — честное «не вижу, что играет», БЕЗ выдумок.
+    """
+    try:
+        for _ in range(50):  # 10 сек / 0.2с
+            await asyncio.sleep(0.2)
+            _cmd = st._pending_commands.get(cmd_id, {})
+            if _cmd.get("spoken") or _cmd.get("status") in ("executed", "failed"):
+                break
+        _cmd    = st._pending_commands.get(cmd_id, {})
+        _status = _cmd.get("status", "sent")
+        _detail = (_cmd.get("detail") or "").strip()
+        if _cmd.get("spoken"):
+            return  # уже сказано с реальными данными (payload music)
+        if _status == "executed" and _detail:
+            # старый формат ack без payload: строка «артист — трек»
+            _reply = _detail
+        else:
+            _reply = ("Не вижу, что сейчас играет — Яндекс Музыка не отвечает. "
+                      "Похоже, она не запущена.")
+        log.info(f"[голос] ответ: {_reply!r}")
+        if ws_dev:
+            await stream_tts_to_device(_reply, ws_dev, device_id, literal=True)
+        try:
+            await bot.send_message(MASTER_ID, _reply)
+        except Exception as e:
+            log.debug(f"[music] now_playing tg: {type(e).__name__}: {e}")
+    except Exception as e:
+        log.debug(f"[music] now_playing: {type(e).__name__}: {e}")
 
 
 async def handle_voice_command(websocket, data, ctx) -> None:
@@ -1610,6 +1651,8 @@ async def handle_voice_command(websocket, data, ctx) -> None:
             }
             _plan_result, _plan_msg = await _execute_plan(
                 _skill_plan, _mk, ws_dev, device_id)
+            if _plan_msg:
+                log.info(f"[голос] ответ: {_plan_msg!r}")
             if ws_dev:
                 await stream_tts_to_device(
                     _plan_msg, ws_dev, device_id or "laptop", literal=True)
@@ -1656,15 +1699,22 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                 items_str = ", ".join(yt_result["items"][:3])
                 _yt_reply = await ask_gemini(f"Нашла на YouTube: {items_str}. Скажи коротко.", save_history=False)
                 if _yt_reply:
+                    log.info(f"[голос] ответ: {_yt_reply!r}")
                     await stream_tts_to_device(_yt_reply, ws_dev, device_id or "laptop", literal=True)
         elif action.startswith("ext:") or action.startswith("browser:"):
             # Браузерные команды через агент
             _cmd_id = _register_command(full_action, device_id or "laptop")
             await ws_dev.send(json.dumps({"type": "command", "action": full_action, "id": _cmd_id}))
-        elif action.startswith("music_"):
+        elif action.startswith("music_") or action.startswith("music:"):
             # Яндекс Музыка через SMTC+API (на агенте)
             _cmd_id = _register_command(full_action, device_id or "laptop")
             await ws_dev.send(json.dumps({"type": "command", "action": full_action, "id": _cmd_id}))
+            # «что сейчас играет» — не выдумываем: ждём результат агента и
+            # озвучиваем реальные данные либо честное «не вижу, что играет»
+            if action == "music:now_playing":
+                await _speak_now_playing_result(
+                    _cmd_id, ws_dev, device_id or "laptop", bot)
+                return
         elif full_action.startswith("open_app:") or full_action.startswith("close_window:"):
             dev = device_id or "laptop"
             tws = st.connected_devices.get(dev, ws_dev)
@@ -1685,8 +1735,11 @@ async def handle_voice_command(websocket, data, ctx) -> None:
             await tws.send(json.dumps({"type": "command", "action": full_action, "id": _cmd_id}))
 
         # Провод 2: подтверждение команды с учётом статуса
-        # Для music_ и screenshot — пропускаем (ответ приходит отдельно)
-        if not full_action.startswith("screenshot:") and not full_action.startswith("music_"):
+        # Для music_, screenshot и music:now_playing — пропускаем
+        # (ответ приходит отдельно: command_result → реальные данные/честный отказ)
+        if (not full_action.startswith("screenshot:")
+                and not full_action.startswith("music_")
+                and full_action != "music:now_playing"):
             try:
                 _disp = _disp_current()
                 _cmd_status = st._pending_commands.get(_cmd_id, {}).get("status", "sent")
@@ -1712,6 +1765,7 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                 )
                 _creply = await ask_gemini(_cmd_confirm, save_history=False)
                 if _creply:
+                    log.info(f"[голос] ответ: {_creply!r}")
                     await stream_tts_to_device(
                         _creply, ws_dev, device_id or "laptop", literal=True)
             except Exception as e:
@@ -1747,6 +1801,7 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                 )
                 _creply = await ask_gemini(_cmd_confirm, save_history=False)
                 if _creply:
+                    log.info(f"[голос] ответ: {_creply!r}")
                     await bot.send_message(MASTER_ID, _creply)
             except Exception as e:
                 log.debug(f"[ws] _say: {type(e).__name__}: {e}")

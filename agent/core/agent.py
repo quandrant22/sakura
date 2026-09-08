@@ -291,6 +291,10 @@ class Agent:
         _music_action = None
         if action.startswith("music_"):
             _music_action = action
+        elif action == "music:now_playing":
+            # «что сейчас играет» → полный music_info (SMTC + обогащение YM API):
+            # результат уходит на VPS payload-ом music{info} и озвучивается там
+            _music_action = "music_info"
         elif action in ("music:next", "music:prev", "music:play_pause"):
             _music_action = action.replace("music:", "music_")
         elif action in ("music:like", "music:dislike"):
@@ -332,10 +336,10 @@ class Agent:
             return
 
         # ── music app-команды (SMTC / deep links / hotkeys через yamusic_app) ──
+        # (music:next/prev/play_pause/like/dislike/now_playing перехвачены выше
+        # через core.music; здесь — только то, чего там нет)
         if action in (
-            "music:like", "music:dislike", "music:now_playing",
             "music:wave", "music:play", "music:pause",
-            "music:next", "music:prev",
         ):
             try:
                 from core import yamusic_app as _ym
