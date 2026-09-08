@@ -12,6 +12,7 @@ import base64
 import logging
 import os
 import random
+import re
 import time as _time
 
 import modules.state as st
@@ -537,6 +538,38 @@ async def execute_critical_action(critical_action: str, ws_dev, device_id, text:
         )
     except Exception as e:
         log.debug(f"[ws] execute_critical_action: {type(e).__name__}: {e}")
+_TG_MSG_LIMIT = 4096
+
+
+def _split_tg(text: str) -> list[str]:
+    """Режет текст на куски ≤4096, не рвя внутри строки (каждая строка —
+    пункт списка). Строку длиннее лимита (редкость) режем по пробелу."""
+    text = (text or "").strip()
+    if not text:
+        return []
+    if len(text) <= _TG_MSG_LIMIT:
+        return [text]
+    chunks, cur = [], ""
+    for line in text.splitlines():
+        # отдельная строка длиннее лимита — режем по пробелу
+        while len(line) >= _TG_MSG_LIMIT:
+            cut = line.rfind(" ", 0, _TG_MSG_LIMIT)
+            if cut <= 0:
+                cut = _TG_MSG_LIMIT
+            if cur:
+                chunks.append(cur)
+                cur = ""
+            chunks.append(line[:cut].strip())
+            line = line[cut:].strip()
+        nxt = (cur + "\n" + line) if cur else line
+        if len(nxt) > _TG_MSG_LIMIT:
+            chunks.append(cur)
+            cur = line
+        else:
+            cur = nxt
+    if cur:
+        chunks.append(cur)
+    return chunks
 
 
 async def answer_voice_info(action: str, arg: str, text: str,
@@ -562,6 +595,49 @@ async def answer_voice_info(action: str, arg: str, text: str,
     except Exception as e:
         log.error(f"[voice_info] {action}: {type(e).__name__}: {e}")
         reply, ok = "Не смогла получить данные — источник недоступен.", False
+
+    # ── ПОЛНЫЙ СПИСОК АЧИВОК: специальная обработка каналов ──────────
+    # Голос (по умолчанию) — сводка + «полный список в Telegram»; явная
+    # просьба «зачитай» → читаем вслух. Telegram — текстом с разбивкой.
+    if (isinstance(reply, str)
+            and action in ("steam:achievements:full",
+                           "steam:achievements:todo",
+                           "steam:achievements:done")):
+        from modules import voice_info as _vi
+        from modules.state import tts_stop_requested
+        mode = action.split(":")[-1]
+        want_read = bool(re.search(
+            r"(?<!\w)(?:зачитай|прочитай|перечисли|назови\s+все|читай\s+вслух)\w*",
+            (text or "").lower()))
+        # сводка для голоса — из уже готового reply (первая строка)
+        summary = (reply or "").strip().splitlines()
+        summary = summary[0] if summary else reply
+        if ws_dev and want_read:
+            # читаем вслух полный список, сначала загрузив части заново
+            parts, ok_read = await _vi.steam_achievements_read(arg, mode)
+            if ok_read:
+                from modules.state import tts_reading_start, tts_reading_end
+                tts_reading_start(device_id or "laptop")
+                try:
+                    for p in parts:
+                        if tts_stop_requested(device_id or "laptop"):
+                            break
+                        await stream_tts_to_device(p, ws_dev, device_id or "laptop",
+                                                   literal=True)
+                finally:
+                    tts_reading_end(device_id or "laptop")
+            return
+        if ws_dev:
+            # голос: краткая сводка + намёк про Telegram
+            await stream_tts_to_device(
+                f"{summary}. Полный список отправила в Telegram.",
+                ws_dev, device_id or "laptop", literal=True)
+        # Telegram (или фоновый путь без TTS) — текстом, с разбивкой по 4096
+        from modules.telegram_clean import strip_tone
+        tl = strip_tone(reply)[1]
+        for chunk in _split_tg(tl):
+            await bot.send_message(MASTER_ID, chunk)
+        return
 
     if ok and reply:
         # Факты есть — произносим своим голосом, НО только эти факты
@@ -611,6 +687,23 @@ async def handle_voice_command(websocket, data, ctx) -> None:
 
     # Интим-режим: детект на каждое сообщение Мастера
     _im_mark(text)
+
+    # ── СТОП долгой озвучки («стоп», «хватит», «достаточно») ─────────
+    # Если идёт чтение полного списка и Мастер просит остановить — ставим
+    # флаг (чтение оборвётся между пакетами) и не даём «стоп» распознаться
+    # как посторонняя команда.
+    try:
+        from modules.state import (tts_is_reading, tts_request_stop,
+                                   tts_reading_end)
+    except Exception:
+        tts_is_reading = tts_request_stop = tts_reading_end = lambda *a, **k: None
+    if tts_is_reading(device_id or "laptop") and re.search(
+            r"(?<!\w)(?:стоп|хватит|достаточно|останови\s+чтение|"
+            r"перестань\s+читать|хватит\s+читать)\w*", text_lower):
+        tts_request_stop(device_id or "laptop")
+        await stream_tts_to_device("Хорошо, остановилась.", ws_dev,
+                                   device_id or "laptop", literal=True)
+        return
 
     # ── СЕМАНТИЧЕСКИЙ КЛАССИФИКАТОР НАМЕРЕНИЙ ──────────
     # Быстро определяем тип: команда, запрос или разговор
@@ -1193,17 +1286,15 @@ async def handle_voice_command(websocket, data, ctx) -> None:
     if _mk in st._pending_system:
         _ps = st._pending_system[_mk]
         if _now_ts - _ps["ts"] < 60:
-            _ps_text = text.lower().strip().rstrip(".!?,")
-            _ps_confirm = ("да", "давай", "подтверждаю", "выключай", "точно", "конечно", "ага", "угу")
-            _ps_deny = ("нет", "отмена", "стоп", "не надо", "хватит")
-            if _ps_text in _ps_confirm:
+            _ps_result = st.check_confirmation(text)
+            if _ps_result == "confirm":
                 del st._pending_system[_mk]
                 if ws_dev:
                     await execute_critical_action(_ps["action"], ws_dev, device_id, text, data.get("active_window", ""), ask_gemini)
                 else:
                     await bot.send_message(MASTER_ID, "Устройство отключилось, не могу выполнить.")
                 return
-            elif _ps_text in _ps_deny:
+            elif _ps_result == "deny":
                 del st._pending_system[_mk]
                 _ps_cancel_msg = "Хорошо, отменила."
                 if ws_dev:

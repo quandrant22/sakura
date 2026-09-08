@@ -596,3 +596,68 @@ class TestBlock8_CloseWindow(unittest.TestCase):
         # Но это одно совпадение - должна быть просьба о подтверждении
         # (проверяем что ratio < 1.0, т.е. не точное совпадение)
         self.assertLess(ratio, 1.0)
+
+
+# БЛОК 9 — Подтверждение/отмена опасных системных команд
+# ════════════════════════════════════════════════════════════════════
+
+class TestBlock9_Confirmation(unittest.TestCase):
+    """check_confirmation: вхождение слов по границам, приоритет отрицания."""
+
+    def test_confirm_exact_word(self):
+        """9.1: точное слово «подтверждаю» → confirm."""
+        from modules.state import check_confirmation
+        self.assertEqual(check_confirmation("подтверждаю"), "confirm")
+
+    def test_confirm_with_particles(self):
+        """9.2: «да, подтверждаю» и «подтверждаю выключение» → confirm."""
+        from modules.state import check_confirmation
+        self.assertEqual(check_confirmation("да, подтверждаю"), "confirm")
+        self.assertEqual(check_confirmation("подтверждаю выключение"), "confirm")
+
+    def test_confirm_short_answers(self):
+        """9.3: короткие ответы «ага», «ок», «давай» → confirm."""
+        from modules.state import check_confirmation
+        self.assertEqual(check_confirmation("ага"), "confirm")
+        self.assertEqual(check_confirmation("ок"), "confirm")
+        self.assertEqual(check_confirmation("окей"), "confirm")
+        self.assertEqual(check_confirmation("давай"), "confirm")
+        self.assertEqual(check_confirmation("точно"), "confirm")
+
+    def test_deny_exact_word(self):
+        """9.4: точное слово «нет» → deny."""
+        from modules.state import check_confirmation
+        self.assertEqual(check_confirmation("нет"), "deny")
+
+    def test_deny_with_negation_phrase(self):
+        """9.5: «нет, не подтверждаю» → deny (приоритет отрицания)."""
+        from modules.state import check_confirmation
+        self.assertEqual(check_confirmation("нет, не подтверждаю"), "deny")
+        self.assertEqual(check_confirmation("не выключай"), "deny")
+        self.assertEqual(check_confirmation("не надо"), "deny")
+        self.assertEqual(check_confirmation("отмена"), "deny")
+
+    def test_deny_overrides_confirm(self):
+        """9.6: отрицание имеет приоритет даже при наличии слова подтверждения."""
+        from modules.state import check_confirmation
+        # «не подтверждаю» содержит «подтверждаю», но отрицание первично
+        self.assertEqual(check_confirmation("не подтверждаю"), "deny")
+        # «передумал выключать» — отрицание
+        self.assertEqual(check_confirmation("передумал"), "deny")
+
+    def test_neutral_text_returns_none(self):
+        """9.7: нейтральный текст → None (обычная обработка)."""
+        from modules.state import check_confirmation
+        self.assertIsNone(check_confirmation("а какая погода"))
+        self.assertIsNone(check_confirmation("что ты думаешь"))
+        self.assertIsNone(check_confirmation(""))
+
+    def test_word_boundary_no_partial_match(self):
+        """9.8: границы слов — «подтверждение» не матчит «подтверждаю»."""
+        from modules.state import check_confirmation
+        # «подтверждение» — другое слово, не должно матчить
+        # (но «подтвержд» входит в список как «подтвердить»)
+        # Проверяем что «подтверждено» не матчит (другая форма)
+        result = check_confirmation("подтверждено")
+        # Это не должно быть confirm (слово другой формы)
+        self.assertNotEqual(result, "confirm")

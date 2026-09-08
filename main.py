@@ -156,7 +156,7 @@ from modules.state import (
     connected_devices, _pending_event_check, _pending_describe,
     _pending_commands, _pending_clarify, _last_executed,
     _pending_plan, _plan_cancel, _last_command_ts, _current_track,
-    _pending_system,
+    _pending_system, check_confirmation,
 )
 from modules.ws_handlers import (
     handle_register, handle_ping, handle_apps_list, handle_screen_context,
@@ -2911,16 +2911,28 @@ async def handle_message(message: Message):
     log.info(f"[вход] {text[:300]!r}")
     update_master_status(text)
 
+    # ── СТОП долгой озвучки (полного списка ачивок и др.) из Telegram ──
+    try:
+        from modules.state import (tts_is_reading, tts_request_stop_anywhere)
+    except Exception:
+        tts_is_reading = lambda *a, **k: False
+        tts_request_stop_anywhere = lambda: 0
+    _stop_txt = text_lower.strip().rstrip(".!?,")
+    if _stop_txt in ("стоп", "хватит", "достаточно",
+                     "останови чтение", "перестань читать", "хватит читать"):
+        if tts_request_stop_anywhere():
+            await bot.send_message(MASTER_ID, "Хорошо, остановилась.")
+        return
+
+
     # ── ПОДТВЕРЖДЕНИЕ ОПАСНОЙ СИСТЕМНОЙ КОМАНДЫ (shutdown/restart/sleep) ──
     # Тот же _pending_system, что и в голосовом пути (modules/ws_handlers.py).
     # Ключ "tg" — у Telegram-сообщения нет device_id, как и у голоса без устройства.
     if "tg" in _pending_system:
         _ps = _pending_system["tg"]
         if __import__("time").monotonic() - _ps["ts"] < 60:
-            _ps_text = text_lower.strip().rstrip(".!?,")
-            _ps_confirm = ("да", "давай", "подтверждаю", "выключай", "точно", "конечно", "ага", "угу")
-            _ps_deny = ("нет", "отмена", "стоп", "не надо", "хватит")
-            if _ps_text in _ps_confirm:
+            _ps_result = check_confirmation(text_lower)
+            if _ps_result == "confirm":
                 del _pending_system["tg"]
                 laptop_ws, _active_dev = _get_active_ws()
                 if laptop_ws:
@@ -2929,7 +2941,7 @@ async def handle_message(message: Message):
                 else:
                     await message.answer("Устройство отключилось, не могу выполнить.")
                 return
-            elif _ps_text in _ps_deny:
+            elif _ps_result == "deny":
                 del _pending_system["tg"]
                 await message.answer("Хорошо, отменила.")
                 return
