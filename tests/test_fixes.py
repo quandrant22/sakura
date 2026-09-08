@@ -264,13 +264,32 @@ class TestBlock3_TTS(unittest.TestCase):
         self.assertIn("Озвучь текст ниже", p)
         self.assertIn("ровным голосом", p)
 
-    def test_live_config_pins_language(self):
-        """3.2: language_code зафиксирован."""
+    def test_live_config_no_language_code(self):
+        """3.2: language_code НЕ ставится — native audio выбирает язык сам
+        (поле поддерживается только half-cascade моделями, на native audio
+        игнорируется). Язык задаётся системной инструкцией."""
         from modules.tts_server import _live_config
         cfg = _live_config()
         sc = cfg.speech_config
         lang = getattr(sc, "language_code", None) or (sc.get("language_code") if isinstance(sc, dict) else None)
-        self.assertEqual(lang, "ru-RU")
+        self.assertIsNone(lang)
+
+    def test_voice_passthrough(self):
+        """Голос из TTS_VOICE попадает в SpeechConfig; можно передать и явно."""
+        import modules.tts_server as tts
+        old = tts.TTS_VOICE
+        try:
+            tts.TTS_VOICE = "Kore"
+            cfg = tts._live_config()
+            self.assertEqual(
+                cfg.speech_config.voice_config.prebuilt_voice_config.voice_name,
+                "Kore")
+            cfg2 = tts._live_config("Gacrux")
+            self.assertEqual(
+                cfg2.speech_config.voice_config.prebuilt_voice_config.voice_name,
+                "Gacrux")
+        finally:
+            tts.TTS_VOICE = old
 
 
 # ════════════════════════════════════════════════════════════════════

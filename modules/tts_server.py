@@ -15,6 +15,7 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import re
 import time
 from typing import AsyncIterator
@@ -27,7 +28,10 @@ from config import get_active_key, mark_key_used
 log = logging.getLogger(__name__)
 
 TTS_MODEL       = "gemini-2.5-flash-native-audio-latest"
-TTS_VOICE       = "Aoede"
+# Голос задаётся через .env (TTS_VOICE) — смена без правки кода.
+# Список из 30 предустановленных голосов см. в .env.example;
+# прослушать кандидатов: python3 tools/voice_test.py
+TTS_VOICE       = os.getenv("TTS_VOICE", "Aoede")
 TTS_SAMPLE_RATE = 24000
 SESSION_TIMEOUT = 25
 
@@ -169,24 +173,31 @@ def _tts_prefix(emotion: str = "спокойная") -> str:
     )
 
 
-def _speech_config():
-    """SpeechConfig с фиксированным языком: без language_code native audio
-    определяет язык по тексту и меняет голос/акцент (заметно на японском)."""
-    voice = types.VoiceConfig(
-        prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=TTS_VOICE)
+def _speech_config(voice: str | None = None):
+    """SpeechConfig с голосом (по умолчанию — TTS_VOICE из окружения).
+
+    Язык в конфиге НЕ задаётся: native audio модели выбирают язык
+    автоматически (док-я Live API: «Native audio output models can switch
+    between languages naturally during conversation. You can also restrict
+    the languages it speaks in by specifying it in the system instructions»).
+    Поле language_code в SpeechConfig поддерживается только half-cascade
+    моделями — на native audio оно игнорируется. Поэтому язык управления
+    идёт через системную инструкцию, а не через SpeechConfig.
+    """
+    return types.SpeechConfig(
+        voice_config=types.VoiceConfig(
+            prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                voice_name=voice or TTS_VOICE
+            )
+        )
     )
-    try:
-        return types.SpeechConfig(language_code="ru-RU", voice_config=voice)
-    except TypeError:
-        log.debug("[TTS] SDK не принимает language_code в SpeechConfig")
-        return types.SpeechConfig(voice_config=voice)
 
 
-def _live_config():
+def _live_config(voice: str | None = None):
     base = dict(
         response_modalities=["AUDIO"],
         thinking_config=types.ThinkingConfig(thinking_budget=0),
-        speech_config=_speech_config(),
+        speech_config=_speech_config(voice),
     )
     try:
         return types.LiveConnectConfig(enable_affective_dialog=True, **base)
@@ -195,9 +206,11 @@ def _live_config():
         return types.LiveConnectConfig(**base)
 
 
-async def _synthesize(text: str, emotion: str = "спокойная") -> list[bytes]:
+async def _synthesize(text: str, emotion: str = "спокойная", voice: str | None = None) -> list[bytes]:
     """
     Буферный синтез — возвращает список пакетов.
+    voice — имя предустановленного голоса Live API (None → TTS_VOICE);
+    используется tools/voice_test.py для прослушивания кандидатов.
     """
     key = get_active_key()
     if not key:
@@ -208,7 +221,7 @@ async def _synthesize(text: str, emotion: str = "спокойная") -> list[by
         try:
             client = await _get_client()
             async with client.aio.live.connect(
-                model=TTS_MODEL, config=_live_config()
+                model=TTS_MODEL, config=_live_config(voice)
             ) as session:
                 await session.send_client_content(
                     turns=types.Content(role="user", parts=[types.Part(text=_tts_prefix(emotion) + text)]),
