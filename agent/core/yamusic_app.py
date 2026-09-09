@@ -10,8 +10,10 @@ core/yamusic_app.py — управление десктопным приложе
 Браузерный путь (browser.py) НЕ удаляется — остаётся как fallback.
 """
 import os
+import asyncio
 import logging
 import time
+import threading
 from typing import Optional
 
 log = logging.getLogger("sakura.yamusic_app")
@@ -112,29 +114,57 @@ async def _find_yandex_session_async():
         return None
 
 
+# ── Выделенный поток для SMTC ─────────────────────────────────────────
+# winsdk-awaitable нельзя дожидать через run_coroutine_threadsafe().result()
+# ИЗ потока, на котором крутится loop агента: loop заблокирован в .result()
+# и coroutine никогда не выполнится (взаимоблокировка до timeout). Поэтому
+# все синхронные SMTC-вызовы уходят в выделенный worker-поток со своим loop.
+_smtc_loop: Optional[asyncio.AbstractEventLoop] = None
+_smtc_loop_lock = threading.Lock()
+
+
+def _get_smtc_loop() -> "asyncio.AbstractEventLoop":
+    """Собственный event loop в daemon-потоке — только для winsdk/SMTC."""
+    global _smtc_loop
+    with _smtc_loop_lock:
+        if _smtc_loop is not None and not _smtc_loop.is_closed():
+            return _smtc_loop
+        ready = threading.Event()
+
+        def _worker():
+            global _smtc_loop
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            _smtc_loop = loop
+            ready.set()
+            loop.run_forever()
+
+        threading.Thread(target=_worker, daemon=True, name="smtc-worker").start()
+        if not ready.wait(timeout=5.0):
+            raise RuntimeError("smtc-worker не запустился за 5с")
+        return _smtc_loop
+
+
 def _run_smtc(awaitable, timeout: float = 3.0):
-    """Дожидается winsdk-awaitable из синхронного кода.
+    """Дожидается winsdk-awaitable из синхронного кода БЕЗ блокировки loop'а агента.
 
     winsdk-методы возвращают awaitable (IAsyncOperation), а не coroutine —
-    заворачиваем в coroutine, чтобы работал и запущенный loop агента
-    (run_coroutine_threadsafe из другого потока), и синхронный запуск.
+    заворачиваем в coroutine. Выполнение всегда идёт в выделенном
+    smtc-worker-потоке: вызывающий поток (даже если это loop агента)
+    блокируется максимум на timeout, но main-loop продолжает работать.
     """
     import asyncio
-    import inspect
 
     async def _call():
         return await awaitable
 
+    import concurrent.futures
     try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = None
-    if loop is not None and loop.is_running():
-        fut = asyncio.run_coroutine_threadsafe(_call(), loop)
+        fut = asyncio.run_coroutine_threadsafe(_call(), _get_smtc_loop())
         return fut.result(timeout=timeout)
-    if loop is not None:
-        return loop.run_until_complete(_call())
-    return asyncio.run(_call())
+    except concurrent.futures.TimeoutError:
+        log.warning(f"[yamusic] SMTC вызов не уложился в {timeout}с")
+        raise
 
 
 def _yandex_smtc_session():
@@ -194,9 +224,15 @@ def now_playing() -> dict:
         # рабочий вариант: props = await s.try_get_media_properties_async()
         props = _resolve(s.try_get_media_properties_async())
         pb = s.get_playback_info()
-        _st_map = {0: "остановлен", 1: "играет", 2: "пауза",
-                   3: "переключение", 4: "закрыт"}
-        st_code = getattr(pb, "playback_status", 1)
+        # WinRT GlobalSystemMediaTransportControlsSessionPlaybackStatus:
+        #   0=Closed, 1=Opened, 2=Changed, 3=Stopped, 4=Playing, 5=Paused
+        # (прежняя карта {0:'остановлен',1:'играет',2:'пауза',3:'переключение',
+        # 4:'закрыт'} была НЕВЕРНОЙ — играющий трек (4) помечался как 'закрыт',
+        # а пауза (5) проваливалась в дефолт 'играет')
+        _st_map = {0: "закрыт", 1: "открыт", 2: "переключение",
+                   3: "остановлен", 4: "играет", 5: "пауза"}
+        st_code = getattr(pb, "playback_status", 4)
+        st_code = int(st_code) if not isinstance(st_code, int) else st_code
         return {
             "title":  getattr(props, "title", "") or "",
             "artist": getattr(props, "artist", "") or "",

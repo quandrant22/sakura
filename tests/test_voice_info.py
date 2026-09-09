@@ -698,8 +698,11 @@ class TestYamusicApp(unittest.TestCase):
     # ── Мокированный Windows-путь ──────────────────────────────────────
 
     def _mock_session(self, title="Песня", artist="Артист", album="Альбом",
-                      status=1, pb_return=True):
+                      status=4, pb_return=True):
         """Создаёт мок SMTC-сессии Яндекс Музыки.
+
+        status — код WinRT GlobalSystemMediaTransportControlsSessionPlaybackStatus
+        (0=Closed, 1=Opened, 2=Changed, 3=Stopped, 4=Playing, 5=Paused).
 
         try_get_media_properties_async() возвращает объект с .get(),
         возвращающим props (имитация async-результа).
@@ -726,8 +729,13 @@ class TestYamusicApp(unittest.TestCase):
         return session
 
     def test_now_playing_with_smtc_session(self):
-        """При наличии SMTC-сессии now_playing() возвращает трек."""
-        session = self._mock_session(title="My Song", artist="Artist")
+        """При наличии SMTC-сессии now_playing() возвращает трек.
+
+        Регрессия на баг «статус 'закрыт' при играющей музыке»:
+        играющий трек — код 4 (Playing), а НЕ 1.
+        """
+        session = self._mock_session(title="My Song", artist="Artist",
+                                     status=4)
         with patch("agent.core.yamusic_app._yandex_smtc_session",
                    return_value=session):
             from agent.core import yamusic_app as ym
@@ -736,6 +744,25 @@ class TestYamusicApp(unittest.TestCase):
         self.assertEqual(info["artist"], "Artist")
         self.assertEqual(info["album"], "Альбом")
         self.assertEqual(info["status"], "играет")
+
+    def test_now_playing_status_map(self):
+        """Карта статусов SMTC соответствует WinRT enum.
+
+        Прежняя карта ({1:'играет', 4:'закрыт'}) была сдвинута на 3 позиции:
+        играющий трек (4) помечался 'закрыт', пауза (5) — дефолт 'играет'.
+        """
+        with patch("agent.core.yamusic_app._yandex_smtc_session",
+                   return_value=self._mock_session(status=5)):
+            from agent.core import yamusic_app as ym
+            self.assertEqual(ym.now_playing()["status"], "пауза")
+        with patch("agent.core.yamusic_app._yandex_smtc_session",
+                   return_value=self._mock_session(status=3)):
+            from agent.core import yamusic_app as ym
+            self.assertEqual(ym.now_playing()["status"], "остановлен")
+        with patch("agent.core.yamusic_app._yandex_smtc_session",
+                   return_value=self._mock_session(status=0)):
+            from agent.core import yamusic_app as ym
+            self.assertEqual(ym.now_playing()["status"], "закрыт")
 
     def test_music_target_with_smtc_returns_app(self):
         """При наличии SMTC-сессии music_target() → 'app'."""

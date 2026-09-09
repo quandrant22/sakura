@@ -66,14 +66,15 @@ async def _smtc_get_info() -> Optional[dict]:
             GlobalSystemMediaTransportControlsSessionPlaybackStatus as PlaybackStatus,
         )
 
-        sessions = await MediaManager.request_async()
+        sessions = await asyncio.wait_for(MediaManager.request_async(), timeout=3.0)
         session = _pick_yamusic_session(sessions)
         if not session:
             session = sessions.get_current_session()
         if not session:
             return None
 
-        props    = await session.try_get_media_properties_async()
+        props    = await asyncio.wait_for(
+            session.try_get_media_properties_async(), timeout=3.0)
         timeline = session.get_timeline_properties()
         playback = session.get_playback_info()
 
@@ -111,18 +112,40 @@ async def _smtc_get_info() -> Optional[dict]:
         return None
 
 
-def get_current_track() -> dict:
-    """Синхронная обёртка для получения текущего трека (из контекста агента)."""
+_track_cache: dict = {"ts": 0.0, "info": None}
+_TRACK_TTL = 2.0  # сек: heartbeat дергает раз в 2с — SMTC не нужно чаще
+
+
+def get_current_track(timeout: float = 2.5) -> dict:
+    """Синхронная обёртка для получения текущего трека (из контекста агента).
+
+    ВАЖНО: НЕ вызывать из loop-потока агента (heartbeat/_payload) — вызов
+    блокирует вызывающий поток до timeout. Раньше здесь был
+    run_coroutine_threadsafe(...).result(timeout) ИЗ работающего loop'а —
+    взаимоблокировка: coroutine не мог выполниться, пока loop-поток спал
+    в .result(). Heartbeat звал это каждые 2с → loop замерзал по секунде,
+    очередь задач росла, и command_result для music:now_playing уходил
+    на сервер с задержкой в десятки секунд («Яндекс Музыка не отвечает»).
+    Теперь SMTC-вызов выполняется в выделенном smtc-worker-потоке
+    (core.yamusic_app._run_smtc): main-loop работает, вызывающий поток
+    (например, обработчик команды в to_thread) ждёт максимум timeout.
+    Агент использует await _smtc_get_info() в heartbeat + кэш.
+    """
+    import time as _t
+    now = _t.monotonic()
+    cached = _track_cache["info"]
+    if cached is not None and now - _track_cache["ts"] < _TRACK_TTL:
+        return cached
+    info: dict = {}
     try:
-        import asyncio
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            future = asyncio.run_coroutine_threadsafe(_smtc_get_info(), loop)
-            return future.result(timeout=1.0) or {}
-        else:
-            return loop.run_until_complete(_smtc_get_info()) or {}
-    except Exception:
-        return {}
+        from core.yamusic_app import _run_smtc
+        info = _run_smtc(_smtc_get_info(), timeout=timeout) or {}
+    except Exception as e:
+        log.debug(f"[music] get_current_track: {type(e).__name__}: {e}")
+        info = {}
+    _track_cache["info"] = info
+    _track_cache["ts"] = now
+    return info
 
 
 async def _smtc_control(action: str) -> bool:

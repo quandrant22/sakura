@@ -55,6 +55,7 @@ class Agent:
         self._activity_level = 0.0
         self.local_mood = LocalMood()
         self._last_mood_update = {}  # последний mood_update от сервера
+        self._current_track = {}     # кэш текущего трека (обновляет heartbeat)
         self._abort_flag = False     # аварийный тормоз (abort_all)
 
     def set_state(self, state: str):
@@ -114,18 +115,11 @@ class Agent:
             "focus_seconds": focus_seconds,
             "activity_level": round(self._activity_level, 2),
         }
-        # Добавляем текущий трек через SMTC
-        try:
-            import asyncio as _aio
-            from core.music import _smtc_get_info
-            loop = _aio.get_event_loop()
-            if loop.is_running():
-                future = _aio.run_coroutine_threadsafe(_smtc_get_info(), loop)
-                track = future.result(timeout=1.0)
-                if track and track.get("title"):
-                    payload["current_track"] = track
-        except Exception:
-            pass
+        # Добавляем текущий трек — ТОЛЬКО из кэша heartbeat (не блокируем
+        # loop-поток: SMTC-вызовы из loop давали задержки command_result)
+        track = self._current_track
+        if track and track.get("title"):
+            payload["current_track"] = track
         return payload
 
     async def _heartbeat(self):
@@ -142,8 +136,15 @@ class Agent:
             if (now - last_mood_emit) >= 2.0:
                 last_mood_emit = now
                 try:
-                    from core.music import get_current_track
-                    track = get_current_track()
+                    from core.music import _smtc_get_info
+                    # await внутри loop'а — НЕ блокируем поток loop'а
+                    # синхронным SMTC-вызовом (прежний вариант
+                    # run_coroutine_threadsafe().result() из loop'а
+                    # взаимоблокировал heartbeat и задерживал
+                    # отправку command_result на сервер)
+                    track = await asyncio.wait_for(_smtc_get_info(), timeout=3.0)
+                    # Кэшируем для _payload("ping") — там SMTC не вызываем
+                    self._current_track = track or {}
                 except Exception:
                     track = None
 
@@ -307,16 +308,25 @@ class Agent:
         elif action in ("music:like", "music:dislike"):
             _music_action = action.replace("music:", "music_")
         if _music_action:
+            _t0 = time.monotonic()
             try:
                 from core.music import music_command
-                result = await music_command(_music_action)
+                log.info(f"[music] начата обработка {_music_action} (id={cmd_id})")
+                result = await asyncio.wait_for(music_command(_music_action), timeout=15.0)
                 result["action"] = _music_action
+                _ms = int((time.monotonic() - _t0) * 1000)
+                log.info(f"[music] результат {_music_action} за {_ms}мс (id={cmd_id}): "
+                         f"ok={result.get('ok')} detail={result.get('result','')!r}")
                 await self._ws.send(json.dumps({
                     "type": "command_result", "id": cmd_id,
                     "device_id": config.DEVICE_ID, "token": config.WS_TOKEN,
                     "ok": True, "detail": result.get("result", ""),
                     "music": result,
                 }))
+                log.info(f"[music] command_result отправлен серверу (id={cmd_id})")
+            except asyncio.TimeoutError:
+                log.error(f"[music] таймаут обработки {_music_action} (id={cmd_id})")
+                await _send_ack(False, f"{_music_action}: таймаут обработки")
             except Exception as e:
                 log.error(f"music error: {e}")
                 await _send_ack(False, f"music error: {e}")
@@ -350,14 +360,17 @@ class Agent:
         ):
             try:
                 from core import yamusic_app as _ym
+                # Все вызовы _ym синхронные и могут блокировать (SMTC,
+                # time.sleep в хоткеях) — только через to_thread, иначе
+                # event loop агента стоит и command_result задерживается
                 if action == "music:like":
-                    ok = _ym.like()
+                    ok = await asyncio.to_thread(_ym.like)
                     detail = "лайк" if ok else "не удалось поставить лайк"
                 elif action == "music:dislike":
-                    ok = _ym.dislike()
+                    ok = await asyncio.to_thread(_ym.dislike)
                     detail = "дизлайк" if ok else "не удалось поставить дизлайк"
                 elif action == "music:now_playing":
-                    info = _ym.now_playing()
+                    info = await asyncio.to_thread(_ym.now_playing)
                     if info:
                         detail = f"{info.get('artist','')} — {info.get('title','')}"
                         if info.get("status") != "играет":
@@ -366,19 +379,19 @@ class Agent:
                         detail = "Яндекс Музыка не запущена"
                     ok = bool(info)
                 elif action == "music:wave":
-                    ok = _ym.open_wave()
+                    ok = await asyncio.to_thread(_ym.open_wave)
                     detail = "Моя волна" if ok else "не удалось открыть"
                 elif action == "music:play":
-                    ok = _ym.play_pause()
+                    ok = await asyncio.to_thread(_ym.play_pause)
                     detail = "играет" if ok else "SMTC сессия не найдена"
                 elif action == "music:pause":
-                    ok = _ym.play_pause()
+                    ok = await asyncio.to_thread(_ym.play_pause)
                     detail = "пауза" if ok else "SMTC сессия не найдена"
                 elif action == "music:next":
-                    ok = _ym.next_track()
+                    ok = await asyncio.to_thread(_ym.next_track)
                     detail = "след. трек" if ok else "SMTC сессия не найдена"
                 elif action == "music:prev":
-                    ok = _ym.prev_track()
+                    ok = await asyncio.to_thread(_ym.prev_track)
                     detail = "пред. трек" if ok else "SMTC сессия не найдена"
                 else:
                     ok, detail = False, f"unknown: {action}"

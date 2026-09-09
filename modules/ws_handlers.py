@@ -300,6 +300,13 @@ async def handle_command_result(websocket, data, ctx) -> None:
     _cmd_ok = True
     _cmd_detail = ""
     _cmd_id_from_agent = data.get("id")
+    if _cmd_id_from_agent and _cmd_id_from_agent not in st._pending_commands:
+        # id не совпал ни с одной отправленной командой — waiter не проснётся.
+        # Явный лог обоих наборов: что агент прислал vs что сервер регистрировал
+        log.warning(
+            f"[ws] command_result с НЕИЗВЕСТНЫМ id={_cmd_id_from_agent!r} "
+            f"(device={data.get('device_id')}) — ожидались: "
+            f"{[k for k, v in st._pending_commands.items() if v['status'] == 'sent'][-5:]}")
     if _cmd_id_from_agent and _cmd_id_from_agent in st._pending_commands:
         # Агент прислал ack с полем ok
         if "ok" in data:
@@ -349,6 +356,12 @@ async def handle_command_result(websocket, data, ctx) -> None:
     if data.get("music"):
         music  = data["music"]
         _late_answered = False
+        # Явный лог совпадения id: какой агент отправил vs какой сервер ждёт
+        log.info(
+            f"[music] command_result получен: id агента={_cmd_id_from_agent!r}, "
+            f"в pending={_cmd_id_from_agent in st._pending_commands}, "
+            f"action={music.get('action')}, "
+            f"detail={(_cmd_detail or music.get('result',''))[:80]!r}")
         if _cmd_id_from_agent and _cmd_id_from_agent in st._pending_commands:
             _pend = st._pending_commands[_cmd_id_from_agent]
             # Отказ уже озвучен по таймауту (answered) — поздний реальный
