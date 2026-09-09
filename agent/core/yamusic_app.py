@@ -23,8 +23,11 @@ try:
     )
     _SMTC_OK = True
 except ImportError:
+    _MediaManager = None
     _SMTC_OK = False
-    log.debug("[yamusic] winsdk не установлен")
+    # ЯВНОЕ предупреждение вместо молчаливой деградации.
+    # Полная проверка всех зависимостей — core/dep_check.py при старте агента.
+    log.warning("[agent] winsdk не установлен — управление музыкой недоступно")
 
 try:
     import win32gui, win32con, win32api
@@ -32,9 +35,106 @@ try:
 except ImportError:
     _HAS_WIN32 = False
 
+# Единая нормализация названий (кириллица → латиница) из корня репо.
+# В автономной PyInstaller-сборке modules/ может отсутствовать — тогда
+# работаем на прямых подстроках (кириллица+латиница) без транслита.
+try:
+    from modules.translit import transliterate as _translit
+except ImportError:
+    try:
+        from translit import transliterate as _translit
+    except ImportError:
+        _translit = None
+
 
 # ── Deep link-форматы (из аккаунта Мастера / Яндекс API) ───────────────
 _YANDEX_DEEP = "yandexmusic://"
+
+# Реальный AUMID на машине Мастера — 'Яндекс Музыка.exe' КИРИЛЛИЦЕЙ,
+# поэтому матчим и кириллицу, и латиницу, и транслит.
+_YAMUSIC_TOKENS = ("яндекс", "yandex", "музыка")
+# Транслит-варианты: 'яндекс'→'yandeks' (кс→x!), 'музыка'→'muzyka'
+_YAMUSIC_TRANSLIT_TOKENS = ("yandex", "yandeks", "music", "muzyka")
+# Браузеры НЕ матчим: рядом может висеть сессия Opera с ютубом —
+# пауза уйдёт не туда. Проверяются ДО музыкальных токенов.
+_BROWSER_TOKENS = (
+    "opera", "chrome", "chromium", "msedge", "edge", "firefox",
+    "browser", "браузер", "brave", "vivaldi", "safari", "arc",
+)
+
+
+def is_yandex_music_aumid(aumid: str) -> bool:
+    """True, если AUMID — это десктопное приложение Яндекс Музыки.
+
+    Сопоставляет варианты 'яндекс'/'yandex'/'музыка'/'music'
+    регистронезависимо, в кириллице и латинице (+ транслит).
+    Гарантированно НЕ матчит браузеры (opera.exe и т.п.).
+    """
+    if not aumid:
+        return False
+    low = (aumid or "").lower()
+    # Сначала браузеры — чтобы 'Яндекс Браузер' не прошел по 'яндекс'
+    if any(t in low for t in _BROWSER_TOKENS):
+        return False
+    if any(t in low for t in _YAMUSIC_TOKENS):
+        return True
+    if _translit is not None:
+        tr = _translit(low)  # 'яндекс музыка.exe' → 'yandeks muzyka.exe'
+        if any(t in tr for t in _YAMUSIC_TRANSLIT_TOKENS):
+            return True
+    return False
+
+
+def _match_yamusic_session(sessions) -> Optional[object]:
+    """Ищет сессию Яндекс Музыки в уже полученном списке сессий."""
+    for s in sessions:
+        try:
+            aumid = s.source_app_user_model_id or ""
+        except Exception:
+            continue
+        if is_yandex_music_aumid(aumid):
+            return s
+    return None
+
+
+async def _find_yandex_session_async():
+    """Рабочий вариант (проверен на машине):
+        mgr = await M.request_async()
+        for s in mgr.get_sessions(): ...
+    """
+    mgr = await _MediaManager.request_async()
+    if mgr is None:
+        return None
+    try:
+        return _match_yamusic_session(mgr.get_sessions())
+    except Exception as e:
+        log.debug(f"[yamusic] SMTC enumerate: {e}")
+        return None
+
+
+def _run_smtc(awaitable, timeout: float = 3.0):
+    """Дожидается winsdk-awaitable из синхронного кода.
+
+    winsdk-методы возвращают awaitable (IAsyncOperation), а не coroutine —
+    заворачиваем в coroutine, чтобы работал и запущенный loop агента
+    (run_coroutine_threadsafe из другого потока), и синхронный запуск.
+    """
+    import asyncio
+    import inspect
+
+    async def _call():
+        return await awaitable
+
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = None
+    if loop is not None and loop.is_running():
+        fut = asyncio.run_coroutine_threadsafe(_call(), loop)
+        return fut.result(timeout=timeout)
+    if loop is not None:
+        return loop.run_until_complete(_call())
+    return asyncio.run(_call())
 
 
 def _yandex_smtc_session():
@@ -46,20 +146,10 @@ def _yandex_smtc_session():
     if not _SMTC_OK:
         return None
     try:
-        sessions = _MediaManager.request_async()
-        if sessions is None:
-            return None
-        sl = sessions.get_sessions() if hasattr(sessions, "get_sessions") else sessions
-        for s in sl:
-            try:
-                aumid = s.source_app_user_model_id or ""
-            except Exception:
-                aumid = ""
-            if "yandex" in aumid.lower() or "music" in aumid.lower():
-                return s
+        return _run_smtc(_find_yandex_session_async())
     except Exception as e:
-        log.debug(f"[yamusic] SMTC enumerate: {e}")
-    return None
+        log.debug(f"[yamusic] SMTC session: {e}")
+        return None
 
 
 def _get_foreground() -> int:
@@ -85,14 +175,24 @@ def _find_yamusic_hwnd() -> Optional[int]:
 
 # ── 2.1 — SMTC команды (глобально, без фокуса) ────────────────────────
 
+def _resolve(awaitable):
+    """winsdk-awaitable → результат: await (рабочий вариант с машины),
+    fallback на блокирующий .get() (моки в тестах / синхронные объекты)."""
+    import inspect
+    if inspect.isawaitable(awaitable):
+        return _run_smtc(awaitable)
+    get = getattr(awaitable, "get", None)
+    return get() if callable(get) else awaitable
+
+
 def now_playing() -> dict:
     """Текущий трек из SMTC: {title, artist, album, status} или {}."""
     s = _yandex_smtc_session()
     if not s:
         return {}
     try:
-        props = s.try_get_media_properties_async()
-        props = props.get() if hasattr(props, "get") else props
+        # рабочий вариант: props = await s.try_get_media_properties_async()
+        props = _resolve(s.try_get_media_properties_async())
         pb = s.get_playback_info()
         _st_map = {0: "остановлен", 1: "играет", 2: "пауза",
                    3: "переключение", 4: "закрыт"}
@@ -110,22 +210,13 @@ def now_playing() -> dict:
 
 def _smtc_control(method: str) -> bool:
     """Вызов SMTC-метода на сессии Яндекс Музыки (а НЕ на текущей сессии!)."""
-    import asyncio
     s = _yandex_smtc_session()
     if not s:
         return False
     try:
-        coro = getattr(s, method)
-        # winsdk-методы возвращают awaitable (IAsyncOperation), а не coroutine —
-        # заворачиваем, чтобы работали оба пути (запущенный loop и синхронный).
-        async def _call():
-            return await coro()
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            fut = asyncio.run_coroutine_threadsafe(_call(), loop)
-            result = fut.result(timeout=3.0)
-        else:
-            result = loop.run_until_complete(_call())
+        # winsdk-методы возвращают awaitable (IAsyncOperation) —
+        # дожидаемся через _resolve (await в живом loop / .get() в моках).
+        result = _resolve(getattr(s, method)())
         # TrySkipNextAsync возвращает bool
         return bool(result) if not isinstance(result, bool) else result
     except Exception as e:

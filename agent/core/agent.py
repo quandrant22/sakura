@@ -30,12 +30,19 @@ from core.hands import focus_window as _focus_window, powershell as _powershell
 from core.hearing import Hearing
 from core.voice import Player
 from core.local_mood import LocalMood
+from core.dep_check import check_critical_packages
 
 log = logging.getLogger("sakura.agent")
 
 
 class Agent:
     def __init__(self, bus):
+        # Явная проверка критичных пакетов (winsdk и пр.) при старте:
+        # отсутствующее пишется в лог как WARNING, а не падает молча.
+        try:
+            check_critical_packages()
+        except Exception:
+            log.exception("[agent] ошибка проверки зависимостей")
         self.bus     = bus
         self.state   = "idle"
         self.player  = Player(config.TTS_RATE)

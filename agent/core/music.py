@@ -32,6 +32,30 @@ YM_TOKEN = "y0__xD-vJT9AxjBmigg4P3cnRK-d-6FQFiNbmiqOwneUJlqXAj2kA"
 
 # ── SMTC — системный медиа-интерфейс Windows ─────────────────────────
 
+def _pick_yamusic_session(sessions_mgr):
+    """Сессия Яндекс Музыки из менеджера SMTC (или None).
+
+    AUMID на машине Мастера — 'Яндекс Музыка.exe' кириллицей, поэтому
+    get_current_session() может отдать сессию Opera (ютуб), если она
+    была позже. Явно предпочитаем Яндекс Музыку (см. yamusic_app).
+    """
+    try:
+        from core.yamusic_app import is_yandex_music_aumid
+    except ImportError:
+        return None
+    try:
+        for s in sessions_mgr.get_sessions():
+            try:
+                aumid = s.source_app_user_model_id or ""
+            except Exception:
+                continue
+            if is_yandex_music_aumid(aumid):
+                return s
+    except Exception as e:
+        log.debug(f"[music] yamusic session pick: {e}")
+    return None
+
+
 async def _smtc_get_info() -> Optional[dict]:
     """Возвращает текущий трек и статус через Windows SMTC."""
     try:
@@ -43,7 +67,9 @@ async def _smtc_get_info() -> Optional[dict]:
         )
 
         sessions = await MediaManager.request_async()
-        session  = sessions.get_current_session()
+        session = _pick_yamusic_session(sessions)
+        if not session:
+            session = sessions.get_current_session()
         if not session:
             return None
 
@@ -106,7 +132,9 @@ async def _smtc_control(action: str) -> bool:
             GlobalSystemMediaTransportControlsSessionManager as MediaManager,
         )
         sessions = await MediaManager.request_async()
-        session  = sessions.get_current_session()
+        session = _pick_yamusic_session(sessions)
+        if not session:
+            session = sessions.get_current_session()
         if not session:
             return False
 

@@ -4,29 +4,41 @@ websockets
 psutil
 python-dotenv
 
-# Windows API
+# ── Зависимости агента (все реально импортируемые модули) ─────────────
+# Ставить: pip install -r requirements.txt
+# Проверка при старте: core/dep_check.py пишет [agent]-предупреждения,
+# если что-то из критичного отсутствует.
+
+# Связь с VPS
+websockets
+httpx
+
+# Windows API / интеграция
 pywin32
 pyperclip
 pyautogui
 comtypes
 pycaw
+winsdk
+pyaudiowpatch
+bleak
+psutil
+pynput
 
-# Audio
+# Аудио / речь
 sounddevice
 vosk
 numpy
 torch
 silero-vad
 
+# Музыка (API Яндекс Музыки)
+yandex-music
+
 # UI
 PyQt6
 pillow
 
-# Command registry
+# Прочее
 toml
-
-# Optional: for better fuzzy matching
 rapidfuzz
-
-# Optional: for image processing
-# opencv-python
