@@ -92,6 +92,27 @@ class Test1_SearchTriggered(unittest.TestCase):
         self.assertTrue(needs_search("кто президент Франции"))
         self.assertTrue(needs_search("кто сейчас президент Франции"))
 
+    def test_self_state_questions_never_search(self):
+        """Баг из реального лога: «что у меня играет» ушло в Parallel
+        (5 источников) и вернуло выдумку «Nickelback» вместо трека.
+        Вопросы про СВОЁ состояние — НИКОГДА не поиск: ответ берётся
+        из состояния системы (music:now_playing, tasks, наигранные
+        часы), в интернете его нет."""
+        from modules.web_search import needs_search
+        for t in ("что у меня играет",
+                  "какое трек у меня сейчас играет",  # STT-искажение
+                  "какие у меня задачи",
+                  "сколько я наиграл в Palworld",  # не вопрос — всё равно нет
+                  "что я сейчас слушал",
+                  "что у меня на экране",
+                  "какой у меня последний трек"):
+            self.assertFalse(needs_search(t), f"не должно искать: {t!r}")
+        # А чужие факты — по-прежнему ищутся
+        for t in ("кто сейчас президент Франции",
+                  "найди мне рецепт борща",
+                  "что такое биткоин"):
+            self.assertTrue(needs_search(t), f"должно искать: {t!r}")
+
     def test_question_word_plus_proper_noun(self):
         from modules.web_search import needs_search
         self.assertTrue(needs_search("кто президент Франции"))

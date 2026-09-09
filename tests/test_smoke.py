@@ -423,6 +423,23 @@ class Test4_RouterThresholds(unittest.TestCase):
         result = _hardcoded_match("как дела")
         self.assertIsNone(result)
 
+    def test_hardcoded_now_playing_stt_distortion(self):
+        """Баг из реального лога: Vosk исказил «Какой» → «Какое»,
+        точное правило не сработало. Пары «трек+играет» прощают
+        искажения падежей и лишние слова."""
+        from modules.command_router import _hardcoded_match
+        for t in ("Какое трек у меня сейчас играет",
+                  "какой трек играет",
+                  "какой трек сейчас играет",
+                  "что у меня играет"):
+            result = _hardcoded_match(t)
+            self.assertIsNotNone(result, f"должно матчиться: {t!r}")
+            self.assertEqual(result["action"], "music:now_playing")
+        # Steam-команды фолбэк не задевает
+        self.assertEqual(
+            _hardcoded_match("во что я сейчас играю")["action"],
+            "steam:current")
+
     def test_route_critical_exact(self):
         from modules.command_router import route_critical
         self.assertEqual(route_critical("выключи компьютер"), "system:shutdown")
