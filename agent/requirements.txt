@@ -26,11 +26,15 @@ psutil
 pynput
 
 # Аудио / речь
+# ВАЖНО: gigaam требует torch<=2.5.1 — pip сам откатит более новый torch
+# (проверено вживую: Silero VAD на 2.5.1 работает, слух не ломается).
+# Порядок важен: сначала torch<=2.5.1, потом gigaam.
 sounddevice
 vosk
 numpy
-torch
+torch<=2.5.1
 silero-vad
+gigaam
 
 # Музыка (API Яндекс Музыки)
 yandex-music

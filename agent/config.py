@@ -36,9 +36,22 @@ GAME_DIRS = [d.strip() for d in os.getenv("GAME_DIRS", r"C:\Games").split(";") i
 VOSK_MODEL_PATH = os.path.join(BASE_DIR, "vosk-model-small-ru-0.22")
 WAKE_WORDS      = ("сакура", "сакуру", "сакуре", "сакурой", "сакур", "sakura")
 
-# ── Vosk STT (основная модель для распознавания речи) ────────────────
+# ── Vosk STT (фолбэк, если GigaAM недоступен) ────────────────────────
 VOSK_STT_MODEL  = os.getenv("VOSK_STT_MODEL", "vosk-model-small-ru-0.22")
 VOSK_STT_RATE   = 16000
+
+# ── GigaAM STT (основной; проверено вживую на машине Мастера) ───────
+# pip install gigaam ставит torch<=2.5.1 (откатывает новее) — так и надо:
+# Silero VAD на 2.5.1 работает, слух не ломается.
+# Модель v2_ctc (~444 МБ, из кэша ~1.4с), ТОЛЬКО device='cpu'.
+# transcribe() требует ffmpeg — НЕ использовать; аудио из памяти идёт
+# прямым путём model.forward + decoding.decode (см. core/hearing.py).
+# Откат на Vosk одной строкой в .env: STT_ENGINE=vosk
+STT_ENGINE    = os.getenv("STT_ENGINE", "gigaam").strip().lower()  # gigaam | vosk
+GIGAAM_MODEL  = os.getenv("GIGAAM_MODEL", "v2_ctc")
+GIGAAM_DEVICE = os.getenv("GIGAAM_DEVICE", "cpu").strip().lower()  # НЕ cuda
+# Легаси-переключатель (старый .env): GIGAAM_ENABLED=0 тоже отключает GigaAM.
+GIGAAM_ENABLED = os.getenv("GIGAAM_ENABLED", "1").strip().lower() not in ("0", "false", "no", "off")
 
 # ── Захват микрофона ────────────────────────────────────────────────
 MIC_RATE        = 16000
