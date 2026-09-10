@@ -42,9 +42,11 @@ def _load_hearing(stt_engine="gigaam", gigaam_present=True,
                                                      "torch", "numpy"))]:
             sys.modules.pop(m, None)
         cfg = types.ModuleType("config")
-        cfg.BASE_DIR = _agent
-        cfg.VOSK_MODEL_PATH = "vosk-model-small-ru-0.22"
-        cfg.VOSK_STT_MODEL = "vosk-model-small-ru-0.22"
+        cfg.BASE_DIR = os.path.join(_root, "agent")
+        cfg.VOSK_MODEL_PATH = os.path.join(
+            cfg.BASE_DIR, "vosk-model-small-ru-0.22")
+        cfg.VOSK_STT_MODEL = os.path.join(
+            cfg.BASE_DIR, "vosk-model-small-ru-0.22")
         cfg.VOSK_STT_RATE = 16000
         cfg.STT_ENGINE = stt_engine
         cfg.GIGAAM_MODEL = "v2_ctc"
@@ -216,6 +218,14 @@ def _load_hearing(stt_engine="gigaam", gigaam_present=True,
             return _FakeGigaModel()
 
         hearing._giga_load_model = _fake_loader
+        # STT-фолбэк в тестах НЕ должен зависеть от наличия/отсутствия
+        # реальных Vosk-моделей в окружении (чистый клон ≠ машина Мастера):
+        # подменяем загрузчик общей модели фейковой Vosk-моделью.
+        if vosk_model:
+            hearing._get_shared_model = lambda kind="wake": _FakeVoskModel(
+                os.path.join(cfg.BASE_DIR, "vosk-model-small-ru-0.22"))
+        else:
+            hearing._get_shared_model = lambda kind="wake": None
         # Верхнеуровневые `from vosk import Model as VoskModel,
         # KaldiRecognizer` уже связаны в модуле — подменяем напрямую.
         hearing.VoskModel = _FakeVoskModel if vosk_model else None

@@ -89,7 +89,8 @@ def _get_shared_model(kind: str = "wake"):
         log.warning("Vosk не установлен, модели загрузить нельзя.")
         return None
 
-    wake_path = os.path.join(config.BASE_DIR, config.VOSK_MODEL_PATH)
+    wake_path = os.path.join(config.BASE_DIR, config.VOSK_MODEL_PATH) \
+        if not os.path.isabs(config.VOSK_MODEL_PATH) else config.VOSK_MODEL_PATH
     if kind == "wake":
         model = _load_model(wake_path, "wake-word")
         if model is not None:
@@ -98,7 +99,13 @@ def _get_shared_model(kind: str = "wake"):
         return model
 
     # STT model may be different from wake-word model.
-    stt_path = os.path.join(config.BASE_DIR, config.VOSK_STT_MODEL) if getattr(config, "VOSK_STT_MODEL", None) else None
+    _stt_cfg = getattr(config, "VOSK_STT_MODEL", None)
+    if _stt_cfg and os.path.isabs(_stt_cfg):
+        stt_path = _stt_cfg
+    elif _stt_cfg:
+        stt_path = os.path.join(config.BASE_DIR, _stt_cfg)
+    else:
+        stt_path = None
     if stt_path and os.path.isdir(stt_path):
         model = _load_model(stt_path, "STT")
         if model is not None:
