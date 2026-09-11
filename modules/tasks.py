@@ -3,6 +3,8 @@ import os
 import re
 from datetime import datetime, date, timedelta
 
+from modules.jsonio import save_json
+
 TASKS_FILE = "memory/tasks.json"
 
 def load_tasks() -> list:
@@ -15,8 +17,7 @@ def load_tasks() -> list:
         return []
 
 def save_tasks(tasks: list):
-    with open(TASKS_FILE, "w", encoding="utf-8") as f:
-        json.dump(tasks, f, ensure_ascii=False, indent=2)
+    save_json(TASKS_FILE, tasks)
 
 def add_task(text: str, due_date: str = None, due_time: str = None):
     tasks = load_tasks()

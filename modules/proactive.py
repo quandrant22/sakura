@@ -19,6 +19,8 @@ import random
 import re
 from datetime import datetime, timedelta, date
 
+from modules.jsonio import save_json
+
 PROACTIVE_FILE = "memory/proactive.json"
 
 # Минимальные интервалы между сообщениями на одну тему (часы)
@@ -161,8 +163,7 @@ def _default_state() -> dict:
 
 
 def save_state(data: dict):
-    with open(PROACTIVE_FILE, "w") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    save_json(PROACTIVE_FILE, data)
 
 
 def _reset_if_new_day(state: dict) -> dict:

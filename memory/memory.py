@@ -56,12 +56,8 @@ _PRIORITY = ["notes", "facts", "patterns", "preferences", "interests", "events",
 # ─────────────────────────────────────────────
 
 def _atomic_write(path: str, data):
-    dir_ = os.path.dirname(path) or "."
-    with tempfile.NamedTemporaryFile("w", dir=dir_, delete=False,
-                                     encoding="utf-8", suffix=".tmp") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-        tmp = f.name
-    os.replace(tmp, path)
+    from modules.jsonio import save_json
+    save_json(path, data)
 
 
 # ─────────────────────────────────────────────

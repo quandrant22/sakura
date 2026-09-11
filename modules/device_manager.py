@@ -2,6 +2,8 @@ import json
 import os
 from datetime import datetime
 
+from modules.jsonio import save_json
+
 DEVICES_FILE = "memory/devices.json"
 
 KNOWN_DEVICES = {
@@ -27,8 +29,7 @@ def load_devices() -> dict:
 
 
 def save_devices(data: dict):
-    with open(DEVICES_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    save_json(DEVICES_FILE, data)
 
 
 def update_device(device_id: str, active_window: str = None,
