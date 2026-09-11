@@ -333,15 +333,16 @@ class Agent:
             return
 
         # ── music browser-команды (shuffle/repeat/seek/volume/mute/podcasts) ──
+        # (music_info/music_history тоже обрабатываются в первом блоке выше —
+        # по префиксу music_, до этого списка не доходят)
         if action in (
             "music:shuffle", "music:repeat", "music:seek_forward",
             "music:seek_back", "music:podcasts", "music:mute",
             "music:volume_up", "music:volume_down",
-            "music_info", "music_history",
         ):
             try:
                 from core import browser as _br
-                result = _br.music_action(action)
+                result = await asyncio.to_thread(_br.music_action, action)
                 await _send_ack(
                     result.get("ok", True),
                     result.get("detail", action),
@@ -573,6 +574,7 @@ class Agent:
         import sys as _sys
         print(f"[agent] Запускаю подключение к VPS: {config.VPS_WS_URL}", flush=True)
         _sys.stdout.flush()
+        _backoff = config.RECONNECT_SEC
         while True:
             try:
                 print(f"[agent] Подключаюсь к {config.VPS_WS_URL}...", flush=True)
@@ -585,7 +587,7 @@ class Agent:
                 ) as ws:
                     self._ws = ws
                     await ws.send(json.dumps(self._payload("register")))
-                    apps = scan_apps()
+                    apps = await asyncio.to_thread(scan_apps)
                     if apps:
                         await ws.send(json.dumps({
                             "type":      "apps_list",
@@ -594,6 +596,7 @@ class Agent:
                             "apps":      apps,
                         }))
                     self.bus.emit("connection", online=True)
+                    _backoff = config.RECONNECT_SEC
                     print(f"[agent] Подключено к VPS! Приложений: {len(apps)}", flush=True)
                     _sys.stdout.flush()
                     await self._recv_loop()
@@ -602,7 +605,8 @@ class Agent:
                 _sys.stdout.flush()
             self._ws = None
             self.bus.emit("connection", online=False)
-            await asyncio.sleep(config.RECONNECT_SEC)
+            await asyncio.sleep(_backoff)
+            _backoff = min(_backoff * 2, 60)
 
     async def _screen_analysis_loop(self):
         """
@@ -637,29 +641,3 @@ class Agent:
                     log.debug("[screen] Скриншот отправлен для анализа")
             except Exception as e:
                 log.debug(f"[screen] Ошибка: {e}")
-        while True:
-            try:
-                async with websockets.connect(
-                    config.VPS_WS_URL,
-                    ping_interval=20,
-                    proxy=None,
-                    max_size=None,
-                ) as ws:
-                    self._ws = ws
-                    await ws.send(json.dumps(self._payload("register")))
-                    apps = scan_apps()
-                    if apps:
-                        await ws.send(json.dumps({
-                            "type":      "apps_list",
-                            "device_id": config.DEVICE_ID,
-                            "token":     config.WS_TOKEN,
-                            "apps":      apps,
-                        }))
-                    self.bus.emit("connection", online=True)
-                    log.info(f"Подключено. Приложений: {len(apps)}")
-                    await self._recv_loop()
-            except Exception as e:
-                log.warning(f"WS обрыв: {e} — реконнект через {config.RECONNECT_SEC}с")
-            self._ws = None
-            self.bus.emit("connection", online=False)
-            await asyncio.sleep(config.RECONNECT_SEC)
