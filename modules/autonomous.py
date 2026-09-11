@@ -21,7 +21,12 @@ from config import MAIN_MODEL
 log = logging.getLogger("sakura.autonomous")
 
 
+_tables_ready = False
+
 def _ensure_tables():
+    global _tables_ready
+    if _tables_ready:
+        return
     from memory.db import _conn
     conn = _conn()
     conn.executescript("""
@@ -47,6 +52,7 @@ def _ensure_tables():
         );
     """)
     conn.commit()
+    _tables_ready = True
 
 
 # ── №12: Автономный ресёрч ────────────────────────────────────────────
@@ -76,16 +82,9 @@ async def do_research() -> str:
     _ensure_tables()
     from modules.relationship import get_sakura_interests
     from modules.web_search import search_and_fetch
-    from config import get_active_key, mark_key_used
-    from google import genai
-    from google.genai import types
 
     interests = get_sakura_interests()
     if not interests:
-        return ""
-
-    key = get_active_key()
-    if not key:
         return ""
 
     # Ищем по топ-3 интересам + случайный неожиданный запрос
@@ -118,24 +117,31 @@ async def do_research() -> str:
 
     found_text = "\n".join(search_results)
 
+    from memory.db import _conn
+    prev = _conn().execute(
+        "SELECT content FROM news_digest WHERE sent=1 ORDER BY id DESC LIMIT 5"
+    ).fetchall()
+    recent_block = ""
+    if prev:
+        joined = "\n".join(f"— {r['content'][:120]}" for r in prev)
+        recent_block = (
+            f"\nТы уже писала это раньше — не повторяй формулировки и заходы:\n{joined}\n"
+        )
+
     prompt = (
         f"Интересы Мастера: {', '.join(interests[:3])}\n\n"
         f"Найденные материалы:\n{found_text}\n\n"
+        f"{recent_block}"
         "Напиши короткую 'утреннюю сводку' от Сакуры — как бы рассказала подруга, "
         "не сухой дайджест. 3-4 предложения. Выбери самое интересное. "
-        "Начни с чего-то вроде 'слушай, нашла кое-что по твоим темам...' "
-        "или 'пока ты спал, я тут полазила по интернету...'"
+        "Начни как тебе естественно, без шаблонных зачинов."
     )
 
     try:
-        client = genai.Client(api_key=key)
-        r = await asyncio.to_thread(
-            client.models.generate_content,
-            model=MAIN_MODEL,
-            contents=[types.Content(role="user", parts=[types.Part(text=prompt)])]
-        )
-        mark_key_used(key)
-        digest = (r.text or "").strip()
+        from main import ask_gemini
+        digest = await ask_gemini(prompt, save_history=False)
+        if not digest:
+            return ""
 
         from memory.db import _conn
         _conn().execute(
@@ -153,6 +159,8 @@ async def do_research() -> str:
 
 _sprint_start: Optional[float] = None
 _sprint_alerted = False
+_pause_start: Optional[float] = None
+_PAUSE_RESET_MIN = 10
 _SPRINT_THRESHOLD_MIN = 90   # 1.5 часа без перерыва → предупреждение
 _SPRINT_CPU_MIN = 30          # минимальный CPU% для «работы»
 
@@ -162,7 +170,7 @@ def update_sprint(cpu_percent: float, active_window: str) -> Optional[str]:
     Обновляет статус рабочего спринта.
     Возвращает сообщение для Мастера если пора напомнить о перерыве.
     """
-    global _sprint_start, _sprint_alerted
+    global _sprint_start, _sprint_alerted, _pause_start
 
     is_working = (
         cpu_percent >= _SPRINT_CPU_MIN or
@@ -171,6 +179,7 @@ def update_sprint(cpu_percent: float, active_window: str) -> Optional[str]:
     )
 
     if is_working:
+        _pause_start = None
         if _sprint_start is None:
             _sprint_start  = time.monotonic()
             _sprint_alerted = False
@@ -186,8 +195,10 @@ def update_sprint(cpu_percent: float, active_window: str) -> Optional[str]:
                 "Мягко намекни что пора отдохнуть. Одно предложение, без нотаций."
             )
     else:
-        # Пауза — сбрасываем спринт
-        if _sprint_start and (time.monotonic() - _sprint_start) / 60 > 10:
+        # Пауза — сбрасываем спринт если пауза длится дольше лимита
+        if _pause_start is None:
+            _pause_start = time.monotonic()
+        elif (time.monotonic() - _pause_start) / 60 > _PAUSE_RESET_MIN:
             _sprint_start   = None
             _sprint_alerted = False
 
@@ -196,12 +207,16 @@ def update_sprint(cpu_percent: float, active_window: str) -> Optional[str]:
 
 # ── №39: Голосовые заметки ────────────────────────────────────────────
 
-_NOTE_KEYWORDS = ("запомни идею", "идея", "заметка", "запиши", "не забудь записать")
+_NOTE_KEYWORDS = (
+    "запомни идею", "запиши идею", "сохрани идею",
+    "сделай заметку", "запиши заметку",
+    "не забудь записать", "запиши это",
+)
 
 
 def is_voice_note_request(text: str) -> bool:
-    tl = text.lower()
-    return any(kw in tl for kw in _NOTE_KEYWORDS)
+    from modules.fuzzy import phrase_has_any
+    return phrase_has_any(text.lower(), _NOTE_KEYWORDS)
 
 
 async def save_voice_note(raw_text: str) -> str:
@@ -210,13 +225,6 @@ async def save_voice_note(raw_text: str) -> str:
     Возвращает подтверждение.
     """
     _ensure_tables()
-    from config import get_active_key, mark_key_used
-    from google import genai
-    from google.genai import types
-
-    key = get_active_key()
-    if not key:
-        return "Запомнила."
 
     prompt = (
         f"Голосовая заметка Мастера: «{raw_text}»\n\n"
@@ -229,14 +237,9 @@ async def save_voice_note(raw_text: str) -> str:
     )
 
     try:
-        client = genai.Client(api_key=key)
-        r = await asyncio.to_thread(
-            client.models.generate_content,
-            model=MAIN_MODEL,
-            contents=[types.Content(role="user", parts=[types.Part(text=prompt)])]
-        )
-        mark_key_used(key)
-        structured = (r.text or "").strip()
+        from main import ask_gemini
+        digest_structured = await ask_gemini(prompt, save_history=False)
+        structured = (digest_structured or "").strip() or raw_text
     except Exception:
         structured = raw_text
 
