@@ -3206,11 +3206,8 @@ async def handle_message(message: Message):
         await message.answer(reply)
         return
 
-    if any(w in text_lower for w in ("скрин", "скриншот", "снимок экрана")):
-        text_lower = (text_lower
-                      .replace("сделай скрин", "скриншот")
-                      .replace("снимок экрана", "скриншот"))
-        text = text_lower
+    if _fz(text_lower, ("скрин", "скриншот", "снимок экрана")):
+        text_lower = re.sub(r"\b(сделай\s+скрин(шот)?|снимок\s+экрана)\b", "скриншот", text_lower)
 
     tl_check = text.lower()
 
@@ -3220,7 +3217,7 @@ async def handle_message(message: Message):
         "закрой вкладку", "переключись на", "обнови страницу",
         "открой сайт", "перейди на",
     ]
-    if any(t in tl_check for t in browser_triggers):
+    if _fz(tl_check, browser_triggers):
         laptop_ws, _active_dev = _get_active_ws()
         if laptop_ws:
             await laptop_ws.send(json.dumps({"type": "command", "action": f"browser:{text}"}))
@@ -3233,12 +3230,11 @@ async def handle_message(message: Message):
     # ── КОДИНГ ─────────────────────────────────────────────────────────────
     coding_triggers = [
         "создай модуль", "напиши модуль", "новый модуль", "сделай модуль",
-        "исправь баг", "найди баг", "почини",
-        "прочитай файл", "покажи код",
-        "коммит", "git", "деплой",
-        "собери", "сборка", "build",
+        "исправь баг", "найди баг", "почини код", "почини модуль",
+        "прочитай файл", "покажи код", "закоммить", "сделай коммит",
+        "задеплой", "собери проект", "собери апк", "собери сборку",
     ]
-    if any(t in text_lower for t in coding_triggers):
+    if _fz(text_lower, coding_triggers):
         try:
             from modules.coding import (
                 mimo_fix, mimo_review, read_file, run_command,
@@ -3247,7 +3243,7 @@ async def handle_message(message: Message):
             from modules.prompt_builder import build_module_prompt, build_fix_prompt
 
             # Определяем тип команды
-            if any(t in text_lower for t in ("создай модуль", "напиши модуль", "новый модуль", "сделай модуль")):
+            if _fz(text_lower, ("создай модуль", "напиши модуль", "новый модуль", "сделай модуль")):
                 # Генерируем промпт для нового модуля
                 prompt = f"Создай новый модуль по запросу Мастера: {text}"
                 await bot.send_chat_action(message.chat.id, "typing")
@@ -3256,7 +3252,7 @@ async def handle_message(message: Message):
                 await message.answer(reply)
                 return
 
-            elif any(t in text_lower for t in ("исправь баг", "найди баг", "почини")):
+            elif _fz(text_lower, ("исправь баг", "найди баг", "почини код", "почини модуль")):
                 prompt = f"Найди и исправь проблему: {text}"
                 await bot.send_chat_action(message.chat.id, "typing")
                 result = await mimo_fix(prompt)
@@ -3264,7 +3260,7 @@ async def handle_message(message: Message):
                 await message.answer(reply)
                 return
 
-            elif any(t in text_lower for t in ("прочитай файл", "покажи код")):
+            elif _fz(text_lower, ("прочитай файл", "покажи код")):
                 # Извлекаем имя файла
                 import re as _re
                 file_match = _re.search(r'(?:файл|код)\s+(\S+\.py)', text_lower)
@@ -3279,8 +3275,8 @@ async def handle_message(message: Message):
                 await message.answer(reply)
                 return
 
-            elif any(t in text_lower for t in ("коммит", "git commit")):
-                msg = text.replace("коммит", "").replace("git commit", "").strip()
+            elif _fz(text_lower, ("закоммить", "сделай коммит")):
+                msg = text_lower.replace("закоммить", "").replace("сделай коммит", "").replace("коммит", "").strip()
                 if not msg:
                     msg = "Обновление от Сакуры"
                 result = await git_commit(msg)
@@ -3288,7 +3284,7 @@ async def handle_message(message: Message):
                 await message.answer(reply[:1000])
                 return
 
-            elif any(t in text_lower for t in ("собери", "сборка", "build")):
+            elif _fz(text_lower, ("собери проект", "собери апк", "собери сборку")):
                 await bot.send_chat_action(message.chat.id, "typing")
                 result = await android_build()
                 reply = "Сборка запущена..." if result.get("ok") else f"Ошибка: {result.get('error')}"
@@ -3306,7 +3302,7 @@ async def handle_message(message: Message):
             return
 
     close_triggers = ["закрой ", "закрыть "]
-    if any(t in tl_check for t in close_triggers):
+    if _fz(tl_check, close_triggers):
         query = text.lower()
         for t in close_triggers:
             query = query.replace(t, "").strip()
@@ -3324,7 +3320,7 @@ async def handle_message(message: Message):
             return
 
     file_triggers = ["найди файл", "открой файл", "найди документ", "открой документ"]
-    if any(t in tl_check for t in file_triggers):
+    if _fz(tl_check, file_triggers):
         query = text
         for t in file_triggers:
             query = query.lower().replace(t, "").strip()
