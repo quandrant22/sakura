@@ -17,6 +17,7 @@ from typing import Optional
 from dataclasses import dataclass
 
 from config import get_active_key, mark_key_used, MAIN_MODEL
+from modules.fuzzy import phrase_has_any as _fz
 
 log = logging.getLogger("sakura.intent")
 
@@ -62,9 +63,9 @@ INTENT_PROMPT = """
 Примеры:
 "включи музыку" → {"type": "command", "intent": "music_play", "confidence": 0.95, "length": "short"}
 "привет как дела" → {"type": "conversation", "intent": "greeting", "confidence": 0.95, "length": "short"}
-"мне ничего не помогает, мучаюсь" → {"type": "conversation", "intent": "complaint", "confidence": 0.85, "length": "short"}
-"я плохо сплю в последнее время" → {"type": "conversation", "intent": "self_report", "confidence": 0.85, "length": "short"}
-"вот занимаюсь кодом, слушаю музыку" → {"type": "conversation", "intent": "sharing", "confidence": 0.85, "length": "short"}
+"мне ничего не помогает, мучаюсь" → {"type": "conversation", "intent": "complaint", "confidence": 0.9, "length": "short"}
+"я плохо сплю в последнее время" → {"type": "conversation", "intent": "self_report", "confidence": 0.9, "length": "short"}
+"вот занимаюсь кодом, слушаю музыку" → {"type": "conversation", "intent": "sharing", "confidence": 0.9, "length": "short"}
 "как думаешь, стоит ли брать эту игру" → {"type": "request", "intent": "opinion", "confidence": 0.9, "length": "medium"}
 "что думаешь про киберпанк" → {"type": "request", "intent": "opinion", "confidence": 0.9, "length": "medium"}
 "расскажи про историю Японии" → {"type": "request", "intent": "tell_about", "confidence": 0.9, "length": "long"}
@@ -75,6 +76,10 @@ INTENT_PROMPT = """
 Верни JSON:
 {"type": "command|request|conversation", "intent": "строка", "confidence": 0.0-1.0, "length": "short|medium|long"}
 """
+
+# Порог прохождения быстрого пути (без LLM). Все fast-результаты имеют
+# confidence >= 0.75, так что быстрый путь работает по назначению.
+_FAST_THRESHOLD = 0.75
 
 
 @dataclass
@@ -98,7 +103,7 @@ def _fast_classify(text: str) -> Optional[IntentResult]:
         "расскажи", "объясни", "подробно", "в деталях", "опиши",
         "рассказать", "объяснить", "описать", "разверни",
     )
-    if any(m in tl for m in _long_markers):
+    if _fz(tl, _long_markers):
         return IntentResult(type="request", intent="fast_detect", confidence=0.8, length="long")
 
     # Явные командные маркеры
@@ -108,15 +113,16 @@ def _fast_classify(text: str) -> Optional[IntentResult]:
         "останови", "прибавь", "убавь", "громче", "тише", "скриншот",
         "врубай", "вырубай", "переключи", "дублируй", "обнови",
     )
-    if any(m in tl for m in _command_markers):
-        return IntentResult(type="command", intent="fast_detect", confidence=0.85, length="short")
+    if _fz(tl, _command_markers):
+        return IntentResult(type="command", intent="fast_detect", confidence=0.9, length="short")
 
     # Явные разговорные маркеры
     _conversation_markers = (
         "привет", "пока", "ок", "ага", "нет", "да", "молодец",
         "спасибо", "хорошо", "плохо", "круто", "супер", "класс",
     )
-    if tl in _conversation_markers or any(tl.startswith(m) for m in _conversation_markers):
+    _first = tl.split()[0] if tl.split() else ""
+    if tl in _conversation_markers or _first in _conversation_markers:
         return IntentResult(type="conversation", intent="fast_detect", confidence=0.8, length="short")
 
     # Вопросы — запросы
@@ -147,7 +153,13 @@ async def classify_intent(text: str) -> IntentResult:
     """
     # Уровень 1: быстрая классификация
     fast = _fast_classify(text)
-    if fast and fast.confidence >= 0.85:
+
+    # Одно-двусловные реплики без быстрого паттерна — LLM-классификация
+    # для них избыточна и ненадёжна
+    if len(text.split()) <= 2 and not fast:
+        return IntentResult(type="conversation", intent="too_short", confidence=0.6)
+
+    if fast and fast.confidence >= _FAST_THRESHOLD:
         log.info(f"[intent] {text!r} → {fast.type}/{fast.intent}/len={fast.length} (fast, {fast.confidence:.2f})")
         return fast
 
