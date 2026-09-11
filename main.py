@@ -1331,11 +1331,13 @@ async def daily_analysis():
 # Напоминания (задачи/календарь) — не проактив, живут здесь же.
 
 _last_weather_refresh: float = 0.0
+_proactive_attempts: dict[str, int] = {}   # task_id → сколько раз пытались
+_PROACTIVE_MAX_ATTEMPTS = 3
 
 async def proactive_loop():
     from modules.capsules import (get_due_capsules, make_open_prompt, mark_opened,
         get_due_sakura_capsules, make_sakura_open_prompt, mark_sakura_opened)
-    global _proactive_prompt_idx, _last_weather_refresh
+    global _proactive_prompt_idx, _last_weather_refresh, _proactive_attempts
     await asyncio.sleep(60)
     while True:
         await asyncio.sleep(120 + random.randint(-30, 90))
@@ -1405,14 +1407,29 @@ async def proactive_loop():
                     trigger = None
                     reply = None
                 else:
-                    reply = await ask_gemini(prompt, save_history=False)
+                    _tk = str(_pending_task_id)
+                    if _pending_task_id is not None:
+                        if _proactive_attempts.get(_tk, 0) >= _PROACTIVE_MAX_ATTEMPTS:
+                            log.warning("[proactive] задача %s: лимит попыток, помечаю доставленной", _tk)
+                            mark_notified(_pending_task_id)
+                            _proactive_attempts.pop(_tk, None)
+                            trigger = None
+                            reply = None
+                        else:
+                            _proactive_attempts[_tk] = _proactive_attempts.get(_tk, 0) + 1
+                    if trigger:
+                        reply = await ask_gemini(prompt, save_history=False)
 
                     if reply and not is_crit and has_recent_semantic_duplicate(reply):
                         log.info("[proactive] skip duplicate reminder: %s", reply)
+                        if _pending_task_id is not None:
+                            mark_notified(_pending_task_id)
                         continue
 
                     # Финальная проверка — вдруг пока генерировали пришла команда
                     if __import__('time').monotonic() - _last_command_ts < 30:
+                        # Здесь mark_notified НЕ вызываем: задача не доставлена,
+                        # ретрай на следующем тике — это правильное поведение.
                         continue
 
             # Тихий режим (созвон / игра) — пропускаем
@@ -1492,6 +1509,7 @@ async def proactive_loop():
                 mark_sent(trigger, text=reply)
                 if _pending_task_id is not None:
                     mark_notified(_pending_task_id)
+                    _proactive_attempts.pop(str(_pending_task_id), None)
                 log.info(f"Проактивное напоминание: {trigger}")
         except Exception as e:
             log.error(f"Proactive error: {e}")
