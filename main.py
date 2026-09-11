@@ -3,6 +3,7 @@ import inspect
 import logging
 import json
 import base64
+import hashlib
 import os
 import random
 import re
@@ -1654,14 +1655,19 @@ def _build_voice_system() -> str:
 
 _build_system_cache: dict = {}
 _build_system_lock = __import__("threading").Lock()
+_BUILD_SYSTEM_TTL = 20.0   # секунд
 
 
 def _build_system(include_calendar: bool = False, active_window: str | None = None, query: str = "") -> str:
-    """Строит системный промпт. Кэш 3с для повторных вызовов без query."""
+    """Строит системный промпт. Кэшируется для повторных вызовов без query."""
     import time as _t
 
     # Кэшируем только типичный случай (Telegram, без calendar, без query)
-    cache_key = f"{include_calendar}:{active_window}:{bool(query)}:{tuple(sorted(get_online_devices()))}"
+    _track_sig = f"{(_current_track or {}).get('title', '')}|{(_current_track or {}).get('status', '')}"
+    _emotion_sig = get_current_emotion()
+    _hour_sig = __import__('datetime').datetime.now().hour
+    _raw_key = f"{include_calendar}:{active_window}:{bool(query)}:{tuple(sorted(get_online_devices()))}:{_track_sig}:{_emotion_sig}:{_hour_sig}"
+    cache_key = hashlib.md5(_raw_key.encode("utf-8")).hexdigest()
     if not query:
         with _build_system_lock:
             entry = _build_system_cache.get(cache_key)
@@ -1927,16 +1933,20 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
     result = "\n\n".join(parts)
     __import__("logging").getLogger(__name__).debug(
         f"[build_system] {__import__('time').monotonic()-_bs_t0:.2f}с")
+    log.info(f"[build_system] блоков={len(parts)} символов={len(result)}")
 
-    # Кэшируем на 30 секунд (без query)
     if not query:
         import time as _t
         with _build_system_lock:
-            _build_system_cache[cache_key] = (result, _t.monotonic() + 120.0)  # 2 минуты кэш
+            _build_system_cache[cache_key] = (result, _t.monotonic() + _BUILD_SYSTEM_TTL)
             # Очищаем старые ключи
             if len(_build_system_cache) > 10:
                 expired = [k for k, (_, exp) in _build_system_cache.items() if exp < _t.monotonic()]
                 for k in expired:
+                    del _build_system_cache[k]
+            if len(_build_system_cache) > 32:
+                # выкидываем самые ранние по времени истечения
+                for k, _ in sorted(_build_system_cache.items(), key=lambda kv: kv[1][1])[:len(_build_system_cache) - 32]:
                     del _build_system_cache[k]
 
     return result
