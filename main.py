@@ -2945,6 +2945,7 @@ async def handle_message(message: Message):
     # ── Мастер ─────────────────────────────────────────────────────────────────
     text       = message.text
     text_lower = text.lower()
+    _text_raw = text          # исходная реплика Мастера — для истории диалога
     # Обрезка только в ЛОГЕ (текст обрабатывается целиком) — 300 символов,
     # чтобы хвост фразы («… фром зе эшс») не выглядел потерянным
     log.info(f"[вход] {text[:300]!r}")
@@ -3225,7 +3226,6 @@ async def handle_message(message: Message):
         return
 
     if _fz(text_lower, ("скрин", "скриншот", "снимок экрана")):
-        _text_raw = text
         text = re.sub(
             r"(?i)(?<!\w)(сделай\s+скрин(?:шот)?|снимок\s+экрана|скрин(?:шот)?)(?!\w)",
             "скриншот", text)
@@ -3567,11 +3567,7 @@ async def handle_message(message: Message):
 
     await bot.send_chat_action(message.chat.id, "typing")
     _t0 = __import__("time").monotonic()
-    try:
-        _history_text = _text_raw
-    except NameError:
-        _history_text = text
-    reply = await ask_gemini(_history_text + reply_ctx)
+    reply = await ask_gemini(_text_raw + reply_ctx)
     log.info(f"[ответ] {__import__('time').monotonic()-_t0:.1f}с | {reply!r}")
     await send_as_conversation(message.chat.id, reply)
 
