@@ -737,6 +737,163 @@ async def _speak_now_playing_result(cmd_id: str, ws_dev, device_id: str, bot) ->
         log.debug(f"[music] now_playing: {type(e).__name__}: {e}")
 
 
+async def _handle_pending(text, text_lower, _mk, ws_dev, device_id, ctx, data) -> bool:
+    """Обрабатывает pending-состояния: подтверждение системной команды,
+    забывание, план, отмену плана, уточнение. Возвращает True если реплика
+    принадлежит pending-диалогу (обработана), False — если нет, и её надо
+    пропустить в обычный путь (классификатор намерений и дальше)."""
+    ask_gemini = ctx["ask_gemini"]
+    _execute_plan = ctx["_execute_plan"]
+    _register_command = ctx["_register_command"]
+    bot = ctx["bot"]
+    _now_ts = __import__("time").monotonic()
+
+    # ── ПОДТВЕРЖДЕНИЕ СИСТЕМНОЙ КОМАНДЫ (выключение/перезагрузка/сон) ──
+    if _mk in st._pending_system:
+        _ps = st._pending_system[_mk]
+        if _now_ts - _ps["ts"] < 60:
+            _ps_result = st.check_confirmation(text)
+            if _ps_result == "confirm":
+                del st._pending_system[_mk]
+                if ws_dev:
+                    await execute_critical_action(_ps["action"], ws_dev, device_id, text, data.get("active_window", ""), ask_gemini)
+                else:
+                    await bot.send_message(MASTER_ID, "Устройство отключилось, не могу выполнить.")
+                return True
+            elif _ps_result == "deny":
+                del st._pending_system[_mk]
+                _ps_cancel_msg = "Хорошо, отменила."
+                if ws_dev:
+                    await stream_tts_to_device(_ps_cancel_msg, ws_dev, device_id or "laptop", literal=True)
+                else:
+                    await bot.send_message(MASTER_ID, _ps_cancel_msg)
+                return True
+            else:
+                # Мастер сменил тему — отменяем подтверждение и обрабатываем реплику обычным путём
+                del st._pending_system[_mk]
+        else:
+            del st._pending_system[_mk]
+
+    # ── ПОДТВЕРЖДЕНИЕ ЗАБЫВАНИЯ («забудь про Х» → «да») ──
+    if pending_forget_active():
+        _fg = memory_forget_confirm(text)
+        if _fg is not None:
+            if ws_dev:
+                await stream_tts_to_device(_fg[0], ws_dev, device_id or "laptop", literal=True)
+            else:
+                await bot.send_message(MASTER_ID, _fg[0])
+            return True
+
+    if _mk in st._pending_plan:
+        _pp = st._pending_plan[_mk]
+        if _now_ts - _pp["ts"] < 60:
+            _pp_text = text.lower().strip().rstrip(".!?,")
+            if _pp_text in ("да", "давай", "делай", "точно", "ага", "угу", "конечно"):
+                del st._pending_plan[_mk]
+                _plan_result, _plan_msg = await _execute_plan(
+                    _pp["plan"], _mk, ws_dev, device_id)
+                if _plan_result:
+                    from modules.user_commands import add as _uc_add
+                    _uc_add(_pp["text"], {
+                        "plan": _pp["plan"]["steps"],
+                        "summary": _pp["plan"]["summary"],
+                        "source": "plan",
+                        "risky": _pp["plan"]["risky"],
+                        "uses": 1,
+                    }, source="plan")
+                if ws_dev:
+                    await stream_tts_to_device(
+                        _plan_msg, ws_dev, device_id or "laptop", literal=True)
+                else:
+                    await bot.send_message(MASTER_ID, _plan_msg)
+                return True
+            elif _pp_text in ("нет", "стоп", "отмена", "хватит"):
+                del st._pending_plan[_mk]
+                _deny = "Хорошо, отменила."
+                if ws_dev:
+                    await stream_tts_to_device(
+                        _deny, ws_dev, device_id or "laptop", literal=True)
+                else:
+                    await bot.send_message(MASTER_ID, _deny)
+                return True
+            else:
+                del st._pending_plan[_mk]
+        else:
+            del st._pending_plan[_mk]
+
+    # ── ОТМЕНА ПЛАНА: «стоп»/«отмена» во время исполнения ──
+    if _mk in st._pending_plan:
+        _tlow = text.lower().strip().rstrip(".!?,")
+        if _tlow in ("стоп", "отмена", "хватит", "стоп план", "отмена плана"):
+            del st._pending_plan[_mk]
+            st._plan_cancel[_mk] = True
+
+    # ── УТОЧНЕНИЕ: проверяем ответ на предыдущий вопрос ──
+    if _mk in st._pending_clarify:
+        _pc = st._pending_clarify[_mk]
+        if _now_ts - _pc["ts"] < 60:
+            _pc_text = text.lower().strip().rstrip(".!?,")
+            _main_action = _pc["main"].get("action", "")
+            _alt_action = _pc["alt"].get("action", "") if _pc["alt"] else ""
+
+            _chose_main = False
+            _chose_alt = False
+            if _pc_text in ("да", "давай", "точно", "именно", "конечно", "ага", "угу"):
+                _chose_main = True
+            elif _pc_text in ("нет", "стоп", "отмена", "другое", "не то"):
+                pass  # отбой
+            elif _alt_action and _alt_action in _pc_text:
+                _chose_alt = True
+            elif _main_action and _main_action in _pc_text:
+                _chose_main = True
+            else:
+                # Попробуем через route_command
+                try:
+                    _router_ctx = {
+                        "active_window": data.get("active_window", ""),
+                        "current_track": st._current_track,
+                    }
+                    _correction = await route_command(text, context=_router_ctx)
+                    if _correction and _correction.get("action"):
+                        _corr_action = _correction["action"]
+                        if _corr_action in (_main_action, _alt_action):
+                            _chose_main = True
+                            _pc["main"] = _correction
+                        else:
+                            # Другое действие — исполнить, но алиас не писать
+                            _corr_arg = _correction.get("arg", "")
+                            _corr_full = f"{_corr_action}:{_corr_arg}" if _corr_arg and ":" not in _corr_action else _corr_action
+                            if ws_dev:
+                                _cmd_id = _register_command(_corr_full, device_id or "laptop")
+                                await ws_dev.send(json.dumps({"type": "command", "action": _corr_full, "id": _cmd_id}))
+                except Exception as e:
+                    log.debug(f"[ws] _say: {type(e).__name__}: {e}")
+
+            del st._pending_clarify[_mk]
+
+            if _chose_main or _chose_alt:
+                _chosen = _pc["main"] if _chose_main else _pc["alt"]
+                from modules.user_commands import add as _uc_add
+                _uc_add(_pc["text"], _chosen, source="auto")
+                # Исполнить chosen
+                if ws_dev:
+                    _chosen_action = _chosen.get("action", "")
+                    _chosen_arg = _chosen.get("arg", "")
+                    if _chosen_arg and ":" not in _chosen_action:
+                        _chosen_full = f"{_chosen_action}:{_chosen_arg}"
+                    else:
+                        _chosen_full = _chosen_action
+                    _cmd_id = _register_command(_chosen_full, device_id or "laptop")
+                    await ws_dev.send(json.dumps({"type": "command", "action": _chosen_full, "id": _cmd_id}))
+                return True
+            # Отбой — ничего не делаем
+            return True
+        else:
+            del st._pending_clarify[_mk]
+
+    return False
+
+
 async def handle_voice_command(websocket, data, ctx) -> None:
     ask_gemini = ctx["ask_gemini"]
     ask_gemini_voice = ctx["ask_gemini_voice"]
@@ -777,6 +934,18 @@ async def handle_voice_command(websocket, data, ctx) -> None:
         await stream_tts_to_device("Хорошо, остановилась.", ws_dev,
                                    device_id or "laptop", literal=True)
         return
+
+    # ── PENDING-СОСТОЯНИЯ: проверяются раньше всего остального ──
+    # Если Сакура ждёт подтверждения — короткий ответ Мастера принадлежит
+    # этому диалогу, а не классификатору намерений.
+    _mk = device_id or "tg"
+    if (_mk in st._pending_system
+            or _mk in st._pending_plan
+            or _mk in st._pending_clarify
+            or pending_forget_active()):
+        _handled = await _handle_pending(text, text_lower, _mk, ws_dev, device_id, ctx, data)
+        if _handled:
+            return
 
     # ── СЕМАНТИЧЕСКИЙ КЛАССИФИКАТОР НАМЕРЕНИЙ ──────────
     # Быстро определяем тип: команда, запрос или разговор
@@ -1355,148 +1524,6 @@ async def handle_voice_command(websocket, data, ctx) -> None:
     _mk = device_id or "tg"
     _now_ts = __import__("time").monotonic()
 
-    # ── ПОДТВЕРЖДЕНИЕ СИСТЕМНОЙ КОМАНДЫ (выключение/перезагрузка/сон) ──
-    if _mk in st._pending_system:
-        _ps = st._pending_system[_mk]
-        if _now_ts - _ps["ts"] < 60:
-            _ps_result = st.check_confirmation(text)
-            if _ps_result == "confirm":
-                del st._pending_system[_mk]
-                if ws_dev:
-                    await execute_critical_action(_ps["action"], ws_dev, device_id, text, data.get("active_window", ""), ask_gemini)
-                else:
-                    await bot.send_message(MASTER_ID, "Устройство отключилось, не могу выполнить.")
-                return
-            elif _ps_result == "deny":
-                del st._pending_system[_mk]
-                _ps_cancel_msg = "Хорошо, отменила."
-                if ws_dev:
-                    await stream_tts_to_device(_ps_cancel_msg, ws_dev, device_id or "laptop", literal=True)
-                else:
-                    await bot.send_message(MASTER_ID, _ps_cancel_msg)
-                return
-            else:
-                # Мастер сменил тему — отменяем подтверждение и обрабатываем реплику обычным путём
-                del st._pending_system[_mk]
-        else:
-            del st._pending_system[_mk]
-
-    # ── ПОДТВЕРЖДЕНИЕ ЗАБЫВАНИЯ («забудь про Х» → «да») ──
-    if pending_forget_active():
-        _fg = memory_forget_confirm(text)
-        if _fg is not None:
-            if ws_dev:
-                await stream_tts_to_device(_fg[0], ws_dev, device_id or "laptop", literal=True)
-            else:
-                await bot.send_message(MASTER_ID, _fg[0])
-            return
-
-    if _mk in st._pending_plan:
-        _pp = st._pending_plan[_mk]
-        if _now_ts - _pp["ts"] < 60:
-            _pp_text = text.lower().strip().rstrip(".!?,")
-            if _pp_text in ("да", "давай", "делай", "точно", "ага", "угу", "конечно"):
-                del st._pending_plan[_mk]
-                _plan_result, _plan_msg = await _execute_plan(
-                    _pp["plan"], _mk, ws_dev, device_id)
-                if _plan_result:
-                    from modules.user_commands import add as _uc_add
-                    _uc_add(_pp["text"], {
-                        "plan": _pp["plan"]["steps"],
-                        "summary": _pp["plan"]["summary"],
-                        "source": "plan",
-                        "risky": _pp["plan"]["risky"],
-                        "uses": 1,
-                    }, source="plan")
-                if ws_dev:
-                    await stream_tts_to_device(
-                        _plan_msg, ws_dev, device_id or "laptop", literal=True)
-                else:
-                    await bot.send_message(MASTER_ID, _plan_msg)
-                return
-            elif _pp_text in ("нет", "стоп", "отмена", "хватит"):
-                del st._pending_plan[_mk]
-                _deny = "Хорошо, отменила."
-                if ws_dev:
-                    await stream_tts_to_device(
-                        _deny, ws_dev, device_id or "laptop", literal=True)
-                else:
-                    await bot.send_message(MASTER_ID, _deny)
-                return
-            else:
-                del st._pending_plan[_mk]
-        else:
-            del st._pending_plan[_mk]
-
-    # ── ОТМЕНА ПЛАНА: «стоп»/«отмена» во время исполнения ──
-    _tlow = text.lower().strip().rstrip(".!?,")
-    if _tlow in ("стоп", "отмена", "хватит", "стоп план", "отмена плана"):
-        if _mk in st._pending_plan:
-            del st._pending_plan[_mk]
-        st._plan_cancel[_mk] = True
-
-    # ── УТОЧНЕНИЕ: проверяем ответ на предыдущий вопрос ──
-    if _mk in st._pending_clarify:
-        _pc = st._pending_clarify[_mk]
-        if _now_ts - _pc["ts"] < 60:
-            _pc_text = text.lower().strip().rstrip(".!?,")
-            _main_action = _pc["main"].get("action", "")
-            _alt_action = _pc["alt"].get("action", "") if _pc["alt"] else ""
-
-            _chose_main = False
-            _chose_alt = False
-            if _pc_text in ("да", "давай", "точно", "именно", "конечно", "ага", "угу"):
-                _chose_main = True
-            elif _pc_text in ("нет", "стоп", "отмена", "другое", "не то"):
-                pass  # отбой
-            elif _alt_action and _alt_action in _pc_text:
-                _chose_alt = True
-            elif _main_action and _main_action in _pc_text:
-                _chose_main = True
-            else:
-                # Попробуем через route_command
-                try:
-                    _router_ctx = {
-                        "active_window": data.get("active_window", ""),
-                        "current_track": st._current_track,
-                    }
-                    _correction = await route_command(text, context=_router_ctx)
-                    if _correction and _correction.get("action"):
-                        _corr_action = _correction["action"]
-                        if _corr_action in (_main_action, _alt_action):
-                            _chose_main = True
-                            _pc["main"] = _correction
-                        else:
-                            # Другое действие — исполнить, но алиас не писать
-                            _corr_arg = _correction.get("arg", "")
-                            _corr_full = f"{_corr_action}:{_corr_arg}" if _corr_arg and ":" not in _corr_action else _corr_action
-                            if ws_dev:
-                                _cmd_id = _register_command(_corr_full, device_id or "laptop")
-                                await ws_dev.send(json.dumps({"type": "command", "action": _corr_full, "id": _cmd_id}))
-                except Exception as e:
-                    log.debug(f"[ws] _say: {type(e).__name__}: {e}")
-
-            del st._pending_clarify[_mk]
-
-            if _chose_main or _chose_alt:
-                _chosen = _pc["main"] if _chose_main else _pc["alt"]
-                from modules.user_commands import add as _uc_add
-                _uc_add(_pc["text"], _chosen, source="auto")
-                # Исполнить chosen
-                if ws_dev:
-                    _chosen_action = _chosen.get("action", "")
-                    _chosen_arg = _chosen.get("arg", "")
-                    if _chosen_arg and ":" not in _chosen_action:
-                        _chosen_full = f"{_chosen_action}:{_chosen_arg}"
-                    else:
-                        _chosen_full = _chosen_action
-                    _cmd_id = _register_command(_chosen_full, device_id or "laptop")
-                    await ws_dev.send(json.dumps({"type": "command", "action": _chosen_full, "id": _cmd_id}))
-                return
-            # Отбой — ничего не делаем
-            return
-        else:
-            del st._pending_clarify[_mk]
 
     # ── ДЕТЕКТОР КОРРЕКЦИИ (шаг 6) ─────────────────────────
     if _mk in st._last_executed:
