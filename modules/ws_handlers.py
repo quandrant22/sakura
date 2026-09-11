@@ -69,6 +69,24 @@ from modules.weather import get_weather
 
 log = logging.getLogger(__name__)
 
+# Слова/фразы для чистки payload перед отправкой в Telegram/поиска.
+# Вырезаются строго по границам слов — подстрочный replace калечил
+# «мнение» → «ние», «задание» → «за ние» и т.п.
+_STRIP_WORDS = ("пришли", "прошли", "отправь", "скинь", "кинь", "сбрось",
+                "напиши", "напишите", "передай", "сообщи", "скажи",
+                "дай", "выдай", "подай", "мне", "пожалуйста", "сакура")
+_STRIP_PHRASES = ("в тг", "в телеграм", "в телегу", "в телеге", "в личк",
+                  "сообщением", "мне в чат")
+
+
+def _strip_payload_words(s: str, extra=()) -> str:
+    """Убирает служебные слова payload по границам слов (не подстрокой)."""
+    for ph in _STRIP_PHRASES:
+        s = re.sub(rf"(?<!\w){re.escape(ph)}(?!\w)", " ", s)
+    for w in list(extra) + list(_STRIP_WORDS):
+        s = re.sub(rf"(?<!\w){re.escape(w)}(?!\w)", " ", s)
+    return " ".join(s.split()).strip(" ,.")
+
 
 # ─────────────────────────────────────────────
 #  register
@@ -987,12 +1005,7 @@ async def handle_voice_command(websocket, data, ctx) -> None:
     if _is_send_tg or _is_weather or _is_web_search:
         log.info(f"[intent] {_intent.intent} → TG/web search")
         # Извлекаем что именно отправлять
-        _tg_payload = text_lower
-        for w in ("пришли", "прошли", "отправь", "скинь", "кинь", "сбрось",
-                   "напиши", "дай", "в тг", "в телеграм", "в телегу",
-                   "мне", "пожалуйста", "сакура"):
-            _tg_payload = _tg_payload.replace(w, " ")
-        _tg_payload = " ".join(_tg_payload.split()).strip(" ,.")
+        _tg_payload = _strip_payload_words(text_lower)
         if not _tg_payload:
             _tg_payload = text  # fallback — весь текст
 
@@ -1137,7 +1150,8 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                 return
 
             elif any(t in text_lower for t in ("коммит", "git commit")):
-                msg = text.replace("коммит", "").replace("git commit", "").strip()
+                msg = re.sub(r"(?<!\w)git commit(?!\w)", " ", text)
+                msg = re.sub(r"(?<!\w)коммит(?!\w)", " ", msg).strip()
                 if not msg:
                     msg = "Обновление от Сакуры"
                 result = await git_commit(msg)
@@ -1246,9 +1260,7 @@ async def handle_voice_command(websocket, data, ctx) -> None:
         elif "что" in text_lower:
             msg = text_lower.split("что", 1)[1]
         else:
-            msg = text_lower
-            for w in ("напиши", "напишите", "передай", "сообщи", "скажи", "сакура", vip_name):
-                msg = msg.replace(w, " ")
+            msg = _strip_payload_words(text_lower, extra=("сакура", vip_name))
         msg = " ".join(msg.split()).strip(" ,.")
         log.info(f"voice->vip msg={msg!r} -> {vip_name}({vip_id})")
 
@@ -1268,10 +1280,7 @@ async def handle_voice_command(websocket, data, ctx) -> None:
     _SEND = ("пришли", "прошли", "отправь", "скинь", "кинь", "сбрось", "напиши", "дай")
     _TG = ("в тг", "в телеграм", "в телегу", "в телеге", "в личк", "сообщением", "мне в чат")
     if any(v in text_lower for v in _SEND) and any(t in text_lower for t in _TG):
-        payload = text_lower
-        for w in _SEND + _TG + ("мне", "пожалуйста", "сакура"):
-            payload = payload.replace(w, " ")
-        payload = " ".join(payload.split()).strip(" ,.")
+        payload = _strip_payload_words(text_lower)
 
         async def _say(phrase):
             if ws_dev:
@@ -1292,8 +1301,9 @@ async def handle_voice_command(websocket, data, ctx) -> None:
             if is_img:
                 q = query
                 for w in ("найди", "поищи", "покажи", "картинку", "картинка", "картинки",
-                          "фото", "фотку", "фотографию", "изображение", "рисунок", "арт", "мем", "пикчу"):
-                    q = q.replace(w, " ")
+                          "фото", "фотку", "фотографию", "изображение", "изображени",
+                          "рисунок", "арт", "мем", "пикчу", "пикч"):
+                    q = re.sub(rf"(?<!\w){re.escape(w)}(?!\w)", " ", q)
                 q = " ".join(q.split()).strip()
                 q_en = await _translate_en(q)
                 urls = await search_image(q_en, count=1)

@@ -670,9 +670,11 @@ def parse_music_request(text: str) -> dict | None:
             "найди ролик", "включи ролик", "открой ролик",
             "включи плейлист", "найди плейлист", "открой плейлист",
             "ютуб", "youtube", "ютьюб", "видео", "видос", "ролик", "плейлист",
-            "найди", "открой", "включи", "поставь", "от",
+            "найди", "открой", "включи", "поставь",
         ]:
             query = query.replace(word, "").strip()
+        # голое «от» только по границе слова — подстрокой резало «хоттабыч», «мотор»
+        query = _re.sub(r"(?<!\w)от(?!\w)", " ", query).strip()
         query = query.strip(" -,.")
         if query:
             return {"action": f"{'youtube_playlist' if is_playlist else 'youtube'}:{query}"}
