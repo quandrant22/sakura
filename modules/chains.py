@@ -23,6 +23,8 @@ import re
 from typing import Optional
 from config import MAIN_MODEL
 
+from modules.jsonio import save_json
+
 log = logging.getLogger("sakura.chains")
 
 CUSTOM_CHAINS_FILE = "memory/custom_chains.json"
@@ -278,9 +280,7 @@ def _load_custom_chains() -> dict:
 
 
 def _save_custom_chains(chains: dict):
-    os.makedirs(os.path.dirname(CUSTOM_CHAINS_FILE), exist_ok=True)
-    with open(CUSTOM_CHAINS_FILE, "w", encoding="utf-8") as f:
-        json.dump(chains, f, ensure_ascii=False, indent=2)
+    save_json(CUSTOM_CHAINS_FILE, chains)
 
 
 def add_custom_chain(name: str, steps: list[dict]):
@@ -326,9 +326,7 @@ def _load_triggers() -> list[dict]:
 
 
 def _save_triggers(triggers: list[dict]):
-    os.makedirs(os.path.dirname(VOICE_TRIGGERS_FILE), exist_ok=True)
-    with open(VOICE_TRIGGERS_FILE, "w", encoding="utf-8") as f:
-        json.dump(triggers, f, ensure_ascii=False, indent=2)
+    save_json(VOICE_TRIGGERS_FILE, triggers)
 
 
 def add_voice_trigger(phrase: str, actions: list[dict], timeout: int = 0):

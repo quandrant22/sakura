@@ -10,6 +10,8 @@ import re
 import time
 from datetime import datetime, timedelta
 
+from modules.jsonio import save_json
+
 log = logging.getLogger(__name__)
 
 REMINDERS_FILE = "memory/reminders.json"
@@ -68,9 +70,7 @@ def _load() -> list[dict]:
 
 
 def _save(reminders: list[dict]):
-    os.makedirs(os.path.dirname(REMINDERS_FILE), exist_ok=True)
-    with open(REMINDERS_FILE, "w", encoding="utf-8") as f:
-        json.dump(reminders, f, ensure_ascii=False, indent=2)
+    save_json(REMINDERS_FILE, reminders)
 
 
 def add_reminder(text: str, delay_seconds: int, reminder_type: str = "reminder") -> dict:

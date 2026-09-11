@@ -30,9 +30,10 @@ import logging
 import math
 import os
 import re
-import tempfile
 from datetime import datetime
 from typing import Optional
+
+from modules.jsonio import save_json
 
 log = logging.getLogger("sakura.mood")
 
@@ -84,13 +85,7 @@ def _load() -> dict:
 
 def _save(data: dict):
     data["updated"] = str(datetime.now())
-    dir_ = os.path.dirname(MOOD_FILE) or "."
-    os.makedirs(dir_, exist_ok=True)
-    with tempfile.NamedTemporaryFile("w", dir=dir_, delete=False,
-                                    encoding="utf-8", suffix=".tmp") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-        tmp = f.name
-    os.replace(tmp, MOOD_FILE)
+    save_json(MOOD_FILE, data)
 
 
 # ── Инерционное обновление ───────────────────────────────────────────
@@ -231,13 +226,7 @@ def _master_load() -> dict:
 
 def _master_save(data: dict):
     data["updated"] = str(datetime.now())
-    dir_ = os.path.dirname(MASTER_MOOD_FILE) or "."
-    os.makedirs(dir_, exist_ok=True)
-    with tempfile.NamedTemporaryFile("w", dir=dir_, delete=False,
-                                    encoding="utf-8", suffix=".tmp") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-        tmp = f.name
-    os.replace(tmp, MASTER_MOOD_FILE)
+    save_json(MASTER_MOOD_FILE, data)
 
 
 def _master_apply_decay(data: dict) -> dict:

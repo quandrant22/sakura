@@ -18,6 +18,8 @@ import re
 import time
 from datetime import datetime
 
+from modules.jsonio import save_json
+
 log = logging.getLogger("sakura.user_commands")
 
 COMMANDS_FILE = os.path.join(os.path.dirname(__file__), "..", "memory", "user_commands.json")
@@ -42,9 +44,7 @@ def _load() -> dict:
 
 def _save(data: dict):
     global _last_flush, _pending_data
-    os.makedirs(os.path.dirname(COMMANDS_FILE), exist_ok=True)
-    with open(COMMANDS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    save_json(COMMANDS_FILE, data)
     _last_flush = time.monotonic()
     # Файл только что записан свежими данными — отложенный буфер устарел
     _pending_data = None
