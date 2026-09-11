@@ -10,6 +10,9 @@ _log = logging.getLogger(__name__)
 
 _last_emotion: str = "спокойная"
 
+_emotion_cache: tuple[str, float] | None = None
+_EMOTION_TTL = 5.0   # секунд
+
 _EMOTION_MAP = {
     "playful":  "игривая",
     "tender":   "нежная",
@@ -25,6 +28,23 @@ _EMOTION_MAP = {
 
 
 def get_current_emotion() -> str:
+    """Возвращает одно слово-эмоцию для TTS-префикса.
+    Приоритеты: revenge → время → stance."""
+    global _emotion_cache
+    import time as _t
+    if _emotion_cache and _t.monotonic() < _emotion_cache[1]:
+        return _emotion_cache[0]
+    result = _compute_emotion()
+    _emotion_cache = (result, _t.monotonic() + _EMOTION_TTL)
+    return result
+
+
+def invalidate_emotion_cache() -> None:
+    global _emotion_cache
+    _emotion_cache = None
+
+
+def _compute_emotion() -> str:
     """Возвращает одно слово-эмоцию для TTS-префикса.
     Приоритеты: revenge → время → stance."""
     global _last_emotion
