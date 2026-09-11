@@ -1,4 +1,5 @@
 """modules/nlu.py — NLU module with GLiNER-based slot extraction.
+ВНИМАНИЕ: модуль не подключён. Задел под будущий роутинг, см. agent/commands/*/command.toml.
 
 Replaces the massive if/else parsing in main.py with declarative
 command definitions and neural slot extraction.
