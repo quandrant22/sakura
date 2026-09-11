@@ -7,7 +7,11 @@
  */
 
 const WS_URL       = "ws://127.0.0.1:8766";
-const RECONNECT_MS = 3000;
+
+// Реконнект с экспоненциальным бэкоффом: если агент не запущен,
+// не стучимся в порт каждые 3 секунды бесконечно
+let reconnectDelay = 3000;
+const RECONNECT_MAX = 30000;
 
 let ws        = null;
 let connected = false;
@@ -21,12 +25,14 @@ function connect() {
   try {
     ws = new WebSocket(WS_URL);
   } catch (e) {
-    setTimeout(connect, RECONNECT_MS);
+    setTimeout(connect, reconnectDelay);
+    reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX);
     return;
   }
 
   ws.onopen = () => {
     connected = true;
+    reconnectDelay = 3000;
     console.log("[Sakura] Подключено к агенту");
     send({ type: "extension_ready", version: "3.0.0" });
   };
@@ -42,14 +48,15 @@ function connect() {
 
   ws.onclose = () => {
     connected = false;
-    console.log("[Sakura] Обрыв — реконнект через 3с");
+    console.log("[Sakura] Обрыв — реконнект через", reconnectDelay, "мс");
     ws = null;
-    setTimeout(connect, RECONNECT_MS);
+    setTimeout(connect, reconnectDelay);
+    reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX);
   };
 
   ws.onerror = (e) => {
-    console.log("[Sakura] Ошибка WS:", e.message);
-    ws.close();
+    console.log("[Sakura] Ошибка WS:", e && e.message);
+    if (ws) { try { ws.close(); } catch (_) {} }
   };
 }
 
@@ -878,4 +885,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 // ── Старт ──────────────────────────────────────────────────────────
-connect();
+
+// MV3 выгружает service worker через ~30с бездействия — вместе с ним
+// умирают WS и цепочка setTimeout. chrome.alarms будит воркер и
+// переподнимает соединение; connect() сам делает no-op если оно живо.
+chrome.alarms.create("sakura-keepalive", { periodInMinutes: 0.5 });
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === "sakura-keepalive") {
+    connect();
+  }
+});
+
+// Все точки входа пробуждения воркера
+chrome.runtime.onStartup.addListener(connect);
+chrome.runtime.onInstalled.addListener(connect);
+connect();   // холодный старт воркера
