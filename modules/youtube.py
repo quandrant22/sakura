@@ -35,13 +35,14 @@ modules/youtube.py (VPS) — YouTube Data API v3.
 import asyncio
 import json
 import logging
+import os
 import urllib.parse
 import urllib.request
 from typing import Optional
 
 log = logging.getLogger("sakura.youtube")
 
-YT_API_KEY  = "AIzaSyCyaxX1fnm6Tzsz8An1TtLVac5-KUWCdjA"
+YT_API_KEY  = os.getenv("YT_API_KEY", "")
 YT_BASE     = "https://www.googleapis.com/youtube/v3"
 YT_WATCH    = "https://www.youtube.com/watch?v="
 YT_PLAYLIST = "https://www.youtube.com/playlist?list="
@@ -50,6 +51,9 @@ YT_PLAYLIST = "https://www.youtube.com/playlist?list="
 # ── Data API ─────────────────────────────────────────────────────────
 
 def _fetch(url: str) -> Optional[dict]:
+    if not YT_API_KEY:
+        log.warning("[youtube] YT_API_KEY не задан — YouTube API отключён")
+        return None
     try:
         with urllib.request.urlopen(url, timeout=8) as r:
             return json.loads(r.read().decode())

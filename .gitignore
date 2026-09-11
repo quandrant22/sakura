@@ -17,6 +17,22 @@ memory/api_keys.json
 
 # Память пользователя — приватные данные
 memory/long_term.json
+memory/long_term.json*
+memory/notifications.json
+memory/tg_whitelist.json
+memory/window_watcher.json
+memory/music_history.json
+memory/mood_arc.json
+memory/mood_vector.json
+memory/time_feeling.json
+memory/fortune_history.json
+memory/word_game_session.json
+memory/evening_pulse.json
+memory/briefing.json
+memory/first_run.json
+memory/patterns.json
+memory/sakura_pranks.json
+memory/user_commands.json
 memory/history.json
 memory/session_summary.json
 memory/guests/
@@ -92,3 +108,9 @@ logs/
 # Временные файлы
 *.tmp
 *.temp
+
+# Картинки и скриншоты — не место в репозитории
+*.png
+*.jpg
+*.jpeg
+!agent/extension/icon*.png
