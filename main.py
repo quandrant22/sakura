@@ -3207,7 +3207,11 @@ async def handle_message(message: Message):
         return
 
     if _fz(text_lower, ("скрин", "скриншот", "снимок экрана")):
-        text_lower = re.sub(r"\b(сделай\s+скрин(шот)?|снимок\s+экрана)\b", "скриншот", text_lower)
+        _text_raw = text
+        text = re.sub(
+            r"(?i)(?<!\w)(сделай\s+скрин(?:шот)?|снимок\s+экрана|скрин(?:шот)?)(?!\w)",
+            "скриншот", text)
+        text_lower = text.lower()
 
     tl_check = text.lower()
 
@@ -3545,7 +3549,11 @@ async def handle_message(message: Message):
 
     await bot.send_chat_action(message.chat.id, "typing")
     _t0 = __import__("time").monotonic()
-    reply = await ask_gemini(text + reply_ctx)
+    try:
+        _history_text = _text_raw
+    except NameError:
+        _history_text = text
+    reply = await ask_gemini(_history_text + reply_ctx)
     log.info(f"[ответ] {__import__('time').monotonic()-_t0:.1f}с | {reply!r}")
     await send_as_conversation(message.chat.id, reply)
 
