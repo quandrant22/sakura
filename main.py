@@ -4,6 +4,7 @@ import logging
 import json
 import base64
 import os
+import random
 import re
 import uuid
 from modules.fuzzy import phrase_has_any as _fz, phrase_has as _fz1
@@ -1328,13 +1329,15 @@ async def daily_analysis():
 # проактиве запрещён: инициатора запроса нет — искать нечего.
 # Напоминания (задачи/календарь) — не проактив, живут здесь же.
 
+_last_weather_refresh: float = 0.0
+
 async def proactive_loop():
     from modules.capsules import (get_due_capsules, make_open_prompt, mark_opened,
         get_due_sakura_capsules, make_sakura_open_prompt, mark_sakura_opened)
-    global _proactive_prompt_idx
+    global _proactive_prompt_idx, _last_weather_refresh
     await asyncio.sleep(60)
     while True:
-        await asyncio.sleep(120)
+        await asyncio.sleep(120 + random.randint(-30, 90))
         # Ночной режим — молчим с 23:00 до 07:00
         _ph = __import__('datetime').datetime.now().hour
         if _ph >= 23 or _ph < 7:
@@ -1351,6 +1354,8 @@ async def proactive_loop():
             trigger = None
             is_crit = False
             prompt  = None
+            reply   = None
+            _pending_task_id = None
 
             try:
                 due = get_due_tasks()
@@ -1360,7 +1365,7 @@ async def proactive_loop():
                     trigger = "task_overdue" if overdue else "task_due"
                     prompt  = f"{'Просроченная' if overdue else 'Наступила'} задача: {task['text']}. Напомни коротко."
                     is_crit = overdue
-                    mark_notified(task["id"])
+                    _pending_task_id = task["id"]
             except Exception as e:
                 log.error(f"Task check error: {e}")
 
@@ -1391,21 +1396,23 @@ async def proactive_loop():
                     await send_telegram_text(MASTER_ID, ftext)
                     mark_sent(topic=ftopic, text=ftext)
                     log.info(f"[proactive] факт ({ftopic}): {ftext}")
-                continue
+                    continue        # факт отправлен — на этом тик закончен
 
-            # Дальше — только напоминания (задачи/календарь), это не проактив
-            if not can_send_message(is_critical=is_crit):
-                continue
+            if trigger:
+                # Дальше — только напоминания (задачи/календарь), это не проактив
+                if not can_send_message(is_critical=is_crit):
+                    trigger = None
+                    reply = None
+                else:
+                    reply = await ask_gemini(prompt, save_history=False)
 
-            reply = await ask_gemini(prompt, save_history=False)
+                    if reply and not is_crit and has_recent_semantic_duplicate(reply):
+                        log.info("[proactive] skip duplicate reminder: %s", reply)
+                        continue
 
-            if reply and not is_crit and has_recent_semantic_duplicate(reply):
-                log.info("[proactive] skip duplicate reminder: %s", reply)
-                continue
-
-            # Финальная проверка — вдруг пока генерировали пришла команда
-            if __import__('time').monotonic() - _last_command_ts < 30:
-                continue
+                    # Финальная проверка — вдруг пока генерировали пришла команда
+                    if __import__('time').monotonic() - _last_command_ts < 30:
+                        continue
 
             # Тихий режим (созвон / игра) — пропускаем
             try:
@@ -1457,30 +1464,34 @@ async def proactive_loop():
             try:
                 notes = get_unreminded_notes()
                 if notes and can_send_message(is_critical=False):
-                    import random
                     note = random.choice(notes)
                     remind_prompt = (
                         f"Мастер записал идею: «{note['raw_text'][:80]}». "
                         "Вспомни об этом вскользь — одно предложение."
                     )
-                    reply = await ask_gemini(remind_prompt, save_history=False)
-                    if reply:
-                        await send_telegram_text(MASTER_ID, reply)
+                    note_reply = await ask_gemini(remind_prompt, save_history=False)
+                    if note_reply:
+                        await send_telegram_text(MASTER_ID, note_reply)
                         mark_reminded(note["id"])
             except Exception as e:
                 log.debug(f"notes reminder: {e}")
 
             # Обновление погоды каждые 30 минут
             try:
-                weather = await get_weather()
-                if weather:
-                    await asyncio.to_thread(apply_weather_to_mood, weather)
+                if __import__('time').monotonic() - _last_weather_refresh > 1800:
+                    weather = await get_weather()
+                    if weather:
+                        await asyncio.to_thread(apply_weather_to_mood, weather)
+                    _last_weather_refresh = __import__('time').monotonic()
             except Exception as e:
                 log.debug(f"[main] proactive_loop: {type(e).__name__}: {e}")
 
-            await send_telegram_text(MASTER_ID, reply)
-            mark_sent(trigger, text=reply)
-            log.info(f"Проактивное напоминание: {trigger}")
+            if trigger and reply:
+                await send_telegram_text(MASTER_ID, reply)
+                mark_sent(trigger, text=reply)
+                if _pending_task_id is not None:
+                    mark_notified(_pending_task_id)
+                log.info(f"Проактивное напоминание: {trigger}")
         except Exception as e:
             log.error(f"Proactive error: {e}")
 
