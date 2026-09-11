@@ -8,8 +8,8 @@ core/dep_check.py — проверка критичных пакетов при 
 
     [agent] winsdk не установлен — управление музыкой недоступно
 
-Вызывается из core/agent.Agent.__init__ (обе точки входа — sakura.py
-и launch.py — конструируют Agent). Повторные вызовы — no-op.
+Вызывается из core/agent.Agent.__init__ (точка входа — sakura.py —
+конструирует Agent). Повторные вызовы — no-op.
 """
 
 import importlib
