@@ -74,9 +74,9 @@ def _load() -> list[dict]:
 
 
 def _save(data: list[dict]):
+    from modules.jsonio import save_json
     os.makedirs(os.path.dirname(NOTIFICATIONS_FILE), exist_ok=True)
-    with open(NOTIFICATIONS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data[-_MAX_STORED:], f, ensure_ascii=False, indent=2)
+    save_json(NOTIFICATIONS_FILE, data[-_MAX_STORED:])
 
 
 def _classify_urgency(title: str, body: str) -> bool:

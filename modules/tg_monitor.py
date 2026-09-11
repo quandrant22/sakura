@@ -37,9 +37,9 @@ def _load_whitelist() -> dict:
 
 
 def _save_whitelist(data: dict):
+    from modules.jsonio import save_json
     os.makedirs(os.path.dirname(WHITELIST_FILE), exist_ok=True)
-    with open(WHITELIST_FILE, "w") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    save_json(WHITELIST_FILE, data)
 
 
 def _check_chat(chat_id: str) -> bool:

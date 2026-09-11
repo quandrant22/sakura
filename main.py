@@ -38,6 +38,7 @@ from modules.device_manager import (
     # get_active_device берётся из presence_sync (ниже) — версия device_manager не используется
 )
 from modules.context import build_context_block, get_full_context, is_home_alone, is_gaming
+from modules.jsonio import save_json
 from modules.timeline import get_timeline_context, get_achievements_context, extract_and_save_from_dialogue
 from modules.mood_vector import mark_interaction, auto_detect_mood_from_reply
 from modules.proactive import (
@@ -969,8 +970,7 @@ async def analyze_apps(apps: dict, device_id: str):
             full.setdefault(base, path)
             full.setdefault(name.lower(), path)
 
-        with open(f"memory/apps_mapping_{device_id}.json", "w", encoding="utf-8") as f:
-            json.dump(full, f, ensure_ascii=False, indent=2)
+        save_json(f"memory/apps_mapping_{device_id}.json", full)
         log.info(f"Маппинг приложений ({device_id}): {len(full)} записей")
     except Exception as e:
         log.error(f"Apps analyze error: {e}")
@@ -1115,8 +1115,7 @@ async def _clean_slate():
         "behaviors":   [],
         "updated":     str(datetime.now()),
     }
-    with open("memory/rules.json", "w", encoding="utf-8") as f:
-        json.dump(empty_rules, f, ensure_ascii=False, indent=2)
+    save_json("memory/rules.json", empty_rules)
 
     log.info("[Протокол] Чистый лист выполнен.")
 

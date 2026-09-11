@@ -176,9 +176,9 @@ def _load_session() -> dict:
 
 
 def _save_session(session: dict):
+    from modules.jsonio import save_json
     os.makedirs(os.path.dirname(SESSION_FILE), exist_ok=True)
-    with open(SESSION_FILE, "w", encoding="utf-8") as f:
-        json.dump(session, f, ensure_ascii=False, indent=2)
+    save_json(SESSION_FILE, session)
 
 
 # ── Парсинг команд ────────────────────────────────────────────────

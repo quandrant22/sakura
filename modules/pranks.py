@@ -99,9 +99,9 @@ def _load_state() -> dict:
 
 
 def _save_state(state: dict):
+    from modules.jsonio import save_json
     os.makedirs(os.path.dirname(PRANKS_FILE), exist_ok=True)
-    with open(PRANKS_FILE, "w", encoding="utf-8") as f:
-        json.dump(state, f, ensure_ascii=False, indent=2)
+    save_json(PRANKS_FILE, state)
 
 
 def can_prank() -> bool:

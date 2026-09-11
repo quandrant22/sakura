@@ -14,6 +14,7 @@ import os
 from datetime import datetime, date
 
 from modules.device_manager import get_active_device
+from modules.jsonio import save_json
 
 
 def _active_dev(devices: dict) -> dict:
@@ -223,9 +224,9 @@ def get_sakura_mood() -> dict:
 
 def save_sakura_mood(mood: str, energy: str, note: str = ""):
     try:
-        with open("memory/mood.json", "w", encoding="utf-8") as f:
-            json.dump({"mood": mood, "energy": energy, "note": note,
-                       "updated": str(datetime.now())}, f, ensure_ascii=False, indent=2)
+        data = {"mood": mood, "energy": energy, "note": note,
+                "updated": str(datetime.now())}
+        save_json("memory/mood.json", data)
     except Exception:
         pass
 

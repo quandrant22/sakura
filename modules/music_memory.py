@@ -27,12 +27,12 @@ def _load() -> list[dict]:
 
 
 def _save(history: list[dict]):
+    from modules.jsonio import save_json
     os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
     # Обрезаем до MAX_ENTRIES
     if len(history) > MAX_ENTRIES:
         history = history[-MAX_ENTRIES:]
-    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(history, f, ensure_ascii=False)
+    save_json(HISTORY_FILE, history, indent=None)
 
 
 def track_play(artist: str, title: str, album: str = ""):
@@ -152,9 +152,9 @@ def _load_taste() -> dict:
 
 
 def _save_taste(taste: dict):
+    from modules.jsonio import save_json
     os.makedirs(os.path.dirname(TASTE_FILE), exist_ok=True)
-    with open(TASTE_FILE, "w", encoding="utf-8") as f:
-        json.dump(taste, f, ensure_ascii=False, indent=2)
+    save_json(TASTE_FILE, taste)
 
 
 def like_artist(artist: str, note: str = ""):

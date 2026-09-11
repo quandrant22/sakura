@@ -16,6 +16,7 @@ import os
 from datetime import datetime
 
 from modules.fuzzy import find_trigger
+from modules.jsonio import save_json
 
 RULES_FILE = "memory/rules.json"
 
@@ -73,8 +74,7 @@ def _default() -> dict:
 
 def save_rules(data: dict):
     data["updated"] = str(datetime.now())
-    with open(RULES_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    save_json(RULES_FILE, data)
 
 
 def detect_rule(text: str) -> dict | None:

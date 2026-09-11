@@ -137,9 +137,9 @@ def _load_history() -> dict:
 
 
 def _save_history(data: dict):
+    from modules.jsonio import save_json
     os.makedirs(os.path.dirname(FORTUNE_FILE) or ".", exist_ok=True)
-    with open(FORTUNE_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    save_json(FORTUNE_FILE, data)
 
 
 # ── Определение времени суток ──────────────────────────────────────
