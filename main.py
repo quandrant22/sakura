@@ -636,6 +636,7 @@ def parse_device_command(text: str) -> dict | None:
 
 
 def parse_music_request(text: str) -> dict | None:
+    import re as _re
     tl = text.lower().strip()
     music_keywords = [
         "музык", "трек", "трэк", "песн", "плейлист", "волн", "включи", "поставь",
