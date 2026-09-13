@@ -965,6 +965,18 @@ async def handle_voice_command(websocket, data, ctx) -> None:
         if _handled:
             return
 
+    # ── v3 (этап 3): быстрый путь реестра для музыки ────────────────
+    # Реестр без LLM; действие уходит агенту каноническим id. Временный
+    # крюк: на этапах 5-6 ветки старого пути вынимаются вместе с ним.
+    try:
+        from sakura_core.bridge import v3_fast_path
+        if await v3_fast_path(text, data=data, device_ws=ws_dev,
+                              device_id=device_id,
+                              register_command=ctx.get("_register_command")):
+            return
+    except Exception as _v3_err:
+        log.debug(f"[v3] быстрый путь: {type(_v3_err).__name__}: {_v3_err}")
+
     # ── СЕМАНТИЧЕСКИЙ КЛАССИФИКАТОР НАМЕРЕНИЙ ──────────
     # Быстро определяем тип: команда, запрос или разговор
     _intent = await classify_intent(text)

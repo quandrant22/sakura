@@ -35,6 +35,67 @@ from core.dep_check import check_critical_packages
 log = logging.getLogger("sakura.agent")
 
 
+# ── Музыка (v3, этап 3): канонические имена и явный выбор бэкенда ────────
+# Канонические имена v3 (music.*) принимаются В ДОПОЛНЕНИЕ к старым
+# (music_* / music:*) — поддержка старых удаляется на этапе 8.
+_MUSIC_SMTC_VERBS = (
+    # глагол → имя для core.music.music_command (= легаси-имя на проводе)
+    ("next", "music_next"),
+    ("prev", "music_prev"),
+    ("play_pause", "music_play_pause"),
+    ("like", "music_like"),
+    ("dislike", "music_dislike"),
+    ("now_playing", "music_info"),
+    ("history", "music_history"),
+    ("liked_tracks", "music_liked_tracks"),
+    ("playlists", "music_playlists"),
+)
+_MUSIC_BROWSER_VERBS = (
+    # идут через расширение браузера (core.browser.music_action, имя music:<verb>)
+    "shuffle", "repeat", "seek_forward", "seek_back",
+    "podcasts", "mute", "volume_up", "volume_down",
+)
+
+# Приложение (yamusic_app): волна и легаси play/pause
+_MUSIC_APP_ACTIONS = ("music.wave", "music.play", "music.pause")
+
+# Единая входная карта: имя на проводе (любое написание) →
+# (бэкенд, канонический id, легаси-имя для бэкенда).
+_MUSIC_INBOUND = {}
+for _v, _lg in _MUSIC_SMTC_VERBS:
+    _c = f"music.{_v}"
+    _MUSIC_INBOUND[_c] = _MUSIC_INBOUND[f"music_{_lg[6:]}"] = \
+        _MUSIC_INBOUND[f"music:{_v}"] = ("smtc", _c, _lg)
+for _v in _MUSIC_BROWSER_VERBS:
+    _c = f"music.{_v}"
+    _MUSIC_INBOUND[_c] = _MUSIC_INBOUND[f"music:{_v}"] = ("browser", _c, f"music:{_v}")
+for _a in _MUSIC_APP_ACTIONS:
+    _MUSIC_INBOUND[_a] = ("app", _a, _a)
+_MUSIC_INBOUND["music:wave"] = ("app", "music.wave", "music:wave")
+_MUSIC_INBOUND["music:play"] = ("app", "music.play", "music:play")
+_MUSIC_INBOUND["music:pause"] = ("app", "music.pause", "music:pause")
+# легаси-имя волны из LLM-роутера v2: в v2 шло в music_command, которая его# не знала (мёртвый путь); теперь — в приложение, как music:wave
+_MUSIC_INBOUND["music_play_wave"] = ("app", "music.wave", "music_play_wave")
+
+
+def _music_canonical(action: str):
+    """Привести имя музыкального действия к каноническому.
+
+    Возвращает (бэкенд, канонический id, легаси-имя для бэкенда) либо None,
+    если это не музыка. Неизвестные music_* (music_recommendations,
+    music_search:…) идут в SMTC как есть — их поведение не менялось.
+    """
+    if action.startswith(("music.", "music_", ":".join(("music", "")))):
+        hit = _MUSIC_INBOUND.get(action)
+        if hit is not None:
+            return hit
+        if action.startswith("music_"):
+            return "smtc", "music.legacy", action
+        return None
+    return None
+
+
+
 class Agent:
     def __init__(self, bus):
         # Явная проверка критичных пакетов (winsdk и пр.) при старте:
@@ -295,111 +356,61 @@ class Agent:
             await _send_ack(result.get("ok", False), result.get("detail", ""))
             return
 
-        # Яндекс Музыка + SMTC
-        _music_action = None
-        if action.startswith("music_"):
-            _music_action = action
-        elif action == "music:now_playing":
-            # «что сейчас играет» → полный music_info (SMTC + обогащение YM API):
-            # результат уходит на VPS payload-ом music{info} и озвучивается там
-            _music_action = "music_info"
-        elif action in ("music:next", "music:prev", "music:play_pause"):
-            _music_action = action.replace("music:", "music_")
-        elif action in ("music:like", "music:dislike"):
-            _music_action = action.replace("music:", "music_")
-        if _music_action:
+        # ── Музыка: единый блок диспетчеризации (v3, этап 3) ──────────────
+        # Один блок вместо трёх (SMTC / браузер / yamusic_app): бэкенд
+        # выбирается по каноническому действию. Канонические имена v3
+        # (music.*) принимаются в дополнение к старым — до этапа 8.
+        _music = _music_canonical(action)
+        if _music:
+            _mbackend, _mcanon, _mlegacy = _music
             _t0 = time.monotonic()
             try:
-                from core.music import music_command
-                log.info(f"[music] начата обработка {_music_action} (id={cmd_id})")
-                result = await asyncio.wait_for(music_command(_music_action), timeout=15.0)
-                result["action"] = _music_action
-                _ms = int((time.monotonic() - _t0) * 1000)
-                log.info(f"[music] результат {_music_action} за {_ms}мс (id={cmd_id}): "
-                         f"ok={result.get('ok')} detail={result.get('result','')!r}")
-                await self._ws.send(json.dumps({
-                    "type": "command_result", "id": cmd_id,
-                    "device_id": config.DEVICE_ID, "token": config.WS_TOKEN,
-                    "ok": True, "detail": result.get("result", ""),
-                    "music": result,
-                }))
-                log.info(f"[music] command_result отправлен серверу (id={cmd_id})")
+                if _mbackend == "smtc":
+                    # SMTC + Яндекс Музыка API
+                    from core.music import music_command
+                    log.info(f"[music] начата обработка {_mcanon} → {_mlegacy} (id={cmd_id})")
+                    result = await asyncio.wait_for(music_command(_mlegacy), timeout=15.0)
+                    result["action"] = _mlegacy
+                    _ms = int((time.monotonic() - _t0) * 1000)
+                    log.info(f"[music] результат {_mlegacy} за {_ms}мс (id={cmd_id}): "
+                             f"ok={result.get('ok')} detail={result.get('result','')!r}")
+                    await self._ws.send(json.dumps({
+                        "type": "command_result", "id": cmd_id,
+                        "device_id": config.DEVICE_ID, "token": config.WS_TOKEN,
+                        "ok": True, "detail": result.get("result", ""),
+                        "music": result,
+                    }))
+                    log.info(f"[music] command_result отправлен серверу (id={cmd_id})")
+                elif _mbackend == "browser":
+                    # Команды через расширение браузера
+                    from core import browser as _br
+                    result = await asyncio.to_thread(_br.music_action, _mlegacy)
+                    await _send_ack(
+                        result.get("ok", True),
+                        result.get("detail", action),
+                        extra={"browser": result},
+                    )
+                else:
+                    # Приложение (yamusic_app): волна / легаси play / pause
+                    from core import yamusic_app as _ym
+                    if _mcanon == "music.wave":
+                        ok = await asyncio.to_thread(_ym.open_wave)
+                        detail = "Моя волна" if ok else "не удалось открыть"
+                    elif _mcanon == "music.play":
+                        ok = await asyncio.to_thread(_ym.play_pause)
+                        detail = "играет" if ok else "SMTC сессия не найдена"
+                    elif _mcanon == "music.pause":
+                        ok = await asyncio.to_thread(_ym.play_pause)
+                        detail = "пауза" if ok else "SMTC сессия не найдена"
+                    else:
+                        ok, detail = False, f"unknown: {_mcanon}"
+                    await _send_ack(bool(ok), detail, extra={"yamusic": True})
             except asyncio.TimeoutError:
-                log.error(f"[music] таймаут обработки {_music_action} (id={cmd_id})")
-                await _send_ack(False, f"{_music_action}: таймаут обработки")
+                log.error(f"[music] таймаут обработки {_mcanon} (id={cmd_id})")
+                await _send_ack(False, f"{_mcanon}: таймаут обработки")
             except Exception as e:
                 log.error(f"music error: {e}")
                 await _send_ack(False, f"music error: {e}")
-            return
-
-        # ── music browser-команды (shuffle/repeat/seek/volume/mute/podcasts) ──
-        # (music_info/music_history тоже обрабатываются в первом блоке выше —
-        # по префиксу music_, до этого списка не доходят)
-        if action in (
-            "music:shuffle", "music:repeat", "music:seek_forward",
-            "music:seek_back", "music:podcasts", "music:mute",
-            "music:volume_up", "music:volume_down",
-        ):
-            try:
-                from core import browser as _br
-                result = await asyncio.to_thread(_br.music_action, action)
-                await _send_ack(
-                    result.get("ok", True),
-                    result.get("detail", action),
-                    extra={"browser": result},
-                )
-            except Exception as e:
-                log.error(f"[music] browser dispatch error: {e}")
-                await _send_ack(False, f"music browser error: {e}")
-            return
-
-        # ── music app-команды (SMTC / deep links / hotkeys через yamusic_app) ──
-        # (music:next/prev/play_pause/like/dislike/now_playing перехвачены выше
-        # через core.music; здесь — только то, чего там нет)
-        if action in (
-            "music:wave", "music:play", "music:pause",
-        ):
-            try:
-                from core import yamusic_app as _ym
-                # Все вызовы _ym синхронные и могут блокировать (SMTC,
-                # time.sleep в хоткеях) — только через to_thread, иначе
-                # event loop агента стоит и command_result задерживается
-                if action == "music:like":
-                    ok = await asyncio.to_thread(_ym.like)
-                    detail = "лайк" if ok else "не удалось поставить лайк"
-                elif action == "music:dislike":
-                    ok = await asyncio.to_thread(_ym.dislike)
-                    detail = "дизлайк" if ok else "не удалось поставить дизлайк"
-                elif action == "music:now_playing":
-                    info = await asyncio.to_thread(_ym.now_playing)
-                    if info:
-                        detail = f"{info.get('artist','')} — {info.get('title','')}"
-                        if info.get("status") != "играет":
-                            detail += f" ({info['status']})"
-                    else:
-                        detail = "Яндекс Музыка не запущена"
-                    ok = bool(info)
-                elif action == "music:wave":
-                    ok = await asyncio.to_thread(_ym.open_wave)
-                    detail = "Моя волна" if ok else "не удалось открыть"
-                elif action == "music:play":
-                    ok = await asyncio.to_thread(_ym.play_pause)
-                    detail = "играет" if ok else "SMTC сессия не найдена"
-                elif action == "music:pause":
-                    ok = await asyncio.to_thread(_ym.play_pause)
-                    detail = "пауза" if ok else "SMTC сессия не найдена"
-                elif action == "music:next":
-                    ok = await asyncio.to_thread(_ym.next_track)
-                    detail = "след. трек" if ok else "SMTC сессия не найдена"
-                elif action == "music:prev":
-                    ok = await asyncio.to_thread(_ym.prev_track)
-                    detail = "пред. трек" if ok else "SMTC сессия не найдена"
-                else:
-                    ok, detail = False, f"unknown: {action}"
-                await _send_ack(bool(ok), detail, extra={"yamusic": True})
-            except Exception as e:
-                log.error(f"[yamusic] dispatch error: {e}")
-                await _send_ack(False, f"music app error: {e}")
             return
 
         # Команды через расширение браузера

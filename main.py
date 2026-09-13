@@ -3002,6 +3002,19 @@ async def handle_message(message: Message):
             await message.answer(_fg[0])
             return
 
+    # ── v3 (этап 3): быстрый путь реестра для музыки ────────────────
+    # Реестр без LLM; действие уходит агенту каноническим id. Временный
+    # крюк: на этапах 5-6 ветки старого пути вынимаются вместе с ним.
+    try:
+        from sakura_core.bridge import v3_fast_path
+        _laptop_ws, _laptop_dev = _get_active_ws()
+        if await v3_fast_path(text, data={"active_window": ""},
+                              device_ws=_laptop_ws, device_id=_laptop_dev,
+                              register_command=None, ack=message.answer):
+            return
+    except Exception as _v3_err:
+        log.debug(f"[v3] быстрый путь: {type(_v3_err).__name__}: {_v3_err}")
+
     # ── LITERAL-МЕХАНИКИ ГОЛОСА, ПОДКЛЮЧЁННЫЕ К TG ──
     # Те же ворота, что в handle_voice_command (ws_handlers), в том же порядке:
     # переводчик → страхи → игра в слова → калькулятор → печенье.
