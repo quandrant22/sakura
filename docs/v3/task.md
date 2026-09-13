@@ -152,7 +152,7 @@ if action in ("music:wave", "music:play", "music:pause"):
 ## Структура
 
 ```
-core/
+sakura_core/
   registry.py     реестр: 67 деклараций, загрузка, валидация, индекс триггеров
   router.py       session → реестр (точное) → реестр (границы слов) → LLM
   session.py      состояние диалога: pending, контекст, история уточнений
@@ -171,8 +171,8 @@ adapters/
   (позже) android.py, discord.py
 
 # переезжает из v2 без изменений
-memory/db.py  core/state.py  core/ws_auth.py  core/jsonio.py
-core/fuzzy.py core/capabilities.py  core/state_arbiter.py
+memory/db.py  sakura_core/state.py  sakura_core/ws_auth.py  sakura_core/jsonio.py
+sakura_core/fuzzy.py sakura_core/capabilities.py  sakura_core/state_arbiter.py
 ```
 
 ### ## 
@@ -228,7 +228,7 @@ LLM. Это работа, которую механически не сдела�
    Не «ruff: 0 ошибок», а строка, которую команда напечатала. Не «331 passed»,
    а последняя строка вывода pytest. Причина: вердикт нельзя проверить, не
    повторив команду, и один раз это уже пропустило живой краш в `master`.
-3. **Новый код пишется в `core/`, `capabilities/`, `adapters/`.** Старый не трогается,
+3. **Новый код пишется в `sakura_core/`, `capabilities/`, `adapters/`.** Старый не трогается,
    пока его домен не переехал. Никаких «заодно поправил».
 4. **Ничего не удаляется, пока не подтверждено, что новый путь работает.** Удаление
    старого — всегда отдельный коммит, следующий за коммитом переезда.
@@ -362,13 +362,13 @@ if _dt > 32:
 
 # Этап 1 — Реестр
 
-**Новые файлы:** `core/registry.py`, `core/capabilities.yaml` — собирается из
-приложения в конце этого документа (67 деклараций). Скопировать в `core/capabilities.yaml`
+**Новые файлы:** `sakura_core/registry.py`, `sakura_core/capabilities.yaml` — собирается из
+приложения в конце этого документа (67 деклараций). Скопировать в `sakura_core/capabilities.yaml`
 как есть, включая шапку с правилами матчинга.
 
 ## 1.1 Загрузка и модель данных
 
-`core/registry.py` читает YAML и отдаёт список деклараций. Поля:
+`sakura_core/registry.py` читает YAML и отдаёт список деклараций. Поля:
 
 | поле | тип | обязательное | смысл |
 |---|---|---|---|
@@ -404,7 +404,7 @@ if _dt > 32:
 
 Реализация: индекс триггеров строится при загрузке, поиск идёт от самых длинных
 к коротким, регулярка с `(?<!\w)` / `(?!\w)` (не `\b` — так же, как в
-`core/state.py:check_confirmation`, который это уже делает правильно).
+`sakura_core/state.py:check_confirmation`, который это уже делает правильно).
 
 ## 1.3 Валидация — падать на старте, а не в бою
 
@@ -448,7 +448,7 @@ if _dt > 32:
 
 # Этап 2 — Роутер и сессия
 
-**Новые файлы:** `core/router.py`, `core/session.py`. Исполнения ещё нет — роутер
+**Новые файлы:** `sakura_core/router.py`, `sakura_core/session.py`. Исполнения ещё нет — роутер
 возвращает решение, не выполняет его.
 
 ## 2.1 Порядок разрешения
@@ -466,11 +466,11 @@ if _dt > 32:
 
 ## 2.2 Сессия
 
-`core/session.py` — один объект состояния диалога вместо трёх словарей
+`sakura_core/session.py` — один объект состояния диалога вместо трёх словарей
 `st._pending_system` / `_pending_plan` / `_pending_clarify` и глобального флага
 forget. Поля: что ждём, от какого устройства, до какого времени, исходное действие.
 
-Логику подтверждения не изобретать: `core/state.py:check_confirmation` уже
+Логику подтверждения не изобретать: `sakura_core/state.py:check_confirmation` уже
 реализована правильно (границы слов, приоритет отрицания, 15 тестов) — переносится
 как есть.
 
@@ -498,14 +498,14 @@ forget. Поля: что ждём, от какого устройства, до 
 
 # Этап 3 — Исполнение и первый домен
 
-**Новые файлы:** `core/executor.py`, `capabilities/music.py`.
+**Новые файлы:** `sakura_core/executor.py`, `capabilities/music.py`.
 
 Музыка первой, потому что действий больше всего (18) и именно там Мастер чувствует
 задержки.
 
 ## 3.1 Исполнитель
 
-`core/executor.py` по `executor` из декларации отправляет действие либо в
+`sakura_core/executor.py` по `executor` из декларации отправляет действие либо в
 vps-хендлер, либо командой агенту. Регистрация хендлеров — декоратором или явной
 таблицей, **без цепочек `if`**.
 
@@ -549,7 +549,7 @@ vps-хендлер, либо командой агенту. Регистраци
 
 # Этап 4 — Голосовой адаптер и решение по слуху
 
-**Новые файлы:** `adapters/voice.py`, `core/budget.py`, `core/llm.py`.
+**Новые файлы:** `adapters/voice.py`, `sakura_core/budget.py`, `sakura_core/llm.py`.
 
 ## 4.1 Честный стриминг в TTS
 
@@ -564,14 +564,14 @@ vps-хендлер, либо командой агенту. Регистраци
 
 ## 4.2 Клиенты LLM
 
-`core/llm.py` держит клиентов в кэше. В v2 `genai.Client(api_key=key)` создавался
+`sakura_core/llm.py` держит клиентов в кэше. В v2 `genai.Client(api_key=key)` создавался
 заново в `modules/intent_classifier.py:176` и `modules/command_router.py:573` —
 TLS-хендшейк на каждый вызов. Плюс таймауты (в v2 их не было: зависший запрос
 подвешивал весь голосовой путь) и фолбэк моделей.
 
 ## 4.3 Бюджеты
 
-`core/budget.py` — замеры этапов с предупреждением при превышении:
+`sakura_core/budget.py` — замеры этапов с предупреждением при превышении:
 
 | путь | бюджет |
 |---|---|
@@ -653,8 +653,8 @@ Silero VAD. То есть в памяти висит целая модель р�
 
 `handle_message` (864 строки) к этому моменту пуст — всё вынуто на этапе 5.
 Адаптер: сообщение → router → ответ. `main.py` разбирается: `ask_gemini` и
-`ask_gemini_voice` → `core/llm.py`, `_build_system` → `core/prompt.py`,
-`proactive_loop` → `core/proactive.py`, `ws_handler` → `adapters/voice.py`.
+`ask_gemini_voice` → `sakura_core/llm.py`, `_build_system` → `sakura_core/prompt.py`,
+`proactive_loop` → `sakura_core/proactive.py`, `ws_handler` → `adapters/voice.py`.
 
 Остальные 72 функции `main.py` — нормального размера, переезжают по принадлежности.
 
@@ -669,7 +669,7 @@ Silero VAD. То есть в памяти висит целая модель р�
 
 # Этап 7 — Промпт
 
-**Новый файл:** `core/prompt.py`.
+**Новый файл:** `sakura_core/prompt.py`.
 
 В v2 `_build_system` собирал 34 блока контекста на каждый запрос при истории в 60
 сообщений. Замер (`[build_system] блоков=… символов=…`) уже пишется в лог с блока 3.
@@ -788,7 +788,7 @@ def send_threadsafe(self, obj: dict):
 # Приложение — реестр способностей
 
 Ниже полный реестр, 67 деклараций. Это исходные данные этапа 1 — из них
-собирается `core/capabilities.yaml`. Правила матчинга в шапке — часть
+собирается `sakura_core/capabilities.yaml`. Правила матчинга в шапке — часть
 контракта, а не комментарий.
 
 ```yaml

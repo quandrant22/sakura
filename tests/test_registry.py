@@ -9,7 +9,7 @@ Run: python -m pytest tests/test_registry.py -q
 
 import pytest
 
-from core.registry import (
+from sakura_core.registry import (
     RegistryError,
     build_index,
     build_llm_catalog,
