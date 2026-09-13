@@ -51,7 +51,8 @@ from modules.tasks import (
 )
 from modules.rules import detect_rule, apply_rule, get_rules_context
 from modules import device_commands
-from modules.tts_server import stream_tts_to_device, stream_llm_to_tts, warmup_cache, strip_tone
+from modules.tts_server import stream_tts_to_device, warmup_cache, strip_tone
+from adapters.voice import stream_llm_to_tts  # v3: честный стриминг (этап 4)
 from modules.state_arbiter import get_current_emotion
 import modules.tts_server as tts_server
 
