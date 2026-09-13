@@ -1,0 +1,174 @@
+"""Тесты роутера и сессии v3 (этап 2).
+
+Run: python -m pytest tests/test_router.py -q
+
+Критерии этапа: реестр разрешает без обращения к LLM (мок-счётчик), wake-слово
+срезается до реестра, context разводит «перемотай вперёд», активное pending
+перехватывает «да» до реестра и LLM, все 67 действий покрыты триггером.
+"""
+
+import pytest
+
+from sakura_core.registry import build_index, load
+from sakura_core.router import Decision, Router
+from sakura_core.session import Session
+
+
+@pytest.fixture(scope="module")
+def registry():
+    return load()
+
+
+
+
+@pytest.fixture()
+def make_router(registry):
+    def _make(llm=None):
+        calls: list = []
+        base = llm if llm is not None else (lambda text, catalog: None)
+
+        def classifier(text, catalog):
+            calls.append(text)  # счётчик оборачивает любой классификатор
+            return base(text, catalog)
+
+        router = Router(declarations=registry, llm_classify=classifier)
+        return router, calls
+
+    return _make
+
+
+# ── порядок разрешения: LLM последний ─────────────────────────────────────
+
+
+def test_registry_exact_no_llm(make_router):
+    router, calls = make_router()
+    d = router.route("следующий трек", "playing:music")
+    assert d.action == "music.next"
+    assert d.source == "registry_exact"
+    assert calls == []  # LLM не вызван ни разу
+
+
+def test_wake_word_stripped_no_llm(make_router):
+    router, calls = make_router()
+    d = router.route("сакура следующий трек", "playing:music")
+    assert d.action == "music.next"
+    # после среза wake-слова фраза стала точным совпадением
+    assert d.source == "registry_exact"
+    assert calls == []
+
+
+def test_wake_word_with_punctuation(make_router):
+    router, _ = make_router()
+    d = router.route("Сакура, стоп")
+    assert d.action == "music.play_pause"
+
+
+def test_context_disambiguates_seek(make_router):
+    router, _ = make_router()
+    assert router.route("перемотай вперёд", {"playing": "music"}).action == "music.seek_forward"
+    assert router.route("перемотай вперёд", {"window": "youtube"}).action == "youtube.forward"
+    # без контекста — не разрешается ни в music.seek_forward, ни в youtube.forward
+    assert router.route("перемотай вперёд").action is None
+
+
+def test_exact_beats_fuzzy(make_router):
+    router, _ = make_router()
+    d = router.route("НЕ НАРВИТСЯ ТРЕК" if False else "не нравится трек")
+    assert d.action == "music.dislike"
+    assert d.source == "registry_exact"
+
+
+# ── сессия: pending перехватывает короткий ответ ──────────────────────────
+
+
+def test_pending_yes_goes_to_session_not_registry_llm(make_router):
+    router, calls = make_router()
+    router.session.expect("confirm", action="vps.status")
+    d = router.route("да")
+    assert d.source == "session"
+    assert d.verdict == "confirm"
+    assert d.action == "vps.status"
+    assert calls == []  # ни в реестр, ни в LLM
+
+
+def test_pending_deny(make_router):
+    router, _ = make_router()
+    router.session.expect("confirm", action="vps.status")
+    d = router.route("нет, не надо")
+    assert d.source == "session"
+    assert d.verdict == "deny"
+    assert d.action is None
+
+
+def test_pending_expired_falls_through(make_router):
+    router, calls = make_router()
+    router.session.expect("confirm", action="vps.status", ttl=-1.0)
+    d = router.route("да", "playing:music")
+    # «да» не матчит триггеров → разговор через LLM-стаб
+    assert d.action is None
+    assert d.source == "conversation"
+    assert calls == ["да"]
+
+
+def test_pending_survives_unrelated_phrase(make_router):
+    router, _ = make_router()
+    router.session.expect("confirm", action="vps.status", ttl=60.0)
+    router.route("какая погода")  # обычная команда — pending живёт
+    assert router.session.pending is not None
+
+
+def test_confirmation_priority_of_denial():
+    from sakura_core.session import check_confirmation
+    assert check_confirmation("да") == "confirm"
+    assert check_confirmation("не подтверждаю") == "deny"
+    assert check_confirmation("нет, давай") == "deny"  # отрицание приоритетно
+    assert check_confirmation("какая погода") is None
+
+
+# ── LLM-шаг: последний и валидируемый ─────────────────────────────────────
+
+
+def test_llm_used_last_and_validated(make_router):
+    router, calls = make_router(llm=lambda text, catalog: "music.next")
+    d = router.route("расскажи что-нибудь про космос", "playing:music")
+    assert d.source == "llm"
+    assert d.action == "music.next"
+    assert len(calls) == 1
+
+
+def test_llm_unknown_action_is_conversation(make_router):
+    router, calls = make_router(llm=lambda text, catalog: "no.such.action")
+    d = router.route("болтаем о разном")
+    assert d.source == "conversation"
+    assert d.action is None
+
+
+def test_llm_receives_catalog_with_all_ids(make_router):
+    seen = {}
+
+    def llm(text, catalog):
+        seen["catalog"] = catalog
+        return None
+
+    router, _ = make_router(llm=llm)
+    router.route("болтаем")
+    for d in load():
+        assert d.id in seen["catalog"]
+
+
+# ── покрытие: каждое из 67 действий достигается триггером ─────────────────
+
+
+def test_all_67_actions_covered_by_triggers(registry):
+    router = Router(declarations=registry, llm_classify=None)
+    missed = []
+    for decl in registry:
+        hit = None
+        for trigger in decl.triggers:
+            decision = router.route(trigger, decl.context)
+            if decision.action == decl.id and decision.source.startswith("registry"):
+                hit = (trigger, decision.source)
+                break
+        if hit is None:
+            missed.append((decl.id, decl.triggers))
+    assert not missed, f"действия без быстрого пути: {missed}"
