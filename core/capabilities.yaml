@@ -1,0 +1,566 @@
+# Реестр способностей Сакуры v3
+# Сгенерирован из кода 15c2509, триггеры для 39 действий дописаны вручную.
+#
+# ПРАВИЛА МАТЧИНГА (обязательны, иначе реестр ломается):
+#   1. Только по границам слов. Подстрока внутри слова не считается совпадением —
+#      иначе 'лайк' сработает внутри 'дизлайк'.
+#   2. Выигрывает САМЫЙ ДЛИННЫЙ совпавший триггер, не первый по порядку.
+#      Иначе 'не нравится трек' будет распознано как 'нравится' → лайк вместо дизлайка.
+#   3. Действия с полем context проверяются только при выполнении условия.
+#      playing:music — играет музыка; window:youtube — активное окно YouTube;
+#      window:browser — активное окно браузера.
+#
+# legacy — как действие называлось в v2. Поле временное, удаляется после переноса.
+
+# Реестр способностей Сакуры v3 — черновик, сгенерирован из кода 15c2509
+# Канонические id: domain.verb. legacy — как действие называлось в v2.
+# ПРОВЕРИТЬ ВРУЧНУЮ: desc, params, confirm у всего, что помечено CHECK.
+# действий: 67
+
+- id: briefing.now
+  legacy: [briefing:now]
+  desc: 'Что нового, сделай брифинг'
+  executor: vps
+  reversible: true
+  confirm: false
+  triggers: ['брифинг', 'что нового', 'сделай брифинг', 'какие новости', 'что произошло', 'дай сводку']
+
+- id: browser.back
+  legacy: [browser:back]
+  desc: 'Назад'
+  executor: agent
+  reversible: false
+  confirm: false
+  triggers: ['назад в браузере', 'вернись назад', 'шаг назад', 'предыдущая страница']
+  context: window:browser   # голый триггер неоднозначен — решается контекстом
+
+- id: browser.forward
+  legacy: [browser:forward]
+  desc: 'Вперёд'
+  executor: agent
+  reversible: false
+  confirm: false
+  triggers: ['вперёд в браузере', 'шаг вперёд', 'следующая страница']
+  context: window:browser   # голый триггер неоднозначен — решается контекстом
+
+- id: browser.scroll_down
+  legacy: [browser:scroll_down]
+  desc: 'Прокрутить вниз'
+  executor: agent
+  reversible: false
+  confirm: false
+  triggers: ['листай вниз', 'прокрути вниз']
+
+- id: browser.scroll_up
+  legacy: [browser:scroll_up]
+  desc: 'Прокрутить вверх'
+  executor: agent
+  reversible: false
+  confirm: false
+  triggers: ['листай вверх', 'прокрути вверх']
+
+- id: browser.tab_close
+  legacy: [browser:tab_close]
+  desc: 'Закрыть вкладку, закрой это'
+  executor: agent
+  reversible: false
+  confirm: false
+  triggers: ['закрой вкладку', 'закрой таб', 'закрыть вкладку']
+
+- id: browser.tab_dup
+  legacy: [browser:tab_dup]
+  desc: 'Дублировать/скопировать вкладку'
+  executor: agent
+  reversible: false
+  confirm: false
+  triggers: ['дублировать вкладку']
+
+- id: browser.tab_new
+  legacy: [browser:tab_new]
+  desc: 'Новая вкладка, открыть новую'
+  executor: agent
+  reversible: false
+  confirm: false
+  triggers: ['новая вкладка', 'открой вкладку']
+
+- id: browser.tab_next
+  legacy: [browser:tab_next]
+  desc: 'Следующая вкладка'
+  executor: agent
+  reversible: false
+  confirm: false
+  triggers: ['следующая вкладка', 'следующий таб']
+
+- id: browser.tab_prev
+  legacy: [browser:tab_prev]
+  desc: 'Предыдущая вкладка'
+  executor: agent
+  reversible: false
+  confirm: false
+  triggers: ['предыдущая вкладка', 'предыдущий таб']
+
+- id: browser.tab_reload
+  legacy: [browser:tab_reload]
+  desc: 'Обновить страницу, перезагрузи'
+  executor: agent
+  reversible: false
+  confirm: false
+  triggers: ['обнови', 'обнови страницу', 'обновить страницу', 'перезагрузи страницу']
+
+- id: capsule.list
+  legacy: [capsule:list]
+  desc: 'Какие капсулы ждут вскрытия'
+  executor: vps
+  reversible: true
+  confirm: false
+  triggers: ['какие капсулы', 'капсулы', 'что в капсулах', 'капсулы времени']
+
+- id: close_window.браузер
+  legacy: [close_window:браузер]
+  desc: CHECK
+  executor: agent
+  reversible: false
+  confirm: false
+  triggers: ['гугл хром', 'закрой chrome', 'закрой opera', 'закрой браузер', 'закрой оперу']
+
+- id: ext.page_content
+  legacy: [ext:page_content]
+  desc: 'Что на странице, прочитай страницу'
+  executor: agent
+  reversible: false
+  confirm: false
+  triggers: ['что на странице', 'прочитай страницу', 'о чём страница', 'перескажи страницу', 'что тут написано']
+
+- id: ext.page_content_youtube
+  legacy: [ext:page_content_youtube]
+  desc: 'Что на ютубе, что за видео'
+  executor: agent
+  reversible: false
+  confirm: false
+  triggers: ['что за видео', 'о чём видео', 'что на ютубе', 'перескажи видео']
+
+- id: game_mode.off
+  legacy: [game_mode:off]
+  desc: 'Игровой режим выключить'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['выключи игровой режим', 'отключи игровой режим', 'игровой режим выключить', 'выйди из игрового режима']
+
+- id: game_mode.on
+  legacy: [game_mode:on]
+  desc: 'Игровой режим включить'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['игровой режим', 'включи игровой режим', 'я играю', 'режим игры']
+
+- id: memory.forget
+  legacy: [memory:forget]
+  desc: '«Забудь про Х», «удали из памяти Х»'
+  executor: vps
+  reversible: true
+  confirm: false
+  triggers: ['забудь про', 'забудь что', 'удали из памяти', 'сотри из памяти', 'не помни про']
+
+- id: music.dislike
+  legacy: [music:dislike, music_dislike]
+  desc: 'Дизлайкнуть трек'
+  executor: agent
+  reversible: false
+  confirm: false
+  triggers: ['дизлайк', 'дизлайк трек', 'дизлайкни', 'дизлайкни трек', 'не нравится', 'не нравится трек']
+
+- id: music.history
+  legacy: [music_history]
+  desc: 'История, плейлисты, любимые'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['история прослушиваний', 'что я слушал', 'история треков', 'недавние треки']
+
+- id: music.like
+  legacy: [music:like, music_like]
+  desc: 'Лайкнуть трек (не видео)'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['добавь в любимые', 'лайк', 'лайк трек', 'лайкни', 'лайкни трек', 'нравится', 'нравится трек', 'понравилось']
+
+- id: music.liked_tracks
+  legacy: [music_liked_tracks]
+  desc: 'История, плейлисты, любимые'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['мои лайки', 'любимые треки', 'что я лайкал', 'понравившиеся треки']
+
+- id: music.mute
+  legacy: [music:mute]
+  desc: 'Список/пауза звука'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['выключи звук', 'заглуши звук', 'тишина']
+
+- id: music.next
+  legacy: [music:next, music_next]
+  desc: 'Следующий трек/песня'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['дальше', 'скип', 'след трек', 'следующий', 'следующий трек', 'следующую']
+
+- id: music.now_playing
+  legacy: [music:now_playing, music_info]
+  desc: 'Что играет, текущий трек'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['какая песня', 'какой трек', 'что за музыка', 'что за трек', 'что играет', 'что сейчас играет', 'что слушаем', 'что у меня играет', 'что у меня сейчас играет']
+
+- id: music.play_pause
+  legacy: [music_play_pause]
+  desc: 'Пауза, стоп, продолжить воспроизведение'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['играй', 'на паузу', 'останови', 'пауза', 'продолжай', 'продолжи', 'стоп']
+
+- id: music.playlists
+  legacy: [music_playlists]
+  desc: 'История, плейлисты, любимые'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['мои плейлисты', 'какие плейлисты', 'список плейлистов', 'покажи плейлисты']
+
+- id: music.podcasts
+  legacy: [music:podcasts]
+  desc: 'Подкасты'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['подкасты', 'включи подкасты', 'открой подкасты']
+
+- id: music.prev
+  legacy: [music:prev, music_prev]
+  desc: 'Предыдущий трек/песня'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['назад трек', 'предыдущий', 'предыдущий трек', 'прошлый трек']
+
+- id: music.repeat
+  legacy: [music:repeat]
+  desc: 'Повтор трека/повторить плейлист'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['repeat', 'зацикли', 'зациклить', 'на репит', 'повтор', 'повтори трек', 'повторяй', 'поставь на повтор', 'репит']
+
+- id: music.seek_back
+  legacy: [music:seek_back]
+  desc: 'Перемотать вперёд/назад (10с)'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['назад музыка', 'перемотай назад']
+  context: playing:music   # 'перемотай вперёд/назад' спорит с youtube — решается контекстом
+
+- id: music.seek_forward
+  legacy: [music:seek_forward]
+  desc: 'Перемотать вперёд/назад (10с)'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['вперед музыка', 'перемотай вперёд']
+  context: playing:music   # 'перемотай вперёд/назад' спорит с youtube — решается контекстом
+
+- id: music.shuffle
+  legacy: [music:shuffle]
+  desc: 'Перемешать, случайный порядок'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['перемешай', 'перемешать', 'рандом', 'случайн']
+
+- id: music.volume_down
+  legacy: [music:volume_down]
+  desc: 'Громче/тише (без числа)'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['тише', 'сделай тише', 'убавь', 'потише', 'убавь звук']
+  context: playing:music   # голый триггер неоднозначен — решается контекстом
+
+- id: music.volume_up
+  legacy: [music:volume_up]
+  desc: 'Громче/тише (без числа)'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['громче', 'сделай громче', 'прибавь', 'погромче', 'прибавь звук']
+  context: playing:music   # голый триггер неоднозначен — решается контекстом
+
+- id: music.wave
+  legacy: [music:wave, music_play_wave]
+  desc: 'Моя волна'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['включи волну', 'включи мою волну', 'волну включи', 'мою волну', 'моя волна']
+
+- id: music_stats.recent
+  legacy: [music_stats:recent]
+  desc: 'Что я слушал сегодня/вчера/за неделю'
+  executor: vps
+  reversible: true
+  confirm: false
+  triggers: ['что я слушал сегодня', 'что слушал вчера', 'что слушал за неделю', 'статистика прослушиваний']
+
+- id: music_stats.top
+  legacy: [music_stats:top]
+  desc: 'Кого слушаю чаще всего, топ исполнителей'
+  executor: vps
+  reversible: true
+  confirm: false
+  triggers: ['топ исполнителей', 'кого слушаю чаще', 'мои любимые исполнители', 'топ артистов']
+
+- id: open.app
+  legacy: [open_app]
+  desc: 'Запустить/включить/поставить/врубить музыку — любая просьба начать воспроизведение музыки'
+  executor: agent
+  reversible: false
+  confirm: false
+  triggers: ['включи музыку', 'включи яндекс', 'включить музыку', 'врубай музыку', 'запусти музыку', 'запусти яндекс', 'музон', 'музон включи', 'музыку включи', 'открой яндекс музыку', 'поставь музыку', 'хочу музыку']
+
+- id: reminder.add
+  legacy: [reminder:add]
+  desc: 'Напомни через N минут/часов ЧТО, таймер на N минут'
+  executor: vps
+  reversible: true
+  confirm: false
+  triggers: ['напомни через', 'напомни мне', 'поставь таймер', 'таймер на', 'будильник на']
+
+- id: reminder.list
+  legacy: [reminder:list]
+  desc: 'Какие у меня напоминания'
+  executor: vps
+  reversible: true
+  confirm: false
+  triggers: ['какие напоминания', 'мои напоминания', 'список напоминаний', 'что я просил напомнить']
+
+- id: screenshot.describe
+  legacy: [screenshot:describe]
+  desc: CHECK
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['опиши экран', 'посмотри на экран', 'что на экране', 'что открыто', 'что происходит на экране', 'что ты видишь', 'что у меня на экране', 'что у меня открыто']
+
+- id: screenshot.run
+  legacy: [screenshot:]
+  desc: 'Скриншот'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['сделай скриншот', 'скрин', 'скриншот', 'снимок экрана']
+
+- id: steam.achievements
+  legacy: [steam:achievements]
+  desc: 'Ачивки/достижения за период (сегодня/вчера/неделя/месяц/всё время)'
+  executor: vps
+  reversible: true
+  confirm: false
+  triggers: ['какие ачивки', 'ачивки за', 'достижения за', 'что я выбил', 'сколько ачивок']
+
+- id: steam.current
+  legacy: [steam:current]
+  desc: 'Во что играет сейчас'
+  executor: vps
+  reversible: true
+  confirm: false
+  triggers: ['во что играю', 'что сейчас играю', 'какая игра запущена']
+
+- id: steam.last
+  legacy: [steam:last]
+  desc: 'Какая последняя/крайняя ачивка или достижение, что выбил последнее, какую получил недавно'
+  executor: vps
+  reversible: true
+  confirm: false
+  triggers: ['последняя ачивка', 'крайняя ачивка', 'последнее достижение', 'что выбил последнее']
+
+- id: steam.playtime
+  legacy: [steam:playtime]
+  desc: 'Сколько наиграно в игру X (часы всего или за 2 недели)'
+  executor: vps
+  reversible: true
+  confirm: false
+  triggers: ['сколько наиграл', 'сколько часов в', 'наиграно в', 'сколько времени в игре']
+
+- id: steam.progress
+  legacy: [steam:progress]
+  desc: 'Прогресс ачивок в игре X (сколько из скольких)'
+  executor: vps
+  reversible: true
+  confirm: false
+  triggers: ['прогресс ачивок', 'сколько ачивок в', 'прогресс в игре', 'сколько из скольких']
+
+- id: steam.recent
+  legacy: [steam:recent]
+  desc: 'Во что играл недавно, последние игры'
+  executor: vps
+  reversible: true
+  confirm: false
+  triggers: ['во что играл недавно', 'последние игры', 'недавние игры', 'что запускал']
+
+- id: task.add
+  legacy: [task:add]
+  desc: 'Добавить/создать задачу ТЕКСТ'
+  executor: vps
+  reversible: true
+  confirm: false
+  triggers: ['добавь задачу', 'создай задачу', 'новая задача', 'запиши задачу']
+
+- id: task.done
+  legacy: [task:done]
+  desc: 'Выполнил/сделал задачу N'
+  executor: vps
+  reversible: true
+  confirm: false
+  triggers: ['выполнил задачу', 'сделал задачу', 'закрой задачу', 'задача выполнена']
+
+- id: task.list
+  legacy: [task:list]
+  desc: 'Какие задачи, что по задачам'
+  executor: vps
+  reversible: true
+  confirm: false
+  triggers: ['какие задачи', 'мои задачи', 'что по задачам', 'список задач']
+
+- id: vps.feeling
+  legacy: [vps:feeling]
+  desc: 'Как твоё самочувствие (сервер — твоё тело)'
+  executor: vps
+  reversible: true
+  confirm: false
+  triggers: ['как самочувствие', 'как себя чувствуешь', 'как ты себя чувствуешь', 'как твоё тело']
+
+- id: vps.status
+  legacy: [vps:status]
+  desc: 'Как сервер, нагрузка CPU/RAM'
+  executor: vps
+  reversible: true
+  confirm: false
+  triggers: ['как сервер', 'статус сервера', 'нагрузка на сервер', 'что с сервером']
+
+- id: weather.now
+  legacy: [weather:now]
+  desc: 'Какая погода сейчас'
+  executor: vps
+  reversible: true
+  confirm: false
+  triggers: ['какая погода', 'погода', 'что с погодой', 'погода сейчас', 'на улице холодно']
+
+- id: youtube.forward
+  legacy: [youtube_forward]
+  desc: 'Перемотать вперёд'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['перемотай вперёд', 'промотай вперёд', 'вперёд на видео']
+  context: window:youtube   # голый триггер неоднозначен — решается контекстом
+
+- id: youtube.fullscreen
+  legacy: [youtube_fullscreen]
+  desc: 'Полный экран'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['полный экран']
+
+- id: youtube.like
+  legacy: [youtube_like]
+  desc: 'Лайк видео на YouTube'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['лайкни видео', 'лайк видео', 'поставь лайк видео']
+  context: window:youtube   # голый триггер неоднозначен — решается контекстом
+
+- id: youtube.mini
+  legacy: [youtube_mini]
+  desc: 'Мини-плеер'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['мини-плеер', 'миниплеер', 'сверни в мини-плеер']
+
+- id: youtube.next
+  legacy: [youtube_next]
+  desc: 'Следующее видео на YouTube'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['следующее видео']
+
+- id: youtube.pause
+  legacy: [youtube_pause]
+  desc: 'Пауза/стоп/воспроизведение на YouTube'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['пауза ютуб']
+
+- id: youtube.rewind
+  legacy: [youtube_rewind]
+  desc: 'Перемотать назад'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['перемотай назад', 'промотай назад', 'назад на видео', 'отмотай']
+  context: window:youtube   # голый триггер неоднозначен — решается контекстом
+
+- id: youtube.speed_down
+  legacy: [youtube_speed_down]
+  desc: 'Скорость воспроизведения медленнее'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['медленнее', 'замедли видео', 'скорость меньше']
+  context: window:youtube   # голый триггер неоднозначен — решается контекстом
+
+- id: youtube.speed_up
+  legacy: [youtube_speed_up]
+  desc: 'Скорость воспроизведения быстрее'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['быстрее', 'ускорь видео', 'скорость больше', 'на скорости']
+  context: window:youtube   # голый триггер неоднозначен — решается контекстом
+
+- id: youtube.sub_toggle
+  legacy: [youtube_sub_toggle]
+  desc: 'Субтитры'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['субтитры']
+
+- id: youtube.theater
+  legacy: [youtube_theater]
+  desc: 'Театральный режим'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['театральный режим', 'режим театра', 'широкий экран']
+
+- id: youtube.trending
+  legacy: [youtube_trending]
+  desc: 'Популярное на YouTube'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['популярное на ютубе', 'что в тренде', 'тренды ютуба', 'популярные видео']
+

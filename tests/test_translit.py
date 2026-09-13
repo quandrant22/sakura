@@ -111,6 +111,11 @@ class TestHandsNormalizationParity(unittest.TestCase):
         saved_config = sys.modules.pop("config", None)  # иначе hands увидит кэш корневого config
         saved_modules = {k: v for k, v in sys.modules.items()
                          if k == "core" or k.startswith("core.")}
+        # Изолировать импорт: если корневой пакет `core` (v3, без __init__.py)
+        # уже в sys.modules, он затенит agent/core — выгружаем сохранённое,
+        # в finally возвращаем.
+        for k in saved_modules:
+            sys.modules.pop(k, None)
         if _agent not in sys.path:
             sys.path.insert(0, _agent)
         try:
@@ -130,6 +135,8 @@ class TestHandsNormalizationParity(unittest.TestCase):
                 if k == "core" or k.startswith("core."):
                     if k not in saved_modules:
                         sys.modules.pop(k, None)
+            for k, v in saved_modules.items():
+                sys.modules[k] = v
 
     CORPUS = [
         "Палворлд", "палворлд", "Remnant: From the Ashes",
