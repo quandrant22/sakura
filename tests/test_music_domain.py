@@ -6,7 +6,12 @@ Run: python -m pytest tests/test_music_domain.py -q
 import asyncio
 import json
 
-from capabilities import music as cap_music
+import capabilities.browser
+import capabilities.ext
+import capabilities.music as cap_music
+import capabilities.system
+import capabilities.vps_domains
+import capabilities.youtube
 from sakura_core.bridge import resolve_context
 from sakura_core.executor import (
     AgentCommand,
@@ -25,7 +30,9 @@ def _run(coro):
     return asyncio.get_event_loop().run_until_complete(coro)
 
 
-def test_all_18_music_actions_registered():
+# ── Покрытие реестра ──────────────────────────────────────────────────
+
+def test_all_music_actions_registered():
     music_ids = {
         d.id for d in load()
         if d.id.startswith("music.") and not d.id.startswith("music_stats")
@@ -33,10 +40,43 @@ def test_all_18_music_actions_registered():
     assert len(music_ids) == 18
     missing = music_ids - set(registered())
     assert not missing, f"нет хендлеров: {missing}"
-    # все хендлеры отдают каноническую команду агенту
-    for aid in music_ids:
-        handler = get_handler(aid)
-    assert (handler(ExecutionContext()) if callable(handler) else handler) == AgentCommand(aid)
+
+
+def test_all_browser_actions_registered():
+    want = {d.id for d in load() if d.id.startswith("browser.")}
+    assert len(want) == 10
+    assert not (want - set(registered())), f"нет хендлеров: {want - set(registered())}"
+
+
+def test_all_youtube_actions_registered():
+    want = {d.id for d in load() if d.id.startswith("youtube.")}
+    assert len(want) == 12
+    assert not (want - set(registered())), f"нет хендлеров: {want - set(registered())}"
+
+
+def test_all_system_actions_registered():
+    want = {"game_mode.on", "game_mode.off", "open.app",
+            "close_window.браузер", "screenshot.run", "screenshot.describe"}
+    assert not (want - set(registered())), f"нет хендлеров: {want - set(registered())}"
+
+
+def test_all_vps_actions_registered():
+    want = {d.id for d in load() if d.executor == "vps"}
+    assert len(want) == 19
+    assert not (want - set(registered())), f"нет хендлеров: {want - set(registered())}"
+
+
+def test_all_ext_actions_registered():
+    want = {"ext.page_content", "ext.page_content_youtube"}
+    assert not (want - set(registered())), f"нет хендлеров: {want - set(registered())}"
+
+
+def test_every_registry_action_has_handler():
+    missing = {d.id for d in load()} - set(registered())
+    assert not missing, f"реестр без хендлера: {missing}"
+
+
+# ── Исполнитель ───────────────────────────────────────────────────────
 
 
 def test_executor_sends_canonical_id_on_wire():

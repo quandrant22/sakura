@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 from dataclasses import dataclass, field
@@ -20,6 +21,7 @@ class AgentCommand:
     """Команда агенту: канонический id на проводе."""
 
     action: str
+    arg: str = ""
 
 
 @dataclass
@@ -81,9 +83,12 @@ class Executor:
         cmd_id = None
         if ctx.register_command is not None:
             cmd_id = ctx.register_command(command.action, ctx.device_id)
-        await ctx.device_ws.send(json.dumps({
+        payload: dict[str, object] = {
             "type": "command", "action": command.action, "id": cmd_id,
-        }))
+        }
+        if command.arg:
+            payload["arg"] = command.arg
+        await ctx.device_ws.send(json.dumps(payload))
         return cmd_id
 
     async def execute(self, action_id: str, ctx: ExecutionContext):
@@ -93,6 +98,8 @@ class Executor:
         # Хендлер может быть вызываемым, а может быть данными (например,
         # готовой AgentCommand в явной таблице домена).
         result = fn(ctx) if callable(fn) else fn
+        if inspect.isawaitable(result):
+            result = await result
         if isinstance(result, AgentCommand):
             return await self._send_command(result, ctx)
         return result
