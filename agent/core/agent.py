@@ -78,6 +78,65 @@ _MUSIC_INBOUND["music:pause"] = ("app", "music.pause", "music:pause")
 _MUSIC_INBOUND["music_play_wave"] = ("app", "music.wave", "music_play_wave")
 
 
+# ── Канонические имена доменов (v3, этап 5) ─────────────────────────────
+# Реестр отдаёт домены на провод каноническим id (browser.tab_next,
+# youtube.forward, ext.page_content …). Агент принимает их В ДОПОЛНЕНИЕ
+# к старым написаниям; старые удаляются на этапе 8.
+# Маппинг: канонический id → легаси-имя, которое уже обрабатывает агент.
+
+# browser.* → browser:<verb> (execute_command, verb "browser")
+BROWSER_VERBS = {
+    "back": "back", "forward": "forward",
+    "scroll_down": "scroll_down", "scroll_up": "scroll_up",
+    "tab_close": "tab_close", "tab_dup": "tab_dup",
+    "tab_new": "tab_new", "tab_next": "tab_next",
+    "tab_prev": "tab_prev", "tab_reload": "tab_reload",
+}
+
+# youtube.* → youtube_<verb> (execute_command / extension)
+YOUTUBE_VERBS = {
+    "forward": "forward", "fullscreen": "fullscreen", "like": "like",
+    "mini": "mini", "next": "next", "pause": "pause", "rewind": "rewind",
+    "speed_down": "speed_down", "speed_up": "speed_up",
+    "sub_toggle": "sub_toggle", "theater": "theater", "trending": "trending",
+}
+
+# ext.* → ext:<name> (ветка расширения)
+EXT_NAMES = {
+    "page_content": "page_content",
+    "page_content_youtube": "page_content_youtube",
+}
+
+
+def _legacy_action(action: str, arg: str = "") -> str:
+    """Канонический id → легаси-имя действия агента (этап 5).
+
+    Возвращает легаси-действие либо сам action, если канонического
+    маппинга нет (тогда старое поведение сохраняется без изменений).
+    """
+    domain, _, verb = action.partition(".")
+    if domain == "browser" and verb in BROWSER_VERBS:
+        return f"browser:{BROWSER_VERBS[verb]}"
+    if domain == "youtube" and verb in YOUTUBE_VERBS:
+        return f"youtube_{YOUTUBE_VERBS[verb]}"
+    if domain == "ext" and verb in EXT_NAMES:
+        return f"ext:{EXT_NAMES[verb]}"
+    if action == "close_window.браузер":
+        return "close_window:браузер"
+    if action == "game_mode.on":
+        return "game_mode:on"
+    if action == "game_mode.off":
+        return "game_mode:off"
+    if action == "screenshot.run":
+        return "screenshot:"
+    if action == "screenshot.describe":
+        return "screenshot:"
+    if action == "open.app":
+        target = arg or "яндекс музыка"
+        return f"open_app:{target}"
+    return action
+
+
 def _music_canonical(action: str):
     """Привести имя музыкального действия к каноническому.
 
@@ -261,7 +320,8 @@ class Agent:
                             }))
                         continue
                     self._abort_flag = False
-                    asyncio.create_task(self._run_command(_action, _cmd_id))
+                    _arg = data.get("arg", "")
+                    asyncio.create_task(self._run_command(_action, _cmd_id, _arg))
 
                 elif kind == "tts_chunk":
                     # При первом чанке нового ответа — сбрасываем буфер
@@ -301,9 +361,13 @@ class Agent:
             except Exception as e:
                 log.error(f"recv: {e}")
 
-    async def _run_command(self, action: str, cmd_id: str | None = None):
+    async def _run_command(self, action: str, cmd_id: str | None = None,
+                           arg: str = ""):
         if not action:
             return
+        # Канонические имена (browser.*, youtube.*, ext.*, open.app …) —
+        # в дополнение к старым (этап 5), до всей диспетчеризации.
+        action = _legacy_action(action, arg)
         log.info(f"command: {action} (id={cmd_id})")
 
         async def _send_ack(ok: bool, detail: str, extra: dict | None = None):

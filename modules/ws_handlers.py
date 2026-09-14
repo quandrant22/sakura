@@ -40,7 +40,6 @@ from modules.game_detector import detect_game_event, make_event_prompt
 from modules.user_commands import parse_teaching, add as add_cmd, list_all as list_cmds
 from modules.voice_info import is_info_action
 from modules.voice_info import pending_forget_active, memory_forget_confirm
-from modules.reminders import parse_reminder, add_reminder, format_reminders_list
 from modules.translator import is_translation_request, try_quick_translate, build_translate_prompt
 from modules.fears import detect_fear_trigger
 from modules.word_game import (
@@ -52,7 +51,7 @@ from modules.calculator import calculate
 from modules.fortune_cookie import is_fortune_request, get_fortune, format_fortune
 from modules.music_memory import (
     track_play, like_artist, dislike_artist,
-    format_recent, format_top, generate_taste_comment,
+    generate_taste_comment,
 )
 from modules.pranks import should_prank, choose_prank, record_prank
 from modules.reactions import detect_reaction, get_random_gif, should_react
@@ -965,14 +964,19 @@ async def handle_voice_command(websocket, data, ctx) -> None:
         if _handled:
             return
 
-    # ── v3 (этап 3): быстрый путь реестра для музыки ────────────────
+    # ── v3 (этап 5): быстрый путь реестра — все домены ────────────────
     # Реестр без LLM; действие уходит агенту каноническим id. Временный
-    # крюк: на этапах 5-6 ветки старого пути вынимаются вместе с ним.
+    # крюк: на этапе 6 ветки старого пути вынимаются вместе с ним.
     try:
         from sakura_core.bridge import v3_fast_path
+        async def _v3_speak(phrase: str):
+            if ws_dev:
+                await stream_tts_to_device(
+                    phrase, ws_dev, device_id or "laptop", literal=True)
         if await v3_fast_path(text, data=data, device_ws=ws_dev,
                               device_id=device_id,
-                              register_command=ctx.get("_register_command")):
+                              register_command=ctx.get("_register_command"),
+                              speak=_v3_speak):
             return
     except Exception as _v3_err:
         log.debug(f"[v3] быстрый путь: {type(_v3_err).__name__}: {_v3_err}")
@@ -1356,31 +1360,6 @@ async def handle_voice_command(websocket, data, ctx) -> None:
             await _say("Не получилось, Мастер.")
         return
 
-    # ── НАПОМИНАНИЯ / ТАЙМЕРЫ (до intent TG-блока) ────
-    _reminder_match = parse_reminder(text)
-    if _reminder_match:
-        add_reminder(_reminder_match["text"], _reminder_match["delay"], _reminder_match["type"])
-        _delay = _reminder_match["delay"]
-        if _delay < 60:
-            _time_str = f"через {_delay} секунд"
-        elif _delay < 3600:
-            _time_str = f"через {_delay // 60} минут"
-        else:
-            _time_str = f"через {_delay // 3600} часов"
-        _rem_reply = await ask_gemini(
-            f"Мастер попросил напомнить/таймер {_time_str}: {_reminder_match['text']}. Подтверди коротко.",
-            save_history=False)
-        if _rem_reply and ws_dev:
-            await stream_tts_to_device(_rem_reply, ws_dev, device_id or "laptop", literal=True)
-        return
-
-    # "что напоминания" — список
-    if any(w in text.lower() for w in ("напоминания", "напомни мне", "таймеры", "что напомни")):
-        _rem_list = format_reminders_list()
-        if ws_dev:
-            await stream_tts_to_device(_rem_list, ws_dev, device_id or "laptop", literal=True)
-        return
-
     # ── ПЕРЕВОДЧИК ──────────────────────────────────────
     if is_translation_request(text):
         _quick = try_quick_translate(text)
@@ -1465,23 +1444,6 @@ async def handle_voice_command(websocket, data, ctx) -> None:
         _end = end_game()
         if ws_dev:
             await stream_tts_to_device(_end, ws_dev, device_id or "laptop", literal=True)
-        return
-
-    # ── МУЗЫКАЛЬНАЯ ПАМЯТЬ ────────────────────────────
-    _music_queries = (
-        "что слушали", "что мы слушали", "последние треки",
-        "какие треки", "история музыки", "топ исполнителей",
-        "топ треков", "что играло", "что было в плейлисте",
-    )
-    if any(w in text.lower() for w in _music_queries):
-        tl = text.lower()
-        if any(w in tl for w in ("топ", "чаще", "популярн", "самые")):
-            _music_msg = format_top(days=7)
-        else:
-            _music_msg = format_recent(hours=24)
-        log.info(f"[music_memory] query: {text!r}")
-        if ws_dev:
-            await stream_tts_to_device(_music_msg, ws_dev, device_id or "laptop", literal=True)
         return
 
     # ── КАЛЬКУЛЯТОР (без LLM) ───────────────────────────

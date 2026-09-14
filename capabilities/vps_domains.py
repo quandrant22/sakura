@@ -10,7 +10,7 @@ ext.* — executor=agent, живут в capabilities/ext.py, здесь их н�
 """
 
 from capabilities._vps import vps_answer  # noqa: F401  (шина домена)
-from sakura_core.executor import Handler, register_table
+from sakura_core.executor import ExecutionContext, Handler, register_table
 
 # 19 VPS-действий реестра (все executor=vps).
 VPS_DOMAIN_ACTIONS = (
@@ -37,8 +37,11 @@ VPS_DOMAIN_ACTIONS = (
 
 
 def _make_vps_handler(aid: str) -> Handler:
-    async def _handle(arg: str = "", text: str = "") -> tuple[str, bool]:
-        return await vps_answer(aid, arg, text)
+    async def _handle(_ctx: ExecutionContext) -> tuple[str, bool]:
+        # Исходная фраза Мастера нужна voice_info: reminder/task парсят текст
+        # («напомни через N минут X»), а не фиксированный arg из реестра.
+        text = ((_ctx.extra or {}).get("text") or "").strip()
+        return await vps_answer(aid, "", text)
 
     _handle.__name__ = f"vps_{aid.replace('.', '_')}"
     return _handle

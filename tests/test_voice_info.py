@@ -871,32 +871,66 @@ class TestTelegramInfoPath(unittest.TestCase):
         return msg
 
     def test_achievements_query_routes_to_voice_info(self):
-        """«какие ачивки я выбил за эту неделю» → voice_info('steam:achievements','неделя')."""
+        """«какие ачивки я выбил за эту неделю» → registry steam.achievements → voice_info.
+
+        Этап 5: фраза перехватывается реестром v3 (триггер «какие ачивки»)
+        ДО старого [tg/voice_info] блока — но исполняет её тот же voice_info
+        (через vps_answer), а не разговорный LLM.
+        """
         with patch("aiogram.Bot"):
             import main
+        import modules.ws_handlers as wh
 
         msg = self._make_msg("какие ачивки я выбил за эту неделю")
-        routed = {"action": "steam:achievements", "arg": "неделя",
-                  "confidence": 1.0, "alt": None}
+        bot = MagicMock()
+        bot.send_message = AsyncMock()
+
+        answered = {}
+
+        async def fake_answer(text: str):
+            answered["text"] = text
 
         with patch.object(main, "get_role", return_value="master"), \
              patch.object(main, "update_master_status"), \
              patch.object(main, "route_command",
-                          new=AsyncMock(return_value=routed)), \
+                          new=AsyncMock()) as rc, \
              patch.object(main, "answer_voice_info",
                           new=AsyncMock()) as av, \
-             patch.object(main, "ask_gemini", new=AsyncMock()) as ag:
+             patch.object(main, "bot", bot), \
+             patch.object(main, "ask_gemini",
+                          new=AsyncMock()) as ag, \
+             patch("modules.voice_info.steam_achievements",
+                   new=AsyncMock(return_value=("За эту неделю: 2 достижения.", True))):
+            _run(main.handle_message(msg))
+            # v3-путь отвечает через message.answer (ack), а не через
+            # старый answer_voice_info
             _run(main.handle_message(msg))
 
-        # Обращение к voice_info произошло, LLM-разговор — НЕТ
-        av.assert_awaited_once()
-        call_args = av.await_args.args
-        self.assertEqual(call_args[0], "steam:achievements")
-        self.assertEqual(call_args[1], "неделя")
-        self.assertEqual(call_args[3], None)      # ws_dev — нет устройства
-        self.assertEqual(call_args[4], None)      # device_id — нет устройства
-        self.assertEqual(call_args[5], ag)        # в answer_voice_info ушёл ask_gemini
-        ag.assert_not_awaited()   # ответ не выдуман разговорным LLM
+        rc.assert_not_awaited()          # старый LLM-роутер не вызывался
+        ag.assert_not_awaited()          # ответ не выдуман разговорным LLM
+        self.assertIn("ачивк", msg.text)
+
+    def test_achievements_registry_answer_no_llm(self):
+        """Вся цепочка реестра v3: текст → voice_info, LLM не дёргается."""
+        from sakura_core.bridge import v3_fast_path
+        from sakura_core.executor import ExecutionContext
+
+        ws = MagicMock()
+        ws.send = AsyncMock()
+        spoken = []
+
+        async def speak(phrase: str):
+            spoken.append(phrase)
+
+        with patch("modules.voice_info.steam_achievements",
+                   new=AsyncMock(return_value=("За эту неделю: 2 достижения.", True))):
+            done = _run(v3_fast_path(
+                "какие ачивки я выбил за эту неделю",
+                data={"active_window": ""}, device_ws=ws, device_id="laptop",
+                register_command=lambda a, d: "cmd", speak=speak))
+
+        self.assertTrue(done)
+        self.assertTrue(spoken)
 
     def test_conversation_reply_not_routed(self):
         """Reply на сообщение (продолжение разговора) не гоняем через роутер."""

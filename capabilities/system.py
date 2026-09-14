@@ -3,6 +3,8 @@ close_window.*, screenshot.* — все executor=agent.
 
 На провод уходит только канонический id. Агент принимает канонические
 имена в дополнение к старым; удаление старых написаний — этап 8.
+open.app из реестра — запуск музыки (триггеры «включи музыку» и т.п.):
+агент без аргумента открывает Яндекс Музыку, как open_app:яндекс музыка.
 """
 
 from sakura_core.executor import AgentCommand, register_table
@@ -17,5 +19,6 @@ SYSTEM_AGENT_ACTIONS = (
 )
 
 SYSTEM_COMMANDS = {aid: AgentCommand(aid) for aid in SYSTEM_AGENT_ACTIONS}
+SYSTEM_COMMANDS["open.app"] = AgentCommand("open.app", arg="яндекс музыка")
 
 register_table(SYSTEM_COMMANDS)
