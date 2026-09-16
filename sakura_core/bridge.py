@@ -18,7 +18,7 @@ from sakura_core.router import Router
 log = logging.getLogger("sakura.bridge")
 
 _router: Router | None = None
-_executor = Executor()
+_executor: Executor | None = None
 
 # Этап 5 завершён: хендлер есть у каждого из 67 действий реестра, поэтому
 # решение исполняется по любому каноническому id, известному реестру.
@@ -47,6 +47,15 @@ def get_router() -> Router:
     if _router is None:
         _router = Router(llm_classify=None)
     return _router
+
+
+def get_executor() -> Executor:
+    """Исполнитель с сессией роутера: confirm-действия ставят ожидание
+    в ту же сессию, которую route() опрашивает на первом шаге."""
+    global _executor
+    if _executor is None:
+        _executor = Executor(session=get_router().session)
+    return _executor
 
 
 def resolve_context(active_window: str = "", current_track: dict | None = None):
@@ -79,8 +88,11 @@ async def execute_decision(decision, *, device_ws, device_id, register_command,
         return False, None
     ctx = ExecutionContext(device_ws=device_ws, device_id=device_id or "",
                            register_command=register_command,
-                           extra={"text": text or ""})
-    result = await _executor.execute(decision.action, ctx)
+                           extra={"text": text or "",
+                                  # «да» из диалога подтверждения — исполнять
+                                  # без повторного вопроса (executor).
+                                  "confirmed": decision.source == "session"})
+    result = await get_executor().execute(decision.action, ctx)
     log.info(f"[v3] исполнено: {decision.action} ({decision.source})")
     return True, result
 

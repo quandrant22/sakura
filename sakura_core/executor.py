@@ -13,6 +13,9 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
+from sakura_core.registry import Declaration, load as _load_registry
+from sakura_core.session import Session
+
 log = logging.getLogger("sakura.executor")
 
 
@@ -72,9 +75,15 @@ def registered() -> tuple[str, ...]:
 class Executor:
     """Исполняет решение роутера: хендлер домена → команда агенту или vps."""
 
-    def __init__(self, send_command: Optional[Callable] = None):
+    def __init__(self, send_command: Optional[Callable] = None, *,
+                 session: Optional[Session] = None,
+                 declarations: Optional[list[Declaration]] = None):
         # send_command: async (AgentCommand, ExecutionContext) → cmd_id | None
         self._send_command = send_command or Executor._default_send
+        self._session = session
+        decls = list(declarations) if declarations is not None else _load_registry()
+        self._declarations: dict[str, Declaration] = {d.id: d for d in decls}
+        self._confirm_ids = {i for i, d in self._declarations.items() if d.confirm}
 
     @staticmethod
     async def _default_send(command: AgentCommand, ctx: ExecutionContext):
@@ -92,6 +101,19 @@ class Executor:
         return cmd_id
 
     async def execute(self, action_id: str, ctx: ExecutionContext):
+        # Необратимое действие не исполняется молча: выставляется ожидание
+        # подтверждения, вместо исполнения возвращается вопрос. Исполнение
+        # придёт следующим ходом — «да» роутер разрешит в Decision(source
+        # ="session"), мост передаст confirmed=True. Ответ — (текст, ok):
+        # та же форма, что у vps-хендлеров, мост доставит его как есть.
+        if action_id in self._confirm_ids and not ctx.extra.get("confirmed"):
+            decl = self._declarations[action_id]
+            if self._session is not None:
+                self._session.expect("confirm", action=action_id,
+                                     device=ctx.device_id or None)
+            log.info(f"[executor] confirm: {action_id} → ожидание «да»")
+            return (f"{decl.desc}? Подтверди, пожалуйста.", True)
+
         fn = _HANDLERS.get(action_id)
         if fn is None:
             raise RuntimeError(f"нет хендлера для '{action_id}'")
