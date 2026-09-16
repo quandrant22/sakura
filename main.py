@@ -21,7 +21,7 @@ from aiogram.filters import CommandStart, Command
 from google import genai
 from google.genai import types
 
-from modules.calendar_module import get_calendar_context, get_urgent_event
+from modules.calendar_module import get_urgent_event
 from config import TELEGRAM_TOKEN, MASTER_ID, GROUP_CHAT_ID, get_active_key, mark_key_used, mark_key_exhausted, MAIN_MODEL, FALLBACK_MODEL  # noqa
 from personality import get_system_prompt, get_time_context
 from modules.web_search import needs_search, facts_prompt, format_sources
@@ -32,14 +32,14 @@ from memory.memory import (
     clear_session_summary, should_summarize
 )
 from modules.device_manager import (
-    update_device, get_device_status, get_device_context,
+    get_device_status,
     set_device_offline, parse_device_from_text,
     get_online_devices, load_devices,
     # get_active_device берётся из presence_sync (ниже) — версия device_manager не используется
 )
-from modules.context import build_context_block, get_full_context, is_home_alone, is_gaming
+from modules.context import get_full_context
 from modules.jsonio import save_json
-from modules.timeline import get_timeline_context, get_achievements_context, extract_and_save_from_dialogue
+from modules.timeline import extract_and_save_from_dialogue
 from modules.mood_vector import mark_interaction, auto_detect_mood_from_reply
 from modules.proactive import (
     can_send_message, mark_sent, get_fact_trigger, update_master_status,
@@ -49,7 +49,6 @@ from modules.tasks import (
     add_task, get_due_tasks, get_upcoming_tasks,
     mark_notified, get_tasks_context, extract_tasks_from_text
 )
-from modules.rules import get_rules_context
 from modules import device_commands
 from modules.tts_server import stream_tts_to_device, warmup_cache, strip_tone
 from adapters.voice import stream_llm_to_tts  # v3: честный стриминг (этап 4)
@@ -85,10 +84,10 @@ from modules.presence_sync import (update as ps_update, set_offline as ps_offlin
 #   переопределяла бы версию из device_manager, поэтому там она убрана.
 from modules.memory_honesty import enrich_memory_context
 from modules.evening_pulse import should_send_pulse, mark_pulse_sent, get_pulse_prompt, check_pc_health
-from modules.vps_monitor import start_monitor, get_vps_context, get_vps_alert
-from modules.threads import extract_threads, get_threads_context, get_thread_recall
+from modules.vps_monitor import start_monitor
+from modules.threads import extract_threads
 from modules.relationship import (check_milestone, increase_closeness, get_closeness_hint,
-    get_interests_hint, track_topic, extract_topics_from_text,
+    track_topic, extract_topics_from_text,
     should_write_journal, get_growth_journal_prompt, mark_journal_written)
 from modules.episodes import add_episode, get_recall
 from modules.discord_bot      import start_bot as discord_start_bot, is_discord_priority, register_agent_request
@@ -102,27 +101,25 @@ from modules.reminders import (
 from modules.music_memory import (
     track_play, format_recent, format_top,
     get_recent, get_top_artists, get_top_tracks,
-    like_artist, dislike_artist, has_opinion, get_taste_context, generate_taste_comment,
 )
-from modules.fears import get_fear_context, get_fear_response_for_weather
 from modules.pranks import should_prank, choose_prank, record_prank
 from modules.reactions import detect_reaction, get_random_gif, should_react
 from modules.steam_integration import (
     load_library, get_current_game, recommend_games,
-    find_guide, format_library_context, format_current_game_context,
-    get_achievement_stats, get_library, search_game,
-    steam_library_loop, get_session_context,
+    find_guide,
+    get_library, search_game,
+    steam_library_loop,
     steam_achievements_loop, set_achievement_callback,
 )
 from modules.weather         import get_weather, apply_weather_to_mood, get_weather_context
 from modules.game_detector   import detect_game_from_screenshot, get_game_context, get_cached_game, should_check_event, detect_game_event, make_event_prompt
 from modules.secret_diary    import get_leak_hint, write_entry as diary_write
-from modules.sakura_narrative import get_narrative_hint, ensure_narrative
-from modules.speech_style    import track_message as track_speech, get_style_hint
+from modules.sakura_narrative import ensure_narrative
+from modules.speech_style    import track_message as track_speech
 from modules.proactive_recs  import track_activity as track_rec_activity
 from modules.emotional_memory import (
-    track_topic_reaction, get_trigger_hint, detect_joke_about_sakura,
-    save_joke, get_revenge_hint, get_version_hint, get_season_hint
+    track_topic_reaction, detect_joke_about_sakura,
+    save_joke
 )
 from modules.autonomous import (
     is_voice_note_request, save_voice_note, get_unreminded_notes,
@@ -133,7 +130,7 @@ from modules.integrations import (
     get_current_music_from_window, should_comment_music,
     make_music_comment_prompt, mark_music_commented
 )
-from memory.db import ensure_ready, add_to_category as db_add_to_category, get_memory_context as db_get_memory_context, get_self_context, add_to_self
+from memory.db import ensure_ready, add_to_category as db_add_to_category, get_memory_context as db_get_memory_context, add_to_self
 from modules.users import (
     get_role, is_master, is_himari,
     get_guest_history, add_guest_message,
@@ -784,19 +781,9 @@ async def send_as_conversation(chat_id: int, text: str):
 
 
 # ─────────────────────────────────────────────
-#  Контекст reply
+#  Контекст reply (перенесено в sakura_core/prompt.py, реэкспорт)
 # ─────────────────────────────────────────────
-
-def _get_reply_context(message: Message) -> str:
-    if not message.reply_to_message:
-        return ""
-    replied      = message.reply_to_message
-    replied_text = (replied.text or replied.caption or "").strip()
-    if not replied_text:
-        return ""
-    if len(replied_text) > 300:
-        replied_text = replied_text[:300] + "..."
-    return f"\n\n[Мастер отвечает на твоё сообщение: «{replied_text}»]"
+from sakura_core.prompt import _get_reply_context  # noqa: F811
 
 
 # ─────────────────────────────────────────────
@@ -1455,458 +1442,17 @@ async def proactive_loop():
 
 
 # ─────────────────────────────────────────────
-#  LLM — Мастер
+#  LLM — Мастер (перенесено в sakura_core/prompt.py, реэкспорт)
 # ─────────────────────────────────────────────
-
-def build_identity_core(active_window=None, ctx_master=None) -> list[str]:
-    """Единое ядро личности для голоса и текста.
-    Возвращает список частей промпта: характер + состояние + самопамять."""
-    parts = []
-    # 1. Ядро характера
-    try:
-        if ctx_master:
-            parts.append(get_system_prompt(
-                active_window=active_window,
-                ctx_location=ctx_master.get("location"),
-                ctx_status=ctx_master.get("status"),
-            ))
-        else:
-            parts.append(get_system_prompt())
-    except Exception as e:
-        log.debug(f"[main] build_identity_core: {type(e).__name__}: {e}")
-    # 2. Текущее состояние (эмоция/настроение)
-    try:
-        from modules.state_arbiter import get_state_block
-        sb = get_state_block()
-        if sb:
-            parts.append(sb)
-    except Exception as e:
-        log.debug(f"[main] build_identity_core: {type(e).__name__}: {e}")
-    # 3. Самопамять — кто она
-    try:
-        self_ctx = get_self_context()
-        if self_ctx:
-            parts.append(self_ctx)
-    except Exception as e:
-        log.debug(f"[main] build_identity_core: {type(e).__name__}: {e}")
-    # 3.1. Текущая игровая сессия — Мастер В ИГРЕ ПРЯМО СЕЙЧАС (голос и текст)
-    try:
-        session_ctx = get_session_context()
-        if session_ctx:
-            parts.append(session_ctx)
-    except Exception as e:
-        log.debug(f"[main] build_identity_core: {type(e).__name__}: {e}")
-    return parts
-
-
-# Кэш лёгкого голосового промпта
-_voice_system_cache: dict = {}
-
-def _build_voice_system() -> str:
-    """
-    Облегчённый промпт для голосового режима.
-    Только критически важные компоненты — быстрее генерация.
-    """
-    import time as _t
-    from modules.state_arbiter import get_current_emotion
-    cache_key = f"voice:{get_current_emotion()}"
-    entry = _voice_system_cache.get(cache_key)
-    if entry and _t.monotonic() < entry[1]:
-        return entry[0]
-
-    parts = build_identity_core()
-
-    # Текущая игра если есть
-    try:
-        game_ctx = format_current_game_context()
-        if game_ctx:
-            parts.append(game_ctx)
-    except Exception as e:
-        log.debug(f"[build_system] game ctx: {e}")
-
-    # 3.1. Игровой хаб — контекст сессии.
-    # Импорт локально: сбой game_hub не должен ронять сборку промпта.
-    try:
-        from modules.game_hub import build_game_prompt_context
-        hub_ctx = build_game_prompt_context()
-        if hub_ctx:
-            parts.append(hub_ctx)
-    except Exception as e:
-        log.debug(f"[build_system] game hub: {e}")
-
-    # 4. Steam библиотека (компактно)
-    try:
-        from modules.steam_integration import format_library_context
-        lib = format_library_context()
-        if lib:
-            parts.append(lib)
-    except Exception as e:
-        log.debug(f"[build_system] steam lib: {e}")
-
-    # 5. Настроение — локальный импорт: сбой mood_vector не роняет промпт
-    try:
-        from modules.mood_vector import get_mood_context
-        mood = get_mood_context()
-        if mood:
-            parts.append(mood)
-    except Exception as e:
-        log.debug(f"[build_system] mood: {e}")
-
-    # 5.5. Музыкальный вкус
-    try:
-        taste_ctx = get_taste_context()
-        if taste_ctx:
-            parts.append(taste_ctx)
-    except Exception as e:
-        log.debug(f"[main] _build_voice_system: {type(e).__name__}: {e}")
-
-    # 5.6. Страхи
-    try:
-        fear_ctx = get_fear_context()
-        if fear_ctx:
-            parts.append(fear_ctx)
-    except Exception as e:
-        log.debug(f"[main] _build_voice_system: {type(e).__name__}: {e}")
-
-    # 6. Память (быстро, без embed)
-    try:
-        mem = db_get_memory_context()
-        if mem:
-            parts.append(mem)
-    except Exception as e:
-        log.debug(f"[main] _build_voice_system: {type(e).__name__}: {e}")
-
-    # 6.1. Контекст диалога — последние 5 сообщений
-    try:
-        hist = get_history()
-        if hist:
-            recent = hist[-5:]
-            dial_lines = []
-            for m in recent:
-                role = "Мастер" if m["role"] == "user" else "Ты"
-                dial_lines.append(f"{role}: {m['parts'][0][:100]}")
-            parts.append("НЕДАВНИЙ ДИАЛОГ:\n" + "\n".join(dial_lines))
-    except Exception as e:
-        log.debug(f"[main] _build_voice_system: {type(e).__name__}: {e}")
-
-    # 6.2. Уведомления — есть ли срочные
-    try:
-        from modules.notification_tracker import get_urgent_pending, get_recent_summary
-        urgent = get_urgent_pending()
-        if urgent:
-            parts.append("СРОЧНЫЕ УВЕДОМЛЕНИЯ: " + "; ".join(
-                f"[{n.source}] {n.title}: {n.body[:60]}" for n in urgent[:3]
-            ))
-        summary = get_recent_summary(hours=2)
-        if summary:
-            parts.append(summary)
-    except Exception as e:
-        log.debug(f"[main] _build_voice_system: {type(e).__name__}: {e}")
-
-    result = "\n\n".join(p for p in parts if p)
-
-    # Кэш на 60 секунд
-    _voice_system_cache[cache_key] = (result, _t.monotonic() + 60.0)
-    return result
-
-
-_build_system_cache: dict = {}
-_build_system_lock = __import__("threading").Lock()
-_BUILD_SYSTEM_TTL = 20.0   # секунд
-
-
-def _build_system(include_calendar: bool = False, active_window: str | None = None, query: str = "") -> str:
-    """Строит системный промпт. Кэшируется для повторных вызовов без query."""
-    import time as _t
-
-    # Кэшируем только типичный случай (Telegram, без calendar, без query)
-    _track_sig = f"{(_current_track or {}).get('title', '')}|{(_current_track or {}).get('status', '')}"
-    _emotion_sig = get_current_emotion()
-    _hour_sig = __import__('datetime').datetime.now().hour
-    _raw_key = f"{include_calendar}:{active_window}:{bool(query)}:{tuple(sorted(get_online_devices()))}:{_track_sig}:{_emotion_sig}:{_hour_sig}"
-    cache_key = hashlib.md5(_raw_key.encode("utf-8")).hexdigest()
-    if not query:
-        with _build_system_lock:
-            entry = _build_system_cache.get(cache_key)
-            if entry and _t.monotonic() < entry[1]:
-                return entry[0]
-
-    _bs_t0 = __import__("time").monotonic()
-    ctx    = get_full_context()
-
-    parts = build_identity_core(
-        active_window=active_window,
-        ctx_master=ctx["master"],
-    )
-
-    from modules.capabilities import get_capabilities_block
-    parts.append(get_capabilities_block())
-
-    rules_ctx = get_rules_context()
-    if rules_ctx:
-        parts.append(rules_ctx)
-
-    parts.append(build_context_block(active_window))
-    parts.append(get_device_context())
-    # Текущий трек — чтобы Сакура всегда знала что играет (с обогащёнными данными YM API)
-    if _current_track and _current_track.get("title"):
-        t = _current_track
-        _track_str = f"Сейчас играет: {t.get('artist','')} — {t.get('title','')} ({t.get('status','?')})"
-        if t.get('duration', '?:??') != '?:??':
-            _track_str += f" [{t.get('position','?')} / {t.get('duration','?')}]"
-        if t.get('genre'):
-            _track_str += f" Жанр: {t['genre']}"
-        if t.get('album'):
-            _track_str += f" Альбом: {t['album']}"
-        if t.get('album_year'):
-            _track_str += f" ({t['album_year']})"
-        if t.get('cover_url'):
-            _track_str += f" [обложка: {t['cover_url']}]"
-        parts.append(_track_str)
-
-    # query передаётся только если явно нужен семантический поиск.
-    # Без query — быстрый топ по hits, без сетевых вызовов.
-    try:
-        # query="" всегда — embed вызовы убраны полностью из основного пути
-        raw_mem = db_get_memory_context()
-        mem_ctx = enrich_memory_context(raw_mem, query) if raw_mem else ""
-        if mem_ctx:
-            parts.append(mem_ctx)
-    except Exception as e:
-        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
-
-    # Граф связей памяти (только SQL по sakura.db, без сети и эмбеддингов)
-    try:
-        from modules.graph import get_graph_context
-        graph_ctx = get_graph_context(query)
-        if graph_ctx:
-            parts.append(graph_ctx)
-    except Exception as e:
-        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
-
-    # Состояние VPS — Сакура знает своё железо
-    try:
-        vps_ctx = get_vps_context()
-        if vps_ctx:
-            parts.append(vps_ctx)
-    except Exception as e:
-        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
-
-    # Телесные ощущения — связь с телом через метрики
-    try:
-        from modules.vps_monitor import get_body_feeling
-        body_feel = get_body_feeling()
-        if body_feel:
-            parts.append(body_feel)
-    except Exception as e:
-        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
-
-    # Незакрытые нити разговора
-    try:
-        threads_ctx = get_threads_context()
-        if threads_ctx:
-            parts.append(threads_ctx)
-    except Exception as e:
-        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
-
-    # Фокус агента — если Мастер давно в одном окне
-    try:
-        from modules.context import get_focus_context
-        focus_ctx = get_focus_context()
-        if focus_ctx:
-            parts.append(focus_ctx)
-    except Exception as e:
-        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
-
-    # Контекст экрана — что на скриншоте (из Gemini Vision)
-    try:
-        from modules.context import get_screen_context
-        screen_ctx = get_screen_context()
-        if screen_ctx:
-            parts.append(screen_ctx)
-    except Exception as e:
-        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
-
-    timeline_ctx = get_timeline_context(days=2, limit=5)
-    if timeline_ctx:
-        parts.append(timeline_ctx)
-
-    achievements_ctx = get_achievements_context(limit=3)
-    if achievements_ctx:
-        parts.append(achievements_ctx)
-
-    try:
-        from modules.patterns import get_patterns_hint
-        patterns_hint = get_patterns_hint()
-        if patterns_hint:
-            parts.append(patterns_hint)
-    except Exception as e:
-        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
-
-    # Ощущение времени — как она изменилась
-    try:
-        from modules.reflection import get_time_feeling_hint
-        time_feel = get_time_feeling_hint()
-        if time_feel:
-            parts.append(time_feel)
-    except Exception as e:
-        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
-
-    # Возврат после молчания (Фаза 1)
-    try:
-        return_ctx = get_return_context()
-        return_hint = return_ctx.get("prompt_hint", "")
-        if return_hint:
-            parts.append(return_hint)
-    except Exception as e:
-        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
-
-    # Модель «Я» — синтезированное самопознание
-    try:
-        from memory.db import get_identity_model
-        identity = get_identity_model()
-        if identity:
-            parts.append(identity)
-    except Exception as e:
-        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
-
-    # Эмоциональный триггер для текущего запроса (№7/8)
-    if query:
-        try:
-            trigger = get_trigger_hint(query)
-            if trigger:
-                parts.append(trigger)
-        except Exception as e:
-            log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
-
-    # Её история/нарратив (Фаза 7 №34)
-    try:
-        narrative = get_narrative_hint()
-        if narrative:
-            parts.append(narrative)
-    except Exception as e:
-        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
-
-    # Steam: текущая игра и библиотека
-    try:
-        game_ctx = format_current_game_context()
-        if game_ctx:
-            parts.append(game_ctx)
-        elif format_library_context():
-            parts.append(format_library_context())
-    except Exception as e:
-        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
-
-    # Стиль речи Мастера (Фаза 7 №50)
-    try:
-        style_hint = get_style_hint()
-        if style_hint:
-            parts.append(style_hint)
-    except Exception as e:
-        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
-
-    # Версия Сакуры (№32) и сезон (№35)
-    try:
-        parts.append(get_version_hint())
-        parts.append(get_season_hint())
-    except Exception as e:
-        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
-
-    # Подкол-долг — теперь внутри state_arbiter
-
-    # Секретный дневник и подкол-долг — теперь внутри state_arbiter
-
-    # Органическая близость (Фаза 4) — теперь внутри state_arbiter
-
-    # Увлечения Сакуры (Фаза 4)
-    try:
-        interests_hint = get_interests_hint()
-        if interests_hint:
-            parts.append(interests_hint)
-    except Exception as e:
-        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
-
-    # Привычки Мастера
-    try:
-        from modules.habits import get_context_for_prompt as get_habits_ctx
-        habits_ctx = get_habits_ctx()
-        if habits_ctx:
-            parts.append(habits_ctx)
-    except Exception as e:
-        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
-
-    # Японский язык
-    try:
-        from modules.learn_japanese import get_context_for_prompt as get_jp_ctx
-        jp_ctx = get_jp_ctx()
-        if jp_ctx:
-            parts.append(jp_ctx)
-    except Exception as e:
-        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
-
-    # Частые приложения
-    try:
-        from modules.app_launcher import get_context_for_prompt as get_app_ctx
-        app_ctx = get_app_ctx()
-        if app_ctx:
-            parts.append(app_ctx)
-    except Exception as e:
-        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
-
-    # Кодинг — доступ к MiMo
-    try:
-        from modules.coding import is_available as coding_available
-        if coding_available():
-            parts.append("КОДИНГ: У тебя есть доступ к MiMo Code. Ты можешь создавать и править файлы на сервере. Используй modules/coding.py и modules/prompt_builder.py.")
-    except Exception as e:
-        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
-
-    
-    # fortune_cookie
-    try:
-        from modules.fortune_cookie import get_context_for_prompt as get_fortune_cookie_ctx
-        fortune_cookie_ctx = get_fortune_cookie_ctx()
-        if fortune_cookie_ctx:
-            parts.append(fortune_cookie_ctx)
-    except Exception as e:
-        log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
-
-    if include_calendar:
-        try:
-            cal = get_calendar_context()
-            if cal:
-                parts.append(cal)
-        except Exception as e:
-            log.debug(f"[main] _build_system: {type(e).__name__}: {e}")
-
-    summary = load_session_summary()
-    if summary:
-        parts.append(f"РЕЗЮМЕ ПРОШЛОГО РАЗГОВОРА:\n{summary}")
-
-    tasks_ctx = get_tasks_context()
-    if tasks_ctx:
-        parts.append(tasks_ctx)
-
-    result = "\n\n".join(parts)
-    __import__("logging").getLogger(__name__).debug(
-        f"[build_system] {__import__('time').monotonic()-_bs_t0:.2f}с")
-    log.info(f"[build_system] блоков={len(parts)} символов={len(result)}")
-
-    if not query:
-        import time as _t
-        with _build_system_lock:
-            _build_system_cache[cache_key] = (result, _t.monotonic() + _BUILD_SYSTEM_TTL)
-            # Очищаем старые ключи
-            if len(_build_system_cache) > 10:
-                expired = [k for k, (_, exp) in _build_system_cache.items() if exp < _t.monotonic()]
-                for k in expired:
-                    del _build_system_cache[k]
-            if len(_build_system_cache) > 32:
-                # выкидываем самые ранние по времени истечения
-                for k, _ in sorted(_build_system_cache.items(), key=lambda kv: kv[1][1])[:len(_build_system_cache) - 32]:
-                    del _build_system_cache[k]
-
-    return result
+from sakura_core.prompt import (  # noqa: F811
+    build_identity_core,
+    _build_voice_system,
+    _build_system,
+    _build_system_cache,
+    _build_system_lock,
+    _BUILD_SYSTEM_TTL,
+    _voice_system_cache,
+)
 
 
 def _build_contents(user_message: str, extra_system: str = "") -> list:
@@ -2231,21 +1777,9 @@ async def ask_gemini_voice(
 
 
 # ─────────────────────────────────────────────
-#  LLM — гости и Химари
+#  LLM — гости и Химари (перенесено в sakura_core/prompt.py, реэкспорт)
 # ─────────────────────────────────────────────
-
-def _build_guest_system(role: str, user_name: str, user_id: int = 0) -> str:
-    """Системный промпт для негостевых пользователей — без личной памяти Мастера."""
-    system = get_system_prompt(for_master=False)
-    addendum = get_role_system_addendum(role, user_name, user_id)
-    parts = [system]
-    if addendum:
-        parts.append(addendum)
-    if role == "guest" and user_id:
-        rel_prompt = get_relation_prompt(user_id, user_name)
-        if rel_prompt:
-            parts.append(rel_prompt)
-    return "\n\n".join(parts)
+from sakura_core.prompt import _build_guest_system  # noqa: F811
 
 
 def _build_guest_contents(user_id: int, user_message: str) -> list:
