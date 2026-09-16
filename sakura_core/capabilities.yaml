@@ -64,7 +64,7 @@
   desc: 'Закрыть вкладку, закрой это'
   executor: agent
   reversible: false
-  confirm: false
+  confirm: true
   triggers: ['закрой вкладку', 'закрой таб', 'закрыть вкладку']
 
 - id: browser.tab_dup
@@ -117,17 +117,17 @@
 
 - id: close_window.браузер
   legacy: [close_window:браузер]
-  desc: CHECK
+  desc: 'Закрыть окно браузера'
   executor: agent
   reversible: false
-  confirm: false
+  confirm: true
   triggers: ['гугл хром', 'закрой chrome', 'закрой opera', 'закрой браузер', 'закрой оперу']
 
 - id: ext.page_content
   legacy: [ext:page_content]
   desc: 'Что на странице, прочитай страницу'
   executor: agent
-  reversible: false
+  reversible: true
   confirm: false
   triggers: ['что на странице', 'прочитай страницу', 'о чём страница', 'перескажи страницу', 'что тут написано']
 
@@ -135,7 +135,7 @@
   legacy: [ext:page_content_youtube]
   desc: 'Что на ютубе, что за видео'
   executor: agent
-  reversible: false
+  reversible: true
   confirm: false
   triggers: ['что за видео', 'о чём видео', 'что на ютубе', 'перескажи видео']
 
@@ -159,8 +159,8 @@
   legacy: [memory:forget]
   desc: '«Забудь про Х», «удали из памяти Х»'
   executor: vps
-  reversible: true
-  confirm: false
+  reversible: false
+  confirm: true
   triggers: ['забудь про', 'забудь что', 'удали из памяти', 'сотри из памяти', 'не помни про']
 
 - id: music.dislike
