@@ -708,9 +708,17 @@ async def send_safe(chat_id: int, text: str):
 
 
 async def _run(client, model, contents, cfg):
-    return await asyncio.to_thread(
-        client.models.generate_content,
-        model=model, contents=contents, config=cfg
+    """Обёртка: делегирует llm.generate(). Возвращает строку."""
+    from sakura_core.llm import generate as _llm_generate
+    system = getattr(cfg, "system_instruction", None) or ""
+    max_tokens = getattr(cfg, "max_output_tokens", 512) or 512
+    temperature = getattr(cfg, "temperature", 0.85) or 0.85
+    return await _llm_generate(
+        contents,
+        system=system,
+        model=model,
+        max_tokens=max_tokens,
+        temperature=temperature,
     )
 
 
@@ -830,7 +838,7 @@ async def _translate_en(text: str) -> str:
             types.GenerateContentConfig(max_output_tokens=60),
         )
         import re as _re
-        out = (r.text or "").strip()
+        out = r
         latin = " ".join(_re.findall(r"[A-Za-z]+", out))
         return latin or text
     except Exception:
@@ -1468,20 +1476,15 @@ def _build_contents(user_message: str, extra_system: str = "") -> list:
 
 async def _gemini_generate(client, model, contents, full_system,
                            max_tokens=2000, temperature=0.85):
-    return await asyncio.wait_for(
-        asyncio.to_thread(
-            client.models.generate_content,
-            model    = model,
-            contents = contents,
-            config   = types.GenerateContentConfig(
-                system_instruction = full_system,
-                max_output_tokens  = max_tokens,
-                temperature        = temperature,
-                safety_settings    = NO_SAFETY,
-                thinking_config    = _thinking(model),
-            )
-        ),
-        timeout=60.0
+    """Обёртка: делегирует llm.generate(). Возвращает строку (не объект)."""
+    from sakura_core.llm import generate as _llm_generate
+    return await _llm_generate(
+        contents,
+        system=full_system,
+        model=model,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        timeout=60.0,
     )
 
 
@@ -1547,7 +1550,7 @@ async def ask_gemini(user_message: str, save_history: bool = True) -> str:
         _t_prep = _t_mono() - _t0
         response = await _gemini_generate(client, MAIN_MODEL, contents, full_system)
         _t_llm = _t_mono() - _t0
-        reply    = clean_reply((response.text or "").strip())
+        reply    = clean_reply(response)
         mark_key_used(key)
     except Exception as e:
         log.error(f"[ask_gemini] {e}")
@@ -1628,7 +1631,7 @@ async def _handle_gemini_error(e: Exception, user_message: str, save_history: bo
                 full_system = _build_system(query="")  # без embed
                 contents    = _build_contents(user_message)
                 r2          = await _gemini_generate(client, FALLBACK_MODEL, contents, full_system)
-                reply       = clean_reply((r2.text or "").strip())
+                reply       = clean_reply(r2)
                 mark_key_used(key)
                 if save_history:
                     add_to_history("user", user_message)
@@ -1725,7 +1728,7 @@ async def ask_gemini_voice(
             )
         else:
             response  = await _gemini_generate(client, MAIN_MODEL, contents, full_system, max_tokens=max_tok, temperature=0.85)
-            full_text = (response.text or "").strip()
+            full_text = response
             mark_key_used(key)
     except Exception as e:
         log.error(f"[Voice] {e}")
@@ -1738,7 +1741,7 @@ async def ask_gemini_voice(
                 )
             else:
                 r = await _gemini_generate(client, FALLBACK_MODEL, contents, full_system, max_tokens=max_tok)
-                full_text = (r.text or "").strip()
+                full_text = r
                 mark_key_used(key)
         except Exception as e2:
             log.error(f"[Voice fallback] {e2}")
@@ -1812,7 +1815,7 @@ async def ask_gemini_as_guest(
         contents    = _build_guest_contents(user_id, user_message)
 
         response = await _gemini_generate(client, MAIN_MODEL, contents, full_system)
-        reply    = clean_reply((response.text or "").strip())
+        reply    = clean_reply(response)
         mark_key_used(key)
 
         if not reply:

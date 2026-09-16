@@ -1,8 +1,11 @@
-"""Клиенты LLM (этап 4): genai.Client создаётся один раз за процесс и живёт
+"""Клиенты LLM (этап 4+6): genai.Client создаётся один раз за процесс и живёт
 в кэше. В v2 клиент создавался заново на каждый вызов
 (modules/intent_classifier.py:176, modules/command_router.py:573) —
 TLS-хендшейк на каждый вызов. У всех вызовов есть таймаут (в v2 их не было:
 зависший запрос подвешивал весь голосовой путь) и фолбэк моделей.
+
+Этап 6: NO_SAFETY, _thinking,ooled в модуле. Вся генерация текста — через
+generate() / stream_tokens().
 """
 
 from __future__ import annotations
@@ -23,6 +26,29 @@ DEFAULT_TIMEOUT_S = 12.0
 
 # Фолбэк моделей: основная → запасная (config не менять, имена из v2)
 FALLBACK_MODELS = (config.MAIN_MODEL, config.FALLBACK_MODEL)
+
+
+# ── Безопасность и мышление ──────────────────────────────────────────────
+
+def _thinking(model: str):
+    """ThinkingConfig: minimal для Gemini 3.x, None для Gemma."""
+    from google.genai import types as _t
+    return _t.ThinkingConfig(thinking_level="minimal") if model.startswith("gemini-3") else None
+
+
+def _no_safety():
+    """Список SafetySetting с выключенным фильтром (для generate)."""
+    from google.genai import types as _t
+    return [
+        _t.SafetySetting(category="HARM_CATEGORY_HARASSMENT",        threshold="OFF"),
+        _t.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH",       threshold="OFF"),
+        _t.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="OFF"),
+        _t.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="OFF"),
+        _t.SafetySetting(category="HARM_CATEGORY_CIVIC_INTEGRITY",   threshold="OFF"),
+    ]
+
+
+# ── Клиент ───────────────────────────────────────────────────────────────
 
 
 def get_client(api_key: str):
@@ -56,8 +82,10 @@ def pick_key(api_key: Optional[str] = None) -> str:
 async def generate(contents, *, system: str = "", model: Optional[str] = None,
                    max_tokens: int = 512, temperature: float = 0.85,
                    timeout: float = DEFAULT_TIMEOUT_S,
-                   api_key: Optional[str] = None) -> str:
-    """generate_content с таймаутом и фолбэком моделей. '' при полном провале."""
+                   api_key: Optional[str] = None,
+                   safety: bool = True, thinking: bool = True) -> str:
+    """generate_content с таймаутом, фолбэком моделей, NO_SAFETY и thinking.
+    '' при полном провале."""
     from google.genai import types as _t
 
     client = get_client(pick_key(api_key))
@@ -65,15 +93,22 @@ async def generate(contents, *, system: str = "", model: Optional[str] = None,
     last_exc: Optional[Exception] = None
     for m in models:
         try:
+            cfg_kwargs = dict(
+                system_instruction=system or None,
+                max_output_tokens=max_tokens,
+                temperature=temperature,
+            )
+            if safety:
+                cfg_kwargs["safety_settings"] = _no_safety()
+            if thinking:
+                tc = _thinking(m)
+                if tc is not None:
+                    cfg_kwargs["thinking_config"] = tc
             r = await asyncio.wait_for(asyncio.to_thread(
-                lambda m=m: client.models.generate_content(
+                lambda m=m, cfg=cfg_kwargs: client.models.generate_content(
                     model=m,
                     contents=contents,
-                    config=_t.GenerateContentConfig(
-                        system_instruction=system or None,
-                        max_output_tokens=max_tokens,
-                        temperature=temperature,
-                    ),
+                    config=_t.GenerateContentConfig(**cfg),
                 ),
             ), timeout=timeout)
             return (r.text or "").strip()
@@ -88,7 +123,8 @@ async def generate(contents, *, system: str = "", model: Optional[str] = None,
 async def stream_tokens(contents, *, system: str = "", model: Optional[str] = None,
                         max_tokens: int = 200, temperature: float = 0.85,
                         timeout: float = DEFAULT_TIMEOUT_S,
-                        api_key: Optional[str] = None) -> AsyncIterator[str]:
+                        api_key: Optional[str] = None,
+                        safety: bool = True, thinking: bool = True) -> AsyncIterator[str]:
     """Стриминг текста LLM: токены по мере поступления.
 
     Итератор google-genai блокирующий → читается в отдельном треде, чанки
@@ -100,17 +136,25 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
     client = get_client(pick_key(api_key))
     loop = asyncio.get_event_loop()
     q: asyncio.Queue = asyncio.Queue()
+    _model = model or FALLBACK_MODELS[0]
 
     def _produce() -> None:
         try:
+            cfg_kwargs = dict(
+                system_instruction=system or None,
+                max_output_tokens=max_tokens,
+                temperature=temperature,
+            )
+            if safety:
+                cfg_kwargs["safety_settings"] = _no_safety()
+            if thinking:
+                tc = _thinking(_model)
+                if tc is not None:
+                    cfg_kwargs["thinking_config"] = tc
             for chunk in client.models.generate_content_stream(
-                model=model or FALLBACK_MODELS[0],
+                model=_model,
                 contents=contents,
-                config=_t.GenerateContentConfig(
-                    system_instruction=system or None,
-                    max_output_tokens=max_tokens,
-                    temperature=temperature,
-                ),
+                config=_t.GenerateContentConfig(**cfg_kwargs),
             ):
                 t = getattr(chunk, "text", None)
                 if t:
