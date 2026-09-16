@@ -629,3 +629,11 @@
   confirm: false
   triggers: ['статус чайника', 'температура чайника', 'сколько градусов в чайнике', 'горячий чайник', 'горячая вода']
 
+- id: files.open
+  legacy: [open_file]
+  desc: 'Найти и открыть файл'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['найди файл', 'открой файл', 'найди документ', 'открой документ']
+

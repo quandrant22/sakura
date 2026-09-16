@@ -8,6 +8,7 @@ import json
 
 import capabilities.browser
 import capabilities.ext
+import capabilities.files
 import capabilities.kettle
 import capabilities.music as cap_music
 import capabilities.system

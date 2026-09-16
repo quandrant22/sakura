@@ -1630,24 +1630,6 @@ async def handle_message(message: Message):
             await message.answer(f"Ошибка кодинга: {str(e)[:200]}")
             return
 
-    file_triggers = ["найди файл", "открой файл", "найди документ", "открой документ"]
-    if _fz(tl_check, file_triggers):
-        query = text
-        for t in file_triggers:
-            query = query.lower().replace(t, "").strip()
-        query = query.strip(" -,.")
-        if query:
-            laptop_ws, _active_dev = _get_active_ws()
-            if laptop_ws:
-                await laptop_ws.send(json.dumps({"type": "command", "action": f"open_file:{query}"}))
-                reply = await ask_gemini(
-                    f"Мастер попросил найти файл: {query}. Ищу и открываю. Скажи коротко.",
-                    save_history=False)
-                await message.answer(reply)
-            else:
-                await message.answer("Нет подключённых устройств.")
-            return
-
 
     # Игровой режим переехал в реестр (game_mode.on/off, этап 5 2/2) —
     # ветка parse_game_mode_command снята. Замечание: разговорная защита
