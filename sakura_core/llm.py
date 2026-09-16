@@ -27,6 +27,13 @@ DEFAULT_TIMEOUT_S = 12.0
 # Фолбэк моделей: основная → запасная (config не менять, имена из v2)
 FALLBACK_MODELS = (config.MAIN_MODEL, config.FALLBACK_MODEL)
 
+# Импорт из prompt.py — ленивый внутри ask_gemini, но нужен для патчинга в тестах.
+# Цикл llm ↔ prompt не возникает: prompt.py не импортирует llm.py.
+from sakura_core.prompt import (  # noqa: E402
+    _build_system,
+    _build_guest_system,
+)
+
 
 # ── Безопасность и мышление ──────────────────────────────────────────────
 
@@ -248,8 +255,419 @@ def make_llm_classify(*, model: Optional[str] = None,
         try:
             return _run_classify(
                 classify_action(text, catalog, model=model,
-                                timeout=timeout, api_key=api_key))
+                                 timeout=timeout, api_key=api_key))
         except Exception as e:
             log.warning(f"[llm] classify провалился: {type(e).__name__}: {e}")
             return None
     return classify
+
+
+# ── Утилиты ──────────────────────────────────────────────────────────────
+
+def _strip_tone(text: str) -> str:
+    """Убирает теги [ТОН: …] (общая функция tts_server)."""
+    from modules.tts_server import strip_tone as _st
+    return _st(text)[1]
+
+
+def clean_reply(text: str) -> str:
+    if not text:
+        return ""
+    import re as _re
+    text = _re.sub(r'\{.*?\}', '', text, flags=_re.DOTALL).strip()
+    bad_keys = ('"thought"', '"action"', '"action_input"', 'dalle.text2im', '"text":', '"role":')
+    lines = [
+        l for l in text.split('\n')
+        if not any(k in l for k in bad_keys)
+        and not (l.strip().startswith('"') and l.strip().endswith('",'))
+        and l.strip() not in (',', '"')
+    ]
+    return '\n'.join(lines).strip()
+
+
+# ── Сборка contents ──────────────────────────────────────────────────────
+
+def _build_contents(user_message: str, extra_system: str = "") -> list:
+    from google.genai import types as _t
+    from memory.memory import get_history
+    history  = get_history()[-60:]
+    contents = [
+        _t.Content(role=m["role"], parts=[_t.Part(text=m["parts"][0])])
+        for m in history
+    ]
+    msg = f"{extra_system}\n\n{user_message}" if extra_system else user_message
+    contents.append(_t.Content(role="user", parts=[_t.Part(text=msg)]))
+    return contents
+
+
+def _build_guest_contents(user_id: int, user_message: str) -> list:
+    """История конкретного гостя/Химари."""
+    from google.genai import types as _t
+    from memory.memory import get_guest_history
+    history = get_guest_history(user_id)[-20:]
+    contents = []
+    for msg in history:
+        gemini_role = "user" if msg["role"] == "user" else "model"
+        contents.append(_t.Content(
+            role  = gemini_role,
+            parts = [_t.Part(text=msg["text"])]
+        ))
+    contents.append(_t.Content(role="user", parts=[_t.Part(text=user_message)]))
+    return contents
+
+
+# ── Основные LLM-функции ────────────────────────────────────────────────
+
+_LEN_TOKENS = {"short": 120, "medium": 200, "long": 800}
+_LEN_HINT = {
+    "short":  "Ответь коротко, 1-2 предложения. Идёт живой разговор — без монологов.",
+    "medium": "Ответь компактно, 2-3 предложения, без лишних рассуждений.",
+    "long":   "Мастер просит подробно — разверни ответ полноценно.",
+}
+
+
+async def ask_gemini(user_message: str, save_history: bool = True) -> str:
+    from config import MAIN_MODEL, get_active_key, mark_key_used
+
+    _t_mono = __import__("time").monotonic
+    _t0 = _t_mono()
+
+    full_system = _build_system(query="")
+    _t_build = _t_mono() - _t0
+
+    try:
+        from modules.steam_integration import search_game
+        game_hit = await asyncio.to_thread(search_game, user_message)
+        if game_hit:
+            from modules import steam_integration as _steam_mod
+            current_game = _steam_mod._current_game
+            if not current_game or game_hit.get('appid') != current_game.get('appid'):
+                h = game_hit.get('playtime_forever', 0) // 60
+                full_system += (
+                    f"\n\nИГРА ИЗ БИБЛИОТЕКИ МАСТЕРА: {game_hit['name']} "
+                    f"(наиграно {h}ч) — Мастер спрашивает про эту игру."
+                )
+    except Exception as e:
+        log.debug(f"[llm] ask_gemini: {type(e).__name__}: {e}")
+
+    search_facts = None
+    search_sources = []
+    from modules.web_search import needs_search, facts_prompt, format_sources
+    if needs_search(user_message):
+        from modules.web_search import search_grounded as _grounded
+        g_answer, g_sources, g_ok = await _grounded(user_message)
+        if g_ok and g_answer:
+            search_facts = g_answer.strip()
+            search_sources = list(g_sources or [])
+            log.info("[search] parallel → факты в контекст LLM")
+        else:
+            web_ctx = await maybe_fetch_web(user_message)
+            if web_ctx:
+                full_system += f"\n\nКОНТЕНТ ИЗ ИНТЕРНЕТА:\n{web_ctx}"
+
+    url_ctx = await maybe_read_url(user_message)
+    if url_ctx:
+        full_system += f"\n\n{url_ctx}"
+
+    if search_facts:
+        full_system += facts_prompt(search_facts)
+    _t_ctx = _t_mono() - _t0
+
+    key = get_active_key()
+    _t_prep = _t_ctx
+    _t_llm = None
+    if not key:
+        return "Мастер, все API ключи исчерпаны на сегодня."
+    contents = _build_contents(user_message)
+    try:
+        _t_prep = _t_mono() - _t0
+        response = await generate(contents, system=full_system, model=MAIN_MODEL)
+        _t_llm = _t_mono() - _t0
+        reply    = clean_reply(response)
+        mark_key_used(key)
+    except Exception as e:
+        log.error(f"[ask_gemini] {e}")
+        reply = ""
+
+    if search_sources and reply:
+        reply += format_sources(search_sources, limit=3)
+    _t_total = _t_mono() - _t0
+    _llm_s    = (_t_total - _t_prep) if _t_llm is None else (_t_llm - _t_prep)
+    _proc_s   = (_t_total - _t_prep) if _t_llm is None else (_t_total - _t_llm)
+    log.info(
+        f"[ask_gemini time] всего={_t_total:.1f}с | сборка={_t_build:.2f}с | "
+        f"контекст={_t_ctx - _t_build:.2f}с | LLM={_llm_s:.1f}с | "
+        f"обработка={_proc_s:.2f}с | system={len(full_system)}симв | history={len(contents)}"
+    )
+
+    if not reply or not _strip_tone(reply).strip():
+        reply = "Мастер, что-то мешает мне ответить. Попробуй ещё раз."
+
+    if save_history:
+        from memory.memory import add_to_history
+        add_to_history("user", user_message)
+        add_to_history("model", reply)
+        # Ленивый импорт: extract_and_remember → ask_gemini (цикл через функции)
+        from modules.memories import extract_and_remember
+        asyncio.create_task(extract_and_remember(user_message, reply))
+        from memory.memory import should_summarize, summarize_session
+        if should_summarize():
+            asyncio.create_task(summarize_session())
+        from modules.context import get_full_context
+        ctx_snap = get_full_context()
+        from modules.timeline import extract_and_save_from_dialogue
+        asyncio.create_task(asyncio.to_thread(
+            extract_and_save_from_dialogue, user_message, reply, ctx_snap
+        ))
+        from modules.mood_vector import mark_interaction, auto_detect_mood_from_reply
+        mark_interaction()
+        asyncio.create_task(asyncio.to_thread(
+            auto_detect_mood_from_reply, reply, user_message
+        ))
+        try:
+            from modules.self_correction import process_conversation
+            asyncio.create_task(asyncio.to_thread(
+                process_conversation, user_message, reply
+            ))
+        except Exception as e:
+            log.debug(f"[llm] ask_gemini: {type(e).__name__}: {e}")
+        try:
+            from modules.secret_diary import write_entry as diary_write
+            asyncio.create_task(diary_write(
+                f"Мастер: {user_message[:200]}\nСакура: {reply[:200] if reply else ''}",
+                "neutral"
+            ))
+        except Exception as e:
+            log.debug(f"[llm] ask_gemini: {type(e).__name__}: {e}")
+
+    return reply
+
+
+async def _handle_gemini_error(e: Exception, user_message: str, save_history: bool) -> str:
+    from config import MAIN_MODEL, FALLBACK_MODEL, get_active_key, mark_key_used
+
+    err = str(e)
+    if "429" in err or "quota" in err.lower():
+        await asyncio.sleep(60)
+        return await ask_gemini(user_message, save_history)
+    if "500" in err or "INTERNAL" in err:
+        await asyncio.sleep(5)
+        return await ask_gemini(user_message, save_history)
+    if "SSL" in err or "DECRYPTION" in err or "bad record mac" in err:
+        await asyncio.sleep(3)
+        return await ask_gemini(user_message, save_history)
+    if "503" in err or "UNAVAILABLE" in err:
+        log.warning("Основная модель недоступна → Gemma fallback")
+        key = get_active_key()
+        if key:
+            try:
+                full_system = _build_system(query="")
+                contents    = _build_contents(user_message)
+                r2          = await generate(contents, system=full_system, model=FALLBACK_MODEL)
+                reply       = clean_reply(r2)
+                mark_key_used(key)
+                if save_history:
+                    from memory.memory import add_to_history
+                    add_to_history("user", user_message)
+                    add_to_history("model", reply)
+                return reply or "Мастер, серверы перегружены. Попробуй позже."
+            except Exception as e2:
+                log.error(f"Fallback error: {e2}")
+    log.error(f"Gemini error: {e}")
+    return f"Мастер, что-то пошло не так. Ошибка: {err[:100]}"
+
+
+async def ask_gemini_voice(
+    user_message : str,
+    websocket    = None,
+    device_id    : str = "laptop",
+    active_window: str | None = None,
+    length       : str = "short",
+) -> tuple[str, str]:
+    """Голосовой ответ с истинным стримингом LLM→TTS."""
+    from config import MAIN_MODEL, FALLBACK_MODEL, get_active_key, mark_key_used
+    from memory.memory import add_to_history
+
+    key = get_active_key()
+    if not key:
+        if websocket:
+            try:
+                import json as _json
+                await websocket.send(_json.dumps({
+                    "type": "reply", "device_id": device_id, "text": "Все ключи исчерпаны.",
+                }))
+                await websocket.send(_json.dumps({
+                    "type": "tts_end", "device_id": device_id,
+                }))
+            except Exception as e:
+                log.debug(f"[llm] ask_gemini_voice: {type(e).__name__}: {e}")
+        return ("Все ключи исчерпаны.", "neutral")
+
+    _t_build = __import__("time").monotonic()
+    full_system = _build_system(query=user_message)
+    len_hint = _LEN_HINT.get(length, "")
+    if len_hint:
+        full_system = f"{full_system}\n\n{len_hint}"
+    max_tok = _LEN_TOKENS.get(length, 150)
+    log.info(f"[voice] len={length} → hint={'да' if len_hint else 'нет'}, max_tokens={max_tok}")
+    log.info(f"[voice] _build_system за {__import__('time').monotonic()-_t_build:.2f}с")
+
+    contents  = _build_contents(user_message)
+    emotion   = "neutral"
+    full_text = ""
+
+    from modules.web_search import needs_search, facts_prompt
+    search_needed = needs_search(user_message)
+    search_facts  = None
+    if search_needed:
+        from modules.web_search import search_grounded as _grounded
+        g_ans, _g_srcs, g_ok = await _grounded(user_message)
+        if g_ok and g_ans:
+            search_facts = g_ans.strip()
+            log.info("[search] parallel → голосовой контекст")
+        else:
+            web_ctx = await maybe_fetch_web(user_message)
+            if web_ctx:
+                search_facts = web_ctx.strip()
+
+    if search_facts:
+        full_system += facts_prompt(search_facts)
+    elif search_needed:
+        full_system += (
+            "\n\nПоиск свежих данных в интернете сейчас не удался. Если для ответа "
+            "нужны актуальные данные — честно скажи Мастеру, что не нашла, и не "
+            "выдумывай факты."
+        )
+
+    try:
+        if websocket:
+            from adapters.voice import stream_llm_to_tts
+            from modules.mood_vector import get_current_emotion
+            full_text, emotion = await stream_llm_to_tts(
+                contents    = contents,
+                system      = full_system,
+                websocket   = websocket,
+                device_id   = device_id,
+                model       = MAIN_MODEL,
+                max_tokens  = max_tok,
+                temperature = 0.85,
+                api_key     = key,
+                emotion     = get_current_emotion(),
+            )
+        else:
+            response  = await generate(contents, system=full_system, model=MAIN_MODEL,
+                                       max_tokens=max_tok, temperature=0.85)
+            full_text = response
+            mark_key_used(key)
+    except Exception as e:
+        log.error(f"[Voice] {e}")
+        try:
+            if websocket:
+                from adapters.voice import stream_llm_to_tts
+                from modules.mood_vector import get_current_emotion
+                full_text, emotion = await stream_llm_to_tts(
+                    contents, full_system, websocket, device_id,
+                    model=FALLBACK_MODEL, max_tokens=max_tok,
+                    api_key=key, emotion=get_current_emotion(),
+                )
+            else:
+                r = await generate(contents, system=full_system, model=FALLBACK_MODEL,
+                                   max_tokens=max_tok)
+                full_text = r
+                mark_key_used(key)
+        except Exception as e2:
+            log.error(f"[Voice fallback] {e2}")
+            if websocket:
+                try:
+                    import json as _json
+                    await websocket.send(_json.dumps({
+                        "type": "tts_end", "device_id": device_id,
+                    }))
+                except Exception as e:
+                    log.debug(f"[llm] ask_gemini_voice: {type(e).__name__}: {e}")
+
+    clean_text = clean_reply(full_text.strip()) if full_text else ""
+
+    if clean_text and websocket:
+        try:
+            import json as _json
+            await websocket.send(_json.dumps({
+                "type": "reply", "device_id": device_id, "text": clean_text,
+            }))
+        except Exception as e:
+            log.debug(f"[llm] ask_gemini_voice: {type(e).__name__}: {e}")
+
+    add_to_history("user",  user_message)
+    add_to_history("model", clean_text)
+    log.info(f"[голос] ответ: {clean_text!r}")
+
+    try:
+        from modules.mood_broadcast import broadcast_mood_after_reply
+        from modules.mood_vector import get_current_emotion
+        asyncio.create_task(broadcast_mood_after_reply(
+            clean_text, user_message, emotion
+        ))
+    except Exception as e:
+        log.debug(f"[llm] ask_gemini_voice: {type(e).__name__}: {e}")
+
+    return (clean_text, emotion)
+
+
+# ── Веб-контекст ─────────────────────────────────────────────────────────
+
+async def maybe_fetch_web(text: str) -> str:
+    try:
+        from modules.web_search import smart_search
+        return await smart_search(text)
+    except Exception:
+        return ""
+
+
+async def maybe_read_url(text: str) -> str:
+    import re as _re
+    urls = _re.findall(r'https?://[^\s]+', text)
+    if not urls:
+        return ""
+    try:
+        from modules.url_reader import process_url
+        content = await process_url(urls[0])
+        return f"СОДЕРЖИМОЕ ССЫЛКИ ({urls[0]}):\n{content}"
+    except Exception as e:
+        log.error(f"URL reader error: {e}")
+        return ""
+
+
+async def ask_gemini_as_guest(
+    user_id      : int,
+    user_message : str,
+    user_name    : str,
+    role         : str,
+) -> str:
+    from config import MAIN_MODEL, get_active_key, mark_key_used
+    from memory.memory import add_guest_message
+
+    key = get_active_key()
+    if not key:
+        return "Извини, сейчас недоступна."
+
+    try:
+        full_system = _build_guest_system(role, user_name, user_id)
+        contents    = _build_guest_contents(user_id, user_message)
+
+        response = await generate(contents, system=full_system, model=MAIN_MODEL)
+        reply    = clean_reply(response)
+        mark_key_used(key)
+
+        if not reply:
+            reply = "Не смогла ответить. Попробуй ещё раз."
+
+        add_guest_message(user_id, "user",  user_message, name=user_name)
+        add_guest_message(user_id, "model", reply)
+
+        return reply
+
+    except asyncio.TimeoutError:
+        return "Не отвечаю. Попробуй позже."
+    except Exception as e:
+        log.error(f"ask_gemini_as_guest error: {e}")
+        return "Что-то пошло не так."

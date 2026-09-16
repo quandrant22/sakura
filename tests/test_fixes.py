@@ -8,6 +8,7 @@ No network, temp files only.
 import os
 import sys
 import json
+import sys
 import time
 import asyncio
 import tempfile
@@ -60,44 +61,45 @@ class TestBlock1_GameContext(unittest.TestCase):
 
     def test_ask_gemini_includes_game_context(self):
         import main
+        import modules.steam_integration as _si
         hit = {"appid": 111, "name": "Palworld", "playtime_forever": 300}
-        gen_mock = AsyncMock(return_value=MagicMock(text="ок"))
+        gen_mock = AsyncMock(return_value="ок")
 
-        with patch("main.search_game", return_value=hit), \
-             patch("modules.steam_integration._current_game",
-                   {"appid": 222, "name": "Другая игра"}), \
+        with patch.object(_si, "search_game", return_value=hit), \
+             patch.object(_si, "_current_game",
+                          {"appid": 222, "name": "Другая игра"}), \
              patch("main.get_active_key", return_value="fake-key"), \
-             patch("main._gemini_generate", gen_mock), \
-             patch("main.maybe_fetch_web", new=AsyncMock(return_value=None)), \
-             patch("main.maybe_read_url", new=AsyncMock(return_value=None)), \
-             patch("main._build_system", return_value="SYS"):
+             patch("sakura_core.llm.generate", gen_mock), \
+             patch("sakura_core.llm.maybe_fetch_web", new=AsyncMock(return_value=None)), \
+             patch("sakura_core.llm.maybe_read_url", new=AsyncMock(return_value=None)), \
+             patch("sakura_core.llm._build_system", return_value="SYS"):
             reply = _run(main.ask_gemini("как дела в Palworld?", save_history=False))
 
         self.assertTrue(reply)
-        # full_system передаётся вторым позиционным аргументом _gemini_generate
         args, kwargs = gen_mock.call_args
-        full_system = args[3] if len(args) >= 4 else kwargs.get("full_system")
+        full_system = kwargs.get("system", args[1] if len(args) >= 2 else "")
         self.assertIn("ИГРА ИЗ БИБЛИОТЕКИ МАСТЕРА", full_system)
         self.assertIn("Palworld", full_system)
 
     def test_ask_gemini_skips_current_game(self):
         """Если спрошенная игра уже запущена — контекст библиотеки не добавляется."""
         import main
+        import modules.steam_integration as _si
         hit = {"appid": 111, "name": "Palworld", "playtime_forever": 300}
-        gen_mock = AsyncMock(return_value=MagicMock(text="ок"))
+        gen_mock = AsyncMock(return_value="ок")
 
-        with patch("main.search_game", return_value=hit), \
-             patch("modules.steam_integration._current_game",
-                   {"appid": 111, "name": "Palworld"}), \
+        with patch.object(_si, "search_game", return_value=hit), \
+             patch.object(_si, "_current_game",
+                          {"appid": 111, "name": "Palworld"}), \
              patch("main.get_active_key", return_value="fake-key"), \
-             patch("main._gemini_generate", gen_mock), \
-             patch("main.maybe_fetch_web", new=AsyncMock(return_value=None)), \
-             patch("main.maybe_read_url", new=AsyncMock(return_value=None)), \
-             patch("main._build_system", return_value="SYS"):
+             patch("sakura_core.llm.generate", gen_mock), \
+             patch("sakura_core.llm.maybe_fetch_web", new=AsyncMock(return_value=None)), \
+             patch("sakura_core.llm.maybe_read_url", new=AsyncMock(return_value=None)), \
+             patch("sakura_core.llm._build_system", return_value="SYS"):
             _run(main.ask_gemini("как дела в Palworld?", save_history=False))
 
         args, kwargs = gen_mock.call_args
-        full_system = args[3] if len(args) >= 4 else kwargs.get("full_system")
+        full_system = kwargs.get("system", args[1] if len(args) >= 2 else "")
         self.assertNotIn("ИГРА ИЗ БИБЛИОТЕКИ МАСТЕРА", full_system)
 
 
