@@ -24,10 +24,17 @@ def _make_kettle_command(action_prefix: str):
 
     Например, action_prefix='kettle:heat', param='60' → action='kettle:heat:60'.
     Это совместимо со старым форматом, который ожидает command_router.py агента.
+
+    Если param отсутствует — выбрасывает ошибку, а не отправляет голую команду.
     """
     def handler(ctx):
-        temp = ctx.param or ""
-        return AgentCommand(f"{action_prefix}:{temp}" if temp else action_prefix)
+        temp = ctx.param
+        if not temp:
+            raise ValueError(
+                f"kettle: команда '{action_prefix}' требует параметр температуры, "
+                f"но он не был извлечён из текста пользователя"
+            )
+        return AgentCommand(f"{action_prefix}:{temp}")
     return handler
 
 

@@ -39,6 +39,7 @@ class Param:
 
     pattern - regex с одной группой захвата.
     Извлекает значение из полного текста фразы пользователя.
+    Поддерживает словесные числа (пятьдесят → 50) для.temperature.
     """
 
     name: str
@@ -49,12 +50,34 @@ class Param:
         """Извлечь значение параметра из текста. None если не найдено."""
         m = re.search(self.pattern, text, re.IGNORECASE)
         if not m:
+            # Попытка: словесные числа после «до»/«на»
+            m = re.search(r"(?:до|на)\s+([а-яё]+)", text.lower())
+            if m:
+                word = m.group(1)
+                digit = _WORD_DIGITS.get(word)
+                if digit:
+                    return digit
             return None
         # Используем первую непустую группу захвата
         for g in m.groups():
             if g is not None:
+                # Проверяем, не словесное ли число
+                digit = _WORD_DIGITS.get(g.lower())
+                if digit:
+                    return digit
                 return g
         return None
+
+
+# Словесные числа → digits (именительный + родительный падежи)
+_WORD_DIGITS: dict[str, str] = {
+    "сорок": "40", "сорока": "40",
+    "пятьдесят": "50", "пятидесяти": "50",
+    "шестьдесят": "60", "шестидесяти": "60",
+    "семьдесят": "70", "семидесяти": "70",
+    "восемьдесят": "80", "восьмидесяти": "80",
+    "девяносто": "90", "девяноста": "90",
+}
 
 
 @dataclass(frozen=True)
@@ -203,8 +226,10 @@ class TriggerIndex:
         'window:browser') или None. Декларации с context участвуют только
         при совпадении контекста; без context — при любом.
 
+        Если у декларации param.required=True, но значение не извлечено,
+        декларация пропускается (следующая по длине).
+
         Возвращает (триггер, декларация, param_value) либо None.
-        param_value — значение параметра, извлечённое из текста (или None).
         """
         if not text:
             return None
@@ -216,6 +241,8 @@ class TriggerIndex:
                 param_value = None
                 if declaration.param is not None:
                     param_value = declaration.param.extract(text)
+                    if declaration.param.required and param_value is None:
+                        continue  # required param не найден — пропускаем
                 return trigger, declaration, param_value
         return None
 
