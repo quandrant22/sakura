@@ -518,44 +518,10 @@ def parse_browser_command(text: str) -> dict | None:
     if not any(w in tl for w in browser_words) and not _fz(tl, ("вкладку", "вкладка", "браузер", "дублируй")):
         return None
 
-    # Новая вкладка
-    if any(w in tl for w in ("новая вкладка", "открой вкладку", "новую вкладку")) or \
-       _fz1(tl, "новая вкладка") or _fz1(tl, "новую вкладку"):
-        return {"action": "browser:tab_new"}
-
-    # Закрыть вкладку
-    if any(w in tl for w in ("закрой вкладку", "закрой таб", "закрой страницу")) or \
-       _fz1(tl, "закрой вкладку"):
-        return {"action": "browser:tab_close"}
-
-    # Дублировать
-    if any(w in tl for w in ("дублируй", "дублировать вкладку", "скопируй вкладку")) or \
-       _fz(tl, ("дублируй", "дублировать", "скопируй")):
-        return {"action": "browser:tab_dup"}
-
-    # Переключение вкладок
-    if any(w in tl for w in ("следующая вкладка", "следующий таб", "таб вперёд")) or \
-       _fz1(tl, "следующая вкладка"):
-        return {"action": "browser:tab_next"}
-    if any(w in tl for w in ("предыдущая вкладка", "предыдущий таб", "таб назад")) or \
-       _fz1(tl, "предыдущая вкладка"):
-        return {"action": "browser:tab_prev"}
-
-    # Назад/вперёд
-    if any(w in tl for w in ("назад в браузере", "вернись назад", "страница назад")):
-        return {"action": "browser:back"}
-    if any(w in tl for w in ("вперёд в браузере", "страница вперёд")):
-        return {"action": "browser:forward"}
-
-    # Обновить
-    if any(w in tl for w in ("обнови страницу", "перезагрузи страницу", "обновить страницу")):
-        return {"action": "browser:reload"}
-
-    # Прокрутка
-    if any(w in tl for w in ("прокрути вниз", "листай вниз", "вниз по странице")):
-        return {"action": "browser:scroll_down"}
-    if any(w in tl for w in ("прокрути вверх", "листай вверх", "вверх по странице")):
-        return {"action": "browser:scroll_up"}
+    # Управление вкладками и прокруткой переехало в реестр (этап 5, 2/2):
+    # browser.tab_* / browser.scroll_* / browser.back / forward / tab_reload
+    # разбираются v3-быстрым путём до этой ветки. Остались URL и поиск —
+    # их в реестре нет (кандидаты: browser.url / browser.search).
 
     # Открыть URL
     import re as _re
@@ -573,30 +539,8 @@ def parse_browser_command(text: str) -> dict | None:
     return None
 
 
-def parse_game_mode_command(text: str) -> dict | None:
-    tl = text.lower().strip()
-
-    # Разговорный контекст — не триггерим команду
-    _conversation_markers = (
-        "про ", "по поводу", "про то", "насчёт", "на счет",
-        "надо", "нужен", "нужно", "нужна", "дополнить", "изменить",
-        "улучшить", "убрать", "добавить", "что думаешь", "как насчёт",
-        "стоит ли", "может быть", "может он", "а может",
-    )
-    if any(m in tl for m in _conversation_markers):
-        return None
-
-    # Вопрос — не триггерим команду
-    if tl.endswith("?") and not any(w in tl for w in ("включи", "выключи", "открой")):
-        return None
-
-    if any(w in tl for w in ("включи игровой", "игровой режим вкл", "включи режим игры",
-                               "войди в игровой", "активируй игровой")):
-        return {"action": "game_mode:on"}
-    if any(w in tl for w in ("выключи игровой", "игровой режим выкл", "выключи режим игры",
-                               "выйди из игрового", "деактивируй игровой", "обычный режим")):
-        return {"action": "game_mode:off"}
-    return None
+# parse_game_mode_command удалён (этап 5, 2/2): game_mode.on/off переехали
+# в реестр, ветку разбирает v3-быстрый путь.
 
 
 def parse_system_command(text: str) -> dict | None:
@@ -3241,11 +3185,8 @@ async def handle_message(message: Message):
         await message.answer(reply)
         return
 
-    if _fz(text_lower, ("скрин", "скриншот", "снимок экрана")):
-        text = re.sub(
-            r"(?i)(?<!\w)(сделай\s+скрин(?:шот)?|снимок\s+экрана|скрин(?:шот)?)(?!\w)",
-            "скриншот", text)
-        text_lower = text.lower()
+    # Скриншот уходит через реестр (screenshot.run, триггер «скрин» и др.)
+    # — нормализация текста не нужна (этап 5, 2/2).
 
     tl_check = text.lower()
 
@@ -3466,18 +3407,10 @@ async def handle_message(message: Message):
             await message.answer("Нет подключённых устройств.")
         return
 
-    game_mode_cmd = parse_game_mode_command(text)
-    if game_mode_cmd:
-        laptop_ws, _active_dev = _get_active_ws()
-        if laptop_ws:
-            await laptop_ws.send(json.dumps({"type": "command", "action": game_mode_cmd["action"]}))
-            reply = await ask_gemini(
-                f"Мастер попросил: {text}. Выполняю. Скажи коротко.",
-                save_history=False)
-            await message.answer(reply)
-        else:
-            await message.answer("Нет подключённых устройств.")
-        return
+    # Игровой режим переехал в реестр (game_mode.on/off, этап 5 2/2) —
+    # ветка parse_game_mode_command снята. Замечание: разговорная защита
+    # этой ветки («что думаешь про игровой режим») в реестре не повторена —
+    # fuzzy-матчинг по границам слов может сработать на упоминании в разговоре.
 
     device_cmd = parse_device_command(text)
     if device_cmd:

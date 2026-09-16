@@ -64,7 +64,6 @@ from modules.disposition import current as _disp_current
 from modules.app_launcher import record_launch
 from modules.device_manager import update_device
 from memory.db import get_memory_context as db_get_memory_context
-from modules.weather import get_weather
 
 log = logging.getLogger(__name__)
 
@@ -1007,18 +1006,15 @@ async def handle_voice_command(websocket, data, ctx) -> None:
         ("tg" in _intent.intent.lower() or "telegram" in _intent.intent.lower()
          or "send" in _intent.intent.lower())
     )
-    _is_weather = (
-        _intent.type in ("command", "request") and
-        _intent.confidence >= 0.7 and
-        "weather" in _intent.intent.lower()
-    )
+    # Погода переехала в реестр (weather.now, этап 5 2/2) — интент-ветка снята.
+
     _is_web_search = (
         _intent.type in ("command", "request") and
         _intent.confidence >= 0.7 and
         any(k in _intent.intent.lower() for k in ("search", "find", "recipe", "info", "news"))
     )
 
-    if _is_send_tg or _is_weather or _is_web_search:
+    if _is_send_tg or _is_web_search:
         log.info(f"[intent] {_intent.intent} → TG/web search")
         # Извлекаем что именно отправлять
         _tg_payload = _strip_payload_words(text_lower)
@@ -1030,57 +1026,20 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                 await stream_tts_to_device(phrase, ws_dev, device_id or "laptop", literal=True)
 
         try:
-            # Погода
-            if any(w in text_lower for w in ("погод", "weather", "прогноз", "завтра", "сегодня")):
-                weather = await get_weather()
-                if weather:
-                    _wmo_desc = {
-                        "clear": "ясно", "cloudy": "облачно",
-                        "rain": "дождь", "storm": "гроза",
-                        "snow": "снег", "fog": "туман",
-                    }
-                    daily = weather.get("daily", [])
-                    tmrw = daily[1] if len(daily) >= 2 else None
-                    weather_text = (
-                        f"Сейчас: {weather['temp']}°C, {_wmo_desc.get(weather['category'], weather['desc'])}, "
-                        f"ветер {weather['wind']} м/с."
-                    )
-                    if tmrw:
-                        weather_text += (
-                            f"\nЗавтра: от {tmrw['t_min']} до {tmrw['t_max']}°C, "
-                            f"{_wmo_desc.get(tmrw['weather'], tmrw['weather'])}"
-                        )
-                        pop = tmrw.get("pop", 0)
-                        if pop and pop > 10:
-                            weather_text += f", осадки {pop}%"
-
-                    style_prompt = (
-                        f"Данные о погоде в Москве:\n{weather_text}\n\n"
-                        "Скажи это Мастеру СВОИМ голосом — коротко, тепло, как обычно. "
-                        "Не начинай с 'Привет', просто сообщи погоду. 1-2 предложения."
-                    )
-                    styled = await ask_gemini(style_prompt, save_history=False)
-                    if styled:
-                        await send_safe(MASTER_ID, styled)
-                    else:
-                        await send_safe(MASTER_ID, f"🌤 Погода в Москве:\n{weather_text}")
-                    await _say_tg("Отправила погоду, Мастер.")
-                else:
-                    await _say_tg("Не смогла получить погоду, Мастер.")
+            # Погода переехала в реестр (weather.now, этап 5 2/2) — ветка снята.
+            # Любой другой запрос → РЕАЛЬНЫЙ поиск в интернете → ТГ
+            search_res = await search_and_fetch(_tg_payload)
+            if search_res:
+                await send_safe(MASTER_ID, search_res)
+                await _say_tg("Нашла в интернете и отправила, Мастер.")
             else:
-                # Любой другой запрос → РЕАЛЬНЫЙ поиск в интернете → ТГ
-                search_res = await search_and_fetch(_tg_payload)
-                if search_res:
-                    await send_safe(MASTER_ID, search_res)
-                    await _say_tg("Нашла в интернете и отправила, Мастер.")
+                # Если поиск ничего не дал — через Gemini как fallback
+                answer = await ask_gemini(_tg_payload, save_history=False)
+                if answer:
+                    await send_safe(MASTER_ID, answer)
+                    await _say_tg("Отправила в телеграм, Мастер.")
                 else:
-                    # Если поиск ничего не дал — через Gemini как fallback
-                    answer = await ask_gemini(_tg_payload, save_history=False)
-                    if answer:
-                        await send_safe(MASTER_ID, answer)
-                        await _say_tg("Отправила в телеграм, Мастер.")
-                    else:
-                        await _say_tg("Не нашла ничего, Мастер.")
+                    await _say_tg("Не нашла ничего, Мастер.")
         except Exception as e:
             log.error(f"[intent] TG send error: {e}")
             await _say_tg("Не получилось отправить, Мастер.")
@@ -1243,26 +1202,8 @@ async def handle_voice_command(websocket, data, ctx) -> None:
             await stream_tts_to_device(_trig_list, ws_dev, device_id or "laptop", literal=True)
         return
 
-    # ── ЧТЕНИЕ АКТИВНОЙ СТРАНИЦЫ БРАУЗЕРА ───────────────
-    _page_triggers = (
-        'что на этой странице', 'прочитай страницу', 'что здесь написано',
-        'что на странице', 'читай страницу', 'расскажи что на странице',
-        'что открыто в браузере', 'что там написано', 'что на сайте',
-        'прочитай сайт', 'что за сайт', 'что за страница',
-        'о чём эта страница', 'о чём сайт',
-    )
-    if any(w in text.lower() for w in _page_triggers):
-        _active_ws2, _ad2 = _get_active_ws()
-        if _active_ws2:
-            # Если спрашивают про видео/YouTube — читаем YouTube вкладку
-            _yt_ctx = any(w in text.lower() for w in
-                ('видео', 'ютуб', 'youtube', 'ролик', 'канал'))
-            _ext_action = 'ext:page_content_youtube' if _yt_ctx else 'ext:page_content'
-            await _active_ws2.send(json.dumps({'type': 'command', 'action': _ext_action}))
-            _pr = await ask_gemini('Скажи что сейчас читаешь страницу. Одно предложение.', save_history=False)
-            if _pr:
-                await stream_tts_to_device(_pr, _active_ws2, _ad2 or 'laptop', literal=True)
-        return
+    # Чтение активной страницы переехало в реестр (ext.page_content /
+    # ext.page_content_youtube, этап 5 2/2) — ветка снята.
     if _vip and any(v in text_lower for v in
                     ("напиши", "напишите", "передай", "сообщи", "скажи")):
         vip_id, vip_name = _vip
