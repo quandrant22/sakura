@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 from config import MAIN_MODEL
+from sakura_core.llm import generate as _llm_generate
 
 log = logging.getLogger("sakura.planner")
 
@@ -112,11 +113,6 @@ async def build_plan(text: str, context: dict, source: str = "voice",
         log.info(f"[planner] источник не Master: source={source}, sender={sender_id}")
         return None
 
-    from config import get_active_key, mark_key_used
-    key = get_active_key()
-    if not key:
-        return None
-
     active_window = context.get("active_window", "")
     apps = context.get("known_apps", [])
     apps_str = ", ".join(apps[:50]) if apps else "нет данных"
@@ -130,20 +126,14 @@ async def build_plan(text: str, context: dict, source: str = "voice",
     ) + f'\n\nЗадача: "{text}"'
 
     try:
-        from google import genai
-        from google.genai import types
-        client = genai.Client(api_key=key)
-        response = await asyncio.to_thread(
-            client.models.generate_content,
+        raw = await _llm_generate(
+            prompt,
             model=MAIN_MODEL,
-            contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
-            config=types.GenerateContentConfig(
-                temperature=0.0,
-                max_output_tokens=400,
-            )
+            temperature=0.0,
+            max_tokens=400,
+            safety=False,
+            thinking=False,
         )
-        mark_key_used(key)
-        raw = (response.text or "").strip()
         raw = raw.replace("```json", "").replace("```", "").strip()
         plan = json.loads(raw)
     except json.JSONDecodeError:

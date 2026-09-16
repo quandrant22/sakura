@@ -22,6 +22,7 @@ import time
 from datetime import datetime, date
 from typing import Optional
 from config import MAIN_MODEL
+from sakura_core.llm import generate as _llm_generate
 
 log = logging.getLogger("sakura.emotional_memory")
 
@@ -241,14 +242,7 @@ def mark_thought_sent():
 
 async def generate_spontaneous_thought() -> str:
     """Генерирует спонтанную мысль вслух на основе памяти о Мастере."""
-    from config import get_active_key, mark_key_used
-    from google import genai
-    from google.genai import types
     from memory.db import get_memory_context
-
-    key = get_active_key()
-    if not key:
-        return ""
 
     mem_ctx = get_memory_context()
 
@@ -262,14 +256,8 @@ async def generate_spontaneous_thought() -> str:
     )
 
     try:
-        client = genai.Client(api_key=key)
-        r = await __import__('asyncio').to_thread(
-            client.models.generate_content,
-            model=MAIN_MODEL,
-            contents=[types.Content(role="user", parts=[types.Part(text=prompt)])]
-        )
-        mark_key_used(key)
-        return (r.text or "").strip()
+        r = await _llm_generate(prompt, model=MAIN_MODEL, safety=False, thinking=False)
+        return r
     except Exception as e:
         log.error(f"[thought] {e}")
         return ""

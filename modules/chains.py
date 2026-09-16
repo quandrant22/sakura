@@ -22,6 +22,7 @@ import os
 import re
 from typing import Optional
 from config import MAIN_MODEL
+from sakura_core.llm import generate as _llm_generate
 
 from modules.jsonio import save_json
 
@@ -231,14 +232,6 @@ async def parse_chain_from_llm(text: str, ask_gemini_fn) -> Optional[dict]:
         return None
 
     try:
-        from config import get_active_key, mark_key_used
-        from google import genai
-        from google.genai import types
-
-        key = get_active_key()
-        if not key:
-            return None
-
         prompt = (
             f"Команда Мастера: «{text}»\n\n"
             "Если это несколько последовательных действий с устройством — "
@@ -249,15 +242,9 @@ async def parse_chain_from_llm(text: str, ask_gemini_fn) -> Optional[dict]:
             "Если это НЕ последовательность действий — верни {\"steps\": []}"
         )
 
-        client = genai.Client(api_key=key)
-        r = await __import__("asyncio").to_thread(
-            client.models.generate_content,
-            model    = MAIN_MODEL,
-            contents = [types.Content(role="user", parts=[types.Part(text=prompt)])]
-        )
-        raw = (r.text or "").strip().replace("```json", "").replace("```", "").strip()
+        raw = await _llm_generate(prompt, model=MAIN_MODEL, safety=False, thinking=False)
+        raw = raw.replace("```json", "").replace("```", "").strip()
         data = json.loads(raw)
-        mark_key_used(key)
 
         steps = data.get("steps", [])
         if not steps:

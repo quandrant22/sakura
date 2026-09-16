@@ -86,6 +86,7 @@ from modules.memory_honesty import enrich_memory_context
 from modules.evening_pulse import should_send_pulse, mark_pulse_sent, get_pulse_prompt, check_pc_health
 from modules.vps_monitor import start_monitor
 from modules.threads import extract_threads
+from sakura_core.llm import generate as _llm_generate
 from modules.relationship import (check_milestone, increase_closeness, get_closeness_hint,
     track_topic, extract_topics_from_text,
     should_write_journal, get_growth_journal_prompt, mark_journal_written)
@@ -875,17 +876,13 @@ async def analyze_apps(apps: dict, device_id: str):
             'Верни JSON: {"разговорное": "имя из списка"}\n'
             "Только очевидные совпадения. Максимум 60 записей."
         )
-        r = await asyncio.to_thread(
-            client.models.generate_content,
+        r = await _llm_generate(
+            [types.Content(role="user", parts=[types.Part(text=prompt)])],
             model=MAIN_MODEL,
-            contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
-            config=types.GenerateContentConfig(
-                thinking_config    = _thinking(MAIN_MODEL),
-                response_mime_type = "application/json",
-                max_output_tokens  = 2000,
-            ),
+            max_tokens=2000,
+            response_mime_type="application/json",
         )
-        raw           = (r.text or "").strip().replace("```json", "").replace("```", "").strip()
+        raw           = r.replace("```json", "").replace("```", "").strip()
         mapping_names = json.loads(raw)
         mark_key_used(key)
 
@@ -933,16 +930,15 @@ async def _analyze_screen_context(screenshot_b64: str, active_window: str, devic
             "Только факты, без советов."
         )
 
-        r = await asyncio.to_thread(
-            client.models.generate_content,
-            model=MAIN_MODEL,
-            contents=[types.Content(parts=[
+        r = await _llm_generate(
+            [types.Content(parts=[
                 types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=img_bytes)),
                 types.Part(text=prompt),
             ])],
-            config=types.GenerateContentConfig(max_output_tokens=100)
+            model=MAIN_MODEL,
+            max_tokens=100,
         )
-        description = (r.text or "").strip()
+        description = r
         mark_key_used(key)
 
         if description:
@@ -1092,11 +1088,11 @@ async def extract_and_remember(user_message: str, reply: str):
             "relations — связи между ними.\n"
             "Если ничего нового — все массивы пустые. Максимум 2 пункта на массив."
         )
-        r = await asyncio.to_thread(
-            client.models.generate_content, model=MAIN_MODEL,
-            contents=[types.Content(role="user", parts=[types.Part(text=prompt)])]
+        r = await _llm_generate(
+            [types.Content(role="user", parts=[types.Part(text=prompt)])],
+            model=MAIN_MODEL,
         )
-        raw       = (r.text or "").strip().replace("```json", "").replace("```", "").strip()
+        raw       = r.replace("```json", "").replace("```", "").strip()
         extracted = json.loads(raw)
 
         # Граф связей — вынимаем до цикла категорий, чтобы не попали в add_to_category
@@ -1187,13 +1183,13 @@ async def summarize_session():
             for m in history[-40:]
         ])
         client = _gemini_client(key)
-        r      = await asyncio.to_thread(
-            client.models.generate_content, model=MAIN_MODEL,
-            contents=[types.Content(role="user", parts=[types.Part(
+        r      = await _llm_generate(
+            [types.Content(role="user", parts=[types.Part(
                 text=f"Сделай краткое резюме диалога (макс 300 слов):\n{hist_text}"
-            )])]
+            )])],
+            model=MAIN_MODEL,
         )
-        save_session_summary((r.text or "").strip())
+        save_session_summary(r)
         mark_key_used(key)
         log.info("Резюме сессии обновлено")
     except Exception as e:
@@ -1219,14 +1215,14 @@ async def daily_analysis():
         try:
             hist_text = "\n".join([f"{m['role']}: {m['parts'][0]}" for m in history[-40:]])
             client    = _gemini_client(key)
-            r         = await asyncio.to_thread(
-                client.models.generate_content, model=MAIN_MODEL,
-                contents=[types.Content(role="user", parts=[types.Part(
+            r         = await _llm_generate(
+                [types.Content(role="user", parts=[types.Part(
                     text=f"Выводы о паттернах поведения Мастера:\n{hist_text}\n"
                          'Верни JSON: {"patterns":[],"preferences":[]}'
-                )])]
+                )])],
+                model=MAIN_MODEL,
             )
-            raw = (r.text or "").strip().replace("```json", "").replace("```", "").strip()
+            raw = r.replace("```json", "").replace("```", "").strip()
             for cat, items in json.loads(raw).items():
                 for item in items:
                     if item and isinstance(item, str):
@@ -2992,16 +2988,14 @@ async def handle_voice(message: Message):
             audio_b64 = base64.b64encode(f.read()).decode()
         os.unlink(temp_wav)
 
-        r = await asyncio.to_thread(
-            client.models.generate_content,
-            model    = MAIN_MODEL,
-            contents = [types.Content(parts=[
+        r = await _llm_generate(
+            [types.Content(parts=[
                 types.Part(inline_data=types.Blob(mime_type="audio/wav", data=audio_b64)),
                 types.Part(text="Распознай речь, верни только текст."),
             ])],
-            config = types.GenerateContentConfig(safety_settings=NO_SAFETY)
+            model=MAIN_MODEL,
         )
-        recognized = (r.text or "").strip()
+        recognized = r
         mark_key_used(key)
 
         if not recognized:
@@ -3034,23 +3028,18 @@ async def handle_photo(message: Message):
 
         caption   = message.caption or "Опиши что на фото — коротко, в своём стиле."
         reply_ctx = _get_reply_context(message)
-        r = await asyncio.to_thread(
-            client.models.generate_content,
-            model    = MAIN_MODEL,
-            contents = [types.Content(parts=[
+        r = await _llm_generate(
+            [types.Content(parts=[
                 types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=img_b64)),
                 types.Part(text=caption + reply_ctx),
             ])],
-            config = types.GenerateContentConfig(
-                system_instruction = get_system_prompt(),
-                max_output_tokens  = 600,
-                temperature        = 0.85,
-                safety_settings    = NO_SAFETY,
-                thinking_config    = _thinking(MAIN_MODEL),
-            )
+            system=get_system_prompt(),
+            model=MAIN_MODEL,
+            max_tokens=600,
+            temperature=0.85,
         )
         mark_key_used(key)
-        reply = clean_reply((r.text or "").strip())
+        reply = clean_reply(r)
         add_to_history("user",  f"[Фото] {caption}")
         add_to_history("model", reply)
         await send_as_conversation(message.chat.id, reply)
@@ -3092,25 +3081,21 @@ async def handle_video(message: Message):
         caption   = message.caption or "Посмотри это видео и расскажи что происходит — коротко, в своём стиле."
         reply_ctx = _get_reply_context(message)
 
-        r = await asyncio.to_thread(
-            client.models.generate_content,
-            model    = MAIN_MODEL,
-            contents = [types.Content(parts=[
+        r = await _llm_generate(
+            [types.Content(parts=[
                 types.Part(inline_data=types.Blob(
                     mime_type="video/mp4",
                     data=video_b64
                 )),
                 types.Part(text=caption + reply_ctx),
             ])],
-            config = types.GenerateContentConfig(
-                system_instruction = get_system_prompt(),
-                max_output_tokens  = 800,
-                temperature        = 0.85,
-                safety_settings    = NO_SAFETY,
-            )
+            system=get_system_prompt(),
+            model=MAIN_MODEL,
+            max_tokens=800,
+            temperature=0.85,
         )
         mark_key_used(key)
-        reply = clean_reply((r.text or "").strip())
+        reply = clean_reply(r)
         add_to_history("user",  f"[Видео] {caption}")
         add_to_history("model", reply)
         await send_as_conversation(message.chat.id, reply)
@@ -3143,25 +3128,21 @@ async def handle_video_note(message: Message):
             video_b64 = base64.b64encode(f.read()).decode()
         os.unlink(tmp_path)
 
-        r = await asyncio.to_thread(
-            client.models.generate_content,
-            model    = MAIN_MODEL,
-            contents = [types.Content(parts=[
+        r = await _llm_generate(
+            [types.Content(parts=[
                 types.Part(inline_data=types.Blob(
                     mime_type="video/mp4",
                     data=video_b64
                 )),
                 types.Part(text="Это видео-кружочек от Мастера. Отреагируй на него в своём стиле."),
             ])],
-            config = types.GenerateContentConfig(
-                system_instruction = get_system_prompt(),
-                max_output_tokens  = 400,
-                temperature        = 0.9,
-                safety_settings    = NO_SAFETY,
-            )
+            system=get_system_prompt(),
+            model=MAIN_MODEL,
+            max_tokens=400,
+            temperature=0.9,
         )
         mark_key_used(key)
-        reply = clean_reply((r.text or "").strip())
+        reply = clean_reply(r)
         add_to_history("user",  "[Видео-кружочек]")
         add_to_history("model", reply)
         await send_as_conversation(message.chat.id, reply)

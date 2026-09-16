@@ -14,6 +14,7 @@ import re
 
 from config import get_active_key, mark_key_used, mark_key_rate_limited, MAIN_MODEL
 from modules.fuzzy import has_trigger
+from sakura_core.llm import generate as _llm_generate
 
 log = logging.getLogger("sakura.router")
 
@@ -515,10 +516,6 @@ async def route_command(text: str, context: dict | None = None) -> dict | None:
     context: {"active_window": str, "current_track": dict, "youtube_open": bool}
     Возвращает dict {"action": ..., "arg": ..., "agent": ...} или None.
     """
-    # get_active_key/mark_key_used/mark_key_rate_limited импортированы на уровне модуля
-    from google import genai
-    from google.genai import types
-
     text = _preprocess(text)
 
     # Уровень 1 — пользовательский словарь (самый приоритетный)
@@ -569,22 +566,15 @@ async def route_command(text: str, context: dict | None = None) -> dict | None:
         if not key:
             return None
         try:
-            client = genai.Client(api_key=key)
-            response = await asyncio.to_thread(
-                client.models.generate_content,
+            raw = await _llm_generate(
+                prompt,
+                system=INTENTS_PROMPT,
                 model=MAIN_MODEL,
-                contents=[types.Content(
-                    role="user",
-                    parts=[types.Part(text=prompt)]
-                )],
-                config=types.GenerateContentConfig(
-                    system_instruction=INTENTS_PROMPT,
-                    temperature=0.0,
-                    max_output_tokens=160,
-                )
+                temperature=0.0,
+                max_tokens=160,
+                safety=False,
+                thinking=False,
             )
-            mark_key_used(key)
-            raw = (response.text or "").strip()
             raw = re.sub(r"```json|```", "", raw).strip()
             result = json.loads(raw)
             if not result.get("action"):

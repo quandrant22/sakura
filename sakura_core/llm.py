@@ -83,7 +83,8 @@ async def generate(contents, *, system: str = "", model: Optional[str] = None,
                    max_tokens: int = 512, temperature: float = 0.85,
                    timeout: float = DEFAULT_TIMEOUT_S,
                    api_key: Optional[str] = None,
-                   safety: bool = True, thinking: bool = True) -> str:
+                   safety: bool = True, thinking: bool = True,
+                   response_mime_type: Optional[str] = None) -> str:
     """generate_content с таймаутом, фолбэком моделей, NO_SAFETY и thinking.
     '' при полном провале."""
     from google.genai import types as _t
@@ -104,6 +105,8 @@ async def generate(contents, *, system: str = "", model: Optional[str] = None,
                 tc = _thinking(m)
                 if tc is not None:
                     cfg_kwargs["thinking_config"] = tc
+            if response_mime_type:
+                cfg_kwargs["response_mime_type"] = response_mime_type
             r = await asyncio.wait_for(asyncio.to_thread(
                 lambda m=m, cfg=cfg_kwargs: client.models.generate_content(
                     model=m,

@@ -16,8 +16,9 @@ import re
 from typing import Optional
 from dataclasses import dataclass
 
-from config import get_active_key, mark_key_used, MAIN_MODEL
+from config import get_active_key, MAIN_MODEL
 from modules.fuzzy import phrase_has_any as _fz
+from sakura_core.llm import generate as _llm_generate
 
 log = logging.getLogger("sakura.intent")
 
@@ -170,28 +171,17 @@ async def classify_intent(text: str) -> IntentResult:
         return IntentResult(type="conversation", intent="no_key", confidence=0.5)
 
     try:
-        from google import genai
-        from google.genai import types
-
-        client = genai.Client(api_key=key)
         prompt = f'Пользователь сказал: "{text}"\n\nТип:'
 
-        response = await asyncio.to_thread(
-            client.models.generate_content,
+        raw = await _llm_generate(
+            prompt,
+            system=INTENT_PROMPT,
             model=MAIN_MODEL,
-            contents=[types.Content(
-                role="user",
-                parts=[types.Part(text=prompt)]
-            )],
-            config=types.GenerateContentConfig(
-                system_instruction=INTENT_PROMPT,
-                temperature=0.0,
-                max_output_tokens=100,
-            )
+            temperature=0.0,
+            max_tokens=100,
+            safety=False,
+            thinking=False,
         )
-        mark_key_used(key)
-
-        raw = (response.text or "").strip()
         raw = re.sub(r"```json|```", "", raw).strip()
         result = json.loads(raw)
 

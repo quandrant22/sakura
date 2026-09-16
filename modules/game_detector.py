@@ -23,6 +23,7 @@ import logging
 import time
 from typing import Optional
 from config import MAIN_MODEL
+from sakura_core.llm import generate as _llm_generate
 
 log = logging.getLogger("sakura.game_detector")
 
@@ -95,17 +96,9 @@ async def detect_game_from_screenshot(
     if cached and cached.get("window") == active_window:
         return cached
 
-    from config import get_active_key, mark_key_used
-    from google import genai
-    from google.genai import types
-
-    key = get_active_key()
-    if not key:
-        return _unknown(active_window, device_id)
-
     try:
         img_bytes = base64.b64decode(screenshot_b64)
-        client    = genai.Client(api_key=key)
+        from google.genai import types
         prompt    = (
             "Посмотри на скриншот и определи:\n"
             "1. Это игра или нет?\n"
@@ -117,17 +110,16 @@ async def detect_game_from_screenshot(
             '{"is_game": true/false, "name": "название или null", '
             '"genre": "жанр", "atmosphere": "атмосфера"}'
         )
-        response = await asyncio.to_thread(
-            client.models.generate_content,
-            model=MAIN_MODEL,
-            contents=[types.Content(parts=[
+        raw = await _llm_generate(
+            [types.Content(parts=[
                 types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=img_bytes)),
                 types.Part(text=prompt),
-            ])]
+            ])],
+            model=MAIN_MODEL,
+            safety=False,
+            thinking=False,
         )
-        mark_key_used(key)
-
-        raw  = (response.text or "").strip().replace("```json", "").replace("```", "").strip()
+        raw = raw.replace("```json", "").replace("```", "").strip()
         data = json.loads(raw)
 
         result = {
@@ -202,20 +194,12 @@ async def detect_game_event(
     _event_state.setdefault(device_id, {})
     _event_state[device_id]["last_event_check"] = time.monotonic()
 
-    from config import get_active_key, mark_key_used
-    from google import genai
-    from google.genai import types
-
-    key = get_active_key()
-    if not key:
-        return None
-
     cached     = get_cached_game(device_id)
     game_name  = cached.get("game", "игра") if cached else "игра"
 
     try:
         img_bytes = base64.b64decode(screenshot_b64)
-        client    = genai.Client(api_key=key)
+        from google.genai import types
         prompt    = (
             f"Игра: {game_name}\n\n"
             "Посмотри на скриншот и определи, произошло ли ПРЯМО СЕЙЧАС значимое событие:\n"
@@ -229,17 +213,16 @@ async def detect_game_event(
             '{"event": "тип", "description": "одно предложение что происходит"}\n'
             'Если none — description пустая строка.'
         )
-        response = await asyncio.to_thread(
-            client.models.generate_content,
-            model=MAIN_MODEL,
-            contents=[types.Content(parts=[
+        raw = await _llm_generate(
+            [types.Content(parts=[
                 types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=img_bytes)),
                 types.Part(text=prompt),
-            ])]
+            ])],
+            model=MAIN_MODEL,
+            safety=False,
+            thinking=False,
         )
-        mark_key_used(key)
-
-        raw  = (response.text or "").strip().replace("```json", "").replace("```", "").strip()
+        raw = raw.replace("```json", "").replace("```", "").strip()
         data = json.loads(raw)
         event_type = data.get("event", "none")
 

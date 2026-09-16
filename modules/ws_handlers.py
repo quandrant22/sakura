@@ -17,6 +17,7 @@ import time as _time
 import modules.state as st
 from aiogram.types import BufferedInputFile
 from config import MASTER_ID, get_active_key, mark_key_used, MAIN_MODEL
+from sakura_core.llm import generate as _llm_generate
 from modules.command_router import route_command, route_critical, is_irreversible, EXEC_THRESHOLD, GRAY_THRESHOLD
 from modules.intent_classifier import classify_intent, is_command as _is_command_check
 from modules.chains import match_voice_trigger, list_voice_triggers, list_custom_chains
@@ -473,11 +474,8 @@ async def handle_command_result(websocket, data, ctx) -> None:
                 key = get_active_key()
                 if key:
                     from google.genai import types as _gt
-                    _vclient = _gemini_client(key)
-                    _vresp = await asyncio.to_thread(
-                        _vclient.models.generate_content,
-                        model=MAIN_MODEL,
-                        contents=[
+                    _vtext = await _llm_generate(
+                        [
                             _gt.Part(inline_data=_gt.Blob(
                                 mime_type="image/jpeg",
                                 data=img_bytes
@@ -488,8 +486,10 @@ async def handle_command_result(websocket, data, ctx) -> None:
                                 "в своём стиле. Не представляйся, просто опиши."
                             )),
                         ],
+                        model=MAIN_MODEL,
+                        safety=False,
+                        thinking=False,
                     )
-                    _vtext = (_vresp.text or "").strip()
                     mark_key_used(key)
                     if _vtext:
                         log.info(f"[vision] ответ: {_vtext!r}")

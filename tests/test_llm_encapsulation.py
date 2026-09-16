@@ -35,11 +35,7 @@ def _scan_generate_calls(root: str, exclude_dirs: tuple[str, ...] = ()) -> list[
 
 
 def test_generate_content_only_in_llm_module():
-    """generate_content / generate_content_stream — только в sakura_core/llm.py, tests/, docs/.
-
-    Известный долг: main.py и modules/ ещё содержат прямые вызовы.
-    Полная миграция — после извлечения адаптеров (commits 5-8).
-    """
+    """generate_content / generate_content_stream — только в sakura_core/llm.py, tests/, docs/."""
     root = str(pathlib.Path(__file__).resolve().parent.parent)
     calls = _scan_generate_calls(root, exclude_dirs=("venv", ".git", "__pycache__"))
     bad = [
@@ -48,8 +44,6 @@ def test_generate_content_only_in_llm_module():
         if "sakura_core/llm.py" not in fp
         and "tests/" not in fp
         and "docs/" not in fp
-        and "main.py" not in fp       # TODO: мигрировать после commits 5-8
-        and "modules/" not in fp      # TODO: мигрировать после commits 5-8
     ]
     assert not bad, (
         "generate_content found outside sakura_core/llm.py:\n"

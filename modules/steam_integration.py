@@ -19,6 +19,7 @@ import urllib.request
 import urllib.parse
 from typing import Optional
 from config import MAIN_MODEL
+from sakura_core.llm import generate as _llm_generate
 
 log = logging.getLogger("sakura.steam")
 
@@ -621,14 +622,6 @@ def format_current_game_context() -> str:
 # ── Гайды ─────────────────────────────────────────────────────────────
 
 async def find_guide(game_name: str, question: str = "") -> dict:
-    from config import get_active_key, mark_key_used
-    from google import genai
-    from google.genai import types
-
-    key = get_active_key()
-    if not key:
-        return {"text": "", "images": []}
-
     prompt = (
         f"Игра: {game_name}\n"
         f"Вопрос: {question or 'общие советы и гайд для новичка'}\n\n"
@@ -639,14 +632,7 @@ async def find_guide(game_name: str, question: str = "") -> dict:
     )
 
     try:
-        client = genai.Client(api_key=key)
-        r = await asyncio.to_thread(
-            client.models.generate_content,
-            model=MAIN_MODEL,
-            contents=[types.Content(role="user", parts=[types.Part(text=prompt)])]
-        )
-        mark_key_used(key)
-        guide_text = (r.text or "").strip()
+        guide_text = await _llm_generate(prompt, model=MAIN_MODEL, safety=False, thinking=False)
     except Exception as e:
         log.error(f"[steam guide] {e}")
         guide_text = ""
