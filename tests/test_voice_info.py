@@ -1097,7 +1097,13 @@ class TestTelegramLiteralMechanics(unittest.TestCase):
         ag.assert_not_awaited()
 
     def test_fortune_via_telegram(self):
-        """«дай печенье» в TG → предсказание, LLM не дёргается."""
+        """«дай печенье» в TG → предсказание, LLM не дёргается.
+
+        Механизм переехал в conversation/fortune (этап 5, 3/3), поэтому
+        подменяются имена в его модуле, а не в main: ветка берёт
+        get_fortune/format_fortune из собственного пространства имён.
+        """
+        from conversation import fortune as conv_fortune
         with patch("aiogram.Bot"):
             import main
         with patch.object(main, "get_role", return_value="master"), \
@@ -1106,9 +1112,9 @@ class TestTelegramLiteralMechanics(unittest.TestCase):
                           new=AsyncMock()) as sc, \
              patch.object(main, "ask_gemini",
                           new=AsyncMock(return_value="болтовня")) as ag, \
-             patch.object(main, "get_fortune",
+             patch.object(conv_fortune, "get_fortune",
                           return_value={"period": "день"}), \
-             patch.object(main, "format_fortune",
+             patch.object(conv_fortune, "format_fortune",
                           side_effect=lambda f: "ТЕСТ-ПРЕДСКАЗАНИЕ"):
             _run(main.handle_message(self._make_msg("дай печенье")))
         sc.assert_awaited_once()

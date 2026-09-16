@@ -15,6 +15,8 @@ import logging
 from sakura_core.executor import ExecutionContext, Executor, get_handler
 from sakura_core.router import Router
 
+import conversation as conversation_layer
+
 log = logging.getLogger("sakura.bridge")
 
 _router: Router | None = None
@@ -42,10 +44,11 @@ _load_capabilities()
 
 
 def get_router() -> Router:
-    """Роутер без LLM — на этапе 3-5 детерминированный путь."""
+    """Роутер без LLM: реестр → разговорные механики → (LLM отключён)."""
     global _router
     if _router is None:
-        _router = Router(llm_classify=None)
+        _router = Router(llm_classify=None,
+                         conversation=conversation_layer.try_handle)
     return _router
 
 
@@ -98,12 +101,15 @@ async def execute_decision(decision, *, device_ws, device_id, register_command,
 
 
 async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
-                       ack=None, speak=None) -> bool:
+                       ack=None, speak=None, resolve_reply=None) -> bool:
     """Быстрый путь: реестр (без LLM) → исполнение переехавших доменов.
 
     False — решение не для v3 (разговор или id без хендлера), старый путь
     продолжает в обычном порядке. ack — ответчик Telegram, speak — озвучка
-    голосовой поверхности. VPS-действие с текстовым результатом отвечает
+    голосовой поверхности. resolve_reply — async-обработчик ответа
+    разговорного слоя (LLM-подтверждения, отправки, steam): его даёт
+    вызывающий хендлер со своими зависимостями; без него доставляется
+    только готовый Reply.text. VPS-действие с текстовым результатом отвечает
     найденным текстом; агентные команды — коротким «Готово.». Ни один из
     ответчиков не обязателен: голосовой путь отвечает через command_result.
     """
@@ -113,6 +119,19 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
         (data or {}).get("active_window", ""), _current_track or None
     )
     decision = get_router().route(text, context)
+    if decision.reply is not None:
+        if resolve_reply is not None:
+            await resolve_reply(decision.reply)
+        elif decision.reply.text:
+            for deliver in (ack, speak):
+                if deliver is None:
+                    continue
+                try:
+                    await deliver(decision.reply.text)
+                    break
+                except Exception as e:
+                    log.debug(f"[v3] ответ не доставлен: {type(e).__name__}: {e}")
+        return True
     executed, result = await execute_decision(
         decision, device_ws=device_ws, device_id=device_id,
         register_command=register_command, text=text,

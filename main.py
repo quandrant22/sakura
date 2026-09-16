@@ -49,7 +49,7 @@ from modules.tasks import (
     add_task, get_due_tasks, get_upcoming_tasks,
     mark_notified, get_tasks_context, extract_tasks_from_text
 )
-from modules.rules import detect_rule, apply_rule, get_rules_context
+from modules.rules import get_rules_context
 from modules import device_commands
 from modules.tts_server import stream_tts_to_device, warmup_cache, strip_tone
 from adapters.voice import stream_llm_to_tts  # v3: честный стриминг (этап 4)
@@ -95,26 +95,18 @@ from modules.discord_bot      import start_bot as discord_start_bot, is_discord_
 from modules.command_router import route_command, route_critical, is_irreversible, EXEC_THRESHOLD, GRAY_THRESHOLD
 from modules.intent_classifier import classify_intent, is_command, is_question, IntentResult
 from modules.game_hub import get_game_context_for_device, set_game_mood  # noqa: F401 (используются в ws-путях)
-from modules.calculator import calculate
-from modules.fortune_cookie import is_fortune_request, get_fortune, format_fortune
 from modules.reminders import (
     parse_reminder, add_reminder, format_reminders_list,
     set_callback as set_reminder_callback, check_loop as reminder_check_loop,
 )
-from modules.translator import is_translation_request, try_quick_translate, build_translate_prompt
 from modules.music_memory import (
     track_play, format_recent, format_top,
     get_recent, get_top_artists, get_top_tracks,
     like_artist, dislike_artist, has_opinion, get_taste_context, generate_taste_comment,
 )
-from modules.fears import detect_fear_trigger, get_fear_context, get_fear_response_for_weather
+from modules.fears import get_fear_context, get_fear_response_for_weather
 from modules.pranks import should_prank, choose_prank, record_prank
 from modules.reactions import detect_reaction, get_random_gif, should_react
-from modules.word_game import (
-    is_word_game_request, start_game, get_random_word, format_word_teach,
-    format_word_quiz, check_answer, record_score, get_score, end_game,
-    is_game_active, find_word, format_word_of_the_day,
-)
 from modules.steam_integration import (
     load_library, get_current_game, recommend_games,
     find_guide, format_library_context, format_current_game_context,
@@ -2950,93 +2942,83 @@ async def handle_message(message: Message):
     # ── v3 (этап 3): быстрый путь реестра для музыки ────────────────
     # Реестр без LLM; действие уходит агенту каноническим id. Временный
     # крюк: на этапах 5-6 ветки старого пути вынимаются вместе с ним.
+    async def _resolve_conv_reply(_r):
+        """Ответ разговорного слоя: LLM-подтверждения, отправки, steam.
+        Слой отдаёт данные, поверхность исполняет своими зависимостями."""
+        if _r.run_clean_slate:
+            await _clean_slate()
+        if _r.ws_command:
+            _lws, _ldev = _get_active_ws()
+            if not _lws:
+                await message.answer(_r.fallback_text or "Ноутбук оффлайн.")
+                return
+            await _lws.send(json.dumps(
+                {"type": "command", "action": _r.ws_command}))
+        composed = None
+        if _r.prompt:
+            composed = await ask_gemini(_r.prompt, save_history=False)
+        for _act in _r.actions:
+            if _act[0] == "steam_recommend":
+                games = await recommend_games(limit=5)
+                if games:
+                    game_list = "\n".join(
+                        f"• {g['name']} ({g.get('playtime_forever', 0) // 60}ч)"
+                        for g in games)
+                    reply = await ask_gemini(
+                        f"Мастер спрашивает во что поиграть. Вот его библиотека:\n{game_list}\n\n"
+                        f"Порекомендуй 2-3 игры с коротким объяснением почему именно они. "
+                        f"В своём стиле, не как список.")
+                    await send_as_conversation(message.chat.id, reply)
+                return
+            if _act[0] == "steam_guide":
+                # Текущая игра — из глобального состояния модуля.
+                from modules.steam_integration import _current_game
+                game_name = _current_game.get("name") if _current_game else None
+                if not game_name:
+                    for g in get_library():
+                        if g["name"].lower() in text.lower():
+                            game_name = g["name"]
+                            break
+                if game_name:
+                    guide = await find_guide(game_name, text)
+                    if guide["text"]:
+                        sakura_reply = await ask_gemini(
+                            f"Перескажи этот гайд по игре {game_name} своими словами, в своём стиле:\n{guide['text']}")
+                        await send_as_conversation(message.chat.id, sakura_reply)
+                        for img_url in guide["images"][:2]:
+                            try:
+                                await bot.send_photo(message.chat.id, photo=img_url)
+                            except Exception as e:
+                                log.debug(f"[main] conv reply: {type(e).__name__}: {e}")
+                return
+        if _r.send_tg:
+            vip_id, raw, vip_name = _r.send_tg
+            try:
+                to_send = _strip_tone(composed) if raw is None else raw
+                await bot.send_message(int(vip_id), to_send)
+                await message.answer(f"Передала {vip_name.capitalize()}: «{to_send}»")
+            except Exception as e:
+                log.error(f"text->vip SEND FAIL: {e}")
+                await message.answer("Не получилось отправить.")
+            return
+        _out = composed if composed is not None else _r.text
+        if _out:
+            await send_as_conversation(message.chat.id, _out)
+
     try:
         from sakura_core.bridge import v3_fast_path
         _laptop_ws, _laptop_dev = _get_active_ws()
         if await v3_fast_path(text, data={"active_window": ""},
                               device_ws=_laptop_ws, device_id=_laptop_dev,
-                              register_command=None, ack=message.answer):
+                              register_command=None, ack=message.answer,
+                              resolve_reply=_resolve_conv_reply):
             return
     except Exception as _v3_err:
         log.debug(f"[v3] быстрый путь: {type(_v3_err).__name__}: {_v3_err}")
 
-    # ── LITERAL-МЕХАНИКИ ГОЛОСА, ПОДКЛЮЧЁННЫЕ К TG ──
-    # Те же ворота, что в handle_voice_command (ws_handlers), в том же порядке:
-    # переводчик → страхи → игра в слова → калькулятор → печенье.
-    # Музыкальная память в TG покрыта информационным путём (music_stats:*).
-    # ── ПЕРЕВОДЧИК ──
-    if is_translation_request(text):
-        _quick = try_quick_translate(text)
-        if not _quick:
-            _tr_reply = await ask_gemini(build_translate_prompt(text), save_history=False)
-            _quick = (_tr_reply or "").strip() or None
-        if _quick:
-            log.info(f"[tg/translate] {text[:60]!r} → {_quick[:60]!r}")
-            await send_as_conversation(message.chat.id, _quick)
-            return
-    # ── СТРАХИ САКУРЫ ──
-    _tg_fear = detect_fear_trigger(text)
-    if _tg_fear:
-        log.info(f"[tg/fears] сработал: {_tg_fear['name']}")
-        await send_as_conversation(message.chat.id, _tg_fear["response"])
-        return
-    # ── ИГРА В СЛОВА ──
-    _tg_word = is_word_game_request(text)
-    if _tg_word:
-        if _tg_word["action"] == "start_game":
-            _w_reply = start_game() + "\n\n" + format_word_teach(get_random_word())
-        else:
-            _w_reply = format_word_teach(get_random_word())
-        log.info(f"[tg/word_game] {_tg_word['action']}")
-        await send_as_conversation(message.chat.id, _w_reply)
-        return
-    if is_game_active():
-        _tg_session = {}
-        _tg_sess_path = "memory/word_game_session.json"
-        if os.path.exists(_tg_sess_path):
-            try:
-                with open(_tg_sess_path, encoding="utf-8") as _tgf:
-                    _tg_session = json.load(_tgf)
-            except Exception as _tge:
-                log.debug(f"[tg/word_game] session read: {type(_tge).__name__}: {_tge}")
-        _tg_used = _tg_session.get("used_words", [])
-        if _tg_used:
-            _tg_last = find_word(_tg_used[-1])
-            if _tg_last:
-                _tg_ok = check_answer(text, _tg_last)
-                record_score(_tg_ok)
-                _tg_next = get_random_word()
-                if _tg_ok:
-                    _w_reply = (f"Правильно! {_tg_last['jp']} — {_tg_last['ru']}. "
-                                f"{_tg_last['note']}\n\nСледующее: {_tg_next['jp']} "
-                                f"({_tg_next['romaji']}) — {_tg_next['ru']}")
-                else:
-                    _w_reply = (f"Не совсем. Правильно: {_tg_last['jp']} — {_tg_last['ru']}. "
-                                f"{_tg_last['note']}\n\nСледующее: {_tg_next['jp']} "
-                                f"({_tg_next['romaji']}) — {_tg_next['ru']}")
-                await send_as_conversation(message.chat.id, _w_reply)
-                return
-    for _wq, _wf in (("слово дня", lambda: format_word_of_the_day()),
-                     ("счёт слов", get_score), ("сколько слов", get_score),
-                     ("результат игры", get_score),
-                     ("хватит играть", end_game), ("стоп игра", end_game),
-                     ("закончим игру", end_game), ("выход из игры", end_game)):
-        if _wq in text_lower:
-            await send_as_conversation(message.chat.id, _wf())
-            return
-    # ── КАЛЬКУЛЯТОР (без LLM) ──
-    _tg_calc = calculate(text)
-    if _tg_calc:
-        log.info(f"[tg/calc] {text[:60]!r} → {_tg_calc}")
-        await send_as_conversation(message.chat.id, _tg_calc)
-        return
-    # ── ПЕЧЕНЬЕ С ПРЕДСКАЗАНИЯМИ (без LLM) ──
-    if is_fortune_request(text):
-        _tg_fortune = format_fortune(get_fortune())
-        log.info("[tg/fortune] выдано предсказание")
-        await send_as_conversation(message.chat.id, _tg_fortune)
-        return
-
+    # Переводчик, игра в слова, калькулятор, печенье и страхи —
+    # разговорный слой conversation/ (этап 5, 3/3): разбираются в
+    # router.route() между реестром и LLM.
     # ── ИНФОРМАЦИОННЫЕ КОМАНДЫ (ачивки/сервер/задачи/погода/...) ──
 
     # ── ИНФОРМАЦИОННЫЕ КОМАНДЫ (ачивки/сервер/задачи/погода/...) ──
@@ -3062,75 +3044,9 @@ async def handle_message(message: Message):
                 text, None, None, ask_gemini, bot)
             return
 
-    # ── написать VIP текстом ──
-    _wl = text_lower.replace(",", " ").split()
-    if _wl and _wl[0] in ("напиши", "напишите", "передай", "сообщи", "скажи"):
-        _vip = _find_vip_by_name(" ".join(_wl[:3]))   # имя должно идти сразу после глагола
-        if _vip:
-            vip_id, vip_name = _vip
-            i = text_lower.find("чтобы")
-            mlen = 5
-            if i == -1:
-                i, mlen = text_lower.find("что"), 3
-            if i != -1:
-                msg = text[i + mlen:]
-            else:
-                import re as _re
-                msg = text
-                for w in ("напиши", "напишите", "передай", "сообщи", "скажи", "сакура", vip_name):
-                    msg = _re.sub(_re.escape(w), " ", msg, flags=_re.I)
-            msg = " ".join(msg.split()).strip(" ,.")
-            if not msg:
-                await message.answer(f"Что передать {vip_name.capitalize()}?")
-                return
-            try:
-                import json as _json
-                with open("memory/users.json", encoding="utf-8") as _f:
-                    _vinfo = _json.load(_f).get("vip", {}).get(vip_id, {})
-                persona = _vinfo.get("personality", "")
-                note    = _vinfo.get("note", "")
-                composed = await ask_gemini(
-                    f"Напиши сообщение для {vip_name} от своего лица (ты — Сакура, ассистент Мастера). "
-                    f"Адресат: {persona} {note}\n"
-                    f"Мастер просит передать ему: {msg}\n"
-                    f"Пиши в своей манере, с учётом отношения к этому человеку, обращайся к нему напрямую. "
-                    f"Верни только текст сообщения, без пояснений.",
-                    save_history=False)
-                cleaned_composed = _strip_tone(composed)
-                await bot.send_message(int(vip_id), cleaned_composed)
-                await message.answer(f"Передала {vip_name.capitalize()}: «{cleaned_composed}»")
-            except Exception as e:
-                log.error(f"text->vip SEND FAIL: {e}")
-                await message.answer("Не получилось отправить.")
-            return
-
-    if "протокол чистый лист" in text_lower:
-        await _clean_slate()
-        await message.answer("Протокол выполнен. Я тебя не помню.")
-        return
-
-    rule = detect_rule(text)
-    if rule:
-        apply_rule(rule)
-        rtype = rule["type"]
-        rval  = rule["value"] or ""
-        if rtype == "address":
-            confirm = f"Мастер попросил называть его «{rval}». Подтверди что запомнила — коротко, своими словами."
-        elif rtype == "address_reset":
-            confirm = "Мастер вернул обращение «Мастер». Подтверди коротко."
-        elif rtype == "style":
-            confirm = f"Мастер установил правило: {rval}. Подтверди одним предложением."
-        elif rtype == "permission":
-            confirm = f"Мастер разрешил: {rval}. Подтверди коротко."
-        elif rtype == "cancel":
-            confirm = f"Мастер отменил правило про «{rval}». Подтверди коротко."
-        else:
-            confirm = None
-        if confirm:
-            reply = await ask_gemini(confirm, save_history=False)
-            await message.answer(reply)
-        return
-
+    # Написать VIP — в conversation/vip_message (этап 5, 3/3).
+    # «Протокол чистый лист» и правила обращения — в conversation/
+    # (clean_slate и remember_kv, этап 5, 3/3).
     reply_ctx = _get_reply_context(message)
 
     # ── Reply на уведомление о госте/Химари → режим обсуждения ────────────────
@@ -3168,23 +3084,7 @@ async def handle_message(message: Message):
             await send_as_conversation(message.chat.id, reply)
             return
 
-    if text_lower.startswith("запомни ") and "=" in text:
-        parts     = text.split("=", 1)
-        app_name  = parts[0].replace("запомни", "").strip().lower()
-        app_path  = parts[1].strip()
-        laptop_ws, _active_dev = _get_active_ws()
-        if laptop_ws:
-            await laptop_ws.send(json.dumps({
-                "type": "command", "action": f"remember_app:{app_name}={app_path}"
-            }))
-            reply = await ask_gemini(
-                f"Запомнила '{app_name}' = '{app_path}'. Подтверди коротко.",
-                save_history=False)
-        else:
-            reply = "Ноутбук оффлайн."
-        await message.answer(reply)
-        return
-
+    # «Запомни app = path» — в conversation/remember_kv (этап 5, 3/3).
     # Скриншот уходит через реестр (screenshot.run, триггер «скрин» и др.)
     # — нормализация текста не нужна (этап 5, 2/2).
 
@@ -3465,56 +3365,8 @@ async def handle_message(message: Message):
         await message.answer(f"{label}: " + ", ".join(done))
         return
 
-    # Steam команды
-    tl = text.lower()
-    if any(w in tl for w in (
-        "во что поиграть", "что поиграть", "порекомендуй игру", "выбери игру",
-        "из избранного", "любимые игры", "топ игр", "лучшие игры", "мои игры",
-        "что поставить", "во что сыграть",
-    )):
-        games = await recommend_games(limit=5)
-        if games:
-            game_list = "\n".join(
-                f"• {g['name']} ({g.get('playtime_forever',0)//60}ч)"
-                for g in games
-            )
-            prompt = (
-                f"Мастер спрашивает во что поиграть. Вот его библиотека:\n{game_list}\n\n"
-                f"Порекомендуй 2-3 игры с коротким объяснением почему именно они. "
-                f"В своём стиле, не как список."
-            )
-            reply = await ask_gemini(prompt)
-            await send_as_conversation(message.chat.id, reply)
-            return
-
-    if any(w in tl for w in ("гайд", "как играть", "как пройти", "подскажи по игре", "совет по")):
-        # Определяем игру из запроса или берём текущую
-        from modules.steam_integration import _current_game
-        game_name = _current_game.get("name") if _current_game else None
-        if not game_name:
-            # Пробуем найти в тексте
-            lib = get_library()
-            for g in lib:
-                if g["name"].lower() in tl:
-                    game_name = g["name"]
-                    break
-        if game_name:
-            guide = await find_guide(game_name, text)
-            if guide["text"]:
-                # Отправляем текст
-                sakura_reply = await ask_gemini(
-                    f"Перескажи этот гайд по игре {game_name} своими словами, в своём стиле:\n{guide['text']}"
-                )
-                await send_as_conversation(message.chat.id, sakura_reply)
-                # Отправляем скриншоты если есть
-                for img_url in guide["images"][:2]:
-                    try:
-                        await bot.send_photo(message.chat.id, photo=img_url)
-                    except Exception as e:
-                        log.debug(f"[main] _resolve: {type(e).__name__}: {e}")
-                return
-
-    await bot.send_chat_action(message.chat.id, "typing")
+    # Steam: «во что поиграть» и гайды — в conversation/games
+    # (этап 5, 3/3), исполнение в _resolve_conv_reply.
     _t0 = __import__("time").monotonic()
     reply = await ask_gemini(_text_raw + reply_ctx)
     log.info(f"[ответ] {__import__('time').monotonic()-_t0:.1f}с | {reply!r}")

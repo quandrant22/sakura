@@ -3,8 +3,11 @@
     1. session   — ждём подтверждения? короткий ответ принадлежит диалогу
     2. registry  — точное совпадение фразы
     3. registry  — по границам слов, самый длинный триггер
-    4. LLM       — каталог из реестра, только то, что не попало выше
-    5. разговор
+    4. conversation — разговорные механики (translate, word_game, fortune,
+       calculator, fears, games, vip_message, remember_kv, clean_slate):
+       смотрят на текст, не на Decision
+    5. LLM       — каталог из реестра, только то, что не попало выше
+    6. разговор
 
 В v2 LLM-классификатор стоял первым и жёг раунд-трип даже там, где ответ лежал
 в таблице. Теперь он последний. Роутер ВОЗВРАЩАЕТ решение, не исполняет
@@ -16,7 +19,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Callable, Optional
-
 from sakura_core.registry import (
     Declaration,
     TriggerIndex,
@@ -40,6 +42,7 @@ class Decision:
     trigger: Optional[str] = None        # сработавший триггер (если был)
     verdict: Optional[str] = None        # confirm | deny — только для source="session"
     pending_kind: Optional[str] = None   # confirm | plan | clarify — для session
+    reply: Optional[object] = None       # Reply разговорного слоя (этап 5, 3/3)
 
 
 def _norm_context(context) -> Optional[str]:
@@ -57,7 +60,8 @@ class Router:
     def __init__(self, declarations: Optional[list[Declaration]] = None, *,
                  session: Optional[Session] = None,
                  llm_classify: Optional[LlmClassify] = None,
-                 wake_words: tuple[str, ...] = ("сакура",)):
+                 wake_words: tuple[str, ...] = ("сакура",),
+                 conversation: Optional[Callable] = None):
         self._declarations = list(declarations) if declarations is not None else load()
         self._index: TriggerIndex = build_index(self._declarations)
         self._by_id = {d.id: d for d in self._declarations}
@@ -69,6 +73,8 @@ class Router:
         self.session = session or Session()
         self._llm = llm_classify
         self._wake = tuple(w.lower() for w in wake_words)
+        # Разговорный слой (этап 5, 3/3): conversation.try_handle
+        self._conversation = conversation
 
     # ── подготовка текста ────────────────────────────────────────────────
 
@@ -121,11 +127,17 @@ class Router:
             trigger, d = fuzzy
             return Decision(d.id, "registry_fuzzy", trigger=trigger)
 
-        # 4. LLM — каталог из реестра; неизвестный id считаем разговором
+        # 4. разговорные механики — смотрят на текст, не на Decision
+        if self._conversation is not None:
+            reply = self._conversation(cleaned)
+            if reply is not None:
+                return Decision(None, "conversation", reply=reply)
+
+        # 5. LLM — каталог из реестра; неизвестный id считаем разговором
         if self._llm is not None:
             action = self._llm(cleaned, self._catalog)
             if action and action in self._by_id:
                 return Decision(action, "llm")
 
-        # 5. разговор
+        # 6. разговор
         return Decision(None, "conversation")

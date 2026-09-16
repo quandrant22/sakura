@@ -10,7 +10,6 @@ import asyncio
 import json
 import base64
 import logging
-import os
 import random
 import re
 import time as _time
@@ -40,15 +39,6 @@ from modules.game_detector import detect_game_event, make_event_prompt
 from modules.user_commands import parse_teaching, add as add_cmd, list_all as list_cmds
 from modules.voice_info import is_info_action
 from modules.voice_info import pending_forget_active, memory_forget_confirm
-from modules.translator import is_translation_request, try_quick_translate, build_translate_prompt
-from modules.fears import detect_fear_trigger
-from modules.word_game import (
-    is_word_game_request, start_game, get_random_word, format_word_teach,
-    check_answer, record_score, get_score, end_game,
-    is_game_active, find_word, format_word_of_the_day,
-)
-from modules.calculator import calculate
-from modules.fortune_cookie import is_fortune_request, get_fortune, format_fortune
 from modules.music_memory import (
     track_play, like_artist, dislike_artist,
     generate_taste_comment,
@@ -966,6 +956,69 @@ async def handle_voice_command(websocket, data, ctx) -> None:
     # ── v3 (этап 5): быстрый путь реестра — все домены ────────────────
     # Реестр без LLM; действие уходит агенту каноническим id. Временный
     # крюк: на этапе 6 ветки старого пути вынимаются вместе с ним.
+    async def _resolve_conv_reply(_r):
+        """Ответ разговорного слоя: LLM-подтверждения, отправки, steam.
+        Слой отдаёт данные, поверхность исполняет своими зависимостями."""
+        if _r.run_clean_slate:
+            await _clean_slate()
+        if _r.ws_command:
+            _aws, _ad = _get_active_ws()
+            if not _aws:
+                await _v3_speak(_r.fallback_text or "Ноутбук оффлайн.")
+                return
+            await _aws.send(json.dumps(
+                {"type": "command", "action": _r.ws_command}))
+        composed = None
+        if _r.prompt:
+            composed = await ask_gemini(_r.prompt, save_history=False)
+        for _act in _r.actions:
+            if _act[0] == "steam_recommend":
+                from modules.steam_integration import recommend_games
+                _games = await recommend_games(limit=5)
+                if _games:
+                    game_list = "\n".join(
+                        f"• {g['name']} ({g.get('playtime_forever', 0) // 60}ч)"
+                        for g in _games)
+                    _sp = await ask_gemini(
+                        f"Мастер спрашивает во что поиграть. Вот его библиотека:\n{game_list}\n\n"
+                        f"Порекомендуй 2-3 игры с коротким объяснением почему именно они. "
+                        f"В своём стиле, не как список.")
+                    if _sp:
+                        await _v3_speak(_sp)
+                return
+            if _act[0] == "steam_guide":
+                from modules.steam_integration import (
+                    _current_game, find_guide, get_library)
+                game_name = _current_game.get("name") if _current_game else None
+                if not game_name:
+                    for g in get_library():
+                        if g["name"].lower() in text.lower():
+                            game_name = g["name"]
+                            break
+                if game_name:
+                    guide = await find_guide(game_name, text)
+                    if guide["text"] and guide.get("images"):
+                        await _v3_speak("Нашла гайд, отправила скриншоты в телеграм.")
+                    elif guide["text"]:
+                        _sg = await ask_gemini(
+                            f"Перескажи этот гайд по игре {game_name} своими словами, в своём стиле:\n{guide['text']}")
+                        if _sg:
+                            await _v3_speak(_sg)
+                return
+        if _r.send_tg:
+            vip_id, raw, vip_name = _r.send_tg
+            try:
+                await bot.send_message(int(vip_id),
+                                       composed if raw is None else raw)
+                await _v3_speak(_r.text or f"Передала {vip_name}.")
+            except Exception as e:
+                log.error(f"voice->vip SEND FAIL: {e}")
+                await _v3_speak("Не получилось отправить, Мастер.")
+            return
+        _out = composed if composed is not None else _r.text
+        if _out:
+            await _v3_speak(_out)
+
     try:
         from sakura_core.bridge import v3_fast_path
         async def _v3_speak(phrase: str):
@@ -975,7 +1028,8 @@ async def handle_voice_command(websocket, data, ctx) -> None:
         if await v3_fast_path(text, data=data, device_ws=ws_dev,
                               device_id=device_id,
                               register_command=ctx.get("_register_command"),
-                              speak=_v3_speak):
+                              speak=_v3_speak,
+                              resolve_reply=_resolve_conv_reply):
             return
     except Exception as _v3_err:
         log.debug(f"[v3] быстрый путь: {type(_v3_err).__name__}: {_v3_err}")
@@ -1045,15 +1099,7 @@ async def handle_voice_command(websocket, data, ctx) -> None:
             await _say_tg("Не получилось отправить, Мастер.")
         return
 
-    if "протокол чистый лист" in text_lower:
-        await _clean_slate()
-        if ws_dev:
-            phrase = "Протокол выполнен. Я тебя не помню."
-            await ws_dev.send(json.dumps({
-                "type": "reply", "device_id": device_id or "laptop", "text": phrase,
-            }))
-        return
-
+    # «Протокол чистый лист» — в conversation/clean_slate (этап 5, 3/3).
     # ── ГОЛОСОВЫЕ ТРИГГЕРЫ (проверяются первыми) ──────
     _trigger = match_voice_trigger(text)
     if _trigger and ws_dev:
@@ -1075,9 +1121,7 @@ async def handle_voice_command(websocket, data, ctx) -> None:
         return
 
     # ── написать VIP по голосу ──
-    _vip = _find_vip_by_name(text)
-    log.info(f"voice->vip check: text={text!r} vip={_vip}")
-
+    # Поиск VIP перенесён в conversation/vip_message (этап 5, 3/3).
     # ── ГОЛОСОВЫЕ КОМАНДЫ МОДУЛЕЙ (voice_router) ──────────
     _module_handled = False
     try:
@@ -1204,35 +1248,7 @@ async def handle_voice_command(websocket, data, ctx) -> None:
 
     # Чтение активной страницы переехало в реестр (ext.page_content /
     # ext.page_content_youtube, этап 5 2/2) — ветка снята.
-    if _vip and any(v in text_lower for v in
-                    ("напиши", "напишите", "передай", "сообщи", "скажи")):
-        vip_id, vip_name = _vip
-
-        async def _sayv(phrase):
-            if ws_dev:
-                await stream_tts_to_device(phrase, ws_dev, device_id or "laptop", literal=True)
-
-        if "чтобы" in text_lower:
-            msg = text_lower.split("чтобы", 1)[1]
-        elif "что" in text_lower:
-            msg = text_lower.split("что", 1)[1]
-        else:
-            msg = _strip_payload_words(text_lower, extra=("сакура", vip_name))
-        msg = " ".join(msg.split()).strip(" ,.")
-        log.info(f"voice->vip msg={msg!r} -> {vip_name}({vip_id})")
-
-        if not msg:
-            await _sayv(f"Что передать {vip_name.capitalize()}?")
-            return
-        try:
-            await bot.send_message(int(vip_id), msg)
-            log.info("voice->vip SENT OK")
-            await _sayv(f"Передала {vip_name.capitalize()}.")
-        except Exception as e:
-            log.error(f"voice->vip SEND FAIL: {e}")
-            await _sayv("Не получилось отправить, Мастер.")
-        return
-
+    # Написать VIP — в conversation/vip_message (этап 5, 3/3).
     # ── отправка в Telegram по голосу ──
     _SEND = ("пришли", "прошли", "отправь", "скинь", "кинь", "сбрось", "напиши", "дай")
     _TG = ("в тг", "в телеграм", "в телегу", "в телеге", "в личк", "сообщением", "мне в чат")
@@ -1301,109 +1317,9 @@ async def handle_voice_command(websocket, data, ctx) -> None:
             await _say("Не получилось, Мастер.")
         return
 
-    # ── ПЕРЕВОДЧИК ──────────────────────────────────────
-    if is_translation_request(text):
-        _quick = try_quick_translate(text)
-        if _quick:
-            log.info(f"[translate] quick: {text!r} → {_quick}")
-            if ws_dev:
-                await stream_tts_to_device(_quick, ws_dev, device_id or "laptop", literal=True)
-            return
-        # Fallback через Gemini
-        _tr_prompt = build_translate_prompt(text)
-        _tr_reply = await ask_gemini(_tr_prompt, save_history=False)
-        if _tr_reply and ws_dev:
-            await stream_tts_to_device(_tr_reply, ws_dev, device_id or "laptop", literal=True)
-        return
-
-    # ── СТРАХИ САКУРЫ ─────────────────────────────────
-    _fear = detect_fear_trigger(text)
-    if _fear:
-        log.info(f"[fears] сработал: {_fear['name']}")
-        if ws_dev:
-            await stream_tts_to_device(_fear["response"], ws_dev, device_id or "laptop", literal=True)
-        return
-
-    # ── ИГРА В СЛОВА ─────────────────────────────────
-    _word_req = is_word_game_request(text)
-    if _word_req:
-        if _word_req["action"] == "start_game":
-            _game_reply = start_game()
-            # Сразу даём первое слово
-            _word = get_random_word()
-            _game_reply += "\n\n" + format_word_teach(_word)
-            log.info(f"[word_game] started, first word: {_word['jp']}")
-            if ws_dev:
-                await stream_tts_to_device(_game_reply, ws_dev, device_id or "laptop", literal=True)
-        elif _word_req["action"] == "teach_word":
-            _word = get_random_word()
-            _teach = format_word_teach(_word)
-            log.info(f"[word_game] teach: {_word['jp']}")
-            if ws_dev:
-                await stream_tts_to_device(_teach, ws_dev, device_id or "laptop", literal=True)
-        return
-
-    # Если игра активна — проверяем ответ
-    if is_game_active():
-        _session = __import__("json").load(open("memory/word_game_session.json")) if os.path.exists("memory/word_game_session.json") else {}
-        _used = _session.get("used_words", [])
-        if _used:
-            _last_word_jp = _used[-1]
-            _last_word = find_word(_last_word_jp)
-            if _last_word:
-                _correct = check_answer(text, _last_word)
-                record_score(_correct)
-                if _correct:
-                    _reply = f"Правильно! {_last_word['jp']} — {_last_word['ru']}. {_last_word['note']}"
-                    # Следующее слово
-                    _next = get_random_word()
-                    _reply += f"\n\nСледующее: {_next['jp']} ({_next['romaji']}) — {_next['ru']}"
-                else:
-                    _reply = f"Не совсем. Правильно: {_last_word['jp']} — {_last_word['ru']}. {_last_word['note']}"
-                    _next = get_random_word()
-                    _reply += f"\n\nСледующее: {_next['jp']} ({_next['romaji']}) — {_next['ru']}"
-                if ws_dev:
-                    await stream_tts_to_device(_reply, ws_dev, device_id or "laptop", literal=True)
-                return
-
-    # "слово дня"
-    if any(w in text.lower() for w in ("слово дня", "какое слово сегодня")):
-        _wotd = format_word_of_the_day()
-        if ws_dev:
-            await stream_tts_to_device(_wotd, ws_dev, device_id or "laptop", literal=True)
-        return
-
-    # "счёт" / "сколько слов"
-    if any(w in text.lower() for w in ("счёт слов", "сколько слов", "результат игры")):
-        _sc = get_score()
-        if ws_dev:
-            await stream_tts_to_device(_sc, ws_dev, device_id or "laptop", literal=True)
-        return
-
-    # "стоп игра" / "хватит играть"
-    if any(w in text.lower() for w in ("хватит играть", "стоп игра", "закончим игру", "выход из игры")):
-        _end = end_game()
-        if ws_dev:
-            await stream_tts_to_device(_end, ws_dev, device_id or "laptop", literal=True)
-        return
-
-    # ── КАЛЬКУЛЯТОР (без LLM) ───────────────────────────
-    _calc_result = calculate(text)
-    if _calc_result:
-        log.info(f"[calc] {text!r} → {_calc_result}")
-        if ws_dev:
-            await stream_tts_to_device(_calc_result, ws_dev, device_id or "laptop", literal=True)
-        return
-
-    # ── ПЕЧЕНЬЕ С ПРЕДСКАЗАНИЯМИ (без LLM) ─────────────
-    if is_fortune_request(text):
-        _fortune = get_fortune()
-        _fortune_reply = format_fortune(_fortune)
-        log.info(f"[fortune] period={_fortune['period']}")
-        if ws_dev:
-            await stream_tts_to_device(_fortune_reply, ws_dev, device_id or "laptop", literal=True)
-        return
-
+    # Переводчик, игра в слова, калькулятор, печенье и страхи —
+    # разговорный слой conversation/ (этап 5, 3/3): разбираются в
+    # router.route() между реестром и LLM.
     # ── КРИТИЧЕСКИЕ КОМАНДЫ (точный матчинг, без LLM) ────
     kettle_cmd = parse_kettle_command(text)
     if kettle_cmd and ws_dev:
