@@ -429,7 +429,23 @@
   executor: agent
   reversible: false
   confirm: true
-  triggers: ['выключи комп', 'выключи ноут', 'выключи пк', 'выключи компьютер', 'выключи ноутбук', 'shutdown', 'завершение работы']
+  triggers: ['выключи комп', 'выключи ноут', 'выключи пк', 'выключи компьютер', 'выключи ноутбук', 'завершение работы']
+
+- id: system.shutdown_cancel
+  legacy: [system:shutdown_cancel]
+  desc: 'Отмена выключения компьютера'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['отмени выключение', 'cancel shutdown', 'не выключай', 'отмена выключения']
+
+- id: system.lock
+  legacy: [system:lock]
+  desc: 'Заблокировать компьютер'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['заблокируй комп', 'заблокируй компьютер', 'заблокируй экран', 'lock компьютер']
 
 - id: system.sleep
   legacy: [system:sleep]
@@ -536,7 +552,7 @@
   executor: agent
   reversible: true
   confirm: false
-  triggers: ['пауза ютуб']
+  triggers: ['пауза ютуб', 'пауза на ютубе', 'стоп ютуб', 'останови ютуб', 'youtube пауза']
 
 - id: youtube.rewind
   legacy: [youtube_rewind]

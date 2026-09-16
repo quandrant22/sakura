@@ -47,8 +47,8 @@ def index(registry):
 # --- загрузка и валидация -------------------------------------------------
 
 
-def test_load_returns_70_declarations(registry):
-    assert len(registry) == 70
+def test_load_returns_72_declarations(registry):
+    assert len(registry) == 72
 
 
 def test_validate_passes_on_real_registry(registry):

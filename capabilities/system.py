@@ -23,8 +23,10 @@ SYSTEM_AGENT_ACTIONS = (
     "screenshot.run",
     "screenshot.describe",
     "system.shutdown",
+    "system.shutdown_cancel",
     "system.restart",
     "system.sleep",
+    "system.lock",
 )
 
 SYSTEM_COMMANDS = {aid: AgentCommand(aid) for aid in SYSTEM_AGENT_ACTIONS}

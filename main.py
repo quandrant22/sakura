@@ -155,7 +155,7 @@ from modules.ws_handlers import (
     handle_register, handle_ping, handle_apps_list, handle_screen_context,
     handle_command_result, handle_kettle_ready, handle_notification,
     handle_tg_message, handle_voice_command, update_current_track,
-    execute_critical_action, _DANGEROUS_SYSTEM_ACTIONS, _SYSTEM_CONFIRM_PROMPTS,
+    execute_critical_action,
     answer_voice_info,
 )
 from modules.voice_info import is_info_action
@@ -219,181 +219,6 @@ YANDEX_UID = "adebtrern"
 #  Парсинг команд устройства
 # ─────────────────────────────────────────────
 
-_VOL_WORDS = {
-    "ноль": 0, "нуль": 0, "один": 1, "два": 2, "три": 3, "четыре": 4,
-    "пять": 5, "шесть": 6, "семь": 7, "восемь": 8, "девять": 9, "десять": 10,
-    "одиннадцать": 11, "двенадцать": 12, "тринадцать": 13, "четырнадцать": 14,
-    "пятнадцать": 15, "шестнадцать": 16, "семнадцать": 17, "восемнадцать": 18,
-    "девятнадцать": 19, "двадцать": 20, "тридцать": 30, "сорок": 40,
-    "пятьдесят": 50, "шестьдесят": 60, "семьдесят": 70, "восемьдесят": 80,
-    "девяносто": 90, "сто": 100,
-}
-
-
-def _extract_volume(s: str) -> int | None:
-    nums = re.findall(r'\d+', s)
-    if nums:
-        return min(100, int(nums[0]))
-    total = sum(v for w, v in _VOL_WORDS.items() if w in s)
-    return total if total else None
-
-
-def parse_youtube_command(text: str) -> dict | None:
-    """Парсит YouTube команды — поиск, плейлисты, управление плеером."""
-    import re as _re
-    tl = text.lower().strip()
-
-    # Ворота — должно быть что-то про YouTube
-    yt_words    = ("ютуб", "youtube", "ютьюб", "ролик", "видео")
-    player_only = ("полный экран", "фуллскрин", "следующее видео", "следующий ролик",
-                   "мини плеер", "мини-плеер", "театральный режим", "субтитры ютуб",
-                   "перемотай вперёд", "перемотай назад")
-
-    is_yt     = any(w in tl for w in yt_words)
-    is_player = any(w in tl for w in player_only)
-    if not is_yt and not is_player:
-        return None
-
-    # ── Управление плеером ────────────────────────────────────────────
-    # Пауза — с учётом STT искажений
-    _pause_words = ("пауза", "стоп", "продолжи", "воспроизведи", "pausa", "pause", "маузы")
-    _yt_ctx      = ("ютуб", "youtube", "ютьюб", "видео")
-    if (any(w in tl for w in _pause_words) or _fz1(tl, "пауза")) and        (any(w in tl for w in _yt_ctx) or not any(w in tl for w in ("музык", "трек", "песн"))):
-        # Пауза без контекста — только если нет явного музыкального контекста
-        if any(w in tl for w in _yt_ctx) or is_player:
-            return {"action": "youtube_pause", "agent": True}
-
-    # Полный экран — без обязательного «ютуб»
-    if "полный экран" in tl or "фуллскрин" in tl:
-        return {"action": "youtube_fullscreen", "agent": True}
-
-    # Следующее видео — без обязательного «ютуб»
-    if any(w in tl for w in ("следующее видео", "следующий ролик")):
-        return {"action": "youtube_next", "agent": True}
-
-    # Мини-плеер — без обязательного «ютуб»
-    if "мини плеер" in tl or "мини-плеер" in tl:
-        return {"action": "youtube_mini", "agent": True}
-
-    # Театральный режим — без обязательного «ютуб»
-    if "театральный" in tl:
-        return {"action": "youtube_theater", "agent": True}
-
-    # Субтитры — требуем «ютуб» чтобы не конфликтовать
-    if "субтитры" in tl and any(w in tl for w in _yt_ctx):
-        return {"action": "youtube_sub_toggle", "agent": True}
-
-    # Перемотка — требуем «ютуб» чтобы не конфликтовать с музыкой
-    if any(w in tl for w in ("вперёд", "перемотай вперёд", "перемотка вперёд")) and        any(w in tl for w in _yt_ctx):
-        return {"action": "youtube_forward", "agent": True}
-    if any(w in tl for w in ("назад", "перемотай назад", "перемотка назад")) and        any(w in tl for w in _yt_ctx):
-        return {"action": "youtube_rewind", "agent": True}
-
-    # Скорость
-    if any(w in tl for w in ("быстрее", "ускорь")) and any(w in tl for w in _yt_ctx):
-        return {"action": "youtube_speed_up", "agent": True}
-    if any(w in tl for w in ("медленнее", "замедли")) and any(w in tl for w in _yt_ctx):
-        return {"action": "youtube_speed_down", "agent": True}
-
-    # Лайк YouTube (явно с контекстом)
-    if any(w in tl for w in ("лайкни видео", "лайк видео", "лайкни ютуб")) and        any(w in tl for w in _yt_ctx):
-        return {"action": "youtube_like", "agent": True}
-
-    # ── Data API ──────────────────────────────────────────────────────
-    # Тренды
-    if any(w in tl for w in ("тренды", "популярное", "в тренде", "что популярно")):
-        return {"action": "youtube_trending"}
-
-    # Плейлист
-    if any(w in tl for w in ("плейлист", "список видео", "подборка")):
-        q = tl
-        for w in ("найди", "открой", "покажи", "включи", "плейлист", "список видео",
-                   "ютуб", "youtube", "на ютубе"):
-            q = q.replace(w, " ")
-        q = _re.sub(r"\s+", " ", q).strip(" ,.")
-        if q:
-            return {"action": f"youtube_playlist:{q}"}
-
-    # Канал
-    if any(w in tl for w in ("канал", "автор", "блогер")):
-        q = tl
-        for w in ("найди", "открой", "покажи", "канал", "блогера", "автора",
-                   "ютуб", "youtube", "на ютубе"):
-            q = q.replace(w, " ")
-        q = _re.sub(r"\s+", " ", q).strip(" ,.")
-        if q:
-            return {"action": f"youtube_channel:{q}"}
-
-    # Поиск видео
-    if any(w in tl for w in ("найди", "поищи", "покажи", "включи", "поставь", "открой")):
-        q = tl
-        for w in ("найди", "поищи", "покажи", "включи", "поставь", "открой",
-                   "на ютубе", "ютуб", "youtube", "видео", "ролик"):
-            q = q.replace(w, " ")
-        q = _re.sub(r"\s+", " ", q).strip(" ,.")
-        if q:
-            return {"action": f"youtube_search:{q}"}
-
-    return None
-
-
-def parse_music_info_command(text: str) -> dict | None:
-    """Команды музыкальной информации и управления через SMTC + ЯМ API."""
-    tl = text.lower().strip()
-
-    # Что играет
-    if any(w in tl for w in ("что играет", "что сейчас играет", "что у меня играет",
-                               "что у меня сейчас играет", "какая песня",
-                               "какой трек", "что за музыка", "что за песня",
-                               "что за трек", "что слушаем")):
-        return {"action": "music_info"}
-
-    # Управление через SMTC
-    if any(w in tl for w in ("следующий трек", "следующий трак", "следующую песню",
-                               "давай следующий", "следующую", "следующий")):
-        return {"action": "music_next"}
-    if any(w in tl for w in ("предыдущий трек", "предыдущий трак", "предыдущую песню",
-                               "предыдущий", "прошлый трек", "прошлый трак")):
-        return {"action": "music_prev"}
-    if any(w in tl for w in ("поставь на паузу", "останови музыку", "продолжи музыку",
-                               "возобнови музыку", "пауза музыка")):
-        return {"action": "music_play_pause"}
-
-    # Лайк/дизлайк — только явные императивы (не срабатывает на вопросы со словом «нравится»)
-    if not tl.endswith("?"):
-        if any(w in tl for w in ("лайкни", "залайкай", "поставь лайк", "добавь в любимые",
-                                   "добавь в избранное", "лайкни трек", "лайкни песню")):
-            return {"action": "music_like"}
-        if any(w in tl for w in ("дизлайкни", "поставь дизлайк", "убери из любимых",
-                                   "убери из избранного")):
-            return {"action": "music_dislike"}
-
-    # История
-    if any(w in tl for w in ("история прослушивания", "что слушал", "недавние треки",
-                               "последние треки", "что я слушал")):
-        return {"action": "music_history"}
-
-    # Плейлисты
-    if any(w in tl for w in ("мои плейлисты", "список плейлистов", "покажи плейлисты")):
-        return {"action": "music_playlists"}
-
-    # Любимые треки
-    if any(w in tl for w in ("любимые треки", "любимые песни", "лайкнутые треки")):
-        return {"action": "music_liked_tracks"}
-
-    # Рекомендации
-    if any(w in tl for w in ("рекомендации", "посоветуй музыку", "что послушать",
-                               "порекомендуй трек")):
-        return {"action": "music_recommendations"}
-
-    # Поиск
-    import re as _re
-    m = _re.search(r"(?:найди|поищи|есть ли)\s+(.+?)\s+(?:в яндекс музыке|в музыке|на яндексе)$", tl)
-    if m:
-        return {"action": f"music_search:{m.group(1).strip()}"}
-
-    return None
-
 
 def parse_kettle_command(text: str) -> dict | None:
     """Парсит команды чайника. Возвращает {"action": "kettle:..."} или None."""
@@ -447,153 +272,6 @@ def parse_kettle_command(text: str) -> dict | None:
 
     return None
 
-
-def parse_browser_command(text: str) -> dict | None:
-    """Парсит команды браузера Opera GX."""
-    tl = text.lower().strip()
-
-    browser_words = (
-        "браузер", "вкладк", "opera", "страниц", "сайт", "открой сайт",
-        "перейди на", "прокрут", "назад в браузере", "вперёд в браузере",
-        "закрой вкладку", "новая вкладка", "дублируй", "обнови страницу",
-    )
-    if not any(w in tl for w in browser_words) and not _fz(tl, ("вкладку", "вкладка", "браузер", "дублируй")):
-        return None
-
-    # Управление вкладками и прокруткой переехало в реестр (этап 5, 2/2):
-    # browser.tab_* / browser.scroll_* / browser.back / forward / tab_reload
-    # разбираются v3-быстрым путём до этой ветки. Остались URL и поиск —
-    # их в реестре нет (кандидаты: browser.url / browser.search).
-
-    # Открыть URL
-    import re as _re
-    url_m = _re.search(r'(https?://\S+|[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(?:/\S*)?)', tl)
-    if url_m and any(w in tl for w in ("открой", "перейди", "зайди", "иди на")):
-        return {"action": f"browser:url:{url_m.group(1)}"}
-
-    # Поиск в браузере
-    for prefix in ("найди в браузере", "поищи в браузере", "загугли", "найди в интернете"):
-        if prefix in tl:
-            query = tl.split(prefix, 1)[1].strip(" .,")
-            if query:
-                return {"action": f"browser:search:{query}"}
-
-    return None
-
-
-# parse_game_mode_command удалён (этап 5, 2/2): game_mode.on/off переехали
-# в реестр, ветку разбирает v3-быстрый путь.
-
-
-def parse_system_command(text: str) -> dict | None:
-    tl = text.lower().strip()
-    # Блокировка
-    if any(w in tl for w in ("заблокируй", "заблокируй комп", "заблокируй ноут",
-                               "заблокируй экран", "lock", "заблокируй пк")):
-        return {"action": "system:lock"}
-    # Выключение
-    if any(w in tl for w in ("выключи комп", "выключи ноут", "выключи пк",
-                               "выключи компьютер", "выключи ноутбук",
-                               "shutdown", "завершение работы")):
-        return {"action": "system:shutdown"}
-    # Отмена выключения
-    if any(w in tl for w in ("отмени выключение", "не выключай", "cancel shutdown")):
-        return {"action": "system:shutdown_cancel"}
-    # Сон
-    if any(w in tl for w in ("спящий режим", "в сон", "засыпай", "уложи спать")):
-        return {"action": "system:sleep"}
-    return None
-
-
-def parse_device_command(text: str) -> dict | None:
-    tl = text.lower().strip()
-    if not any(k in tl for k in ("громкост", "громче", "тише", "звук", "убавь", "прибавь")):
-        return None
-    if any(w in tl for w in ("выключи звук", "без звука", "тихо совсем", "на ноль")):
-        return {"action": "volume:0"}
-    if any(w in tl for w in ("громче", "прибавь", "увеличь громкость", "сделай громче")):
-        return {"action": f"volume_up:{_extract_volume(tl) or 20}"}
-    if any(w in tl for w in ("тише", "убавь", "уменьши громкость", "сделай тише")):
-        return {"action": f"volume_down:{_extract_volume(tl) or 20}"}
-    if "громкост" in tl or "звук" in tl:
-        n = _extract_volume(tl)
-        if n is not None:
-            return {"action": f"volume:{n}"}
-    return None
-
-
-def parse_music_request(text: str) -> dict | None:
-    import re as _re
-    tl = text.lower().strip()
-    music_keywords = [
-        "музык", "трек", "трэк", "песн", "плейлист", "волн", "включи", "поставь",
-        "пауза", "следующий", "предыдущий", "стоп", "останови", "продолжи", "скип", "назад",
-        "ютуб", "youtube", "видео", "видос", "ролик", "играет",
-    ]
-    if not any(k in tl for k in music_keywords):
-        return None
-
-    # Лайк / дизлайк — только явные императивы, и не на вопросы
-    if not tl.endswith("?"):
-        if any(w in tl for w in ("лайкни", "залайкай", "поставь лайк",
-                                   "добавь в любимые", "добавь в избранное")):
-            return {"action": "music:like"}
-        if any(w in tl for w in ("дизлайкни", "поставь дизлайк", "убери из любимых",
-                                   "плохой трек", "следующий другой")):
-            return {"action": "music:dislike"}
-
-    if any(w in tl for w in ("пауза", "останови музыку", "стоп")):
-        return {"action": "music:play_pause"}
-    if any(w in tl for w in ("следующий трек", "следующий трэк", "следующую", "скип")):
-        return {"action": "music:next"}
-    if any(w in tl for w in ("предыдущий", "назад", "прошлый трек", "прошлый трэк")):
-        return {"action": "music:prev"}
-
-    if any(t in tl for t in ("ютуб", "youtube", "ютьюб")):
-        is_playlist = "плейлист" in tl or "playlist" in tl
-        query = tl
-        for word in [
-            "найди на ютубе", "открой на ютубе", "включи на ютубе",
-            "найди видео", "открой видео", "включи видео",
-            "найди ролик", "включи ролик", "открой ролик",
-            "включи плейлист", "найди плейлист", "открой плейлист",
-            "ютуб", "youtube", "ютьюб", "видео", "видос", "ролик", "плейлист",
-            "найди", "открой", "включи", "поставь",
-        ]:
-            query = query.replace(word, "").strip()
-        # голое «от» только по границе слова — подстрокой резало «хоттабыч», «мотор»
-        query = _re.sub(r"(?<!\w)от(?!\w)", " ", query).strip()
-        query = query.strip(" -,.")
-        if query:
-            return {"action": f"{'youtube_playlist' if is_playlist else 'youtube'}:{query}"}
-
-    if any(w in tl for w in ("мою волну", "мою волна", "волну", "волна")):
-        return {"action": "music:wave"}
-
-    for name, info in YANDEX_PLAYLISTS.items():
-        if name in tl:
-            return {"action": f"music:playlist:{info['kind']}", "title": info["title"]}
-
-    # Поиск по исполнителю
-    for prefix in ("включи исполнителя ", "поставь исполнителя ", "найди исполнителя ",
-                   "музыку от ", "треки от ", "песни "):
-        if prefix in tl:
-            artist = tl.split(prefix, 1)[1].strip()
-            if artist:
-                return {"action": f"music:artist:{artist}"}
-
-    for prefix in ("включи ", "поставь ", "найди ", "хочу послушать ", "поставь трек "):
-        if prefix in tl:
-            query = tl.split(prefix, 1)[1].strip()
-            for w in ("трек", "песню", "музыку", "на ноуте", "на ноутбуке"):
-                query = query.replace(w, "").strip()
-            if query:
-                return {"action": f"music:track:{query}"}
-
-    if any(w in tl for w in ("включи музыку", "запусти музыку", "открой музыку")):
-        return {"action": "music:open"}
-
-    return None
 
 
 # ─────────────────────────────────────────────
@@ -1218,7 +896,6 @@ async def ws_handler(websocket):
                     "_analyze_screen_context": _analyze_screen_context,
                     "_gemini_client": _gemini_client,
                     "bot": bot,
-                    "parse_kettle_command": parse_kettle_command,
                     "PLAN_WAIT_ACK": PLAN_WAIT_ACK,
                 }
 
@@ -1499,7 +1176,6 @@ async def handle_message(message: Message):
                        "ок", "окей", "ага", "угу", "да", "нет", "спасибо",
                        "благодарю", "понял", "понятно", "класс", "круто",
                        "отлично", "давай", "хорошо", "доброе утро", "добрый вечер"}
-    from modules.youtube import youtube_command
     from modules.capsules import (is_capsule_request, parse_open_date,
         create_capsule, make_create_prompt)
     from modules.audio_control import handle_audio_command
@@ -1933,22 +1609,6 @@ async def handle_message(message: Message):
 
     tl_check = text.lower()
 
-    browser_triggers = [
-        "браузер", "вкладк", "найди в яндексе", "поищи в яндексе",
-        "прокрути вниз", "прокрути вверх", "новая вкладка",
-        "закрой вкладку", "переключись на", "обнови страницу",
-        "открой сайт", "перейди на",
-    ]
-    if _fz(tl_check, browser_triggers):
-        laptop_ws, _active_dev = _get_active_ws()
-        if laptop_ws:
-            await laptop_ws.send(json.dumps({"type": "command", "action": f"browser:{text}"}))
-            reply = await ask_gemini(
-                f"Мастер попросил действие в браузере: {text}. Выполняю. Скажи коротко.",
-                save_history=False)
-            await message.answer(reply)
-            return
-
     # ── КОДИНГ ─────────────────────────────────────────────────────────────
     coding_triggers = [
         "создай модуль", "напиши модуль", "новый модуль", "сделай модуль",
@@ -2023,24 +1683,6 @@ async def handle_message(message: Message):
             await message.answer(f"Ошибка кодинга: {str(e)[:200]}")
             return
 
-    close_triggers = ["закрой ", "закрыть "]
-    if _fz(tl_check, close_triggers):
-        query = text.lower()
-        for t in close_triggers:
-            query = query.replace(t, "").strip()
-        query = query.strip(" -,.")
-        if query:
-            laptop_ws, _active_dev = _get_active_ws()
-            if laptop_ws:
-                await laptop_ws.send(json.dumps({"type": "command", "action": f"close_window:{query}"}))
-                reply = await ask_gemini(
-                    f"Мастер попросил закрыть: {query}. Выполняю. Скажи коротко.",
-                    save_history=False)
-                await message.answer(reply)
-            else:
-                await message.answer("Нет подключённых устройств.")
-            return
-
     file_triggers = ["найди файл", "открой файл", "найди документ", "открой документ"]
     if _fz(tl_check, file_triggers):
         query = text
@@ -2059,41 +1701,6 @@ async def handle_message(message: Message):
                 await message.answer("Нет подключённых устройств.")
             return
 
-    yt_cmd = parse_youtube_command(text)
-    if yt_cmd:
-        action = yt_cmd["action"]
-        laptop_ws, _active_dev = _get_active_ws()
-        if yt_cmd.get("agent"):
-            # Хоткей плеера — отправляем агенту напрямую
-            if laptop_ws:
-                await laptop_ws.send(json.dumps({"type": "command", "action": action}))
-            return
-        else:
-            # Data API — выполняем на VPS, результат озвучиваем
-            yt_result = await youtube_command(action)
-            yt_open = yt_result.get("open_youtube_url") or yt_result.get("open_url")
-            if yt_open and laptop_ws:
-                await laptop_ws.send(json.dumps({"type": "command", "action": f"open_youtube_url:{yt_open}"}))
-            if yt_result.get("items"):
-                items_str = chr(10).join(yt_result["items"][:5])
-                prompt = f"Результаты YouTube по запросу '{action}': {items_str}. Расскажи Мастеру коротко что нашла, в своём стиле."
-            else:
-                prompt = f"YouTube: {yt_result.get('result', 'готово')}. Скажи коротко."
-            reply = await ask_gemini(prompt, save_history=False)
-            if reply:
-                await message.answer(reply)
-        return
-
-    music_info_cmd = parse_music_info_command(text)
-    if music_info_cmd:
-        laptop_ws, _active_dev = _get_active_ws()
-        if laptop_ws:
-            await laptop_ws.send(json.dumps({"type": "command", "action": music_info_cmd["action"]}))
-            await message.answer("Запрашиваю...")
-        else:
-            await message.answer("Нет подключённых устройств.")
-        return
-
     kettle_cmd = parse_kettle_command(text)
     if kettle_cmd:
         laptop_ws, _active_dev = _get_active_ws()
@@ -2108,78 +1715,11 @@ async def handle_message(message: Message):
             await message.answer("Нет подключённых устройств.")
         return
 
-    browser_cmd = parse_browser_command(text)
-    if browser_cmd:
-        laptop_ws, _active_dev = _get_active_ws()
-        if laptop_ws:
-            await laptop_ws.send(json.dumps({"type": "command", "action": browser_cmd["action"]}))
-            reply = await ask_gemini(
-                f"Мастер попросил: {text}. Выполняю в браузере. Скажи коротко.",
-                save_history=False)
-            await message.answer(reply)
-        else:
-            await message.answer("Нет подключённых устройств.")
-        return
-
-    system_cmd = parse_system_command(text)
-    if system_cmd:
-        _sys_action = system_cmd["action"]
-        if _sys_action in _DANGEROUS_SYSTEM_ACTIONS:
-            # Опасная системная команда — не выполняем сразу, спрашиваем подтверждение
-            # (см. одноимённую проверку _pending_system выше по функции).
-            laptop_ws, _active_dev = _get_active_ws()
-            if laptop_ws:
-                _pending_system["tg"] = {
-                    "action": _sys_action,
-                    "device": _active_dev,
-                    "ts": __import__("time").monotonic(),
-                }
-                _sys_q = _SYSTEM_CONFIRM_PROMPTS.get(_sys_action, "Выполняю системную команду. Подтверждаешь?")
-                await message.answer(_sys_q)
-            else:
-                await message.answer("Нет подключённых устройств.")
-            return
-        laptop_ws, _active_dev = _get_active_ws()
-        if laptop_ws:
-            await laptop_ws.send(json.dumps({"type": "command", "action": _sys_action}))
-            reply = await ask_gemini(
-                f"Мастер попросил: {text}. Выполняю. Скажи коротко.",
-                save_history=False)
-            await message.answer(reply)
-        else:
-            await message.answer("Нет подключённых устройств.")
-        return
 
     # Игровой режим переехал в реестр (game_mode.on/off, этап 5 2/2) —
     # ветка parse_game_mode_command снята. Замечание: разговорная защита
     # этой ветки («что думаешь про игровой режим») в реестре не повторена —
     # fuzzy-матчинг по границам слов может сработать на упоминании в разговоре.
-
-    device_cmd = parse_device_command(text)
-    if device_cmd:
-        laptop_ws, _active_dev = _get_active_ws()
-        if laptop_ws:
-            await laptop_ws.send(json.dumps({"type": "command", "action": device_cmd["action"]}))
-            reply = await ask_gemini(
-                f"Мастер попросил: {text}. Выполняю на ноуте. Скажи коротко.",
-                save_history=False)
-            await message.answer(reply)
-        else:
-            await message.answer("Нет подключённых устройств.")
-        return
-
-    music_cmd = parse_music_request(text)
-    if music_cmd:
-        laptop_ws, _active_dev = _get_active_ws()
-        if laptop_ws:
-            await laptop_ws.send(json.dumps({"type": "command", "action": music_cmd["action"]}))
-            reply = await ask_gemini(
-                f"Мастер попросил музыку: {text}. Выполняю. Скажи коротко.",
-                save_history=False)
-            await message.answer(reply)
-        else:
-            await message.answer("Нет подключённых устройств.")
-        return
 
     asked   = parse_device_from_text(text)
     dev_id  = asked or next(iter(get_online_devices()), None) or "laptop"
