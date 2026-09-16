@@ -637,3 +637,51 @@
   confirm: false
   triggers: ['найди файл', 'открой файл', 'найди документ', 'открой документ']
 
+- id: coding.create_module
+  legacy: [create_module]
+  desc: 'Создать новый модуль'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['создай модуль', 'напиши модуль', 'новый модуль', 'сделай модуль']
+
+- id: coding.fix
+  legacy: [fix_bug]
+  desc: 'Найти и исправить баг'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['исправь баг', 'найди баг', 'почини код', 'почини модуль']
+
+- id: coding.read_file
+  legacy: [read_code_file]
+  desc: 'Показать код файла'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['прочитай файл', 'покажи код']
+
+- id: coding.commit
+  legacy: [git_commit]
+  desc: 'Сделать git коммит'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['закоммить', 'сделай коммит']
+
+- id: coding.build
+  legacy: [android_build]
+  desc: 'Собрать проект/APK'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['собери проект', 'собери апк', 'собери сборку']
+
+- id: coding.git_status
+  legacy: [git_status]
+  desc: 'Показать git статус'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['git status']
+
