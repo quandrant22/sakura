@@ -134,6 +134,11 @@ def _legacy_action(action: str, arg: str = "") -> str:
     if action == "open.app":
         target = arg or "яндекс музыка"
         return f"open_app:{target}"
+    # system.* → system:<verb> (execute_command, verb "system"): опасные
+    # системные действия переехали в реестр на этапе 5, подтверждение
+    # спрашивает сервер (executor, confirm: true) — агент выключает сразу.
+    if domain == "system" and verb in ("shutdown", "restart", "sleep", "lock"):
+        return f"system:{verb}"
     return action
 
 

@@ -228,16 +228,22 @@ class Test11_WsHandlers(unittest.TestCase):
         return result
 
     def test_shutdown_creates_pending_system_not_sent(self):
-        """«Выключи компьютер» не уходит на агент сразу — создаёт запись в _pending_system."""
+        """«Выключи компьютер» перехватывается v3-мостом раньше v2-критических
+        веток: команда агенту НЕ уходит, роутер ставит ожидание Session.expect
+        (confirm: true), пользователю задан уточняющий вопрос."""
         import modules.ws_handlers as wh
+        from sakura_core.bridge import get_router
         ws_dev = MagicMock()
         ws_dev.send = AsyncMock()
+        get_router().session.cancel()
 
         pending = self._run_voice_command("выключи компьютер", ws_dev)
 
         ws_dev.send.assert_not_awaited()
-        self.assertIn("laptop", pending)
-        self.assertEqual(pending["laptop"]["action"], "system:shutdown")
+        v3_pending = get_router().session.pending
+        self.assertIsNotNone(v3_pending)
+        self.assertEqual(v3_pending.action, "system.shutdown")
+        get_router().session.cancel()
 
     def test_confirm_yes_sends_command_to_agent(self):
         """Ответ «да» в пределах TTL → команда уходит на агент, запись очищается."""
@@ -298,23 +304,28 @@ class Test11_WsHandlers(unittest.TestCase):
         return message
 
     def test_tg_shutdown_creates_pending_system_not_sent(self):
-        """«Выключи компьютер» через Telegram не уходит на агент сразу — создаёт _pending_system."""
+        """«Выключи компьютер» через Telegram перехватывается v3-мостом раньше
+        v2-критических веток: команда агенту НЕ уходит, роутер ставит ожидание
+        Session.expect (confirm: true), пользователю задан уточняющий вопрос."""
         with patch("aiogram.Bot"):
             import main
+        from sakura_core.bridge import get_router
         master_id = int(os.environ["MASTER_ID"])
         laptop_ws = MagicMock()
         laptop_ws.send = AsyncMock()
         message = self._make_tg_message("выключи компьютер", master_id)
+        get_router().session.cancel()
 
         with patch.object(main, "bot", MagicMock()), \
              patch.object(main, "_get_active_ws", return_value=(laptop_ws, "laptop")), \
              patch.object(main, "_pending_system", {}):
             asyncio.get_event_loop().run_until_complete(main.handle_message(message))
-            pending = dict(main._pending_system)
 
         laptop_ws.send.assert_not_awaited()
-        self.assertIn("tg", pending)
-        self.assertEqual(pending["tg"]["action"], "system:shutdown")
+        v3_pending = get_router().session.pending
+        self.assertIsNotNone(v3_pending)
+        self.assertEqual(v3_pending.action, "system.shutdown")
+        get_router().session.cancel()
 
     def test_tg_confirm_yes_sends_command_to_agent(self):
         """Ответ «да» в Telegram в пределах TTL → команда уходит на агент через execute_critical_action."""

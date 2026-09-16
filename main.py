@@ -2904,6 +2904,32 @@ async def handle_message(message: Message):
         return
 
 
+    # ── v3 (этап 5): confirm-диалог реестра (system.shutdown/restart/sleep —
+    # confirm: true, executor.py ставит Session.expect) проверяется ДО v2
+    # _pending_system: подтверждение v3 — через ту же сессию, которую route()
+    # опрашивает на первом шаге. Без этой ветки «да» после вопроса v3 падал
+    # бы в v2-_pending_system (его там нет) и уходил в классификатор.
+    try:
+        from sakura_core.bridge import get_router as _v3_get_router
+        _v3_router = _v3_get_router()
+        if _v3_router.session.pending is not None:
+            _v3_dec = _v3_router.route(text, None)
+            if _v3_dec.source == "session" and _v3_dec.verdict is not None:
+                if _v3_dec.verdict == "confirm" and _v3_dec.action:
+                    laptop_ws, _active_dev = _get_active_ws()
+                    if laptop_ws:
+                        _cmd_full = _v3_dec.action.replace(".", ":", 1)
+                        await execute_critical_action(_cmd_full, laptop_ws, _active_dev,
+                                                      text, "", ask_gemini)
+                        await message.answer("Готово.")
+                    else:
+                        await message.answer("Устройство отключилось, не могу выполнить.")
+                else:
+                    await message.answer("Хорошо, отменила.")
+                return
+    except Exception as _v3_conf_err:
+        log.debug(f"[main] v3 confirm: {type(_v3_conf_err).__name__}: {_v3_conf_err}")
+
     # ── ПОДТВЕРЖДЕНИЕ ОПАСНОЙ СИСТЕМНОЙ КОМАНДЫ (shutdown/restart/sleep) ──
     # Тот же _pending_system, что и в голосовом пути (modules/ws_handlers.py).
     # Ключ "tg" — у Telegram-сообщения нет device_id, как и у голоса без устройства.

@@ -56,7 +56,8 @@ def test_all_youtube_actions_registered():
 
 def test_all_system_actions_registered():
     want = {"game_mode.on", "game_mode.off", "open.app",
-            "close_window.браузер", "screenshot.run", "screenshot.describe"}
+            "close_window.браузер", "screenshot.run", "screenshot.describe",
+            "system.shutdown", "system.restart", "system.sleep"}
     assert not (want - set(registered())), f"нет хендлеров: {want - set(registered())}"
 
 

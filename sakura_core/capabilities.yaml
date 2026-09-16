@@ -15,7 +15,7 @@
 # Реестр способностей Сакуры v3 — черновик, сгенерирован из кода 15c2509
 # Канонические id: domain.verb. legacy — как действие называлось в v2.
 # ПРОВЕРИТЬ ВРУЧНУЮ: desc, params, confirm у всего, что помечено CHECK.
-# действий: 67
+# действий: 70
 
 - id: briefing.now
   legacy: [briefing:now]
@@ -414,6 +414,31 @@
   reversible: true
   confirm: false
   triggers: ['во что играл недавно', 'последние игры', 'недавние игры', 'что запускал']
+
+- id: system.restart
+  legacy: [system:restart]
+  desc: 'Перезагрузить компьютер'
+  executor: agent
+  reversible: false
+  confirm: true
+  triggers: ['перезагрузи компьютер', 'перезагрузи пк']
+
+- id: system.shutdown
+  legacy: [system:shutdown]
+  desc: 'Выключить компьютер'
+  executor: agent
+  reversible: false
+  confirm: true
+  triggers: ['выключи комп', 'выключи ноут', 'выключи пк', 'выключи компьютер', 'выключи ноутбук', 'shutdown', 'завершение работы']
+
+- id: system.sleep
+  legacy: [system:sleep]
+  desc: 'Отправить компьютер в сон'
+  executor: agent
+  reversible: false
+  confirm: true
+  triggers: ['спящий режим', 'сон компьютера', 'в сон', 'засыпай', 'уложи спать']
+
 
 - id: task.add
   legacy: [task:add]

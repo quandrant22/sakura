@@ -4,7 +4,7 @@ Run: python -m pytest tests/test_router.py -q
 
 Критерии этапа: реестр разрешает без обращения к LLM (мок-счётчик), wake-слово
 срезается до реестра, context разводит «перемотай вперёд», активное pending
-перехватывает «да» до реестра и LLM, все 67 действий покрыты триггером.
+перехватывает «да» до реестра и LLM, все 70 действий покрыты триггером.
 """
 
 import pytest
@@ -156,10 +156,10 @@ def test_llm_receives_catalog_with_all_ids(make_router):
         assert d.id in seen["catalog"]
 
 
-# ── покрытие: каждое из 67 действий достигается триггером ─────────────────
+# ── покрытие: каждое из 70 действий достигается триггером ─────────────────
 
 
-def test_all_67_actions_covered_by_triggers(registry):
+def test_all_70_actions_covered_by_triggers(registry):
     router = Router(declarations=registry, llm_classify=None)
     missed = []
     for decl in registry:
