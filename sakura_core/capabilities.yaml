@@ -685,3 +685,12 @@
   confirm: false
   triggers: ['git status']
 
+- id: calendar.list
+  legacy: [calendar:list]
+  desc: 'Показать ближайшие события из Google Calendar'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['.calendar', 'календарь', 'мои события', 'какие встречи',
+             'расписание на сегодня', 'что сегодня по расписанию']
+

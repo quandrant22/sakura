@@ -7,6 +7,7 @@ import asyncio
 import json
 
 import capabilities.browser
+import capabilities.calendar
 import capabilities.coding
 import capabilities.ext
 import capabilities.files
