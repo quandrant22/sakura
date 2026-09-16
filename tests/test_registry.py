@@ -135,3 +135,97 @@ def test_catalog_contains_all_ids(registry):
         assert d.id in catalog
     # каталог — строки '- id: desc'
     assert catalog.splitlines()[0].startswith("- ")
+
+
+# --- param tie-breaking: при равной длине триггера побеждает param ----------
+
+
+def test_kipiti_bare_goes_to_boil(index):
+    """'кипяти' (без температуры) → kettle.boil, param=None."""
+    result = index.match("кипяти")
+    assert result is not None
+    decl, param = result[1], result[2]
+    assert decl.id == "kettle.boil"
+    assert param is None
+
+
+def test_kipiti_with_temp_goes_to_boil_heat(index):
+    """'кипяти 70 градусов' → kettle.boil_heat, param='70'."""
+    result = index.match("кипяти 70 градусов")
+    assert result is not None
+    decl, param = result[1], result[2]
+    assert decl.id == "kettle.boil_heat"
+    assert param == "70"
+
+
+def test_vskipiti_bare_goes_to_boil(index):
+    """'вскипяти' (без температуры) → kettle.boil, param=None."""
+    result = index.match("вскипяти")
+    assert result is not None
+    decl, param = result[1], result[2]
+    assert decl.id == "kettle.boil"
+    assert param is None
+
+
+def test_vskipiti_with_temp_goes_to_boil_heat(index):
+    """'вскипяти 80 градусов' → kettle.boil_heat, param='80'."""
+    result = index.match("вскипяти 80 градусов")
+    assert result is not None
+    decl, param = result[1], result[2]
+    assert decl.id == "kettle.boil_heat"
+    assert param == "80"
+
+
+def test_param_tiebreaking_independent_of_yaml_order():
+    """Перестановка деклараций в списке не меняет результат матчинга."""
+    from sakura_core.registry import Declaration, Param, TriggerIndex
+
+    decl_a = Declaration(
+        id="a.with_param", desc="A", executor="vps",
+        reversible=True, confirm=False,
+        triggers=["общая фраза"],
+        param=Param(name="x", pattern=r"(\d+)", required=True),
+    )
+    decl_b = Declaration(
+        id="b.no_param", desc="B", executor="vps",
+        reversible=True, confirm=False,
+        triggers=["общая фраза"],
+    )
+
+    # Порядок 1: A первый
+    idx1 = TriggerIndex([decl_a, decl_b])
+    r1 = idx1.match("общая фраза 42")
+    assert r1 is not None
+    assert r1[1].id == "a.with_param"
+    assert r1[2] == "42"
+
+    # Порядок 2: B первый
+    idx2 = TriggerIndex([decl_b, decl_a])
+    r2 = idx2.match("общая фраза 42")
+    assert r2 is not None
+    assert r2[1].id == "a.with_param"
+    assert r2[2] == "42"
+
+    # Без числа — param не извлекается, побеждает тот, у кого нет required param
+    r3 = idx1.match("общая фраза")
+    assert r3 is not None
+    assert r3[1].id == "b.no_param"  # param.required=True, extract=None → skip → B
+    r4 = idx2.match("общая фраза")
+    assert r4 is not None
+    assert r4[1].id == "b.no_param"  # B идёт первый, A пропущена (required param missing)
+
+
+def test_unresolvable_ambiguity_raises():
+    """Два действия с одинаковым триггером, без context и без param — ошибка."""
+    a = _decl(id="a.one", triggers=["конфликт"])
+    b = _decl(id="b.two", triggers=["конфликт"])
+    with pytest.raises(RegistryError, match="неразрешимая неоднозначность"):
+        validate([a, b])
+
+
+def test_shared_trigger_with_param_is_legal():
+    """Два действия с одинаковым триггером, у одного param — допустимо."""
+    a = _decl(id="a.with_param", triggers=["конфликт"],
+              param={"name": "x", "pattern": r"(\d+)", "required": True})
+    b = _decl(id="b.no_param", triggers=["конфликт"])
+    validate([a, b])  # не бросает: param разрешает ничью на runtime

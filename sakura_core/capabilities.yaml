@@ -647,7 +647,7 @@
   executor: agent
   reversible: false
   confirm: false
-  triggers: ['вскипяти до', 'кипяти до', 'вскипяти на', 'кипяти на']
+  triggers: ['вскипяти до', 'кипяти до', 'вскипяти на', 'кипяти на', 'вскипяти', 'кипяти']
   param:
     name: temp
     pattern: '(?:до|на)\s+(\d+)|(\d+)(?:\s*градус)'

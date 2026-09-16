@@ -183,11 +183,20 @@ def validate(declarations: Iterable[Declaration]) -> None:
             by_trigger.setdefault(trigger, []).append(d)
 
     for trigger, owners in by_trigger.items():
-        if len(owners) > 1 and any(o.context is None for o in owners):
+        if len(owners) <= 1:
+            continue
+        # Проверяем неоднозначность: владельцы с context=None
+        no_ctx = [o for o in owners if o.context is None]
+        if len(no_ctx) < 2:
+            continue
+        # Среди no_ctx: если НИ У ОДНОГО нет param — это неразрешимая ничья.
+        # Если хотя бы у одного есть param — tie-breaking на runtime решит.
+        no_param = [o for o in no_ctx if o.param is None]
+        if len(no_param) == len(no_ctx):
             names = ", ".join(f"'{o.id}'" for o in owners)
             raise RegistryError(
-                f"триггер '{trigger}' принадлежит нескольким действиям, "
-                f"и хотя бы у одного нет context: {names}"
+                f"триггер '{trigger}' принадлежит нескольким действиям "
+                f"без context и без param: {names} — неразрешимая неоднозначность"
             )
 
 
@@ -226,25 +235,55 @@ class TriggerIndex:
         'window:browser') или None. Декларации с context участвуют только
         при совпадении контекста; без context — при любом.
 
+        При равной длине триггера выигрывает декларация, у которой
+        param.extract() вернул значение. Это устраняет зависимость от
+        порядка деклараций в YAML.
+
         Если у декларации param.required=True, но значение не извлечено,
-        декларация пропускается (следующая по длине).
+        декларация пропускается.
 
         Возвращает (триггер, декларация, param_value) либо None.
         """
         if not text:
             return None
         lowered = text.lower()
+
+        best_len = 0
+        best_matches: list[tuple[str, Declaration, Optional[str]]] = []
+
         for trigger, pattern, declaration in self._entries:
+            trigger_len = len(trigger)
+
+            # Если текущий триггер короче лучшего — дальше искать бессмысленно
+            if best_len > 0 and trigger_len < best_len:
+                break
+
             if declaration.context is not None and declaration.context != context:
                 continue
-            if pattern.search(lowered):
-                param_value = None
-                if declaration.param is not None:
-                    param_value = declaration.param.extract(text)
-                    if declaration.param.required and param_value is None:
-                        continue  # required param не найден — пропускаем
-                return trigger, declaration, param_value
-        return None
+
+            if not pattern.search(lowered):
+                continue
+
+            param_value = None
+            if declaration.param is not None:
+                param_value = declaration.param.extract(text)
+                if declaration.param.required and param_value is None:
+                    continue  # required param не найден — пропускаем
+
+            if trigger_len > best_len:
+                best_len = trigger_len
+                best_matches = [(trigger, declaration, param_value)]
+            elif trigger_len == best_len:
+                best_matches.append((trigger, declaration, param_value))
+
+        if not best_matches:
+            return None
+
+        # Среди совпадений максимальной длины предпочесть то, где param извлечён
+        for match in best_matches:
+            if match[2] is not None:
+                return match
+        return best_matches[0]
 
 
 def build_index(declarations: Iterable[Declaration]) -> TriggerIndex:
