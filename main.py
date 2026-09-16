@@ -172,60 +172,13 @@ dp  = Dispatcher()
 
 PLAN_WAIT_ACK = True  # агент теперь шлёт ack для каждой команды
 
-
-def _cleanup_pending_commands():
-    """Удаляет команды старше 5 минут."""
-    now = __import__("time").monotonic()
-    expired = [k for k, v in _pending_commands.items() if now - v["ts"] > 300]
-    for k in expired:
-        del _pending_commands[k]
-
-
-def _register_command(action: str, device: str) -> str:
-    """Регистрирует команду и возвращает её id."""
-    cmd_id = uuid.uuid4().hex[:12]
-    _pending_commands[cmd_id] = {
-        "action": action,
-        "device": device,
-        "ts": __import__("time").monotonic(),
-        "status": "sent",
-    }
-    _cleanup_pending_commands()
-    return cmd_id
-
-
-def _resolve_command_status(device: str, ok: bool, detail: str) -> str:
-    """Находит последнюю pending-команду (status==sent) для устройства, обновляет статус."""
-    now = __import__("time").monotonic()
-    best_id = None
-    best_ts = -1
-    for cmd_id, cmd in _pending_commands.items():
-        if cmd["status"] == "sent" and cmd["device"] == device and now - cmd["ts"] < 300:
-            if cmd["ts"] > best_ts:
-                best_ts = cmd["ts"]
-                best_id = cmd_id
-    if best_id:
-        _pending_commands[best_id]["status"] = "executed" if ok else "failed"
-        _pending_commands[best_id]["detail"] = detail
-        return _pending_commands[best_id]["status"]
-    return "executed" if ok else "failed"
-
-
-def _get_active_ws():
-    """Возвращает websocket активного подключённого устройства.
-    Порядок: активное по presence_sync → первое онлайн → None.
-    """
-    try:
-        from modules.presence_sync import get_active_device
-        dev = get_active_device()
-        if dev and dev in connected_devices:
-            return connected_devices[dev], dev
-    except Exception as e:
-        log.debug(f"[main] _get_active_ws: {type(e).__name__}: {e}")
-    # Fallback: первое подключённое
-    for dev_id, ws in connected_devices.items():
-        return ws, dev_id
-    return None, None
+# WebSocket-команды перенесены в adapters/voice.py (commit 6, stage 6)
+from adapters.voice import (  # noqa: F811, E402
+    _cleanup_pending_commands,
+    _register_command,
+    _resolve_command_status,
+    _get_active_ws,
+)
 
 # Основная модель задаётся в config.py (env MAIN_MODEL), здесь не дублируется
 
