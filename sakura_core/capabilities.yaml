@@ -605,3 +605,27 @@
   confirm: false
   triggers: ['популярное на ютубе', 'что в тренде', 'тренды ютуба', 'популярные видео']
 
+- id: kettle.boil
+  legacy: [kettle:boil]
+  desc: 'Вскипятить чайник'
+  executor: agent
+  reversible: false
+  confirm: false
+  triggers: ['вскипяти чайник', 'включи чайник', 'поставь чайник', 'чай поставь', 'поставь чай', 'кипяток', 'кипящую воду', 'чайник']
+
+- id: kettle.off
+  legacy: [kettle:off]
+  desc: 'Выключить чайник'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['выключи чайник', 'останови чайник', 'стоп чайник', 'выруби чайник', 'выключить чайник']
+
+- id: kettle.status
+  legacy: [kettle:status]
+  desc: 'Статус чайника'
+  executor: agent
+  reversible: true
+  confirm: false
+  triggers: ['статус чайника', 'температура чайника', 'сколько градусов в чайнике', 'горячий чайник', 'горячая вода']
+
