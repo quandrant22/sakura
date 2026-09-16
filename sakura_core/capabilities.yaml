@@ -629,6 +629,30 @@
   confirm: false
   triggers: ['статус чайника', 'температура чайника', 'сколько градусов в чайнике', 'горячий чайник', 'горячая вода']
 
+- id: kettle.heat
+  legacy: [kettle:heat]
+  desc: 'Нагреть воду до заданной температуры'
+  executor: agent
+  reversible: false
+  confirm: false
+  triggers: ['нагрей воду', 'нагрей до', 'чайник на', 'подогрей воду', 'нагрей воду до']
+  param:
+    name: temp
+    pattern: '(?:до|на)\s+(\d+)'
+    required: true
+
+- id: kettle.boil_heat
+  legacy: [kettle:boil_heat]
+  desc: 'Вскипятить и держать температуру'
+  executor: agent
+  reversible: false
+  confirm: false
+  triggers: ['вскипяти до', 'кипяти до', 'вскипяти на', 'кипяти на']
+  param:
+    name: temp
+    pattern: '(?:до|на)\s+(\d+)|(\d+)(?:\s*градус)'
+    required: true
+
 - id: files.open
   legacy: [open_file]
   desc: 'Найти и открыть файл'
@@ -636,6 +660,10 @@
   reversible: true
   confirm: false
   triggers: ['найди файл', 'открой файл', 'найди документ', 'открой документ']
+  param:
+    name: query
+    pattern: '(?:файл|документ)\s+(.+)'
+    required: false
 
 - id: coding.create_module
   legacy: [create_module]
@@ -644,6 +672,10 @@
   reversible: true
   confirm: false
   triggers: ['создай модуль', 'напиши модуль', 'новый модуль', 'сделай модуль']
+  param:
+    name: module_name
+    pattern: 'модуль\s+(.+)'
+    required: false
 
 - id: coding.fix
   legacy: [fix_bug]
@@ -652,6 +684,10 @@
   reversible: true
   confirm: false
   triggers: ['исправь баг', 'найди баг', 'почини код', 'почини модуль']
+  param:
+    name: description
+    pattern: '(?:баг|код|модуль)\s+(.+)'
+    required: false
 
 - id: coding.read_file
   legacy: [read_code_file]
@@ -660,6 +696,10 @@
   reversible: true
   confirm: false
   triggers: ['прочитай файл', 'покажи код']
+  param:
+    name: filepath
+    pattern: '(?:файл|код)\s+(\S+)'
+    required: false
 
 - id: coding.commit
   legacy: [git_commit]
@@ -668,6 +708,10 @@
   reversible: true
   confirm: false
   triggers: ['закоммить', 'сделай коммит']
+  param:
+    name: message
+    pattern: '(?:закоммить|коммит)\s+(.+)'
+    required: false
 
 - id: coding.build
   legacy: [android_build]

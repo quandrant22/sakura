@@ -34,6 +34,7 @@ class ExecutionContext:
     device_ws: Any = None                  # WS агента
     device_id: str = ""
     register_command: Optional[Callable[[str, str], str]] = None
+    param: Optional[str] = None            # значение параметра из реестра
     extra: dict = field(default_factory=dict)
 
 
@@ -100,7 +101,7 @@ class Executor:
         await ctx.device_ws.send(json.dumps(payload))
         return cmd_id
 
-    async def execute(self, action_id: str, ctx: ExecutionContext):
+    async def execute(self, action_id: str, ctx: ExecutionContext, param: Optional[str] = None):
         # Необратимое действие не исполняется молча: выставляется ожидание
         # подтверждения, вместо исполнения возвращается вопрос. Исполнение
         # придёт следующим ходом — «да» роутер разрешит в Decision(source
@@ -117,6 +118,15 @@ class Executor:
         fn = _HANDLERS.get(action_id)
         if fn is None:
             raise RuntimeError(f"нет хендлера для '{action_id}'")
+        # Передаём param через ctx, чтобы хендлер мог его использовать
+        if param is not None:
+            ctx = ExecutionContext(
+                device_ws=ctx.device_ws,
+                device_id=ctx.device_id,
+                register_command=ctx.register_command,
+                param=param,
+                extra=ctx.extra,
+            )
         # Хендлер может быть вызываемым, а может быть данными (например,
         # готовой AgentCommand в явной таблице домена).
         result = fn(ctx) if callable(fn) else fn

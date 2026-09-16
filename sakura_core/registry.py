@@ -34,6 +34,30 @@ class RegistryError(Exception):
 
 
 @dataclass(frozen=True)
+class Param:
+    """Параметр, извлекаемый из текста пользователя.
+
+    pattern - regex с одной группой захвата.
+    Извлекает значение из полного текста фразы пользователя.
+    """
+
+    name: str
+    pattern: str
+    required: bool = True
+
+    def extract(self, text: str) -> Optional[str]:
+        """Извлечь значение параметра из текста. None если не найдено."""
+        m = re.search(self.pattern, text, re.IGNORECASE)
+        if not m:
+            return None
+        # Используем первую непустую группу захвата
+        for g in m.groups():
+            if g is not None:
+                return g
+        return None
+
+
+@dataclass(frozen=True)
 class Declaration:
     """Одна способность: канонический id, описание, исполнитель, триггеры."""
 
@@ -45,6 +69,7 @@ class Declaration:
     triggers: tuple[str, ...]
     legacy: tuple[str, ...] = ()
     context: Optional[str] = None
+    param: Optional[Param] = None
 
 
 def _as_strings(value, where: str) -> tuple[str, ...]:
@@ -55,6 +80,25 @@ def _as_strings(value, where: str) -> tuple[str, ...]:
     if isinstance(value, (list, tuple)):
         return tuple(str(item) for item in value)
     raise RegistryError(f"{where}: ожидался список строк")
+
+
+def _parse_param(raw, where: str) -> Optional[Param]:
+    """Парсинг необязательного поля param из YAML."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise RegistryError(f"{where}: param должен быть словарём")
+    name = raw.get("name")
+    pattern = raw.get("pattern")
+    if not name or not isinstance(name, str):
+        raise RegistryError(f"{where}: param.name обязателен и должен быть строкой")
+    if not pattern or not isinstance(pattern, str):
+        raise RegistryError(f"{where}: param.pattern обязателен и должен быть строкой")
+    try:
+        re.compile(pattern)
+    except re.error as e:
+        raise RegistryError(f"{where}: param.pattern невалидный regex: {e}")
+    return Param(name=name, pattern=pattern, required=bool(raw.get("required", True)))
 
 
 def declaration_from_dict(raw: dict) -> Declaration:
@@ -79,6 +123,7 @@ def declaration_from_dict(raw: dict) -> Declaration:
         triggers=_as_strings(raw["triggers"], where),
         legacy=_as_strings(raw.get("legacy"), where),
         context=raw.get("context"),
+        param=_parse_param(raw.get("param"), where),
     )
 
 
@@ -151,14 +196,15 @@ class TriggerIndex:
 
     def match(
         self, text: str, context: Optional[str] = None
-    ) -> Optional[tuple[str, Declaration]]:
+    ) -> Optional[tuple[str, Declaration, Optional[str]]]:
         """Самый длинный совпавший триггер во фразе.
 
         context — текущий контекст ('playing:music', 'window:youtube',
         'window:browser') или None. Декларации с context участвуют только
         при совпадении контекста; без context — при любом.
 
-        Возвращает (триггер, декларация) либо None, если ничего не совпало.
+        Возвращает (триггер, декларация, param_value) либо None.
+        param_value — значение параметра, извлечённое из текста (или None).
         """
         if not text:
             return None
@@ -167,7 +213,10 @@ class TriggerIndex:
             if declaration.context is not None and declaration.context != context:
                 continue
             if pattern.search(lowered):
-                return trigger, declaration
+                param_value = None
+                if declaration.param is not None:
+                    param_value = declaration.param.extract(text)
+                return trigger, declaration, param_value
         return None
 
 

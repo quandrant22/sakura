@@ -40,6 +40,7 @@ class Decision:
     action: Optional[str]                # канонический id или None (разговор)
     source: str                          # session | registry_exact | registry_fuzzy | llm | conversation
     trigger: Optional[str] = None        # сработавший триггер (если был)
+    param: Optional[str] = None          # значение параметра (если declaration.param)
     verdict: Optional[str] = None        # confirm | deny — только для source="session"
     pending_kind: Optional[str] = None   # confirm | plan | clarify — для session
     reply: Optional[object] = None       # Reply разговорного слоя (этап 5, 3/3)
@@ -124,8 +125,8 @@ class Router:
         # 3. registry — по границам слов, самый длинный триггер
         fuzzy = self._index.match(cleaned, ctx)
         if fuzzy is not None:
-            trigger, d = fuzzy
-            return Decision(d.id, "registry_fuzzy", trigger=trigger)
+            trigger, d, param_value = fuzzy
+            return Decision(d.id, "registry_fuzzy", trigger=trigger, param=param_value)
 
         # 4. разговорные механики — смотрят на текст, не на Decision
         if self._conversation is not None:
