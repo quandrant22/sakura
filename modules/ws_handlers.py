@@ -910,6 +910,7 @@ async def handle_voice_command(websocket, data, ctx) -> None:
     _execute_plan = ctx["_execute_plan"]
     _register_command = ctx["_register_command"]
     _get_active_ws = ctx["_get_active_ws"]
+    parse_kettle_command = ctx["parse_kettle_command"]
     bot = ctx["bot"]
 
     device_id  = data.get("device_id")
@@ -1348,6 +1349,30 @@ async def handle_voice_command(websocket, data, ctx) -> None:
     # разговорный слой conversation/ (этап 5, 3/3): разбираются в
     # router.route() между реестром и LLM.
     # ── КРИТИЧЕСКИЕ КОМАНДЫ (точный матчинг, без LLM) ────
+    kettle_cmd = parse_kettle_command(text)
+    if kettle_cmd and ws_dev:
+        st._last_command_ts = __import__('time').monotonic()
+        await ws_dev.send(json.dumps({"type": "command", "action": kettle_cmd["action"]}))
+        _kreply = await ask_gemini(
+            f"Мастер попросил: {text}. Команда: {kettle_cmd['action']}. Скажи коротко.",
+            save_history=False)
+        if _kreply:
+            await stream_tts_to_device(_kreply, ws_dev, device_id or "laptop", literal=True)
+        # Провод 3: действие становится эпизодом
+        try:
+            from modules.disposition import current as _disp_ep
+            _dep = _disp_ep()
+            add_episode(
+                text=f"Выполнила команду: {text[:80]} → {kettle_cmd['action']}",
+                emotion=_dep["stance"],
+                valence=_dep["valence"],
+                arousal=_dep["arousal"],
+                context=data.get("active_window", ""),
+            )
+        except Exception as e:
+            log.debug(f"[ws] _say: {type(e).__name__}: {e}")
+        return
+
     _critical = route_critical(text)
     if _critical and ws_dev:
         if _critical in _DANGEROUS_SYSTEM_ACTIONS:

@@ -220,6 +220,62 @@ YANDEX_UID = "adebtrern"
 # ─────────────────────────────────────────────
 
 
+def parse_kettle_command(text: str) -> dict | None:
+    """Парсит команды чайника. Возвращает {"action": "kettle:..."} или None."""
+    import re as _re
+    tl = text.lower().strip()
+
+    kettle_words = ("чайник", "кипяти", "вскипяти", "нагрей воду", "нагрей",
+                    "подогрей воду", "кипяток", "кипящую воду", "чай поставь", "поставь чай")
+    if not any(w in tl for w in kettle_words):
+        return None
+
+    # Выключить — проверяем ПЕРВЫМ, до всего остального
+    off_words = ("выключи", "останови", "стоп", "отмени", "выруби", "выключить")
+    if any(w in tl for w in off_words):
+        return {"action": "kettle:off"}
+
+    # Статус
+    status_words = ("статус", "температура", "как чайник", "готов", "сколько градусов",
+                    "горячая", "горячий", "остыл", "остыла")
+    if any(w in tl for w in status_words):
+        return {"action": "kettle:status"}
+
+    # Температура цифрой
+    m = _re.search(r"(?:до|на)\s+(\d+)", tl) or _re.search(r"(\d+)\s*градус", tl)
+    if m:
+        temp = int(m.group(1))
+        if any(w in tl for w in ("вскипяти", "кипяти", "сначала", "потом держи", "и держи")):
+            return {"action": f"kettle:boil_heat:{temp}"}
+        return {"action": f"kettle:heat:{temp}"}
+
+    # Температура словами
+    temp_words = {
+        "сорок": 40, "сорока": 40,
+        "пятьдесят": 50, "пятидесяти": 50,
+        "шестьдесят": 60, "шестидесяти": 60,
+        "семьдесят": 70, "семидесяти": 70,
+        "восемьдесят": 80, "восьмидесяти": 80,
+        "девяносто": 90, "девяноста": 90,
+    }
+    for word, temp in temp_words.items():
+        if word in tl:
+            if any(w in tl for w in ("вскипяти", "кипяти", "и держи")):
+                return {"action": f"kettle:boil_heat:{temp}"}
+            return {"action": f"kettle:heat:{temp}"}
+
+    # Вскипятить
+    boil_words = ("вскипяти", "кипяти", "включи чайник", "поставь чайник",
+                  "чай поставь", "поставь чай", "кипяток", "кипящую")
+    if any(w in tl for w in boil_words):
+        return {"action": "kettle:boil"}
+
+    # Просто «чайник» без уточнения — включаем
+    if "чайник" in tl:
+        return {"action": "kettle:boil"}
+
+    return None
+
 
 # ─────────────────────────────────────────────
 #  Утилиты
@@ -843,6 +899,7 @@ async def ws_handler(websocket):
                     "_analyze_screen_context": _analyze_screen_context,
                     "_gemini_client": _gemini_client,
                     "bot": bot,
+                    "parse_kettle_command": parse_kettle_command,
                     "PLAN_WAIT_ACK": PLAN_WAIT_ACK,
                 }
 
@@ -1555,6 +1612,20 @@ async def handle_message(message: Message):
     # — нормализация текста не нужна (этап 5, 2/2).
 
     tl_check = text.lower()
+
+    kettle_cmd = parse_kettle_command(text)
+    if kettle_cmd:
+        laptop_ws, _active_dev = _get_active_ws()
+        if laptop_ws:
+            await laptop_ws.send(json.dumps({"type": "command", "action": kettle_cmd["action"]}))
+            action_label = kettle_cmd["action"].replace("kettle:", "")
+            reply = await ask_gemini(
+                f"Мастер попросил: {text}. Команда чайнику: {action_label}. Скажи коротко.",
+                save_history=False)
+            await message.answer(reply)
+        else:
+            await message.answer("Нет подключённых устройств.")
+        return
 
     # Игровой режим переехал в реестр (game_mode.on/off, этап 5 2/2) —
     # ветка parse_game_mode_command снята. Замечание: разговорная защита
