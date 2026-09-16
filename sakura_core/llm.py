@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import AsyncIterator, Optional
 
 import config
@@ -129,3 +130,79 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
         if isinstance(item, Exception):
             raise item
         yield item
+
+# ── Контракт LlmClassify (роутер, этап 2): (текст, каталог) → id | None ──
+
+CLASSIFY_SYSTEM = (
+    "Ты — классификатор команд ассистента. По фразе пользователя выбери одно "
+    "действие из каталога. Ответь ровно id действия одной строкой, без слов "
+    "и пояснений. Если подходящего действия в каталоге нет — ответь ровно: null"
+)
+
+_ID_RE = re.compile(r"[a-z0-9_.]+")
+
+
+async def classify_action(text: str, catalog: str, *, model: Optional[str] = None,
+                          timeout: float = DEFAULT_TIMEOUT_S,
+                          api_key: Optional[str] = None) -> Optional[str]:
+    """Клей между generate() (сырой текст) и LlmClassify (id действия).
+
+    Промпт-классификатор: каталог из реестра → ответ-идентификатор; «null»,
+    проза и пустой ответ → None. Проверку «id известен реестру» НЕ делает —
+    это ответственность роутера (sakura_core/router.py): неизвестный id
+    считается разговором.
+    """
+    if not (text or "").strip() or not (catalog or "").strip():
+        return None
+    raw = await generate(
+        text,
+        system=f"{CLASSIFY_SYSTEM}\n\nКаталог действий:\n{catalog}",
+        model=model, max_tokens=24, temperature=0.0, timeout=timeout,
+        api_key=api_key,
+    )
+    answer = (raw or "").strip().strip('`"\'').strip()
+    first = answer.splitlines()[0].strip().rstrip(".,;:") if answer else ""
+    first = first.lower()
+    if not first or first in ("null", "none", "-"):
+        return None
+    return first if _ID_RE.fullmatch(first) else None
+
+
+# ── Синхронный мост: LlmClassify — синхронный контракт, classify_action — нет ──
+
+_classify_pool = None  # один поток со своим циклом на процесс (лениво)
+
+
+def _run_classify(coro):
+    """Выполнить корутину классификации вне работающего цикла адаптеров.
+
+    route() синхронный и вызывается из-под живого event loop'а, поэтому
+    asyncio.run() здесь нельзя — корутина уходит в отдельный поток со своим
+    циклом. Вызывается только когда реестр не смог ответить без LLM, то есть
+    на разговорных формулировках, — не на горячем пути команд.
+    """
+    global _classify_pool
+    if _classify_pool is None:
+        import concurrent.futures
+        _classify_pool = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="sakura-classify")
+    return _classify_pool.submit(asyncio.run, coro).result()
+
+
+def make_llm_classify(*, model: Optional[str] = None,
+                      timeout: float = DEFAULT_TIMEOUT_S,
+                      api_key: Optional[str] = None):
+    """Собрать LlmClassify для Router(llm_classify=...).
+
+    Ошибки (сеть, ключи) не поднимаются: классификация — последний шаг
+    перед разговором, провал означает «это разговор».
+    """
+    def classify(text: str, catalog: str) -> Optional[str]:
+        try:
+            return _run_classify(
+                classify_action(text, catalog, model=model,
+                                timeout=timeout, api_key=api_key))
+        except Exception as e:
+            log.warning(f"[llm] classify провалился: {type(e).__name__}: {e}")
+            return None
+    return classify
