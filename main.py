@@ -896,6 +896,7 @@ async def ws_handler(websocket):
                     "_analyze_screen_context": _analyze_screen_context,
                     "_gemini_client": _gemini_client,
                     "bot": bot,
+                    "parse_kettle_command": parse_kettle_command,
                     "PLAN_WAIT_ACK": PLAN_WAIT_ACK,
                 }
 
