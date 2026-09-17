@@ -106,124 +106,37 @@ async def send_as_conversation(chat_id: int, text: str):
 
 # ── Command handlers ───────────────────────────────────────────
 
-@dp.message(Command("помощь"))
-async def cmd_help(message: Message):
-    if not is_master(message.from_user.id):
-        return
-    from adapters.commands import cmd_help_impl
-    await cmd_help_impl(message)
+def _register_commands():
+    """Register all TG command handlers as thin wrappers."""
+    from adapters.commands import (
+        cmd_help_impl, cmd_health_impl, cmd_restart_impl, cmd_start_impl,
+        cmd_status_impl, cmd_memory_impl, cmd_tasks_impl, cmd_clear_impl,
+        cmd_clean_slate_impl, cmd_guests_impl, cmd_vip_impl, cmd_trusted_impl,
+        cmd_users_impl, cmd_unvip_impl, cmd_block_impl,
+    )
+    def _master_only(impl, **extra_kw):
+        async def _h(message: Message):
+            if not is_master(message.from_user.id):
+                return
+            await impl(message, **extra_kw)
+        return _h
+    dp.message(Command("помощь"))(_master_only(cmd_help_impl))
+    dp.message(Command("health"))(_master_only(cmd_health_impl))
+    dp.message(Command("restart"))(_master_only(cmd_restart_impl))
+    dp.message(CommandStart())(_master_only(cmd_start_impl, ask_gemini=ask_gemini))
+    dp.message(Command("status"))(_master_only(cmd_status_impl))
+    dp.message(Command("memory"))(_master_only(cmd_memory_impl))
+    dp.message(Command("tasks"))(_master_only(cmd_tasks_impl))
+    dp.message(Command("clear"))(_master_only(cmd_clear_impl, ask_gemini=ask_gemini))
+    dp.message(Command("чистыйлист"))(_master_only(cmd_clean_slate_impl, clean_slate_fn=clean_slate))
+    dp.message(Command("гости"))(_master_only(cmd_guests_impl))
+    dp.message(Command("vip"))(_master_only(cmd_vip_impl))
+    dp.message(Command("trusted"))(_master_only(cmd_trusted_impl))
+    dp.message(Command("users"))(_master_only(cmd_users_impl))
+    dp.message(Command("unvip"))(_master_only(cmd_unvip_impl))
+    dp.message(Command("block"))(_master_only(cmd_block_impl))
 
-
-@dp.message(Command("health"))
-async def cmd_health(message: Message):
-    if not is_master(message.from_user.id):
-        return
-    from adapters.commands import cmd_health_impl
-    await cmd_health_impl(message)
-
-
-@dp.message(Command("restart"))
-async def cmd_restart(message: Message):
-    if not is_master(message.from_user.id):
-        return
-    from adapters.commands import cmd_restart_impl
-    await cmd_restart_impl(message)
-
-
-@dp.message(CommandStart())
-async def cmd_start(message: Message):
-    if not is_master(message.from_user.id):
-        return
-    from adapters.commands import cmd_start_impl
-    await cmd_start_impl(message, ask_gemini)
-
-
-@dp.message(Command("status"))
-async def cmd_status(message: Message):
-    if not is_master(message.from_user.id):
-        return
-    from adapters.commands import cmd_status_impl
-    await cmd_status_impl(message)
-
-
-@dp.message(Command("memory"))
-async def cmd_memory(message: Message):
-    if not is_master(message.from_user.id):
-        return
-    from adapters.commands import cmd_memory_impl
-    await cmd_memory_impl(message)
-
-
-@dp.message(Command("tasks"))
-async def cmd_tasks(message: Message):
-    if not is_master(message.from_user.id):
-        return
-    from adapters.commands import cmd_tasks_impl
-    await cmd_tasks_impl(message)
-
-
-@dp.message(Command("clear"))
-async def cmd_clear(message: Message):
-    if not is_master(message.from_user.id):
-        return
-    from adapters.commands import cmd_clear_impl
-    await cmd_clear_impl(message, ask_gemini)
-
-
-@dp.message(Command("чистыйлист"))
-async def cmd_clean_slate(message: Message):
-    if not is_master(message.from_user.id):
-        return
-    from adapters.commands import cmd_clean_slate_impl
-    await cmd_clean_slate_impl(message, clean_slate)
-
-
-@dp.message(Command("гости"))
-async def cmd_guests(message: Message):
-    if not is_master(message.from_user.id):
-        return
-    from adapters.commands import cmd_guests_impl
-    await cmd_guests_impl(message)
-
-
-@dp.message(Command("vip"))
-async def cmd_vip(message: Message):
-    if not is_master(message.from_user.id):
-        return
-    from adapters.commands import cmd_vip_impl
-    await cmd_vip_impl(message)
-
-
-@dp.message(Command("trusted"))
-async def cmd_trusted(message: Message):
-    if not is_master(message.from_user.id):
-        return
-    from adapters.commands import cmd_trusted_impl
-    await cmd_trusted_impl(message)
-
-
-@dp.message(Command("users"))
-async def cmd_users(message: Message):
-    if not is_master(message.from_user.id):
-        return
-    from adapters.commands import cmd_users_impl
-    await cmd_users_impl(message)
-
-
-@dp.message(Command("unvip"))
-async def cmd_unvip(message: Message):
-    if not is_master(message.from_user.id):
-        return
-    from adapters.commands import cmd_unvip_impl
-    await cmd_unvip_impl(message)
-
-
-@dp.message(Command("block"))
-async def cmd_block(message: Message):
-    if not is_master(message.from_user.id):
-        return
-    from adapters.commands import cmd_block_impl
-    await cmd_block_impl(message)
+_register_commands()
 
 
 # ── Device control ─────────────────────────────────────────────
@@ -486,48 +399,27 @@ async def handle_message(message: Message):
 
 # ── Voice / Photo / Video handlers ─────────────────────────────
 
-@dp.message(F.voice)
-async def handle_voice(message: Message):
-    from adapters.media import handle_voice_impl
-    await handle_voice_impl(
-        message, bot=bot, is_master=is_master,
-        get_active_key=get_active_key, get_client=get_client,
-        mark_key_used=mark_key_used, ask_gemini=ask_gemini,
-        send_as_conversation=send_as_conversation,
+# ── Media handlers ─────────────────────────────────────────────
+
+def _register_media():
+    from adapters.media import (
+        handle_voice_impl, handle_photo_impl,
+        handle_video_impl, handle_video_note_impl,
     )
+    def _media_handler(impl, **extra_kw):
+        async def _h(message: Message):
+            await impl(message, bot=bot, is_master=is_master,
+                       get_active_key=get_active_key, get_client=get_client,
+                       mark_key_used=mark_key_used, ask_gemini=ask_gemini,
+                       send_as_conversation=send_as_conversation,
+                       _get_reply_context=_get_reply_context,
+                       get_system_prompt=get_system_prompt,
+                       clean_reply=clean_reply, add_to_history=add_to_history,
+                       log=log, **extra_kw)
+        return _h
+    dp.message(F.voice)(_media_handler(handle_voice_impl))
+    dp.message(F.photo)(_media_handler(handle_photo_impl))
+    dp.message(F.video)(_media_handler(handle_video_impl))
+    dp.message(F.video_note)(_media_handler(handle_video_note_impl))
 
-
-@dp.message(F.photo)
-async def handle_photo(message: Message):
-    from adapters.media import handle_photo_impl
-    await handle_photo_impl(
-        message, bot=bot, is_master=is_master,
-        get_active_key=get_active_key, get_client=get_client,
-        mark_key_used=mark_key_used, send_as_conversation=send_as_conversation,
-        _get_reply_context=_get_reply_context, get_system_prompt=get_system_prompt,
-        clean_reply=clean_reply, add_to_history=add_to_history,
-    )
-
-
-@dp.message(F.video)
-async def handle_video(message: Message):
-    from adapters.media import handle_video_impl
-    await handle_video_impl(
-        message, bot=bot, is_master=is_master,
-        get_active_key=get_active_key, get_client=get_client,
-        mark_key_used=mark_key_used, send_as_conversation=send_as_conversation,
-        _get_reply_context=_get_reply_context, get_system_prompt=get_system_prompt,
-        clean_reply=clean_reply, add_to_history=add_to_history, log=log,
-    )
-
-
-@dp.message(F.video_note)
-async def handle_video_note(message: Message):
-    from adapters.media import handle_video_note_impl
-    await handle_video_note_impl(
-        message, bot=bot, is_master=is_master,
-        get_active_key=get_active_key, get_client=get_client,
-        mark_key_used=mark_key_used, send_as_conversation=send_as_conversation,
-        get_system_prompt=get_system_prompt, clean_reply=clean_reply,
-        add_to_history=add_to_history, log=log,
-    )
+_register_media()
