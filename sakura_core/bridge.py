@@ -186,3 +186,80 @@ async def handle_v3_confirm(text, *, on_execute, on_cancel, on_error=None):
         else:
             log.debug(f"[v3] confirm: {type(e).__name__}: {e}")
         return False
+
+
+async def resolve_conv_reply(reply, *, text, deliver, ask_gemini_fn,
+                              get_active_ws_fn, clean_slate_fn,
+                              strip_tone_fn=None, on_photo=None,
+                              send_vip_fn=None):
+    """Resolve conversation-layer reply: clean slate, WS commands, steam, VIP, text.
+
+    deliver(text) — send text to the user.
+    on_photo(url) — optional, send a photo (TG-only).
+    strip_tone_fn(text) — optional, strip tone for VIP sends.
+    send_vip_fn(vip_id, text) — optional, send to VIP (TG-only).
+    """
+    if reply.run_clean_slate:
+        await clean_slate_fn()
+    if reply.ws_command:
+        _ws, _dev = get_active_ws_fn()
+        if not _ws:
+            await deliver(reply.fallback_text or "Ноутбук оффлайн.")
+            return
+        import json as _json
+        await _ws.send(_json.dumps(
+            {"type": "command", "action": reply.ws_command}))
+    composed = None
+    if reply.prompt:
+        composed = await ask_gemini_fn(reply.prompt, save_history=False)
+    for _act in reply.actions:
+        if _act[0] == "steam_recommend":
+            from modules.steam_integration import recommend_games
+            games = await recommend_games(limit=5)
+            if games:
+                game_list = "\n".join(
+                    f"• {g['name']} ({g.get('playtime_forever', 0) // 60}ч)"
+                    for g in games)
+                reply_text = await ask_gemini_fn(
+                    f"Мастер спрашивает во что поиграть. Вот его библиотека:\n{game_list}\n\n"
+                    f"Порекомендуй 2-3 игры с коротким объяснением почему именно они. "
+                    f"В своём стиле, не как список.")
+                if reply_text:
+                    await deliver(reply_text)
+            return
+        if _act[0] == "steam_guide":
+            from modules.steam_integration import (
+                _current_game, find_guide, get_library)
+            game_name = _current_game.get("name") if _current_game else None
+            if not game_name:
+                for g in get_library():
+                    if g["name"].lower() in text.lower():
+                        game_name = g["name"]
+                        break
+            if game_name:
+                guide = await find_guide(game_name, text)
+                if guide["text"]:
+                    guide_reply = await ask_gemini_fn(
+                        f"Перескажи этот гайд по игре {game_name} своими словами, "
+                        f"в своём стиле:\n{guide['text']}")
+                    if guide_reply:
+                        await deliver(guide_reply)
+                    for img_url in guide.get("images", [])[:2]:
+                        if on_photo:
+                            await on_photo(img_url)
+            return
+    if reply.send_tg:
+        vip_id, raw, vip_name = reply.send_tg
+        try:
+            to_send = strip_tone_fn(composed) if (raw is None and strip_tone_fn) else (composed if raw is None else raw)
+            if send_vip_fn:
+                await send_vip_fn(int(vip_id), to_send)
+            await deliver(f"Передала {vip_name.capitalize()}: «{to_send}»" if strip_tone_fn
+                          else reply.text or f"Передала {vip_name}.")
+        except Exception as e:
+            log.error(f"conv reply->vip SEND FAIL: {e}")
+            await deliver("Не получилось отправить.")
+        return
+    _out = composed if composed is not None else reply.text
+    if _out:
+        await deliver(_out)

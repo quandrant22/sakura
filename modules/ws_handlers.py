@@ -172,68 +172,19 @@ async def handle_voice_command(websocket, data, ctx) -> None:
     # ── v3 (этап 5): быстрый путь реестра — все домены ────────────────
     # Реестр без LLM; действие уходит агенту каноническим id. Временный
     # крюк: на этапе 6 ветки старого пути вынимаются вместе с ним.
-    async def _resolve_conv_reply(_r):
-        """Ответ разговорного слоя: LLM-подтверждения, отправки, steam.
-        Слой отдаёт данные, поверхность исполняет своими зависимостями."""
-        if _r.run_clean_slate:
-            await _clean_slate()
-        if _r.ws_command:
-            _aws, _ad = _get_active_ws()
-            if not _aws:
-                await _v3_speak(_r.fallback_text or "Ноутбук оффлайн.")
-                return
-            await _aws.send(json.dumps(
-                {"type": "command", "action": _r.ws_command}))
-        composed = None
-        if _r.prompt:
-            composed = await ask_gemini(_r.prompt, save_history=False)
-        for _act in _r.actions:
-            if _act[0] == "steam_recommend":
-                from modules.steam_integration import recommend_games
-                _games = await recommend_games(limit=5)
-                if _games:
-                    game_list = "\n".join(
-                        f"• {g['name']} ({g.get('playtime_forever', 0) // 60}ч)"
-                        for g in _games)
-                    _sp = await ask_gemini(
-                        f"Мастер спрашивает во что поиграть. Вот его библиотека:\n{game_list}\n\n"
-                        f"Порекомендуй 2-3 игры с коротким объяснением почему именно они. "
-                        f"В своём стиле, не как список.")
-                    if _sp:
-                        await _v3_speak(_sp)
-                return
-            if _act[0] == "steam_guide":
-                from modules.steam_integration import (
-                    _current_game, find_guide, get_library)
-                game_name = _current_game.get("name") if _current_game else None
-                if not game_name:
-                    for g in get_library():
-                        if g["name"].lower() in text.lower():
-                            game_name = g["name"]
-                            break
-                if game_name:
-                    guide = await find_guide(game_name, text)
-                    if guide["text"] and guide.get("images"):
-                        await _v3_speak("Нашла гайд, отправила скриншоты в телеграм.")
-                    elif guide["text"]:
-                        _sg = await ask_gemini(
-                            f"Перескажи этот гайд по игре {game_name} своими словами, в своём стиле:\n{guide['text']}")
-                        if _sg:
-                            await _v3_speak(_sg)
-                return
-        if _r.send_tg:
-            vip_id, raw, vip_name = _r.send_tg
-            try:
-                await bot.send_message(int(vip_id),
-                                       composed if raw is None else raw)
-                await _v3_speak(_r.text or f"Передала {vip_name}.")
-            except Exception as e:
-                log.error(f"voice->vip SEND FAIL: {e}")
-                await _v3_speak("Не получилось отправить, Мастер.")
-            return
-        _out = composed if composed is not None else _r.text
-        if _out:
-            await _v3_speak(_out)
+    from sakura_core.bridge import resolve_conv_reply
+
+    async def _ws_resolve_reply(_r):
+        async def _speak(phrase):
+            if ws_dev:
+                await stream_tts_to_device(phrase, ws_dev, device_id or "laptop", literal=True)
+        await resolve_conv_reply(
+            _r, text=text,
+            deliver=_speak,
+            ask_gemini_fn=ask_gemini,
+            get_active_ws_fn=_get_active_ws,
+            clean_slate_fn=_clean_slate,
+        )
 
     try:
         from sakura_core.bridge import v3_fast_path
@@ -245,7 +196,7 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                               device_id=device_id,
                               register_command=ctx.get("_register_command"),
                               speak=_v3_speak,
-                              resolve_reply=_resolve_conv_reply):
+                              resolve_reply=_ws_resolve_reply):
             return
     except Exception as _v3_err:
         log.debug(f"[v3] быстрый путь: {type(_v3_err).__name__}: {_v3_err}")

@@ -731,65 +731,19 @@ async def handle_message(message: Message):
             await message.answer(_fg[0])
             return
 
-    async def _resolve_conv_reply(_r):
-        if _r.run_clean_slate:
-            await clean_slate()
-        if _r.ws_command:
-            _lws, _ldev = _get_active_ws()
-            if not _lws:
-                await message.answer(_r.fallback_text or "Ноутбук оффлайн.")
-                return
-            await _lws.send(json.dumps(
-                {"type": "command", "action": _r.ws_command}))
-        composed = None
-        if _r.prompt:
-            composed = await ask_gemini(_r.prompt, save_history=False)
-        for _act in _r.actions:
-            if _act[0] == "steam_recommend":
-                games = await recommend_games(limit=5)
-                if games:
-                    game_list = "\n".join(
-                        f"• {g['name']} ({g.get('playtime_forever', 0) // 60}ч)"
-                        for g in games)
-                    reply = await ask_gemini(
-                        f"Мастер спрашивает во что поиграть. Вот его библиотека:\n{game_list}\n\n"
-                        f"Порекомендуй 2-3 игры с коротким объяснением почему именно они. "
-                        f"В своём стиле, не как список.")
-                    await send_as_conversation(message.chat.id, reply)
-                return
-            if _act[0] == "steam_guide":
-                from modules.steam_integration import _current_game
-                game_name = _current_game.get("name") if _current_game else None
-                if not game_name:
-                    for g in get_library():
-                        if g["name"].lower() in text.lower():
-                            game_name = g["name"]
-                            break
-                if game_name:
-                    guide = await find_guide(game_name, text)
-                    if guide["text"]:
-                        sakura_reply = await ask_gemini(
-                            f"Перескажи этот гайд по игре {game_name} своими словами, в своём стиле:\n{guide['text']}")
-                        await send_as_conversation(message.chat.id, sakura_reply)
-                        for img_url in guide["images"][:2]:
-                            try:
-                                await bot.send_photo(message.chat.id, photo=img_url)
-                            except Exception as e:
-                                log.debug(f"[tg] conv reply: {type(e).__name__}: {e}")
-                return
-        if _r.send_tg:
-            vip_id, raw, vip_name = _r.send_tg
-            try:
-                to_send = _strip_tone(composed) if raw is None else raw
-                await bot.send_message(int(vip_id), to_send)
-                await message.answer(f"Передала {vip_name.capitalize()}: «{to_send}»")
-            except Exception as e:
-                log.error(f"text->vip SEND FAIL: {e}")
-                await message.answer("Не получилось отправить.")
-            return
-        _out = composed if composed is not None else _r.text
-        if _out:
-            await send_as_conversation(message.chat.id, _out)
+    from sakura_core.bridge import resolve_conv_reply
+
+    async def _tg_resolve_reply(_r):
+        await resolve_conv_reply(
+            _r, text=text,
+            deliver=lambda t: send_as_conversation(message.chat.id, t) if t else None,
+            ask_gemini_fn=ask_gemini,
+            get_active_ws_fn=_get_active_ws,
+            clean_slate_fn=clean_slate,
+            strip_tone_fn=_strip_tone,
+            on_photo=lambda url: bot.send_photo(message.chat.id, photo=url),
+            send_vip_fn=lambda vip_id, txt: bot.send_message(vip_id, txt),
+        )
 
     try:
         from sakura_core.bridge import v3_fast_path
@@ -797,7 +751,7 @@ async def handle_message(message: Message):
         if await v3_fast_path(text, data={"active_window": ""},
                               device_ws=_laptop_ws, device_id=_laptop_dev,
                               register_command=None, ack=message.answer,
-                              resolve_reply=_resolve_conv_reply):
+                              resolve_reply=_tg_resolve_reply):
             return
     except Exception as _v3_err:
         log.debug(f"[v3] быстрый путь: {type(_v3_err).__name__}: {_v3_err}")
