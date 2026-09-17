@@ -887,31 +887,22 @@ async def handle_message(message: Message):
     await send_as_conversation(message.chat.id, reply)
 
     try:
-        from modules.mood_vector import get_current as _mood_get_tg
-        _mv_tg = _mood_get_tg()
-        if should_react(text, _mv_tg.get("valence", 0.0), _mv_tg.get("arousal", 0.3)):
-            reaction = detect_reaction(text, _mv_tg.get("valence", 0.0), _mv_tg.get("arousal", 0.3))
-            if reaction:
-                sticker = None
+        from sakura_core.reactions import get_mood_reaction, get_sticker_or_gif
+        reaction = get_mood_reaction(text)
+        if reaction:
+            sticker, gif = get_sticker_or_gif(reaction["emotion"])
+            if sticker:
                 try:
-                    from modules.reactions import get_random_sticker
-                    sticker = get_random_sticker(reaction["emotion"])
+                    await bot.send_sticker(message.chat.id, sticker)
                 except Exception as e:
-                    log.debug(f"[tg] _resolve: {type(e).__name__}: {e}")
-                if sticker:
-                    try:
-                        await bot.send_sticker(message.chat.id, sticker)
-                    except Exception as e:
-                        log.debug(f"[tg] _resolve: {type(e).__name__}: {e}")
-                else:
-                    gif = get_random_gif(reaction["emotion"])
-                    if gif:
-                        try:
-                            await bot.send_animation(message.chat.id, gif)
-                        except Exception as e:
-                            log.debug(f"[tg] _resolve: {type(e).__name__}: {e}")
+                    log.debug(f"[tg] reaction sticker: {type(e).__name__}: {e}")
+            elif gif:
+                try:
+                    await bot.send_animation(message.chat.id, gif)
+                except Exception as e:
+                    log.debug(f"[tg] reaction gif: {type(e).__name__}: {e}")
     except Exception as e:
-        log.debug(f"[tg] _resolve: {type(e).__name__}: {e}")
+        log.debug(f"[tg] reaction: {type(e).__name__}: {e}")
 
 
 # ── Voice / Photo / Video handlers ─────────────────────────────

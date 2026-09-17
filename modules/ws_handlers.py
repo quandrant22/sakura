@@ -870,7 +870,6 @@ async def handle_voice_command(websocket, data, ctx) -> None:
     # ── ПРАНКИ + РЕАКЦИИ САКУРЫ (фоновая задача) ──────
     async def _maybe_prank_and_react():
         try:
-            # Пранки
             if should_prank(text):
                 prank = choose_prank()
                 record_prank()
@@ -879,41 +878,22 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                 if ws_dev:
                     await stream_tts_to_device(response, ws_dev, device_id or "laptop", literal=True)
 
-            # Эмоциональные реакции (GIF/стикеры)
-            import random as _rand
-            try:
-                from modules.mood_vector import get_current as _mood_get
-                _mv = _mood_get()
-                _mood_v = _mv.get("valence", 0.0)
-                _mood_a = _mv.get("arousal", 0.3)
-            except Exception:
-                _mood_v, _mood_a = 0.0, 0.3
-
-            if should_react(text, _mood_v, _mood_a):
-                reaction = detect_reaction(text, _mood_v, _mood_a)
-                if reaction:
-                    # Приоритет: стикер > GIF
-                    sticker = None
+            from sakura_core.reactions import get_mood_reaction, get_sticker_or_gif
+            reaction = get_mood_reaction(text)
+            if reaction:
+                sticker, gif = get_sticker_or_gif(reaction["emotion"])
+                if sticker:
+                    log.info(f"[reactions] {reaction['emotion']} → sticker")
                     try:
-                        from modules.reactions import get_random_sticker
-                        sticker = get_random_sticker(reaction["emotion"])
+                        await bot.send_sticker(MASTER_ID, sticker)
                     except Exception as e:
-                        log.debug(f"[ws] _maybe_prank_and_react: {type(e).__name__}: {e}")
-
-                    if sticker:
-                        log.info(f"[reactions] {reaction['emotion']} → sticker")
-                        try:
-                            await bot.send_sticker(MASTER_ID, sticker)
-                        except Exception as e:
-                            log.debug(f"[ws] _maybe_prank_and_react: {type(e).__name__}: {e}")
-                    else:
-                        gif = get_random_gif(reaction["emotion"])
-                        if gif:
-                            log.info(f"[reactions] {reaction['emotion']} → GIF")
-                            try:
-                                await bot.send_animation(MASTER_ID, gif)
-                            except Exception as e:
-                                log.debug(f"[ws] _maybe_prank_and_react: {type(e).__name__}: {e}")
+                        log.debug(f"[ws] reaction sticker: {type(e).__name__}: {e}")
+                elif gif:
+                    log.info(f"[reactions] {reaction['emotion']} → GIF")
+                    try:
+                        await bot.send_animation(MASTER_ID, gif)
+                    except Exception as e:
+                        log.debug(f"[ws] reaction gif: {type(e).__name__}: {e}")
         except Exception as e:
             log.debug(f"[pranks/react] error: {e}")
     asyncio.create_task(_maybe_prank_and_react())
