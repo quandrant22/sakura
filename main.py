@@ -85,7 +85,7 @@ from modules.memory_honesty import enrich_memory_context
 from modules.evening_pulse import should_send_pulse, mark_pulse_sent, get_pulse_prompt, check_pc_health
 from modules.vps_monitor import start_monitor
 from modules.threads import extract_threads
-from sakura_core.llm import generate as _llm_generate
+from sakura_core.llm import generate as _llm_generate, get_client
 from modules.relationship import (check_milestone, increase_closeness, get_closeness_hint,
     track_topic, extract_topics_from_text,
     should_write_journal, get_growth_journal_prompt, mark_journal_written)
@@ -160,6 +160,13 @@ from modules.ws_handlers import (
 )
 from modules.voice_info import is_info_action
 
+# Новые модули (stage 7D)
+from modules.app_mapping import find_in_mapping, resolve_app, find_vip_by_name
+from sakura_core.memory_tasks import (
+    extract_and_remember, summarize_session, daily_analysis, clean_slate,
+)
+from sakura_core.apps import analyze_apps, analyze_screen_context
+
 # ─────────────────────────────────────────────
 #  Инициализация
 # ─────────────────────────────────────────────
@@ -182,18 +189,7 @@ from adapters.voice import (  # noqa: F811, E402
 
 # Основная модель задаётся в config.py (env MAIN_MODEL), здесь не дублируется
 
-def _thinking(model: str):
-    # У Gemini 3.x мышление включено по умолчанию (high) и ест бюджет ответа,
-    # из-за чего реплика обрывается на полуслове. Держим низким. Gemma — без мышления.
-    return types.ThinkingConfig(thinking_level="minimal") if model.startswith("gemini-3") else None
-
-NO_SAFETY = [
-    types.SafetySetting(category="HARM_CATEGORY_HARASSMENT",        threshold="OFF"),
-    types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH",       threshold="OFF"),
-    types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="OFF"),
-    types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="OFF"),
-    types.SafetySetting(category="HARM_CATEGORY_CIVIC_INTEGRITY",   threshold="OFF"),
-]
+# _thinking, NO_SAFETY перенесены в sakura_core/llm.py (commit 2B)
 
 # ─────────────────────────────────────────────
 #  Плейлисты
@@ -237,23 +233,7 @@ from adapters.telegram import (  # noqa: F811, E402
 )
 
 
-def _gemini_client(key: str) -> genai.Client:
-    return genai.Client(api_key=key)
-
-
-async def _run(client, model, contents, cfg):
-    """Обёртка: делегирует llm.generate(). Возвращает строку."""
-    from sakura_core.llm import generate as _llm_generate
-    system = getattr(cfg, "system_instruction", None) or ""
-    max_tokens = getattr(cfg, "max_output_tokens", 512) or 512
-    temperature = getattr(cfg, "temperature", 0.85) or 0.85
-    return await _llm_generate(
-        contents,
-        system=system,
-        model=model,
-        max_tokens=max_tokens,
-        temperature=temperature,
-    )
+# _gemini_client → sakura_core/llm.get_client; _run → sakura_core/llm.generate
 
 
 # ─────────────────────────────────────────────
@@ -276,429 +256,17 @@ from sakura_core.llm import maybe_fetch_web, maybe_read_url  # noqa: F811, E402
 
 
 
-async def _translate_en(text: str) -> str:
-    """Перевод на английский для поиска картинок (LoremFlickr ловит англ. теги)."""
-    try:
-        key = get_active_key()
-        if not key:
-            return text
-        r = await _run(
-            _gemini_client(key), "gemma-4-31b-it",
-            [types.Content(role="user", parts=[types.Part(
-                text=f"Translate these words to English. Output ONLY the English words, nothing else, no quotes, no explanation: {text}")])],
-            types.GenerateContentConfig(max_output_tokens=60),
-        )
-        import re as _re
-        out = r
-        latin = " ".join(_re.findall(r"[A-Za-z]+", out))
-        return latin or text
-    except Exception:
-        return text
-
-
-# ─────────────────────────────────────────────
-#  Маппинг приложений
-# ─────────────────────────────────────────────
+# _translate_en → adapters/voice.py
+# analyze_apps, _analyze_screen_context → sakura_core/apps.py
 
 _START = time.monotonic()
 
+# find_in_mapping, resolve_app → modules/app_mapping.py
+# _find_vip_by_name → modules/app_mapping.find_vip_by_name
 
-async def analyze_apps(apps: dict, device_id: str):
-    try:
-        mapping_file = f"memory/apps_mapping_{device_id}.json"
-        if os.path.exists(mapping_file):
-            age = time.time() - os.path.getmtime(mapping_file)
-            if age < 86400:
-                log.debug(f"[apps] маппинг {device_id} свежий ({age/3600:.1f}ч), пропускаю")
-                return
-        key = get_active_key()
-        if not key:
-            return
-        exe_apps = {k: v for k, v in apps.items()
-                    if isinstance(v, str) and (
-                        v.lower().endswith((".exe", ".lnk", ".url"))
-                        or v.startswith(("steam:", "shell:", "http")))}
-        names    = list(exe_apps.keys())[:200]
-        client   = _gemini_client(key)
-        prompt   = (
-            f"Список приложений (без .exe):\n{json.dumps(names, ensure_ascii=False)}\n\n"
-            "Создай маппинг разговорных русских названий к именам из списка.\n"
-            'Верни JSON: {"разговорное": "имя из списка"}\n'
-            "Только очевидные совпадения. Максимум 60 записей."
-        )
-        r = await _llm_generate(
-            [types.Content(role="user", parts=[types.Part(text=prompt)])],
-            model=MAIN_MODEL,
-            max_tokens=2000,
-            response_mime_type="application/json",
-        )
-        raw           = r.replace("```json", "").replace("```", "").strip()
-        mapping_names = json.loads(raw)
-        mark_key_used(key)
-
-        full: dict = {}
-        for ru, app_key in mapping_names.items():
-            ak = app_key.lower()
-            if ak in exe_apps:
-                full[ru.lower()] = exe_apps[ak]
-            else:
-                for name, path in exe_apps.items():
-                    if ak in name.lower() or name.lower() in ak:
-                        full[ru.lower()] = path
-                        break
-        # Английские имена приложений — тоже ключи (Gemini-STT пишет «Steam», а не «стим»)
-        for name, path in exe_apps.items():
-            base = os.path.splitext(os.path.basename(name))[0].lower()
-            full.setdefault(base, path)
-            full.setdefault(name.lower(), path)
-
-        save_json(f"memory/apps_mapping_{device_id}.json", full)
-        log.info(f"Маппинг приложений ({device_id}): {len(full)} записей")
-    except Exception as e:
-        log.error(f"Apps analyze error: {e}")
+# _clean_slate, extract_and_remember → sakura_core/memory_tasks.py
 
 
-async def _analyze_screen_context(screenshot_b64: str, active_window: str, device_id: str):
-    """
-    Анализ скриншота через Gemini Vision — не для команды, а для понимания.
-    Сохраняет контекст: «что на экране» → влияет на disposition.
-    """
-    import base64
-    key = get_active_key()
-    if not key:
-        return
-
-    try:
-        img_bytes = base64.b64decode(screenshot_b64)
-        if len(img_bytes) < 1000:
-            return
-
-        client = _gemini_client(key)
-        prompt = (
-            "Кратко опиши что на этом скриншоте (1-2 предложения). "
-            "Чем занят человек? Какая обстановка? "
-            "Только факты, без советов."
-        )
-
-        r = await _llm_generate(
-            [types.Content(parts=[
-                types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=img_bytes)),
-                types.Part(text=prompt),
-            ])],
-            model=MAIN_MODEL,
-            max_tokens=100,
-        )
-        description = r
-        mark_key_used(key)
-
-        if description:
-            # Сохраняем контекст экрана
-            try:
-                from modules.context import set_screen_context
-                set_screen_context(active_window, description)
-            except Exception as e:
-                log.debug(f"[main] _analyze_screen_context: {type(e).__name__}: {e}")
-
-            log.debug(f"[screen] Контекст: {description[:60]}")
-    except Exception as e:
-        log.debug(f"[screen] Анализ ошибки: {e}")
-
-
-def find_in_mapping(query: str, device_id: str) -> str | None:
-    try:
-        path = f"memory/apps_mapping_{device_id}.json"
-        if not os.path.exists(path):
-            return None
-        with open(path, "r", encoding="utf-8") as f:
-            mapping = json.load(f)
-        q = query.lower().strip()
-        if not q:
-            return None
-
-        # 1) точное совпадение / вхождение — быстро и надёжно
-        if q in mapping:
-            return mapping[q]
-        for name, val in mapping.items():
-            if q in name or name in q:
-                return val
-
-        # 2) fuzzy: ближайшее имя по схожести (повершал → powershell, телеграмм → telegram)
-        import difflib
-        names = list(mapping.keys())
-        best = difflib.get_close_matches(q, names, n=1, cutoff=0.7)
-        if best:
-            return mapping[best[0]]
-
-        # 3) fuzzy по отдельным словам запроса (для фраз вроде «открой повершал»)
-        for word in q.split():
-            if len(word) < 4:
-                continue
-            best = difflib.get_close_matches(word, names, n=1, cutoff=0.78)
-            if best:
-                return mapping[best[0]]
-    except Exception as e:
-        log.error(f"Mapping search error: {e}")
-    return None
-
-
-def resolve_app(query: str, prefer_device: str | None = None):
-    """Ищет приложение в маппинге всех подключённых устройств.
-    Возвращает (device_id, target): сначала на нужном устройстве, потом на остальных."""
-    order = ([prefer_device] if prefer_device else []) + \
-            [d for d in connected_devices if d != prefer_device]
-    for dev in order:
-        target = find_in_mapping(query, dev)
-        if target:
-            return dev, target
-    return None, None
-
-def _find_vip_by_name(text: str):
-    """Ищет VIP по имени (fuzzy). Возвращает (chat_id, name) или None."""
-    import difflib
-    try:
-        with open("memory/users.json", encoding="utf-8") as f:
-            vips = json.load(f).get("vip", {})
-    except Exception:
-        return None
-    names = {info.get("name", "").lower(): cid for cid, info in vips.items() if info.get("name")}
-    if not names:
-        return None
-    for w in text.lower().replace(",", " ").split():
-        if len(w) < 3:
-            continue
-        m = difflib.get_close_matches(w, list(names.keys()), n=1, cutoff=0.62)
-        if m:
-            return names[m[0]], m[0]
-    return None
-
-
-# ─────────────────────────────────────────────
-#  Протокол чистый лист
-# ─────────────────────────────────────────────
-
-async def _clean_slate():
-    """Полный сброс памяти Сакуры."""
-    clear_history()
-    clear_session_summary()
-
-    from memory.memory import MEMORY_FILE, _atomic_write
-    empty = {
-        "master":        {k: [] for k in ["facts","interests","preferences","achievements","patterns","events","notes"]},
-        "last_updated":  str(datetime.now()),
-        "last_analysis": None,
-    }
-    _atomic_write(MEMORY_FILE, empty)
-
-    empty_rules = {
-        "address":     None,
-        "style":       [],
-        "permissions": [],
-        "behaviors":   [],
-        "updated":     str(datetime.now()),
-    }
-    save_json("memory/rules.json", empty_rules)
-
-    log.info("[Протокол] Чистый лист выполнен.")
-
-
-# ─────────────────────────────────────────────
-#  Память (только для Мастера)
-# ─────────────────────────────────────────────
-
-async def extract_and_remember(user_message: str, reply: str):
-    await asyncio.sleep(3)
-    # Защита памяти: не извлекать во время интим-режима
-    from modules.intimacy_mode import is_active as _im_active
-    if _im_active():
-        log.info("[memory] extraction skipped: intimacy mode")
-        return
-    key = get_active_key()
-    if not key:
-        return
-    try:
-        client = _gemini_client(key)
-        prompt = (
-            f"Сообщение Мастера: {user_message}\nОтвет Сакуры: {reply}\n\n"
-            "Извлеки ТОЛЬКО то что Мастер явно сказал о себе. "
-            "НЕ домысливай, НЕ делай выводов, НЕ интерпретируй. "
-            "Только прямые факты из его слов. "
-            "Игровой контекст (LEGO, Minecraft, GTA и т.д.) — это игра, не реальность. "
-            "Команды ассистенту (следующий трек, пауза, открой и т.д.) — не записывать.\n"
-            "Каждый факт помечай префиксом слоя:\n"
-            "[L] — устойчивое: предпочтения, факты о Мастере, повторяющиеся паттерны, важные события жизни;\n"
-            "[W] — временное: текущие задачи, состояния на этой неделе, незакрытые дела;\n"
-            "Сиюминутное НЕ выводи вовсе: эмоции момента, обсуждения кода и архитектуры Sakura, "
-            "разовые бытовые события, темы одного разговора.\n"
-            'Верни JSON: {"facts":[],"interests":[],"preferences":[],'
-            '"achievements":[],"patterns":[],"events":[],"notes":[],'
-            '"entities":[{"name":"","type":"person|project|place|game|org|event|thing","date":""}],'
-            '"relations":[{"from":"","to":"","rel":""}]}\n'
-            "entities — люди/проекты/места/игры/события упомянутые в диалоге; "
-            "date заполняй только для type=event в формате YYYY-MM-DD.\n"
-            "relations — связи между ними.\n"
-            "Если ничего нового — все массивы пустые. Максимум 2 пункта на массив."
-        )
-        r = await _llm_generate(
-            [types.Content(role="user", parts=[types.Part(text=prompt)])],
-            model=MAIN_MODEL,
-        )
-        raw       = r.replace("```json", "").replace("```", "").strip()
-        extracted = json.loads(raw)
-
-        # Граф связей — вынимаем до цикла категорий, чтобы не попали в add_to_category
-        ents = extracted.pop("entities", []) or []
-        rels = extracted.pop("relations", []) or []
-        if ents or rels:
-            try:
-                from modules.graph import ingest as graph_ingest
-                await asyncio.to_thread(graph_ingest, ents, rels)
-            except Exception as _ge:
-                log.debug(f"graph ingest: {_ge}")
-
-        saved = []
-        for cat, items in extracted.items():
-            for item in items:
-                if item and isinstance(item, str):
-                    # Валидация факта перед сохранением
-                    try:
-                        from modules.memory_validator import validate_and_check
-                        is_valid, reason, contradiction = await asyncio.to_thread(
-                            validate_and_check, item, cat
-                        )
-                        if not is_valid:
-                            log.debug(f"[memory] пропущено ({reason}): {item[:40]}")
-                            continue
-                        if contradiction:
-                            log.warning(f"[memory] противоречие: {item[:40]} — {contradiction}")
-                    except Exception:
-                        pass  # Если валидатор недоступен — сохраняем как есть
-
-                    # Определяем слой по префиксу [L] или [W]
-                    layer = "long_term"
-                    if item.startswith("[L]"):
-                        layer = "long_term"
-                        item = item[3:].strip()
-                    elif item.startswith("[W]"):
-                        layer = "working"
-                        item = item[3:].strip()
-
-                    from modules.intimacy_mode import is_intimate_content
-                    if is_intimate_content(item):
-                        log.info(f"[memory] интимный контент отфильтрован: {item[:40]}")
-                        continue
-                    ok = await asyncio.to_thread(db_add_to_category, cat, item, layer)
-                    if ok is not False:
-                        saved.append(f"{cat}: {item[:40]}")
-        if saved:
-            log.info(f"[memory] сохранено: {saved}")
-        else:
-            log.info("[memory] ничего нового не извлечено")
-        mark_key_used(key)
-        for t in extract_tasks_from_text(user_message):
-            add_task(t["text"], t.get("due_date"), t.get("due_time"))
-
-        # Нити разговора — детект незакрытых тем (без LLM)
-        try:
-            await asyncio.to_thread(extract_threads, user_message, reply)
-        except Exception as _te:
-            log.debug(f"threads: {_te}")
-
-        # Двусторонние капсулы — Сакура прячет своё наблюдение (бэклог №5)
-        try:
-            from modules.capsules import should_create_sakura_capsule, create_sakura_capsule
-            hint = should_create_sakura_capsule(user_message, reply)
-            if hint:
-                await asyncio.to_thread(
-                    create_sakura_capsule,
-                    hint["observation"], hint["days"],
-                    user_message[:80]
-                )
-        except Exception as _ce:
-            log.debug(f"sakura capsule: {_ce}")
-
-    except Exception as e:
-        log.error(f"Memory extract error: {e}")
-
-
-async def summarize_session():
-    history = get_history()
-    if len(history) < 10:
-        return
-    key = get_active_key()
-    if not key:
-        return
-    try:
-        hist_text = "\n".join([
-            f"{'Мастер' if m['role'] == 'user' else 'Сакура'}: {m['parts'][0]}"
-            for m in history[-40:]
-        ])
-        client = _gemini_client(key)
-        r      = await _llm_generate(
-            [types.Content(role="user", parts=[types.Part(
-                text=f"Сделай краткое резюме диалога (макс 300 слов):\n{hist_text}"
-            )])],
-            model=MAIN_MODEL,
-        )
-        save_session_summary(r)
-        mark_key_used(key)
-        log.info("Резюме сессии обновлено")
-    except Exception as e:
-        log.error(f"Summarize error: {e}")
-
-
-async def daily_analysis():
-    while True:
-        await asyncio.sleep(3600)
-        # Защита памяти: не извлекать во время интим-режима
-        from modules.intimacy_mode import is_active as _im_active_daily
-        if _im_active_daily():
-            log.info("[memory] daily analysis skipped: intimacy mode")
-            continue
-        if not needs_daily_analysis():
-            continue
-        key = get_active_key()
-        if not key:
-            continue
-        history = get_history()
-        if len(history) < 4:
-            continue
-        try:
-            hist_text = "\n".join([f"{m['role']}: {m['parts'][0]}" for m in history[-40:]])
-            client    = _gemini_client(key)
-            r         = await _llm_generate(
-                [types.Content(role="user", parts=[types.Part(
-                    text=f"Выводы о паттернах поведения Мастера:\n{hist_text}\n"
-                         'Верни JSON: {"patterns":[],"preferences":[]}'
-                )])],
-                model=MAIN_MODEL,
-            )
-            raw = r.replace("```json", "").replace("```", "").strip()
-            for cat, items in json.loads(raw).items():
-                for item in items:
-                    if item and isinstance(item, str):
-                        layer = "long_term"
-                        if item.startswith("[L]"):
-                            layer = "long_term"
-                            item = item[3:].strip()
-                        elif item.startswith("[W]"):
-                            layer = "working"
-                            item = item[3:].strip()
-                        from modules.intimacy_mode import is_intimate_content
-                        if is_intimate_content(item):
-                            log.info(f"[memory] интимный фильтр (daily): {item[:40]}")
-                            continue
-                        await asyncio.to_thread(db_add_to_category, cat, item, layer)
-            mark_analysis_done()
-            # Очистка автоалиасов
-            try:
-                from modules.user_commands import cleanup_auto
-                _cleaned = cleanup_auto()
-                if _cleaned:
-                    log.info(f"[daily] auto aliases cleaned: {_cleaned}")
-            except Exception as e:
-                log.debug(f"[main] daily_analysis: {type(e).__name__}: {e}")
-        except Exception as e:
-            log.error(f"Daily analysis error: {e}")
 
 
 # ─────────────────────────────────────────────
@@ -831,16 +399,16 @@ async def ws_handler(websocket):
                     "ask_gemini": ask_gemini,
                     "ask_gemini_voice": ask_gemini_voice,
                     "send_safe": send_safe,
-                    "_find_vip_by_name": _find_vip_by_name,
-                    "_translate_en": _translate_en,
-                    "_clean_slate": _clean_slate,
+                    "_find_vip_by_name": find_vip_by_name,
+                    "_translate_en": None,  # moved to adapters/voice.py
+                    "_clean_slate": clean_slate,
                     "_execute_plan": _execute_plan,
                     "_register_command": _register_command,
                     "_resolve_command_status": _resolve_command_status,
                     "_get_active_ws": _get_active_ws,
                     "analyze_apps": analyze_apps,
-                    "_analyze_screen_context": _analyze_screen_context,
-                    "_gemini_client": _gemini_client,
+                    "_analyze_screen_context": analyze_screen_context,
+                    "_gemini_client": None,  # use sakura_core.llm.get_client
                     "bot": bot,
                     "PLAN_WAIT_ACK": PLAN_WAIT_ACK,
                 }
@@ -971,7 +539,7 @@ async def cmd_clear(message: Message):
 async def cmd_clean_slate(message: Message):
     if not is_master(message.from_user.id):
         return
-    await _clean_slate()
+    await clean_slate()
     await message.answer("Протокол выполнен. Я тебя не помню.")
 
 
@@ -1411,7 +979,7 @@ async def handle_message(message: Message):
         """Ответ разговорного слоя: LLM-подтверждения, отправки, steam.
         Слой отдаёт данные, поверхность исполняет своими зависимостями."""
         if _r.run_clean_slate:
-            await _clean_slate()
+            await clean_slate()
         if _r.ws_command:
             _lws, _ldev = _get_active_ws()
             if not _lws:
@@ -1646,7 +1214,7 @@ async def handle_voice(message: Message):
 
     try:
         key    = get_active_key()
-        client = _gemini_client(key)
+        client = get_client(key)
         with open(temp_wav, "rb") as f:
             audio_b64 = base64.b64encode(f.read()).decode()
         os.unlink(temp_wav)
@@ -1684,7 +1252,7 @@ async def handle_photo(message: Message):
 
     try:
         key    = get_active_key()
-        client = _gemini_client(key)
+        client = get_client(key)
         with open(temp_jpg, "rb") as f:
             img_b64 = base64.b64encode(f.read()).decode()
         os.unlink(temp_jpg)
@@ -1735,7 +1303,7 @@ async def handle_video(message: Message):
 
     try:
         key    = get_active_key()
-        client = _gemini_client(key)
+        client = get_client(key)
 
         with open(tmp_path, "rb") as f:
             video_b64 = base64.b64encode(f.read()).decode()
@@ -1785,7 +1353,7 @@ async def handle_video_note(message: Message):
 
     try:
         key    = get_active_key()
-        client = _gemini_client(key)
+        client = get_client(key)
 
         with open(tmp_path, "rb") as f:
             video_b64 = base64.b64encode(f.read()).decode()
@@ -1846,11 +1414,7 @@ async def _init_weather():
 
 
 def _guarded_add(cat: str, item: str):
-    """Обёртка для reflection_loop: два барьера.
-
-    1. consume_check — блокирует запись целиком если был интим-режим с последней рефлексии.
-    2. is_intimate_content — фильтрует отдельные факты по содержимому (подстраховка).
-    """
+    """Обёртка для reflection_loop: два барьера."""
     from modules.intimacy_mode import consume_check, is_intimate_content
     if consume_check():
         log.info("[memory] reflection write skipped: intimacy in window")
