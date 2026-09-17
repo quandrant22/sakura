@@ -84,37 +84,12 @@ from sakura_core.ws_protocol import (
     _SYSTEM_CONFIRM_PROMPTS,
 )
 
-# ── execute_critical_action (остаётся до 7C-2) ──
+# ── execute_critical_action перенесён в sakura_core/executor.py (7C-2) ──
+from sakura_core.executor import execute_critical_action
 
-async def execute_critical_action(critical_action: str, ws_dev, device_id, text: str,
-                                    active_window: str, ask_gemini) -> None:
-    """Отправить критическую (kettle:/system:) команду агенту и записать эпизод.
 
-    Общий путь выполнения — используется и голосовым каналом (после route_critical
-    или после подтверждения "да"), и Telegram-текстом (main.py), чтобы опасные
-    системные команды исполнялись одинаково независимо от канала.
-    """
-    st._last_command_ts = __import__('time').monotonic()
-    await ws_dev.send(json.dumps({"type": "command", "action": critical_action}))
-    if critical_action.startswith("kettle:"):
-        _kreply = await ask_gemini(
-            f"Мастер попросил: {text}. Команда: {critical_action}. Скажи коротко.",
-            save_history=False)
-        if _kreply:
-            await stream_tts_to_device(_kreply, ws_dev, device_id or "laptop", literal=True)
-    # Провод 3: действие становится эпизодом
-    try:
-        from modules.disposition import current as _disp_ep
-        _dep = _disp_ep()
-        add_episode(
-            text=f"Выполнила команду: {text[:80]} → {critical_action}",
-            emotion=_dep["stance"],
-            valence=_dep["valence"],
-            arousal=_dep["arousal"],
-            context=active_window,
-        )
-    except Exception as e:
-        log.debug(f"[ws] execute_critical_action: {type(e).__name__}: {e}")
+# ── Разделители ────────────────────────────────────────────────────────
+
 _TG_MSG_LIMIT = 4096
 
 

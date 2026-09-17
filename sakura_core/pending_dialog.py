@@ -47,7 +47,7 @@ async def _handle_pending(text, text_lower, _mk, ws_dev, device_id, ctx, data) -
             if _ps_result == "confirm":
                 del st._pending_system[_mk]
                 if ws_dev:
-                    from modules.ws_handlers import execute_critical_action
+                    from sakura_core.executor import execute_critical_action
                     await execute_critical_action(_ps["action"], ws_dev, device_id, text, data.get("active_window", ""), ask_gemini)
                 else:
                     await bot.send_message(MASTER_ID, "Устройство отключилось, не могу выполнить.")

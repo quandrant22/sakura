@@ -3,6 +3,9 @@
 Регистрация хендлеров — декоратором или явной таблицей, без цепочек if.
 На провод к агенту уходит только канонический id: двух имён у одной
 способности (находка 1 v2) и таблиц перевода больше не существует.
+
+execute_critical_action — общий путь для опасных команд (kettle:/system:),
+используется и голосовым каналом, и Telegram-текстом.
 """
 
 from __future__ import annotations
@@ -10,9 +13,11 @@ from __future__ import annotations
 import inspect
 import json
 import logging
+import time as _time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
+import modules.state as st
 from sakura_core.registry import Declaration, load as _load_registry
 from sakura_core.session import Session
 
@@ -135,3 +140,38 @@ class Executor:
         if isinstance(result, AgentCommand):
             return await self._send_command(result, ctx)
         return result
+
+
+# ── Опасные команды (kettle:/system:) ─────────────────────────────────
+
+async def execute_critical_action(critical_action: str, ws_dev, device_id,
+                                  text: str, active_window: str,
+                                  ask_gemini) -> None:
+    """Отправить критическую (kettle:/system:) команду агенту и записать эпизод.
+
+    Общий путь выполнения — используется и голосовым каналом (после route_critical
+    или после подтверждения "да"), и Telegram-текстом (main.py), чтобы опасные
+    системные команды исполнялись одинаково независимо от канала.
+    """
+    st._last_command_ts = _time.monotonic()
+    await ws_dev.send(json.dumps({"type": "command", "action": critical_action}))
+    if critical_action.startswith("kettle:"):
+        from modules.tts_server import stream_tts_to_device
+        _kreply = await ask_gemini(
+            f"Мастер попросил: {text}. Команда: {critical_action}. Скажи коротко.",
+            save_history=False)
+        if _kreply:
+            await stream_tts_to_device(_kreply, ws_dev, device_id or "laptop", literal=True)
+    try:
+        from modules.disposition import current as _disp_ep
+        from modules.episodes import add_episode
+        _dep = _disp_ep()
+        add_episode(
+            text=f"Выполнила команду: {text[:80]} → {critical_action}",
+            emotion=_dep["stance"],
+            valence=_dep["valence"],
+            arousal=_dep["arousal"],
+            context=active_window,
+        )
+    except Exception as e:
+        log.debug(f"[executor] execute_critical_action: {type(e).__name__}: {e}")
