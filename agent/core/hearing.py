@@ -694,6 +694,23 @@ class Hearing(threading.Thread):
             _last_reset = time.monotonic()
             return recognizer
 
+        def _drain(stream):
+            """Выбрасывает хвост команды, накопившийся за время захвата фразы."""
+            started = time.monotonic()
+            dropped = 0
+            limit = 2 * config.MIC_RATE // config.WAKE_BLOCK
+            for _ in range(limit):
+                available = stream.read_available
+                if available < config.WAKE_BLOCK:
+                    break
+                stream.read(config.WAKE_BLOCK)
+                dropped += config.WAKE_BLOCK
+            else:
+                log.debug("[hearing] сброс буфера: достигнут лимит %s блоков", limit)
+            elapsed_ms = (time.monotonic() - started) * 1000
+            log.debug("[hearing] сброшено %s сэмплов за %.1fмс", dropped, elapsed_ms)
+            return dropped
+
         log.info("Слух включён. Жду «Сакура…»")
         try:
             with sd.RawInputStream(samplerate=config.MIC_RATE, channels=1,
@@ -712,6 +729,8 @@ class Hearing(threading.Thread):
                     if self._dialog or time.monotonic() < self._follow_until:
                         self._follow_until = 0.0
                         self._capture(stream)
+                        _drain(stream)
+                        wake = _fresh_wake()
                         continue
 
                     # Бюджет вейк-блока: WAKE_BLOCK=1024 при 16000 Гц — 64 мс звука.
@@ -733,8 +752,9 @@ class Hearing(threading.Thread):
                         _last_warn = time.monotonic()
                         log.warning(f"[hearing] блок обработан за {_dt:.0f}мс при бюджете {_budget_ms:.0f}мс — поток отстаёт")
                     if any(w in partial for w in config.WAKE_WORDS):
-                        wake = _fresh_wake()
                         self._capture(stream)
+                        _drain(stream)
+                        wake = _fresh_wake()
         except Exception as e:
             log.error(f"Слух упал: {e}")
 
