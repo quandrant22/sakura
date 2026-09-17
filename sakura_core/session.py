@@ -115,15 +115,23 @@ class Session:
 
     # — разрешение короткого ответа —
     def resolve(self, text: str) -> Optional[tuple[str, str, Pending]]:
-        """Если ждём ответа и текст — короткий ответ этого диалога
-        («да»/«нет» по check_confirmation), вернуть (kind, verdict, pending)
-        и снять ожидание. Иначе None — текст идёт в реестр/LLM в обычном
-        порядке, ожидание живёт до TTL.
+        """Если ждём ответа, разрешить ожидание.
+
+        Для kind="confirm"/"plan": проверяет check_confirmation (да/нет).
+        Для kind="clarify": любой ответ принимается как значение параметра.
+
+        Возвращает (kind, verdict_or_value, pending) или None.
         """
         self._expire()
         p = self._pending
         if p is None:
             return None
+
+        if p.kind == "clarify":
+            # Любой ответ — значение параметра
+            self._pending = None
+            return p.kind, text.strip(), p
+
         verdict = check_confirmation(text)
         if verdict is None:
             return None

@@ -639,7 +639,7 @@
   param:
     name: temp
     pattern: '(?:до|на)\s+(\d+)'
-    required: true
+    required: ask
 
 - id: kettle.boil_heat
   legacy: [kettle:boil_heat]
@@ -663,7 +663,7 @@
   param:
     name: query
     pattern: '(?:файл|документ)\s+(.+)'
-    required: false
+    required: ask
 
 - id: coding.create_module
   legacy: [create_module]
@@ -675,7 +675,7 @@
   param:
     name: module_name
     pattern: 'модуль\s+(.+)'
-    required: false
+    required: ask
 
 - id: coding.fix
   legacy: [fix_bug]
@@ -687,7 +687,7 @@
   param:
     name: description
     pattern: '(?:баг|код|модуль)\s+(.+)'
-    required: false
+    required: ask
 
 - id: coding.read_file
   legacy: [read_code_file]
@@ -699,7 +699,7 @@
   param:
     name: filepath
     pattern: '(?:файл|код)\s+(\S+)'
-    required: false
+    required: ask
 
 - id: coding.commit
   legacy: [git_commit]
@@ -711,7 +711,7 @@
   param:
     name: message
     pattern: '(?:закоммить|коммит)\s+(.+)'
-    required: false
+    required: ask
 
 - id: coding.build
   legacy: [android_build]

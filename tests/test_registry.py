@@ -229,3 +229,49 @@ def test_shared_trigger_with_param_is_legal():
               param={"name": "x", "pattern": r"(\d+)", "required": True})
     b = _decl(id="b.no_param", triggers=["конфликт"])
     validate([a, b])  # не бросает: param разрешает ничью на runtime
+
+
+# ── required: ask ────────────────────────────────────────────────────────
+
+def test_ask_returns_needs_clarify():
+    """required: ask + param отсутствует → needs_clarify=True."""
+    from sakura_core.registry import TriggerIndex
+    d = _decl(id="a.ask", triggers=["найди файл"],
+              param={"name": "query", "pattern": r"файл\s+(.+)", "required": "ask"})
+    idx = TriggerIndex([d])
+    r = idx.match("найди файл")
+    assert r is not None
+    assert r[1].id == "a.ask"
+    assert r[2] is None  # param_value
+    assert r[3] is True  # needs_clarify
+
+
+def test_ask_with_param_extracts_normally():
+    """required: ask + param присутствует → needs_clarify=False, param извлечён."""
+    from sakura_core.registry import TriggerIndex
+    d = _decl(id="a.ask", triggers=["найди файл"],
+              param={"name": "query", "pattern": r"файл\s+(.+)", "required": "ask"})
+    idx = TriggerIndex([d])
+    r = idx.match("найди файл README.md")
+    assert r is not None
+    assert r[1].id == "a.ask"
+    assert r[2] == "README.md"
+    assert r[3] is False  # needs_clarify
+
+
+def test_ask_vs_true_skip():
+    """required: true без param → skip. required: ask без param → clarify."""
+    from sakura_core.registry import TriggerIndex
+    decl_true = _decl(id="a.true", triggers=["тест"],
+                      param={"name": "x", "pattern": r"(\d+)", "required": "true"})
+    decl_ask = _decl(id="a.ask", triggers=["тест"],
+                     param={"name": "x", "pattern": r"(\d+)", "required": "ask"})
+    # true → skip
+    idx1 = TriggerIndex([decl_true])
+    r1 = idx1.match("тест без числа")
+    assert r1 is None  # required=true, param=None → пропуск
+    # ask → clarify
+    idx2 = TriggerIndex([decl_ask])
+    r2 = idx2.match("тест без числа")
+    assert r2 is not None
+    assert r2[3] is True  # needs_clarify

@@ -166,9 +166,74 @@ def test_all_70_actions_covered_by_triggers(registry):
         hit = None
         for trigger in decl.triggers:
             decision = router.route(trigger, decl.context)
-            if decision.action == decl.id and decision.source.startswith("registry"):
-                hit = (trigger, decision.source)
-                break
+            if decision.source.startswith("registry"):
+                # action == decl.id (normal) или None (clarify — param needed)
+                if decision.action == decl.id or decision.source == "registry_clarify":
+                    hit = (trigger, decision.source)
+                    break
         if hit is None:
             missed.append((decl.id, decl.triggers))
     assert not missed, f"действия без быстрого пути: {missed}"
+
+
+# ── required: ask — clarify flow ────────────────────────────────────────
+
+
+def test_ask_without_param_returns_clarify():
+    """required: ask, param отсутствует → pending_kind=clarify, action=None."""
+    from sakura_core.registry import Declaration, Param, TriggerIndex
+
+    decl = Declaration(
+        id="test.ask", desc="Тест", executor="agent",
+        reversible=True, confirm=False,
+        triggers=["найди файл"],
+        param=Param(name="query", pattern=r"файл\s+(.+)", required="ask"),
+    )
+    router = Router(declarations=[decl])
+    d = router.route("найди файл")
+    assert d.action is None
+    assert d.source == "registry_clarify"
+    assert d.pending_kind == "clarify"
+    assert d.reply is not None
+    assert router.session.pending is not None
+    assert router.session.pending.kind == "clarify"
+    assert router.session.pending.action == "test.ask"
+
+
+def test_ask_with_param_executes_normally():
+    """required: ask, param присутствует → обычное исполнение."""
+    from sakura_core.registry import Declaration, Param, TriggerIndex
+
+    decl = Declaration(
+        id="test.ask", desc="Тест", executor="agent",
+        reversible=True, confirm=False,
+        triggers=["найди файл"],
+        param=Param(name="query", pattern=r"файл\s+(.+)", required="ask"),
+    )
+    router = Router(declarations=[decl])
+    d = router.route("найди файл README.md")
+    assert d.action == "test.ask"
+    assert d.param == "README.md"
+    assert d.pending_kind is None
+
+
+def test_clarify_response_resolves_to_action():
+    """Ответ на clarify → session разрешается → action исполняется с param."""
+    from sakura_core.registry import Declaration, Param
+
+    decl = Declaration(
+        id="test.ask", desc="Тест", executor="agent",
+        reversible=True, confirm=False,
+        triggers=["найди файл"],
+        param=Param(name="query", pattern=r"файл\s+(.+)", required="ask"),
+    )
+    router = Router(declarations=[decl])
+    # Шаг 1: clarify
+    d1 = router.route("найди файл")
+    assert d1.pending_kind == "clarify"
+    # Шаг 2: ответ
+    d2 = router.route("main.py")
+    assert d2.action == "test.ask"
+    assert d2.source == "session"
+    assert d2.param == "main.py"
+    assert d2.pending_kind == "clarify"

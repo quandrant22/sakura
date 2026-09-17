@@ -94,6 +94,20 @@ class Router:
 
     # ── шаги разрешения ──────────────────────────────────────────────────
 
+    def _clarify_question(self, decl) -> str:
+        """Сформулировать уточняющий вопрос для param с required='ask'."""
+        param_name = decl.param.name if decl.param else "параметр"
+        # Маппинг имён параметров на вопросы
+        questions = {
+            "query": "Какой файл искать?",
+            "module_name": "Как назвать модуль?",
+            "description": "Опиши проблему подробнее.",
+            "filepath": "Какой файл показать?",
+            "message": "Какое сообщение коммита?",
+            "temp": "До какой температуры нагреть?",
+        }
+        return questions.get(param_name, f"Укажи {param_name}.")
+
     def _match_exact(self, text: str, context: Optional[str]) -> Optional[tuple[str, Declaration]]:
         tl = text.lower().strip().rstrip("!?.,;")
         for d in self._exact.get(tl, []):
@@ -105,10 +119,18 @@ class Router:
         ctx = _norm_context(context)
         cleaned = self._strip_wake(text or "")
 
-        # 1. session — ждём подтверждения?
+        # 1. session — ждём ответа?
         resolved = self.session.resolve(cleaned)
         if resolved is not None:
             kind, verdict, pending = resolved
+            if kind == "clarify":
+                # verdict — это значение параметра; подставляем и исполняем
+                return Decision(
+                    action=pending.action,
+                    source="session",
+                    param=verdict,
+                    pending_kind=kind,
+                )
             return Decision(
                 action=pending.action if verdict == "confirm" else None,
                 source="session",
@@ -120,12 +142,47 @@ class Router:
         exact = self._match_exact(cleaned, ctx)
         if exact is not None:
             trigger, d = exact
+            # Проверяем ask param: точное совпадение + param с ask → clarify
+            if d.param is not None and d.param.required == "ask":
+                param_val = d.param.extract(cleaned)
+                if param_val is None:
+                    if self.session is not None:
+                        self.session.expect(
+                            "clarify",
+                            action=d.id,
+                            payload={"trigger": trigger, "param_name": d.param.name},
+                        )
+                    clarify_q = self._clarify_question(d)
+                    return Decision(
+                        action=None,
+                        source="registry_clarify",
+                        trigger=trigger,
+                        pending_kind="clarify",
+                        reply=clarify_q,
+                    )
+                return Decision(d.id, "registry_exact", trigger=trigger, param=param_val)
             return Decision(d.id, "registry_exact", trigger=trigger)
 
         # 3. registry — по границам слов, самый длинный триггер
         fuzzy = self._index.match(cleaned, ctx)
         if fuzzy is not None:
-            trigger, d, param_value = fuzzy
+            trigger, d, param_value, needs_clarify = fuzzy
+            if needs_clarify:
+                # Параметр нужен, но отсутствует — уточняющий вопрос
+                if self.session is not None:
+                    self.session.expect(
+                        "clarify",
+                        action=d.id,
+                        payload={"trigger": trigger, "param_name": d.param.name},
+                    )
+                clarify_q = self._clarify_question(d)
+                return Decision(
+                    action=None,
+                    source="registry_clarify",
+                    trigger=trigger,
+                    pending_kind="clarify",
+                    reply=clarify_q,
+                )
             return Decision(d.id, "registry_fuzzy", trigger=trigger, param=param_value)
 
         # 4. разговорные механики — смотрят на текст, не на Decision

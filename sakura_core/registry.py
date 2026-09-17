@@ -44,7 +44,11 @@ class Param:
 
     name: str
     pattern: str
-    required: bool = True
+    required: str = "true"  # "true" | "false" | "ask"
+
+    def __post_init__(self):
+        if isinstance(self.required, bool):
+            object.__setattr__(self, "required", "true" if self.required else "false")
 
     def extract(self, text: str) -> Optional[str]:
         """Извлечь значение параметра из текста. None если не найдено."""
@@ -121,7 +125,14 @@ def _parse_param(raw, where: str) -> Optional[Param]:
         re.compile(pattern)
     except re.error as e:
         raise RegistryError(f"{where}: param.pattern невалидный regex: {e}")
-    return Param(name=name, pattern=pattern, required=bool(raw.get("required", True)))
+    req = raw.get("required", "true")
+    if isinstance(req, bool):
+        req = "true" if req else "false"
+    if req not in ("true", "false", "ask"):
+        raise RegistryError(
+            f"{where}: param.required должен быть true/false/ask, получено {req!r}"
+        )
+    return Param(name=name, pattern=pattern, required=req)
 
 
 def declaration_from_dict(raw: dict) -> Declaration:
@@ -228,7 +239,7 @@ class TriggerIndex:
 
     def match(
         self, text: str, context: Optional[str] = None
-    ) -> Optional[tuple[str, Declaration, Optional[str]]]:
+    ) -> Optional[tuple[str, Declaration, Optional[str], bool]]:
         """Самый длинный совпавший триггер во фразе.
 
         context — текущий контекст ('playing:music', 'window:youtube',
@@ -236,25 +247,26 @@ class TriggerIndex:
         при совпадении контекста; без context — при любом.
 
         При равной длине триггера выигрывает декларация, у которой
-        param.extract() вернул значение. Это устраняет зависимость от
-        порядка деклараций в YAML.
+        param.extract() вернул значение.
 
-        Если у декларации param.required=True, но значение не извлечено,
-        декларация пропускается.
+        param.required:
+          "true"  — нет значения → декларация пропускается
+          "false" — отсутствие нормально
+          "ask"   — нет значения → нужен clarify, декларация возвращается
+                    с needs_clarify=True
 
-        Возвращает (триггер, декларация, param_value) либо None.
+        Возвращает (триггер, декларация, param_value, needs_clarify) либо None.
         """
         if not text:
             return None
         lowered = text.lower()
 
         best_len = 0
-        best_matches: list[tuple[str, Declaration, Optional[str]]] = []
+        best_matches: list[tuple[str, Declaration, Optional[str], bool]] = []
 
         for trigger, pattern, declaration in self._entries:
             trigger_len = len(trigger)
 
-            # Если текущий триггер короче лучшего — дальше искать бессмысленно
             if best_len > 0 and trigger_len < best_len:
                 break
 
@@ -265,16 +277,20 @@ class TriggerIndex:
                 continue
 
             param_value = None
+            needs_clarify = False
             if declaration.param is not None:
                 param_value = declaration.param.extract(text)
-                if declaration.param.required and param_value is None:
-                    continue  # required param не найден — пропускаем
+                req = declaration.param.required
+                if req == "true" and param_value is None:
+                    continue  # required — пропускаем
+                if req == "ask" and param_value is None:
+                    needs_clarify = True  # помечаем, что нужен clarify
 
             if trigger_len > best_len:
                 best_len = trigger_len
-                best_matches = [(trigger, declaration, param_value)]
+                best_matches = [(trigger, declaration, param_value, needs_clarify)]
             elif trigger_len == best_len:
-                best_matches.append((trigger, declaration, param_value))
+                best_matches.append((trigger, declaration, param_value, needs_clarify))
 
         if not best_matches:
             return None
@@ -283,6 +299,7 @@ class TriggerIndex:
         for match in best_matches:
             if match[2] is not None:
                 return match
+        # Если ни у одного param не извлечён — вернуть первый (с needs_clarify если есть)
         return best_matches[0]
 
 
