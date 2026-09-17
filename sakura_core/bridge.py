@@ -158,3 +158,31 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
         except Exception as e:
             log.debug(f"[v3] ответ не доставлен: {type(e).__name__}: {e}")
     return True
+
+
+async def handle_v3_confirm(text, *, on_execute, on_cancel, on_error=None):
+    """Handle v3 session confirm/deny dialog.
+
+    Returns True if the text was handled by the v3 session, False otherwise.
+    on_execute(action) — called when user confirms; should execute the action.
+    on_cancel() — called when user denies.
+    on_error(err) — called on exception (optional).
+    """
+    try:
+        router = get_router()
+        if router.session.pending is None:
+            return False
+        dec = router.route(text, None)
+        if dec.source != "session" or dec.verdict is None:
+            return False
+        if dec.verdict == "confirm" and dec.action:
+            await on_execute(dec.action)
+        else:
+            await on_cancel()
+        return True
+    except Exception as e:
+        if on_error:
+            await on_error(e)
+        else:
+            log.debug(f"[v3] confirm: {type(e).__name__}: {e}")
+        return False

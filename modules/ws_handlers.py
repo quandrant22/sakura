@@ -121,43 +121,38 @@ async def handle_voice_command(websocket, data, ctx) -> None:
     # Если идёт чтение полного списка и Мастер просит остановить — ставим
     # флаг (чтение оборвётся между пакетами) и не даём «стоп» распознаться
     # как посторонняя команда.
-    try:
-        from modules.state import (tts_is_reading, tts_request_stop,
-                                   tts_reading_end)
-    except Exception:
-        tts_is_reading = tts_request_stop = tts_reading_end = lambda *a, **k: None
-    if tts_is_reading(device_id or "laptop") and re.search(
-            r"(?<!\w)(?:стоп|хватит|достаточно|останови\s+чтение|"
-            r"перестань\s+читать|хватит\s+читать)\w*", text_lower):
-        tts_request_stop(device_id or "laptop")
-        await stream_tts_to_device("Хорошо, остановилась.", ws_dev,
-                                   device_id or "laptop", literal=True)
+    from sakura_core.tts_control import is_tts_stop
+    if is_tts_stop(text_lower):
+        try:
+            from modules.state import tts_is_reading, tts_request_stop
+            if tts_is_reading(device_id or "laptop"):
+                tts_request_stop(device_id or "laptop")
+                await stream_tts_to_device("Хорошо, остановилась.", ws_dev,
+                                           device_id or "laptop", literal=True)
+        except Exception:
+            pass
         return
 
     # ── v3 (этап 5): confirm-диалог реестра проверяется ДО v2 _pending_system:
-    # system.shutdown/restart/sleep — confirm: true, executor ставит
-    # Session.expect в ту же сессию, которую route() опрашивает первым шагом.
-    # Без этой ветки «да» после вопроса v3 падало в v2-_pending_system
-    # (его там нет) и уходило в классификатор.
     try:
         from sakura_core.bridge import get_router as _v3_get_router
-        _v3_router = _v3_get_router()
-        if _v3_router.session.pending is not None:
-            _v3_dec = _v3_router.route(text, None)
-            if _v3_dec.source == "session" and _v3_dec.verdict is not None:
-                if _v3_dec.verdict == "confirm" and _v3_dec.action:
-                    _v3_cmd = _v3_dec.action.replace(".", ":", 1)
-                    if ws_dev:
-                        await execute_critical_action(_v3_cmd, ws_dev, device_id,
-                                                      text, data.get("active_window", ""),
-                                                      ask_gemini)
-                    else:
-                        await bot.send_message(MASTER_ID, "Устройство отключилось, не могу выполнить.")
-                elif ws_dev:
+        _v3_r = _v3_get_router()
+        if _v3_r.session.pending is not None:
+            from sakura_core.bridge import handle_v3_confirm
+            from sakura_core.executor import execute_critical_action as _exec_crit
+            async def _v3_ws_execute(action):
+                if ws_dev:
+                    await _exec_crit(action.replace(".", ":", 1), ws_dev, device_id,
+                                      text, data.get("active_window", ""), ask_gemini)
+                else:
+                    await bot.send_message(MASTER_ID, "Устройство отключилось, не могу выполнить.")
+            async def _v3_ws_cancel():
+                if ws_dev:
                     await stream_tts_to_device("Хорошо, отменила.", ws_dev,
                                                device_id or "laptop", literal=True)
                 else:
                     await bot.send_message(MASTER_ID, "Хорошо, отменила.")
+            if await handle_v3_confirm(text, on_execute=_v3_ws_execute, on_cancel=_v3_ws_cancel):
                 return
     except Exception as _v3_conf_err:
         log.debug(f"[ws] v3 confirm: {type(_v3_conf_err).__name__}: {_v3_conf_err}")

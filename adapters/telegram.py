@@ -678,38 +678,29 @@ async def handle_message(message: Message):
     log.info(f"[вход] {text[:300]!r}")
     update_master_status(text)
 
-    try:
-        from modules.state import (tts_is_reading, tts_request_stop_anywhere)
-    except Exception:
-        tts_is_reading = lambda *a, **k: False
-        tts_request_stop_anywhere = lambda: 0
-    _stop_txt = text_lower.strip().rstrip(".!?,")
-    if _stop_txt in ("стоп", "хватит", "достаточно",
-                     "останови чтение", "перестань читать", "хватит читать"):
-        if tts_request_stop_anywhere():
-            await bot.send_message(MASTER_ID, "Хорошо, остановилась.")
+    from sakura_core.tts_control import is_tts_stop
+    if is_tts_stop(text_lower):
+        try:
+            from modules.state import tts_request_stop_anywhere
+            if tts_request_stop_anywhere():
+                await bot.send_message(MASTER_ID, "Хорошо, остановилась.")
+        except Exception:
+            pass
         return
 
-    try:
-        from sakura_core.bridge import get_router as _v3_get_router
-        _v3_router = _v3_get_router()
-        if _v3_router.session.pending is not None:
-            _v3_dec = _v3_router.route(text, None)
-            if _v3_dec.source == "session" and _v3_dec.verdict is not None:
-                if _v3_dec.verdict == "confirm" and _v3_dec.action:
-                    laptop_ws, _active_dev = _get_active_ws()
-                    if laptop_ws:
-                        _cmd_full = _v3_dec.action.replace(".", ":", 1)
-                        await execute_critical_action(_cmd_full, laptop_ws, _active_dev,
-                                                      text, "", ask_gemini)
-                        await message.answer("Готово.")
-                    else:
-                        await message.answer("Устройство отключилось, не могу выполнить.")
-                else:
-                    await message.answer("Хорошо, отменила.")
-                return
-    except Exception as _v3_conf_err:
-        log.debug(f"[tg] v3 confirm: {type(_v3_conf_err).__name__}: {_v3_conf_err}")
+    from sakura_core.bridge import handle_v3_confirm
+    from sakura_core.executor import execute_critical_action as _exec_crit
+    async def _v3_on_execute(action):
+        ws, dev = _get_active_ws()
+        if ws:
+            await _exec_crit(action.replace(".", ":", 1), ws, dev, text, "", ask_gemini)
+            await message.answer("Готово.")
+        else:
+            await message.answer("Устройство отключилось, не могу выполнить.")
+    async def _v3_on_cancel():
+        await message.answer("Хорошо, отменила.")
+    if await handle_v3_confirm(text, on_execute=_v3_on_execute, on_cancel=_v3_on_cancel):
+        return
 
     if "tg" in _state_mod._pending_system:
         _ps = _state_mod._pending_system["tg"]
