@@ -60,20 +60,20 @@ class TestBlock1_GameContext(unittest.TestCase):
     """1.2: игровой контекст попадает в промпт (раньше NameError)."""
 
     def test_ask_gemini_includes_game_context(self):
-        import main
         import modules.steam_integration as _si
+        from sakura_core.llm import ask_gemini
         hit = {"appid": 111, "name": "Palworld", "playtime_forever": 300}
         gen_mock = AsyncMock(return_value="ок")
 
         with patch.object(_si, "search_game", return_value=hit), \
              patch.object(_si, "_current_game",
                           {"appid": 222, "name": "Другая игра"}), \
-             patch("main.get_active_key", return_value="fake-key"), \
+             patch("config.get_active_key", return_value="fake-key"), \
              patch("sakura_core.llm.generate", gen_mock), \
              patch("sakura_core.llm.maybe_fetch_web", new=AsyncMock(return_value=None)), \
              patch("sakura_core.llm.maybe_read_url", new=AsyncMock(return_value=None)), \
              patch("sakura_core.llm._build_system", return_value="SYS"):
-            reply = _run(main.ask_gemini("как дела в Palworld?", save_history=False))
+            reply = _run(ask_gemini("как дела в Palworld?", save_history=False))
 
         self.assertTrue(reply)
         args, kwargs = gen_mock.call_args
@@ -83,20 +83,20 @@ class TestBlock1_GameContext(unittest.TestCase):
 
     def test_ask_gemini_skips_current_game(self):
         """Если спрошенная игра уже запущена — контекст библиотеки не добавляется."""
-        import main
         import modules.steam_integration as _si
+        from sakura_core.llm import ask_gemini
         hit = {"appid": 111, "name": "Palworld", "playtime_forever": 300}
         gen_mock = AsyncMock(return_value="ок")
 
         with patch.object(_si, "search_game", return_value=hit), \
              patch.object(_si, "_current_game",
                           {"appid": 111, "name": "Palworld"}), \
-             patch("main.get_active_key", return_value="fake-key"), \
+             patch("config.get_active_key", return_value="fake-key"), \
              patch("sakura_core.llm.generate", gen_mock), \
              patch("sakura_core.llm.maybe_fetch_web", new=AsyncMock(return_value=None)), \
              patch("sakura_core.llm.maybe_read_url", new=AsyncMock(return_value=None)), \
              patch("sakura_core.llm._build_system", return_value="SYS"):
-            _run(main.ask_gemini("как дела в Palworld?", save_history=False))
+            _run(ask_gemini("как дела в Palworld?", save_history=False))
 
         args, kwargs = gen_mock.call_args
         full_system = kwargs.get("system", args[1] if len(args) >= 2 else "")
@@ -235,8 +235,8 @@ class TestBlock3_TTS(unittest.TestCase):
         self.assertEqual(text, "Привет")
 
     def test_main_strip_tone_removes_anywhere(self):
-        import main
-        self.assertEqual(main._strip_tone("текст [тон: хм] середина"), "текст середина")
+        from sakura_core.llm import _strip_tone
+        self.assertEqual(_strip_tone("текст [тон: хм] середина"), "текст середина")
 
     def test_junk_filter_keeps_meaningful_words(self):
         """3.3: «Google», «извините», «я не могу» в середине реплики не вырезаются."""
@@ -435,13 +435,14 @@ class TestBlock7_TTSFastStart(unittest.TestCase):
     def test_both_paths_share_stream_tts_to_device(self):
         """7.3: оба голосовых пути используют одну функцию озвучки
         (единая обработка [ТОН:], очистки, эмоции)."""
-        import main
+        from modules.tts_server import stream_tts_to_device
         import modules.ws_handlers as wh
-        self.assertIs(main.stream_tts_to_device, wh.stream_tts_to_device)
-        # stream_llm_to_tts внутри тоже вызывает stream_tts_to_device
+        self.assertIs(stream_tts_to_device, wh.stream_tts_to_device)
+        # stream_llm_to_tts внутри тоже вызывает _make_audio_sender (обёртку над stream_tts_to_device)
         import inspect
-        src = inspect.getsource(main.tts_server.stream_llm_to_tts)
-        self.assertIn("stream_tts_to_device(", src)
+        import adapters.voice as _voice
+        src = inspect.getsource(_voice.stream_llm_to_tts)
+        self.assertIn("_make_audio_sender(", src)
 
 
 # ════════════════════════════════════════════════════════════════════

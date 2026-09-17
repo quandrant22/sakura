@@ -854,7 +854,7 @@ class TestHonestyRule(unittest.TestCase):
 
 
 # ════════════════════════════════════════════════════════════════════
-# БАГ 1: информационные команды в Telegram (main.handle_message)
+# БАГ 1: информационные команды в Telegram (adapters.telegram.handle_message)
 # ════════════════════════════════════════════════════════════════════
 
 class TestTelegramInfoPath(unittest.TestCase):
@@ -878,7 +878,6 @@ class TestTelegramInfoPath(unittest.TestCase):
         (через vps_answer), а не разговорный LLM.
         """
         with patch("aiogram.Bot"):
-            import main
             import adapters.telegram as _tg
         import modules.ws_handlers as wh
 
@@ -901,10 +900,10 @@ class TestTelegramInfoPath(unittest.TestCase):
                           new=AsyncMock()) as ag, \
              patch("modules.voice_info.steam_achievements",
                    new=AsyncMock(return_value=("За эту неделю: 2 достижения.", True))):
-            _run(main.handle_message(msg))
+            _run(_tg.handle_message(msg))
             # v3-путь отвечает через message.answer (ack), а не через
             # старый answer_voice_info
-            _run(main.handle_message(msg))
+            _run(_tg.handle_message(msg))
 
         rc.assert_not_awaited()          # старый LLM-роутер не вызывался
         ag.assert_not_awaited()          # ответ не выдуман разговорным LLM
@@ -935,7 +934,6 @@ class TestTelegramInfoPath(unittest.TestCase):
     def test_conversation_reply_not_routed(self):
         """Reply на сообщение (продолжение разговора) не гоняем через роутер."""
         with patch("aiogram.Bot"):
-            import main
             import adapters.telegram as _tg
 
         msg = self._make_msg("какие ачивки?")
@@ -955,7 +953,7 @@ class TestTelegramInfoPath(unittest.TestCase):
                           new=AsyncMock(return_value="ответ")), \
              patch.object(_tg, "send_as_conversation",
                           new=AsyncMock()):
-            _run(main.handle_message(msg))
+            _run(_tg.handle_message(msg))
 
         rc.assert_not_awaited()
         av.assert_not_awaited()
@@ -963,7 +961,6 @@ class TestTelegramInfoPath(unittest.TestCase):
     def test_unknown_phrase_falls_through_to_llm(self):
         """Не-инфо реплика НЕ перехватывается: доходит до обычного разговора."""
         with patch("aiogram.Bot"):
-            import main
             import adapters.telegram as _tg
 
         msg = self._make_msg("что ты думаешь про закат?")
@@ -981,7 +978,7 @@ class TestTelegramInfoPath(unittest.TestCase):
                           new=AsyncMock(return_value="ответ")), \
              patch.object(_tg, "send_as_conversation",
                           new=AsyncMock()) as sc:
-            _run(main.handle_message(msg))
+            _run(_tg.handle_message(msg))
 
         rc.assert_awaited_once()      # роутер спросили...
         av.assert_not_awaited()       # ...но это не инфо-команда
@@ -1068,7 +1065,6 @@ class TestTelegramLiteralMechanics(unittest.TestCase):
 
     def _run(self, text):
         with patch("aiogram.Bot"):
-            import main
             import adapters.telegram as _tg
         bot = MagicMock()
         bot.send_chat_action = AsyncMock()
@@ -1083,7 +1079,7 @@ class TestTelegramLiteralMechanics(unittest.TestCase):
               patch("modules.ws_handlers.answer_voice_info", new=AsyncMock()), \
               patch.object(_tg, "ask_gemini",
                           new=AsyncMock(return_value="болтовня")) as ag:
-            _run(main.handle_message(self._make_msg(text)))
+            _run(_tg.handle_message(self._make_msg(text)))
         return sc, ag
 
     def test_fear_via_telegram(self):
@@ -1108,7 +1104,6 @@ class TestTelegramLiteralMechanics(unittest.TestCase):
         """
         from conversation import fortune as conv_fortune
         with patch("aiogram.Bot"):
-            import main
             import adapters.telegram as _tg
         with patch.object(_tg, "get_role", return_value="master"), \
              patch.object(_tg, "update_master_status"), \
@@ -1120,7 +1115,7 @@ class TestTelegramLiteralMechanics(unittest.TestCase):
                           return_value={"period": "день"}), \
              patch.object(conv_fortune, "format_fortune",
                           side_effect=lambda f: "ТЕСТ-ПРЕДСКАЗАНИЕ"):
-            _run(main.handle_message(self._make_msg("дай печенье")))
+            _run(_tg.handle_message(self._make_msg("дай печенье")))
         sc.assert_awaited_once()
         self.assertEqual(sc.await_args.args[1], "ТЕСТ-ПРЕДСКАЗАНИЕ")
         ag.assert_not_awaited()

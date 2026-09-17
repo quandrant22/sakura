@@ -164,8 +164,10 @@ _start_time = None
 def _get_start_time() -> float:
     global _start_time
     if _start_time is None:
-        import main
-        _start_time = main._START
+        # _START живёт в adapters.telegram (переехал туда при 7D-2).
+        # Импорт ленивый: telegram → commands, обратный на уровне модуля дал бы цикл.
+        import adapters.telegram as _tg
+        _start_time = _tg._START
     return _start_time
 
 

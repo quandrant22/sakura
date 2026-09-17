@@ -310,9 +310,8 @@ class Test11_WsHandlers(unittest.TestCase):
         v2-критических веток: команда агенту НЕ уходит, роутер ставит ожидание
         Session.expect (confirm: true), пользователю задан уточняющий вопрос."""
         with patch("aiogram.Bot"):
-            import main
+            import adapters.telegram as _tg
         from sakura_core.bridge import get_router
-        import adapters.telegram as _tg
         import modules.state as _st
         master_id = int(os.environ["MASTER_ID"])
         laptop_ws = MagicMock()
@@ -334,9 +333,8 @@ class Test11_WsHandlers(unittest.TestCase):
     def test_tg_confirm_yes_sends_command_to_agent(self):
         """Ответ «да» в Telegram в пределах TTL → команда уходит на агент через execute_critical_action."""
         with patch("aiogram.Bot"):
-            import main
+            import adapters.telegram as _tg
         import modules.ws_handlers as wh
-        import adapters.telegram as _tg
         import modules.state as _st
         master_id = int(os.environ["MASTER_ID"])
         laptop_ws = MagicMock()
