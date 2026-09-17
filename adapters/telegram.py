@@ -2,6 +2,7 @@
 
 Перенесено из main.py (commit 5, stage 6).
 Зависимости от main.py (bot, MASTER_ID) — ленивый импорт внутри функций.
+voice_to_tg — логика отправки контента из голосового в Telegram (из ws_handlers).
 """
 
 from __future__ import annotations
@@ -123,3 +124,100 @@ async def send_as_conversation(chat_id: int, text: str):
             await bot.send_chat_action(chat_id, "typing")
             await asyncio.sleep(0.5)
         await send_safe(chat_id, part)
+
+
+# ── Голос → Telegram: отправка контента из голосового в TG ────────────
+
+_STRIP_WORDS = ("пришли", "прошли", "отправь", "скинь", "кинь", "сбрось",
+                "напиши", "напишите", "передай", "сообщи", "скажи",
+                "дай", "выдай", "подай", "мне", "пожалуйста", "сакура")
+_STRIP_PHRASES = ("в тг", "в телеграм", "в телегу", "в телеге", "в личк",
+                  "сообщением", "мне в чат")
+
+
+def strip_payload_words(s: str, extra=()) -> str:
+    """Убирает служебные слова payload по границам слов (не подстрокой)."""
+    for ph in _STRIP_PHRASES:
+        s = re.sub(rf"(?<!\w){re.escape(ph)}(?!\w)", " ", s)
+    for w in list(extra) + list(_STRIP_WORDS):
+        s = re.sub(rf"(?<!\w){re.escape(w)}(?!\w)", " ", s)
+    return " ".join(s.split()).strip(" ,.")
+
+
+def has_tg_trigger(text_lower: str) -> bool:
+    """Проверяет, содержит ли фраза триггеры отправки в Telegram."""
+    _SEND = ("пришли", "прошли", "отправь", "скинь", "кинь", "сбрось", "напиши", "дай")
+    _TG = ("в тг", "в телеграм", "в телегу", "в телеге", "в личк", "сообщением", "мне в чат")
+    return any(v in text_lower for v in _SEND) and any(t in text_lower for t in _TG)
+
+
+async def voice_to_tg(text: str, text_lower: str, payload: str,
+                       active_window: str, ask_gemini_fn, send_safe_fn,
+                       search_image_fn, download_bytes_fn,
+                       search_and_fetch_fn, needs_search_fn,
+                       translate_en_fn, bot, master_id) -> None:
+    """Отправить контент из голосового сообщения в Telegram.
+
+    Args:
+        text: исходный текст
+        text_lower: текст в нижнем регистре
+        payload: очищенный payload (без служебных слов)
+        active_window: текущее активное окно
+        ask_gemini_fn: функция LLM-запроса
+        send_safe_fn: функция безопасной отправки
+        search_image_fn: функция поиска изображений
+        download_bytes_fn: функция скачивания байтов
+        search_and_fetch_fn: функция веб-поиска
+        needs_search_fn: функция проверки необходимости поиска
+        translate_en_fn: функция перевода
+        bot: aiogram Bot
+        master_id: ID мастера
+    """
+    if not payload:
+        await send_safe_fn(master_id, "Что прислать в телеграм, Мастер?")
+        return
+
+    use_ctx = any(w in payload for w in
+                  ("это", "этого", "на экране", "что вижу", "тут", "здесь", "по этому"))
+    query = f"{payload} {active_window}".strip() if (use_ctx and active_window) else payload
+
+    is_img = (len(payload.split()) <= 8 and any(w in payload for w in
+              ("картинк", "фото", "изображени", "рисунок", "арт", "мем", "пикч", "нарисуй")))
+    try:
+        if is_img:
+            q = query
+            for w in ("найди", "поищи", "покажи", "картинку", "картинка", "картинки",
+                      "фото", "фотку", "фотографию", "изображение", "изображени",
+                      "рисунок", "арт", "мем", "пикчу", "пикч"):
+                q = re.sub(rf"(?<!\w){re.escape(w)}(?!\w)", " ", q)
+            q = " ".join(q.split()).strip()
+            q_en = await translate_en_fn(q)
+            urls = await search_image_fn(q_en, count=1)
+            img = await download_bytes_fn(urls[0]) if urls else None
+            if img:
+                from aiogram.types import BufferedInputFile
+                await bot.send_photo(master_id,
+                    photo=BufferedInputFile(img, "image.jpg"), caption=q)
+            elif urls:
+                await bot.send_message(master_id, urls[0])
+        elif needs_search_fn(payload):
+            res = await search_and_fetch_fn(query)
+            await send_safe_fn(master_id, res or "По запросу ничего не нашла.")
+        elif any(text_lower.lstrip().startswith(w) for w in
+                 ("список", "текст", "заметку", "заметка", "запиши", "дословно")) \
+                     or any(w in text_lower for w in ("следующий список", "такой текст", "дословно")):
+            await send_safe_fn(master_id, text)
+        elif any(w in text_lower for w in
+                 ("список", "по пунктам", "заметку", "заметка", "запиши", "перечень")):
+            formatted = await ask_gemini_fn(
+                "Оформи это как аккуратный нумерованный список (1. 2. 3.), "
+                "сохрани смысл дословно, ничего не добавляй, не комментируй, "
+                "не отвечай — только список:\n" + payload,
+                save_history=False)
+            await send_safe_fn(master_id, formatted)
+        else:
+            answer = await ask_gemini_fn(payload, save_history=False)
+            await send_safe_fn(master_id, answer)
+    except Exception as e:
+        log.error(f"voice->tg: {e}")
+        await send_safe_fn(master_id, "Не получилось, Мастер.")

@@ -201,6 +201,7 @@ class Test11_WsHandlers(unittest.TestCase):
 
     def _run_voice_command(self, text, ws_dev, pending_system=None):
         import modules.ws_handlers as wh
+        import modules.tts_server
 
         async def fake_classify_intent(_text):
             return MagicMock(type="command", intent="system", confidence=1.0, length=2)
@@ -211,6 +212,7 @@ class Test11_WsHandlers(unittest.TestCase):
         with patch.object(wh, "classify_intent", side_effect=fake_classify_intent), \
              patch.object(wh, "match_voice_trigger", return_value=None), \
              patch.object(wh, "stream_tts_to_device", AsyncMock()), \
+             patch.object(modules.tts_server, "stream_tts_to_device", AsyncMock()), \
              patch.object(wh, "add_episode", MagicMock()), \
              patch.object(wh, "_disp_current", return_value={"stance": "neutral", "valence": 0.0, "arousal": 0.0}), \
              patch.object(wh.st, "connected_devices", {"laptop": ws_dev}), \
