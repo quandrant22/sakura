@@ -31,6 +31,7 @@ from core.hearing import Hearing
 from core.voice import Player
 from core.local_mood import LocalMood
 from core.dep_check import check_critical_packages
+from core.outbox import Outbox, log_send_result
 
 log = logging.getLogger("sakura.agent")
 
@@ -174,6 +175,7 @@ class Agent:
         self.hearing = Hearing(self)
         self._ws     = None
         self._loop   = None
+        self._outbox = Outbox()
         self.last_voice_prosody = None
         self._last_window    = ""
         self._window_since   = time.monotonic()
@@ -203,10 +205,21 @@ class Agent:
         })
 
     def send_threadsafe(self, obj: dict):
-        if self._ws and self._loop:
-            asyncio.run_coroutine_threadsafe(
-                self._ws.send(json.dumps(obj)), self._loop
-            )
+        if not self._outbox.put(obj):
+            return
+        kind = obj.get("type", "unknown")
+        ws, loop = self._ws, self._loop
+        if ws is None or loop is None or not loop.is_running():
+            log.warning("[outbox] deferred type=%s: disconnected", kind)
+            return
+        coro = self._outbox.flush(ws)
+        try:
+            future = asyncio.run_coroutine_threadsafe(coro, loop)
+        except RuntimeError:
+            coro.close()
+            log.exception("[outbox] scheduling failed type=%s; queued", kind)
+            return
+        future.add_done_callback(lambda done: log_send_result(done, kind))
 
     def _payload(self, kind: str) -> dict:
         # Расширенная системная информация (температуры, диск)
@@ -667,8 +680,9 @@ class Agent:
                     proxy=None,
                     max_size=None,
                 ) as ws:
-                    self._ws = ws
                     await ws.send(json.dumps(self._payload("register")))
+                    self._ws = ws
+                    await self._outbox.flush(ws)
                     apps = await asyncio.to_thread(scan_apps)
                     if apps:
                         await ws.send(json.dumps({
