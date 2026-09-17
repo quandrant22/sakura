@@ -303,7 +303,7 @@ def _build_contents(user_message: str, extra_system: str = "") -> list:
 def _build_guest_contents(user_id: int, user_message: str) -> list:
     """История конкретного гостя/Химари."""
     from google.genai import types as _t
-    from memory.memory import get_guest_history
+    from modules.users import get_guest_history
     history = get_guest_history(user_id)[-20:]
     contents = []
     for msg in history:
@@ -543,7 +543,7 @@ async def ask_gemini_voice(
     try:
         if websocket:
             from adapters.voice import stream_llm_to_tts
-            from modules.mood_vector import get_current_emotion
+            from modules.state_arbiter import get_current_emotion
             full_text, emotion = await stream_llm_to_tts(
                 contents    = contents,
                 system      = full_system,
@@ -565,7 +565,7 @@ async def ask_gemini_voice(
         try:
             if websocket:
                 from adapters.voice import stream_llm_to_tts
-                from modules.mood_vector import get_current_emotion
+                from modules.state_arbiter import get_current_emotion
                 full_text, emotion = await stream_llm_to_tts(
                     contents, full_system, websocket, device_id,
                     model=FALLBACK_MODEL, max_tokens=max_tok,
@@ -604,7 +604,7 @@ async def ask_gemini_voice(
 
     try:
         from modules.mood_broadcast import broadcast_mood_after_reply
-        from modules.mood_vector import get_current_emotion
+        from modules.state_arbiter import get_current_emotion
         asyncio.create_task(broadcast_mood_after_reply(
             clean_text, user_message, emotion
         ))
@@ -645,7 +645,7 @@ async def ask_gemini_as_guest(
     role         : str,
 ) -> str:
     from config import MAIN_MODEL, get_active_key, mark_key_used
-    from memory.memory import add_guest_message
+    from modules.users import add_guest_message
 
     key = get_active_key()
     if not key:

@@ -51,7 +51,7 @@ _load_capabilities()
 # require_handlers=True — декларация без хендлера роняет импорт моста, а не
 # уходит тихо на старый путь в бою. Импорт capabilities.* выше обязан быть
 # до этой строки: пустая таблица также считается отсутствием исполнения.
-_load_registry()
+_declarations = tuple(_load_registry())
 
 
 def get_router() -> Router:
@@ -59,6 +59,7 @@ def get_router() -> Router:
     global _router
     if _router is None:
         _router = Router(
+            declarations=_declarations,
             llm_classify=make_llm_classify(timeout=5.0),
             conversation=conversation_layer.try_handle,
         )
@@ -70,7 +71,7 @@ def get_executor() -> Executor:
     в ту же сессию, которую route() опрашивает на первом шаге."""
     global _executor
     if _executor is None:
-        _executor = Executor(session=get_router().session)
+        _executor = Executor(session=get_router().session, declarations=_declarations)
     return _executor
 
 

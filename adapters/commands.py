@@ -54,12 +54,12 @@ async def cmd_start_impl(message: "Message", ask_gemini):
 
 
 async def cmd_status_impl(message: "Message"):
-    from modules.device import get_device_status
+    from modules.device_manager import get_device_status
     await message.answer(get_device_status())
 
 
 async def cmd_memory_impl(message: "Message"):
-    from sakura_core.memory_tasks import db_get_memory_context
+    from memory.db import get_memory_context as db_get_memory_context
     ctx = db_get_memory_context()
     await message.answer(ctx if ctx else "Память пока пуста.")
 
@@ -71,7 +71,7 @@ async def cmd_tasks_impl(message: "Message"):
 
 
 async def cmd_clear_impl(message: "Message", ask_gemini):
-    from sakura_core.session import clear_history, clear_session_summary
+    from memory.memory import clear_history, clear_session_summary
     clear_history()
     clear_session_summary()
     reply = await ask_gemini("Мастер очистил историю диалога. Отреагируй коротко.")
@@ -84,12 +84,12 @@ async def cmd_clean_slate_impl(message: "Message", clean_slate_fn):
 
 
 async def cmd_guests_impl(message: "Message"):
-    from modules.guest_relations import get_guest_summaries
+    from modules.users import get_guest_summaries
     await message.answer(get_guest_summaries())
 
 
 async def cmd_vip_impl(message: "Message"):
-    from modules.users import add_vip, _find_user_by_username
+    from modules.users import add_vip
     parts = (message.text or "").split(maxsplit=1)
     if len(parts) < 2:
         await message.answer("Использование: /vip @username или /vip id")
@@ -99,16 +99,17 @@ async def cmd_vip_impl(message: "Message"):
     if arg.isdigit():
         uid = int(arg)
     else:
-        uid = _find_user_by_username(arg.lstrip("@"))
+        await message.answer("Укажи числовой Telegram ID: поиск по @username недоступен.")
+        return
     if uid:
-        add_vip(uid)
+        add_vip(uid, name=arg)
         await message.answer(f"Пользователь {uid} добавлен в VIP.")
     else:
         await message.answer("Не нашла такого пользователя.")
 
 
 async def cmd_trusted_impl(message: "Message"):
-    from modules.users import add_trusted, _find_user_by_username
+    from modules.users import add_trusted
     parts = (message.text or "").split(maxsplit=1)
     if len(parts) < 2:
         await message.answer("Использование: /trusted @username или /trusted id")
@@ -118,9 +119,10 @@ async def cmd_trusted_impl(message: "Message"):
     if arg.isdigit():
         uid = int(arg)
     else:
-        uid = _find_user_by_username(arg.lstrip("@"))
+        await message.answer("Укажи числовой Telegram ID: поиск по @username недоступен.")
+        return
     if uid:
-        add_trusted(uid)
+        add_trusted(uid, name=arg)
         await message.answer(f"Пользователь {uid} добавлен в доверенные.")
     else:
         await message.answer("Не нашла такого пользователя.")

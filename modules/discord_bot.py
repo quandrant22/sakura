@@ -214,9 +214,9 @@ async def _send_tts(text: str, channel=None):
     if not _vc or not _vc.is_connected():
         return
     try:
-        from modules.tts_server import _synthesize, split_into_chunks
+        from modules.tts_server import _synthesize, _split_speech
         pcm = bytearray()
-        for chunk in split_into_chunks(text):
+        for chunk in _split_speech(text):
             for pkt in await _synthesize(chunk):
                 pcm.extend(pkt)
         if not pcm:

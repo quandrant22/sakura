@@ -7,6 +7,30 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
 
+async def supervised(coro, name):
+    """Log a failed background task without stopping critical surfaces.
+
+    Cancellation is deliberately not swallowed: shutdown must still work.
+    """
+    try:
+        await coro
+    except Exception:
+        log.exception("[%s] упал", name)
+
+
+async def run_services(polling, websocket, background):
+    """Critical surfaces own lifetime; background failures are isolated."""
+    tasks = [asyncio.create_task(polling), asyncio.create_task(websocket)]
+    tasks.extend(asyncio.create_task(supervised(coro, name), name=name)
+                 for name, coro in background)
+    try:
+        await asyncio.gather(*tasks)
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
 async def main():
     from config import MASTER_ID, MASTER_LAT, MASTER_LON
     from memory.memory import (
@@ -81,21 +105,23 @@ async def main():
     set_achievement_callback(await make_achievement_cb(MASTER_ID, send_telegram_text, mark_sent))
     asyncio.create_task(discord_start_bot())
     log.info("WebSocket сервер запущен на порту 8765")
-    await asyncio.gather(
+    await run_services(
         dp.start_polling(bot),
         ws_server.wait_closed(),
-        daily_analysis(),
-        proactive_loop(),
-        steam_library_loop(),
-        steam_achievements_loop(),
-        reflection_loop(
-            bot=bot, master_id=MASTER_ID, ask_gemini_fn=ask_gemini,
-            add_to_category_fn=lambda cat, item: guarded_add(db_add_to_category, cat, item),
-            clear_history_fn=clear_history,
-            save_session_summary_fn=save_session_summary,
-            load_session_summary_fn=load_session_summary,
-            get_history_fn=get_history, on_night_done=reset_reflection_flag,
-        ),
+        [
+            ("daily_analysis", daily_analysis()),
+            ("proactive_loop", proactive_loop()),
+            ("steam_library_loop", steam_library_loop()),
+            ("steam_achievements_loop", steam_achievements_loop()),
+            ("reflection_loop", reflection_loop(
+                bot=bot, master_id=MASTER_ID, ask_gemini_fn=ask_gemini,
+                add_to_category_fn=lambda cat, item: guarded_add(db_add_to_category, cat, item),
+                clear_history_fn=clear_history,
+                save_session_summary_fn=save_session_summary,
+                load_session_summary_fn=load_session_summary,
+                get_history_fn=get_history, on_night_done=reset_reflection_flag,
+            )),
+        ],
     )
 
 

@@ -36,6 +36,8 @@ def _decl(**over):
 
 @pytest.fixture(scope="module")
 def registry():
+    from sakura_core.bridge import _load_capabilities
+    _load_capabilities()
     return load()
 
 

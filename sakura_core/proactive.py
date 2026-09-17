@@ -35,7 +35,7 @@ async def proactive_loop():
     from modules.window_watcher import is_quiet_mode
     from modules.weather import get_weather, apply_weather_to_mood
     from modules.game_detector import should_check_event
-    from modules.reminders import get_unreminded_notes, mark_reminded
+    from modules.autonomous import get_unreminded_notes, mark_reminded
 
     global _last_weather_refresh
     await asyncio.sleep(60)
