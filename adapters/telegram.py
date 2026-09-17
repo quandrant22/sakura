@@ -76,184 +76,32 @@ _START = time.monotonic()
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
-_SENT_SPLIT = re.compile(r'(?<=[.!?…])\s+')
-
-
 # ── Send utilities ─────────────────────────────────────────────
 
+from sakura_core.send import (
+    _split_into_parts as _shared_split,
+    strip_payload_words, has_tg_trigger, voice_to_tg,
+    send_to_master as _shared_send_to_master,
+    send_telegram_text as _shared_send_telegram_text,
+    send_safe as _shared_send_safe,
+    send_as_conversation as _shared_send_as_conversation,
+)
+
+
 async def send_to_master(text: str, **kwargs):
-    cleaned = _strip_tone(text)
-    if not cleaned.strip():
-        log.warning(f"[send_to_master] Пустой текст после strip_tone: {text!r}")
-        return None
-    kwargs = dict(kwargs)
-    kwargs.setdefault("link_preview_options", LinkPreviewOptions(is_disabled=True))
-    result = bot.send_message(MASTER_ID, cleaned, **kwargs)
-    if inspect.isawaitable(result):
-        return await result
-    return result
+    return await _shared_send_to_master(bot, MASTER_ID, text, **kwargs)
 
 
 async def send_telegram_text(chat_id: int, text: str, **kwargs):
-    cleaned = _strip_tone(text)
-    if not cleaned.strip():
-        log.warning(f"[send_telegram_text] Пустой текст после strip_tone: {text!r}")
-        return None
-    if chat_id == MASTER_ID:
-        return await send_to_master(cleaned, **kwargs)
-    result = bot.send_message(chat_id, cleaned, **kwargs)
-    if inspect.isawaitable(result):
-        return await result
-    return result
+    return await _shared_send_telegram_text(bot, MASTER_ID, chat_id, text, **kwargs)
 
 
 async def send_safe(chat_id: int, text: str):
-    if not (text or "").strip():
-        log.warning(f"[send_safe] Попытка отправить пустое сообщение в {chat_id}")
-        return
-    limit = 4096
-    if len(text) <= limit:
-        await send_telegram_text(chat_id, text)
-        return
-    for i in range(0, len(text), limit):
-        await send_telegram_text(chat_id, text[i:i + limit])
-
-
-def _split_into_parts(text: str) -> list[str]:
-    paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
-    if len(paragraphs) >= 2:
-        return paragraphs
-
-    lines = [l.strip() for l in text.split('\n') if l.strip()]
-    if len(lines) >= 3:
-        parts, current = [], ""
-        for line in lines:
-            if len(current) + len(line) < 300:
-                current = (current + " " + line).strip()
-            else:
-                if current:
-                    parts.append(current)
-                current = line
-        if current:
-            parts.append(current)
-        if len(parts) >= 2:
-            return parts
-
-    sentences = _SENT_SPLIT.split(text)
-    if len(sentences) <= 1:
-        return [text]
-
-    parts, current = [], ""
-    for sent in sentences:
-        if len(current) + len(sent) < 280:
-            current = (current + " " + sent).strip()
-        else:
-            if current:
-                parts.append(current)
-            current = sent
-    if current:
-        parts.append(current)
-
-    return parts if len(parts) >= 2 else [text]
+    return await _shared_send_safe(bot, MASTER_ID, chat_id, text)
 
 
 async def send_as_conversation(chat_id: int, text: str):
-    if len(text) <= 400 or len(re.findall(r'[.!?…]', text)) < 3:
-        await send_safe(chat_id, text)
-        return
-
-    parts = _split_into_parts(text)
-    if len(parts) <= 1:
-        await send_safe(chat_id, text)
-        return
-
-    for i, part in enumerate(parts):
-        if not part:
-            continue
-        if i > 0:
-            delay = min(0.8 + len(parts[i - 1]) / 400, 2.5)
-            await asyncio.sleep(delay)
-            await bot.send_chat_action(chat_id, "typing")
-            await asyncio.sleep(0.5)
-        await send_safe(chat_id, part)
-
-
-# ── Голос → Telegram ───────────────────────────────────────────
-
-_STRIP_WORDS = ("пришли", "прошли", "отправь", "скинь", "кинь", "сбрось",
-                "напиши", "напишите", "передай", "сообщи", "скажи",
-                "дай", "выдай", "подай", "мне", "пожалуйста", "сакура")
-_STRIP_PHRASES = ("в тг", "в телеграм", "в телегу", "в телеге", "в личк",
-                  "сообщением", "мне в чат")
-
-
-def strip_payload_words(s: str, extra=()) -> str:
-    for ph in _STRIP_PHRASES:
-        s = re.sub(rf"(?<!\w){re.escape(ph)}(?!\w)", " ", s)
-    for w in list(extra) + list(_STRIP_WORDS):
-        s = re.sub(rf"(?<!\w){re.escape(w)}(?!\w)", " ", s)
-    return " ".join(s.split()).strip(" ,.")
-
-
-def has_tg_trigger(text_lower: str) -> bool:
-    _SEND = ("пришли", "прошли", "отправь", "скинь", "кинь", "сбрось", "напиши", "дай")
-    _TG = ("в тг", "в телеграм", "в телегу", "в телеге", "в личк", "сообщением", "мне в чат")
-    return any(v in text_lower for v in _SEND) and any(t in text_lower for t in _TG)
-
-
-async def voice_to_tg(text: str, text_lower: str, payload: str,
-                       active_window: str, ask_gemini_fn, send_safe_fn,
-                       search_image_fn, download_bytes_fn,
-                       search_and_fetch_fn, needs_search_fn,
-                       translate_en_fn, bot, master_id) -> None:
-    if not payload:
-        await send_safe_fn(master_id, "Что прислать в телеграм, Мастер?")
-        return
-
-    use_ctx = any(w in payload for w in
-                  ("это", "этого", "на экране", "что вижу", "тут", "здесь", "по этому"))
-    query = f"{payload} {active_window}".strip() if (use_ctx and active_window) else payload
-
-    is_img = (len(payload.split()) <= 8 and any(w in payload for w in
-              ("картинк", "фото", "изображени", "рисунок", "арт", "мем", "пикч", "нарисуй")))
-    try:
-        if is_img:
-            q = query
-            for w in ("найди", "поищи", "покажи", "картинку", "картинка", "картинки",
-                      "фото", "фотку", "фотографию", "изображение", "изображени",
-                      "рисунок", "арт", "мем", "пикчу", "пикч"):
-                q = re.sub(rf"(?<!\w){re.escape(w)}(?!\w)", " ", q)
-            q = " ".join(q.split()).strip()
-            q_en = await translate_en_fn(q)
-            urls = await search_image_fn(q_en, count=1)
-            img = await download_bytes_fn(urls[0]) if urls else None
-            if img:
-                from aiogram.types import BufferedInputFile
-                await bot.send_photo(master_id,
-                    photo=BufferedInputFile(img, "image.jpg"), caption=q)
-            elif urls:
-                await bot.send_message(master_id, urls[0])
-        elif needs_search_fn(payload):
-            res = await search_and_fetch_fn(query)
-            await send_safe_fn(master_id, res or "По запросу ничего не нашла.")
-        elif any(text_lower.lstrip().startswith(w) for w in
-                 ("список", "текст", "заметку", "заметка", "запиши", "дословно")) \
-                 or any(w in text_lower for w in ("следующий список", "такой текст", "дословно")):
-            await send_safe_fn(master_id, text)
-        elif any(w in text_lower for w in
-                 ("список", "по пунктам", "заметку", "заметка", "запиши", "перечень")):
-            formatted = await ask_gemini_fn(
-                "Оформи это как аккуратный нумерованный список (1. 2. 3.), "
-                "сохрани смысл дословно, ничего не добавляй, не комментируй, "
-                "не отвечай — только список:\n" + payload,
-                save_history=False)
-            await send_safe_fn(master_id, formatted)
-        else:
-            answer = await ask_gemini_fn(payload, save_history=False)
-            await send_safe_fn(master_id, answer)
-    except Exception as e:
-        log.error(f"voice->tg: {e}")
-        await send_safe_fn(master_id, "Не получилось, Мастер.")
+    return await _shared_send_as_conversation(bot, MASTER_ID, chat_id, text)
 
 
 # ── Command handlers ───────────────────────────────────────────
@@ -262,173 +110,120 @@ async def voice_to_tg(text: str, text_lower: str, payload: str,
 async def cmd_help(message: Message):
     if not is_master(message.from_user.id):
         return
-    from modules import device_commands
-    await message.answer(device_commands.help_text())
+    from adapters.commands import cmd_help_impl
+    await cmd_help_impl(message)
 
 
 @dp.message(Command("health"))
 async def cmd_health(message: Message):
     if not is_master(message.from_user.id):
         return
-    cpu  = psutil.cpu_percent(interval=0.5)
-    ram  = psutil.virtual_memory()
-    disk = psutil.disk_usage("/")
-    load = os.getloadavg()
-    up   = int(time.monotonic() - _START)
-    await message.answer(
-        f"Сервер:\n"
-        f"CPU: {cpu:.0f}%  |  load: {load[0]:.2f} {load[1]:.2f} {load[2]:.2f}\n"
-        f"RAM: {ram.percent:.0f}% ({ram.used >> 20} / {ram.total >> 20} МБ)\n"
-        f"Диск: {disk.percent:.0f}% (свободно {disk.free >> 30} ГБ)\n"
-        f"Аптайм: {up // 3600}ч {(up % 3600) // 60}м"
-    )
+    from adapters.commands import cmd_health_impl
+    await cmd_health_impl(message)
 
 
 @dp.message(Command("restart"))
 async def cmd_restart(message: Message):
     if not is_master(message.from_user.id):
         return
-    await message.answer("Перезапускаюсь, Мастер. Вернусь через пару секунд.")
-    subprocess.Popen(["systemctl", "restart", "sakura.service"])
+    from adapters.commands import cmd_restart_impl
+    await cmd_restart_impl(message)
 
 
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
     if not is_master(message.from_user.id):
         return
-    reply = await ask_gemini("Мастер только что запустил бота. Поприветствуй коротко.")
-    await message.answer(reply)
+    from adapters.commands import cmd_start_impl
+    await cmd_start_impl(message, ask_gemini)
 
 
 @dp.message(Command("status"))
 async def cmd_status(message: Message):
     if not is_master(message.from_user.id):
         return
-    await message.answer(get_device_status())
+    from adapters.commands import cmd_status_impl
+    await cmd_status_impl(message)
 
 
 @dp.message(Command("memory"))
 async def cmd_memory(message: Message):
     if not is_master(message.from_user.id):
         return
-    ctx = db_get_memory_context()
-    await message.answer(ctx if ctx else "Память пока пуста.")
+    from adapters.commands import cmd_memory_impl
+    await cmd_memory_impl(message)
 
 
 @dp.message(Command("tasks"))
 async def cmd_tasks(message: Message):
     if not is_master(message.from_user.id):
         return
-    ctx = get_tasks_context()
-    await message.answer(ctx if ctx else "Задач пока нет.")
+    from adapters.commands import cmd_tasks_impl
+    await cmd_tasks_impl(message)
 
 
 @dp.message(Command("clear"))
 async def cmd_clear(message: Message):
     if not is_master(message.from_user.id):
         return
-    clear_history()
-    clear_session_summary()
-    reply = await ask_gemini("Мастер очистил историю диалога. Отреагируй коротко.")
-    await message.answer(reply)
+    from adapters.commands import cmd_clear_impl
+    await cmd_clear_impl(message, ask_gemini)
 
 
 @dp.message(Command("чистыйлист"))
 async def cmd_clean_slate(message: Message):
     if not is_master(message.from_user.id):
         return
-    await clean_slate()
-    await message.answer("Протокол выполнен. Я тебя не помню.")
+    from adapters.commands import cmd_clean_slate_impl
+    await cmd_clean_slate_impl(message, clean_slate)
 
 
 @dp.message(Command("гости"))
 async def cmd_guests(message: Message):
     if not is_master(message.from_user.id):
         return
-    await message.answer(get_guest_summaries())
+    from adapters.commands import cmd_guests_impl
+    await cmd_guests_impl(message)
 
 
 @dp.message(Command("vip"))
 async def cmd_vip(message: Message):
     if not is_master(message.from_user.id):
         return
-    parts = (message.text or "").split(maxsplit=1)
-    if len(parts) < 2:
-        await message.answer("Использование: /vip @username или /vip id")
-        return
-    arg = parts[1].strip()
-    uid = None
-    if arg.isdigit():
-        uid = int(arg)
-    else:
-        from modules.users import _find_user_by_username
-        uid = _find_user_by_username(arg.lstrip("@"))
-    if uid:
-        add_vip(uid)
-        await message.answer(f"Пользователь {uid} добавлен в VIP.")
-    else:
-        await message.answer("Не нашла такого пользователя.")
+    from adapters.commands import cmd_vip_impl
+    await cmd_vip_impl(message)
 
 
 @dp.message(Command("trusted"))
 async def cmd_trusted(message: Message):
     if not is_master(message.from_user.id):
         return
-    parts = (message.text or "").split(maxsplit=1)
-    if len(parts) < 2:
-        await message.answer("Использование: /trusted @username или /trusted id")
-        return
-    arg = parts[1].strip()
-    uid = None
-    if arg.isdigit():
-        uid = int(arg)
-    else:
-        from modules.users import _find_user_by_username
-        uid = _find_user_by_username(arg.lstrip("@"))
-    if uid:
-        add_trusted(uid)
-        await message.answer(f"Пользователь {uid} добавлен в доверенные.")
-    else:
-        await message.answer("Не нашла такого пользователя.")
+    from adapters.commands import cmd_trusted_impl
+    await cmd_trusted_impl(message)
 
 
 @dp.message(Command("users"))
 async def cmd_users(message: Message):
     if not is_master(message.from_user.id):
         return
-    await message.answer(list_users())
+    from adapters.commands import cmd_users_impl
+    await cmd_users_impl(message)
 
 
 @dp.message(Command("unvip"))
 async def cmd_unvip(message: Message):
     if not is_master(message.from_user.id):
         return
-    parts = (message.text or "").split(maxsplit=1)
-    if len(parts) < 2:
-        await message.answer("Использование: /unvip id")
-        return
-    arg = parts[1].strip()
-    if arg.isdigit():
-        remove_user(int(arg))
-        await message.answer(f"Пользователь {arg} удалён.")
-    else:
-        await message.answer("Укажи numeric ID.")
+    from adapters.commands import cmd_unvip_impl
+    await cmd_unvip_impl(message)
 
 
 @dp.message(Command("block"))
 async def cmd_block(message: Message):
     if not is_master(message.from_user.id):
         return
-    parts = (message.text or "").split(maxsplit=1)
-    if len(parts) < 2:
-        await message.answer("Использование: /block id")
-        return
-    arg = parts[1].strip()
-    if arg.isdigit():
-        block_user(int(arg))
-        await message.answer(f"Пользователь {arg} заблокирован.")
-    else:
-        await message.answer("Укажи numeric ID.")
+    from adapters.commands import cmd_block_impl
+    await cmd_block_impl(message)
 
 
 # ── Device control ─────────────────────────────────────────────
@@ -490,7 +285,8 @@ async def handle_message(message: Message):
         create_capsule, make_create_prompt)
     from modules.audio_control import handle_audio_command
     from modules.ws_handlers import execute_critical_action, answer_voice_info
-    from adapters.group_chat import handle_group_message, handle_guest_private
+    from adapters.group_chat import (handle_group_message, handle_guest_private,
+        handle_reply_to_notification, handle_device_command)
 
     # ── Групповой чат ─────────────────────────────────────────────
     if await handle_group_message(
@@ -644,63 +440,24 @@ async def handle_message(message: Message):
 
     reply_ctx = _get_reply_context(message)
 
-    if message.reply_to_message:
-        replied_text = (message.reply_to_message.text or "").strip()
-        is_guest_notification  = replied_text.startswith("[гость]")
-        is_himari_notification = replied_text.startswith("[химари]")
-        if is_guest_notification or is_himari_notification:
-            who = "Химари" if is_himari_notification else "гостя"
-
-            if is_guest_notification and not is_himari_notification:
-                import re as _re
-                id_match = _re.search(r'id=(\d+)', replied_text)
-                if id_match:
-                    guest_uid = int(id_match.group(1))
-                    detected  = detect_relation_from_text(text)
-                    if detected is not None:
-                        set_relation(guest_uid, detected, note=text[:150])
-                    elif text.strip():
-                        from modules.guest_relations import get_relation as _gr
-                        current_level = _gr(guest_uid)["level"]
-                        set_relation(guest_uid, current_level, note=text[:150])
-
-            discuss_prompt = (
-                f"Мастер отвечает на твоё наблюдение о переписке с {who}.\n"
-                f"Твоё наблюдение было: «{replied_text[:300]}»\n"
-                f"Мастер говорит: «{text}»\n\n"
-                f"Продолжи разговор с Мастером об этом — обсудите {who}, "
-                f"его сообщение, ситуацию. Отвечай живо, как в обычном разговоре."
-            )
-            await bot.send_chat_action(message.chat.id, "typing")
-            reply = await ask_gemini(discuss_prompt)
-            await send_as_conversation(message.chat.id, reply)
-            return
+    if await handle_reply_to_notification(
+        message, text, ask_gemini, send_as_conversation, bot,
+        detect_relation_from_text=detect_relation_from_text,
+        set_relation=set_relation,
+    ):
+        return
 
     asked   = parse_device_from_text(text)
     dev_id  = asked or next(iter(get_online_devices()), None) or "laptop"
-    chosen  = {"dev": dev_id}
-    def _resolve(q):
-        d, t = resolve_app(q, dev_id)
-        if t and not asked:
-            chosen["dev"] = d
-        return t
-    actions = device_parse(text, _resolve)
-    if actions:
-        dev   = chosen["dev"]
-        ws    = connected_devices.get(dev)
-        label = {"laptop": "ноут", "pc": "ПК", "phone": "телефон"}.get(dev, dev)
-        if not ws:
-            await message.answer(f"{label} не подключён, Мастер.")
-            return
-        done = []
-        for action, human in actions:
-            if action.startswith("say:"):
-                asyncio.create_task(stream_tts_to_device(action[4:], ws, dev, literal=True, emotion=get_current_emotion()))
-            else:
-                await ws.send(json.dumps({"type": "command", "action": action}))
-            done.append(human)
-            await asyncio.sleep(0.3)
-        await message.answer(f"{label}: " + ", ".join(done))
+    if await handle_device_command(
+        message, text, dev_id, connected_devices,
+        stream_tts_to_device=stream_tts_to_device,
+        get_current_emotion=get_current_emotion,
+        parse_device_from_text=parse_device_from_text,
+        get_online_devices=get_online_devices,
+        resolve_app=resolve_app,
+        device_parse=device_parse,
+    ):
         return
 
     _t0 = __import__("time").monotonic()
@@ -731,192 +488,46 @@ async def handle_message(message: Message):
 
 @dp.message(F.voice)
 async def handle_voice(message: Message):
-    if not is_master(message.from_user.id):
-        return
-    await bot.send_chat_action(message.chat.id, "typing")
-    file = await bot.get_file(message.voice.file_id)
-
-    with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as f:
-        temp_ogg = f.name
-    await bot.download_file(file.file_path, temp_ogg)
-
-    try:
-        from pydub import AudioSegment
-        audio    = AudioSegment.from_ogg(temp_ogg)
-        temp_wav = temp_ogg.replace(".ogg", ".wav")
-        audio.export(temp_wav, format="wav")
-        os.unlink(temp_ogg)
-    except Exception as e:
-        await message.answer(f"Ошибка конвертации: {e}")
-        return
-
-    try:
-        key = get_active_key()
-        client = get_client(key)
-        with open(temp_wav, "rb") as f:
-            audio_b64 = __import__("base64").b64encode(f.read()).decode()
-        os.unlink(temp_wav)
-
-        from google.genai import types
-        r = await _llm_generate(
-            [types.Content(parts=[
-                types.Part(inline_data=types.Blob(mime_type="audio/wav", data=audio_b64)),
-                types.Part(text="Распознай речь, верни только текст."),
-            ])],
-            model=MAIN_MODEL,
-        )
-        recognized = r
-        mark_key_used(key)
-
-        if not recognized:
-            await message.answer("Не смогла разобрать.")
-            return
-        reply = await ask_gemini(recognized)
-        await send_as_conversation(message.chat.id, reply)
-    except Exception as e:
-        await message.answer(f"Ошибка: {e}")
+    from adapters.media import handle_voice_impl
+    await handle_voice_impl(
+        message, bot=bot, is_master=is_master,
+        get_active_key=get_active_key, get_client=get_client,
+        mark_key_used=mark_key_used, ask_gemini=ask_gemini,
+        send_as_conversation=send_as_conversation,
+    )
 
 
 @dp.message(F.photo)
 async def handle_photo(message: Message):
-    if not is_master(message.from_user.id):
-        return
-    await bot.send_chat_action(message.chat.id, "typing")
-    photo = message.photo[-1]
-    file  = await bot.get_file(photo.file_id)
-
-    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
-        temp_jpg = f.name
-    await bot.download_file(file.file_path, temp_jpg)
-
-    try:
-        key = get_active_key()
-        client = get_client(key)
-        with open(temp_jpg, "rb") as f:
-            img_b64 = __import__("base64").b64encode(f.read()).decode()
-        os.unlink(temp_jpg)
-
-        caption   = message.caption or "Опиши что на фото — коротко, в своём стиле."
-        reply_ctx = _get_reply_context(message)
-        from google.genai import types
-        r = await _llm_generate(
-            [types.Content(parts=[
-                types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=img_b64)),
-                types.Part(text=caption + reply_ctx),
-            ])],
-            system=get_system_prompt(),
-            model=MAIN_MODEL,
-            max_tokens=600,
-            temperature=0.85,
-        )
-        mark_key_used(key)
-        reply = clean_reply(r)
-        add_to_history("user",  f"[Фото] {caption}")
-        add_to_history("model", reply)
-        await send_as_conversation(message.chat.id, reply)
-    except Exception as e:
-        await message.answer(f"Ошибка: {e}")
+    from adapters.media import handle_photo_impl
+    await handle_photo_impl(
+        message, bot=bot, is_master=is_master,
+        get_active_key=get_active_key, get_client=get_client,
+        mark_key_used=mark_key_used, send_as_conversation=send_as_conversation,
+        _get_reply_context=_get_reply_context, get_system_prompt=get_system_prompt,
+        clean_reply=clean_reply, add_to_history=add_to_history,
+    )
 
 
 @dp.message(F.video)
 async def handle_video(message: Message):
-    if not is_master(message.from_user.id):
-        return
-    await bot.send_chat_action(message.chat.id, "upload_video")
-
-    video = message.video
-    if video.file_size and video.file_size > 20 * 1024 * 1024:
-        await message.reply("Видео слишком большое (>20MB). Обрежь до нужного фрагмента.")
-        return
-
-    await message.reply("Смотрю...")
-
-    file = await bot.get_file(video.file_id)
-    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
-        tmp_path = f.name
-    await bot.download_file(file.file_path, tmp_path)
-
-    try:
-        key = get_active_key()
-        client = get_client(key)
-
-        with open(tmp_path, "rb") as f:
-            video_b64 = __import__("base64").b64encode(f.read()).decode()
-        os.unlink(tmp_path)
-
-        caption   = message.caption or "Посмотри это видео и расскажи что происходит — коротко, в своём стиле."
-        reply_ctx = _get_reply_context(message)
-
-        from google.genai import types
-        r = await _llm_generate(
-            [types.Content(parts=[
-                types.Part(inline_data=types.Blob(
-                    mime_type="video/mp4",
-                    data=video_b64
-                )),
-                types.Part(text=caption + reply_ctx),
-            ])],
-            system=get_system_prompt(),
-            model=MAIN_MODEL,
-            max_tokens=800,
-            temperature=0.85,
-        )
-        mark_key_used(key)
-        reply = clean_reply(r)
-        add_to_history("user",  f"[Видео] {caption}")
-        add_to_history("model", reply)
-        await send_as_conversation(message.chat.id, reply)
-
-    except Exception as e:
-        log.error(f"[video] {e}")
-        try: os.unlink(tmp_path)
-        except Exception as e:
-            log.debug(f"[tg] handle_video: {type(e).__name__}: {e}")
-        await message.reply(f"Не смогла обработать видео: {e}")
+    from adapters.media import handle_video_impl
+    await handle_video_impl(
+        message, bot=bot, is_master=is_master,
+        get_active_key=get_active_key, get_client=get_client,
+        mark_key_used=mark_key_used, send_as_conversation=send_as_conversation,
+        _get_reply_context=_get_reply_context, get_system_prompt=get_system_prompt,
+        clean_reply=clean_reply, add_to_history=add_to_history, log=log,
+    )
 
 
 @dp.message(F.video_note)
 async def handle_video_note(message: Message):
-    if not is_master(message.from_user.id):
-        return
-    await bot.send_chat_action(message.chat.id, "typing")
-
-    file = await bot.get_file(message.video_note.file_id)
-    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
-        tmp_path = f.name
-    await bot.download_file(file.file_path, tmp_path)
-
-    try:
-        key = get_active_key()
-        client = get_client(key)
-
-        with open(tmp_path, "rb") as f:
-            video_b64 = __import__("base64").b64encode(f.read()).decode()
-        os.unlink(tmp_path)
-
-        from google.genai import types
-        r = await _llm_generate(
-            [types.Content(parts=[
-                types.Part(inline_data=types.Blob(
-                    mime_type="video/mp4",
-                    data=video_b64
-                )),
-                types.Part(text="Это видео-кружочек от Мастера. Отреагируй на него в своём стиле."),
-            ])],
-            system=get_system_prompt(),
-            model=MAIN_MODEL,
-            max_tokens=400,
-            temperature=0.9,
-        )
-        mark_key_used(key)
-        reply = clean_reply(r)
-        add_to_history("user",  "[Видео-кружочек]")
-        add_to_history("model", reply)
-        await send_as_conversation(message.chat.id, reply)
-
-    except Exception as e:
-        log.error(f"[video_note] {e}")
-        try: os.unlink(tmp_path)
-        except Exception as e:
-            log.debug(f"[tg] handle_video_note: {type(e).__name__}: {e}")
-        await message.reply("Не смогла посмотреть кружочек.")
+    from adapters.media import handle_video_note_impl
+    await handle_video_note_impl(
+        message, bot=bot, is_master=is_master,
+        get_active_key=get_active_key, get_client=get_client,
+        mark_key_used=mark_key_used, send_as_conversation=send_as_conversation,
+        get_system_prompt=get_system_prompt, clean_reply=clean_reply,
+        add_to_history=add_to_history, log=log,
+    )

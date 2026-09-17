@@ -247,3 +247,94 @@ async def handle_guest_private(
     except Exception as e:
         log.error(f"Master notification error: {e}")
     return True
+
+
+async def handle_reply_to_notification(
+    message: "Message",
+    text: str,
+    ask_gemini,
+    send_as_conversation,
+    bot,
+    *,
+    detect_relation_from_text,
+    set_relation,
+) -> bool:
+    """Handle master's reply to a [гость] or [химари] notification. Returns True if handled."""
+    if not message.reply_to_message:
+        return False
+    replied_text = (message.reply_to_message.text or "").strip()
+    is_guest  = replied_text.startswith("[гость]")
+    is_himari = replied_text.startswith("[химари]")
+    if not is_guest and not is_himari:
+        return False
+
+    who = "Химари" if is_himari else "гостя"
+
+    if is_guest and not is_himari:
+        import re as _re
+        id_match = _re.search(r'id=(\d+)', replied_text)
+        if id_match:
+            guest_uid = int(id_match.group(1))
+            detected  = detect_relation_from_text(text)
+            if detected is not None:
+                set_relation(guest_uid, detected, note=text[:150])
+            elif text.strip():
+                from modules.guest_relations import get_relation as _gr
+                current_level = _gr(guest_uid)["level"]
+                set_relation(guest_uid, current_level, note=text[:150])
+
+    discuss_prompt = (
+        f"Мастер отвечает на твоё наблюдение о переписке с {who}.\n"
+        f"Твоё наблюдение было: «{replied_text[:300]}»\n"
+        f"Мастер говорит: «{text}»\n\n"
+        f"Продолжи разговор с Мастером об этом — обсудите {who}, "
+        f"его сообщение, ситуацию. Отвечай живо, как в обычном разговоре."
+    )
+    await bot.send_chat_action(message.chat.id, "typing")
+    reply = await ask_gemini(discuss_prompt)
+    await send_as_conversation(message.chat.id, reply)
+    return True
+
+
+async def handle_device_command(
+    message: "Message",
+    text: str,
+    dev_id: str,
+    connected_devices: dict,
+    *,
+    stream_tts_to_device,
+    get_current_emotion,
+    parse_device_from_text,
+    get_online_devices,
+    resolve_app,
+    device_parse,
+) -> bool:
+    """Handle device-parseable commands. Returns True if handled."""
+    asked = parse_device_from_text(text)
+    chosen = {"dev": dev_id}
+    def _resolve(q):
+        d, t = resolve_app(q, dev_id)
+        if t and not asked:
+            chosen["dev"] = d
+        return t
+    actions = device_parse(text, _resolve)
+    if not actions:
+        return False
+
+    import asyncio, json
+    dev   = chosen["dev"]
+    ws    = connected_devices.get(dev)
+    label = {"laptop": "ноут", "pc": "ПК", "phone": "телефон"}.get(dev, dev)
+    if not ws:
+        await message.answer(f"{label} не подключён, Мастер.")
+        return True
+    done = []
+    for action, human in actions:
+        if action.startswith("say:"):
+            asyncio.create_task(stream_tts_to_device(action[4:], ws, dev, literal=True, emotion=get_current_emotion()))
+        else:
+            await ws.send(json.dumps({"type": "command", "action": action}))
+        done.append(human)
+        await asyncio.sleep(0.3)
+    await message.answer(f"{label}: " + ", ".join(done))
+    return True

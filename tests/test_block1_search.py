@@ -464,8 +464,8 @@ class Test1_FormatSources(unittest.TestCase):
 class Test1_SendToMasterDisablesPreview(unittest.TestCase):
     def test_link_preview_disabled(self):
         import inspect
-        import main
-        src = inspect.getsource(main.send_to_master)
+        from sakura_core import send as _send_mod
+        src = inspect.getsource(_send_mod.send_to_master)
         self.assertIn("LinkPreviewOptions", src)
         self.assertIn("is_disabled=True", src)
 

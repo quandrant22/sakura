@@ -1,0 +1,169 @@
+"""TG command handler implementations — extracted from adapters/telegram.py.
+
+Thin @dp wrappers stay in telegram.py; logic lives here.
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import time
+import logging
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from aiogram.types import Message
+
+log = logging.getLogger("sakura.cmd")
+
+
+def _is_master(message: "Message") -> bool:
+    from modules.users import is_master
+    return is_master(message.from_user.id)
+
+
+async def cmd_help_impl(message: "Message"):
+    from modules import device_commands
+    await message.answer(device_commands.help_text())
+
+
+async def cmd_health_impl(message: "Message"):
+    import psutil
+    cpu  = psutil.cpu_percent(interval=0.5)
+    ram  = psutil.virtual_memory()
+    disk = psutil.disk_usage("/")
+    load = os.getloadavg()
+    up   = int(time.monotonic() - _get_start_time())
+    await message.answer(
+        f"Сервер:\n"
+        f"CPU: {cpu:.0f}%  |  load: {load[0]:.2f} {load[1]:.2f} {load[2]:.2f}\n"
+        f"RAM: {ram.percent:.0f}% ({ram.used >> 20} / {ram.total >> 20} МБ)\n"
+        f"Диск: {disk.percent:.0f}% (свободно {disk.free >> 30} ГБ)\n"
+        f"Аптайм: {up // 3600}ч {(up % 3600) // 60}м"
+    )
+
+
+async def cmd_restart_impl(message: "Message"):
+    await message.answer("Перезапускаюсь, Мастер. Вернусь через пару секунд.")
+    subprocess.Popen(["systemctl", "restart", "sakura.service"])
+
+
+async def cmd_start_impl(message: "Message", ask_gemini):
+    reply = await ask_gemini("Мастер только что запустил бота. Поприветствуй коротко.")
+    await message.answer(reply)
+
+
+async def cmd_status_impl(message: "Message"):
+    from modules.device import get_device_status
+    await message.answer(get_device_status())
+
+
+async def cmd_memory_impl(message: "Message"):
+    from sakura_core.memory_tasks import db_get_memory_context
+    ctx = db_get_memory_context()
+    await message.answer(ctx if ctx else "Память пока пуста.")
+
+
+async def cmd_tasks_impl(message: "Message"):
+    from modules.tasks import get_tasks_context
+    ctx = get_tasks_context()
+    await message.answer(ctx if ctx else "Задач пока нет.")
+
+
+async def cmd_clear_impl(message: "Message", ask_gemini):
+    from sakura_core.session import clear_history, clear_session_summary
+    clear_history()
+    clear_session_summary()
+    reply = await ask_gemini("Мастер очистил историю диалога. Отреагируй коротко.")
+    await message.answer(reply)
+
+
+async def cmd_clean_slate_impl(message: "Message", clean_slate_fn):
+    await clean_slate_fn()
+    await message.answer("Протокол выполнен. Я тебя не помню.")
+
+
+async def cmd_guests_impl(message: "Message"):
+    from modules.guest_relations import get_guest_summaries
+    await message.answer(get_guest_summaries())
+
+
+async def cmd_vip_impl(message: "Message"):
+    from modules.users import add_vip, _find_user_by_username
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        await message.answer("Использование: /vip @username или /vip id")
+        return
+    arg = parts[1].strip()
+    uid = None
+    if arg.isdigit():
+        uid = int(arg)
+    else:
+        uid = _find_user_by_username(arg.lstrip("@"))
+    if uid:
+        add_vip(uid)
+        await message.answer(f"Пользователь {uid} добавлен в VIP.")
+    else:
+        await message.answer("Не нашла такого пользователя.")
+
+
+async def cmd_trusted_impl(message: "Message"):
+    from modules.users import add_trusted, _find_user_by_username
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        await message.answer("Использование: /trusted @username или /trusted id")
+        return
+    arg = parts[1].strip()
+    uid = None
+    if arg.isdigit():
+        uid = int(arg)
+    else:
+        uid = _find_user_by_username(arg.lstrip("@"))
+    if uid:
+        add_trusted(uid)
+        await message.answer(f"Пользователь {uid} добавлен в доверенные.")
+    else:
+        await message.answer("Не нашла такого пользователя.")
+
+
+async def cmd_users_impl(message: "Message"):
+    from modules.users import list_users
+    await message.answer(list_users())
+
+
+async def cmd_unvip_impl(message: "Message"):
+    from modules.users import remove_user
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        await message.answer("Использование: /unvip id")
+        return
+    arg = parts[1].strip()
+    if arg.isdigit():
+        remove_user(int(arg))
+        await message.answer(f"Пользователь {arg} удалён.")
+    else:
+        await message.answer("Укажи numeric ID.")
+
+
+async def cmd_block_impl(message: "Message"):
+    from modules.users import block_user
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        await message.answer("Использование: /block id")
+        return
+    arg = parts[1].strip()
+    if arg.isdigit():
+        block_user(int(arg))
+        await message.answer(f"Пользователь {arg} заблокирован.")
+    else:
+        await message.answer("Укажи numeric ID.")
+
+
+_start_time = None
+
+def _get_start_time() -> float:
+    global _start_time
+    if _start_time is None:
+        import main
+        _start_time = main._START
+    return _start_time
