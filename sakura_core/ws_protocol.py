@@ -36,6 +36,7 @@ from modules.music_memory import track_play, like_artist, dislike_artist, genera
 from modules.game_detector import detect_game_event, make_event_prompt
 from modules.rituals import should_greet_device, get_greeting_prompt
 from modules.briefing import should_brief, run_briefing
+from modules.ws_auth import is_master_device
 from memory.db import get_memory_context as db_get_memory_context
 from aiogram.types import BufferedInputFile
 
