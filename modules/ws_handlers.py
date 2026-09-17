@@ -85,7 +85,7 @@ from sakura_core.ws_protocol import (
 
 # ── execute_critical_action перенесён в sakura_core/executor.py (7C-2) ──
 from sakura_core.executor import execute_critical_action
-from adapters.voice import speak_now_playing_result
+from adapters.ws import speak_now_playing_result
 from modules.voice_info import answer_voice_info
 from sakura_core.send import split_tg as _split_tg
 from sakura_core.pending_dialog import _handle_pending as _handle_pending_core

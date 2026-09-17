@@ -28,7 +28,8 @@ from sakura_core.llm import ask_gemini
 from sakura_core.llm import _strip_tone  # noqa: F401 (re-export)
 from adapters.telegram import bot, dp, send_to_master, send_telegram_text
 from adapters.telegram import handle_message  # noqa: F401 (re-export)
-from adapters.voice import ws_handler, _get_active_ws
+from adapters.ws import ws_handler
+from adapters.voice import _get_active_ws
 from modules.ws_auth import validate_secret_on_startup
 
 import modules.tts_server as tts_server
