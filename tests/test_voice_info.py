@@ -895,9 +895,8 @@ class TestTelegramInfoPath(unittest.TestCase):
              patch.object(_tg, "update_master_status"), \
              patch.object(_tg, "route_command",
                           new=AsyncMock()) as rc, \
-             patch.object(main, "answer_voice_info",
-                          new=AsyncMock()) as av, \
-             patch.object(main, "bot", bot), \
+             patch("modules.ws_handlers.answer_voice_info", new=AsyncMock()) as av, \
+             patch.object(_tg, "bot", bot), \
              patch.object(_tg, "ask_gemini",
                           new=AsyncMock()) as ag, \
              patch("modules.voice_info.steam_achievements",
@@ -950,8 +949,8 @@ class TestTelegramInfoPath(unittest.TestCase):
              patch.object(_tg, "update_master_status"), \
              patch.object(_tg, "route_command",
                           new=AsyncMock(return_value=None)) as rc, \
-             patch.object(main, "answer_voice_info", new=AsyncMock()) as av, \
-             patch.object(main, "bot", bot), \
+             patch("modules.ws_handlers.answer_voice_info", new=AsyncMock()) as av, \
+             patch.object(_tg, "bot", bot), \
              patch.object(_tg, "ask_gemini",
                           new=AsyncMock(return_value="ответ")), \
              patch.object(_tg, "send_as_conversation",
@@ -976,8 +975,8 @@ class TestTelegramInfoPath(unittest.TestCase):
              patch.object(_tg, "update_master_status"), \
              patch.object(_tg, "route_command",
                           new=AsyncMock(return_value=None)) as rc, \
-             patch.object(main, "answer_voice_info", new=AsyncMock()) as av, \
-             patch.object(main, "bot", bot), \
+             patch("modules.ws_handlers.answer_voice_info", new=AsyncMock()) as av, \
+             patch.object(_tg, "bot", bot), \
              patch.object(_tg, "ask_gemini",
                           new=AsyncMock(return_value="ответ")), \
              patch.object(_tg, "send_as_conversation",
@@ -1076,13 +1075,13 @@ class TestTelegramLiteralMechanics(unittest.TestCase):
         bot.send_message = AsyncMock()
         with patch.object(_tg, "get_role", return_value="master"), \
              patch.object(_tg, "update_master_status"), \
-             patch.object(main, "bot", bot), \
+             patch.object(_tg, "bot", bot), \
              patch.object(_tg, "send_as_conversation",
                           new=AsyncMock()) as sc, \
              patch.object(_tg, "route_command",
                           new=AsyncMock(return_value=None)), \
-             patch.object(main, "answer_voice_info", new=AsyncMock()), \
-             patch.object(_tg, "ask_gemini",
+              patch("modules.ws_handlers.answer_voice_info", new=AsyncMock()), \
+              patch.object(_tg, "ask_gemini",
                           new=AsyncMock(return_value="болтовня")) as ag:
             _run(main.handle_message(self._make_msg(text)))
         return sc, ag

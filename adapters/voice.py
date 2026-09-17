@@ -16,9 +16,11 @@ _make_audio_sender, _live_synthesize, _stream_two_stage.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import time
+import websockets
 from typing import AsyncIterator, Optional
 
 from sakura_core import budget
@@ -28,6 +30,17 @@ from modules.tts_server import (
     _live_synthesize,
     _stream_two_stage,
 )
+from modules.ws_auth import check_token, is_master_device, reject
+from modules.device_manager import set_device_offline
+from modules.state import connected_devices, _pending_commands, _plan_cancel
+from modules.presence_sync import set_offline as ps_offline
+from modules.rituals import should_farewell, get_farewell_prompt
+from modules.app_mapping import find_vip_by_name
+from sakura_core.memory_tasks import clean_slate
+from sakura_core.apps import analyze_apps, analyze_screen_context
+from sakura_core.llm import ask_gemini, ask_gemini_voice
+
+PLAN_WAIT_ACK = True
 
 log = logging.getLogger("sakura.voice")
 
@@ -393,4 +406,137 @@ async def speak_now_playing_result(cmd_id: str, ws_dev, device_id: str, bot) -> 
             log.debug(f"[music] now_playing tg: {type(e).__name__}: {e}")
     except Exception as e:
         log.debug(f"[music] now_playing: {type(e).__name__}: {e}")
+
+
+# ─────────────────────────────────────────────
+#  WebSocket — устройства (moved from main.py)
+# ─────────────────────────────────────────────
+
+async def _execute_plan(plan: dict, master_key: str, ws_dev, device_id) -> tuple[bool, str]:
+    """Исполняет план по шагам. Возвращает (успех, сообщение)."""
+    import time as _pt
+    steps = plan.get("steps", [])
+    summary = plan.get("summary", "задача")
+
+    for i, step in enumerate(steps):
+        if _plan_cancel.get(master_key):
+            _plan_cancel.pop(master_key, None)
+            return False, f"План остановлен на шаге {i + 1} по запросу Мастера."
+
+        action = step.get("action", "")
+        arg = step.get("arg", "")
+
+        if action == "wait":
+            try:
+                wait_sec = min(int(arg), 10)
+            except (ValueError, TypeError):
+                wait_sec = 1
+            await asyncio.sleep(wait_sec)
+            continue
+
+        if not ws_dev:
+            return False, "Устройство offline, план не может быть выполнен."
+
+        full_action = f"{action}:{arg}" if arg and ":" not in action else action
+        _cmd_id = _register_command(full_action, device_id or "laptop")
+        await ws_dev.send(json.dumps({"type": "command", "action": full_action, "id": _cmd_id}))
+
+        if PLAN_WAIT_ACK:
+            for _ in range(50):
+                await asyncio.sleep(0.2)
+                cmd = _pending_commands.get(_cmd_id, {})
+                if cmd.get("status") in ("executed", "failed"):
+                    if cmd["status"] == "failed":
+                        return False, f"План остановлен на шаге {i + 1}: {full_action} — {cmd.get('detail', 'ошибка')}"
+                    break
+            else:
+                return False, f"План остановлен на шаге {i + 1}: {full_action} — таймаут ожидания"
+        else:
+            await asyncio.sleep(1.0)
+
+    return True, f"План выполнен: {summary}"
+
+
+async def ws_handler(websocket):
+    from adapters.telegram import bot, send_to_master, send_safe
+    from modules.ws_handlers import (
+        handle_register, handle_ping, handle_apps_list, handle_screen_context,
+        handle_command_result, handle_kettle_ready, handle_notification,
+        handle_tg_message, handle_voice_command, update_current_track,
+    )
+    from modules.web_search import search_and_fetch, needs_search, search_image, download_bytes
+    from modules.youtube import youtube_command
+    device_id = None
+    try:
+        async for raw in websocket:
+            try:
+                data     = json.loads(raw)
+                msg_type = data.get("type")
+
+                if not check_token(data):
+                    await reject(websocket, reason=f"invalid token on '{msg_type}'")
+                    return
+
+                dev_from_msg = data.get("device_id")
+                if msg_type in ("voice_command", "apps_list"):
+                    if not is_master_device(dev_from_msg):
+                        await reject(websocket, reason=f"'{msg_type}' denied: not master device ({dev_from_msg!r})")
+                        return
+
+                _ctx = {
+                    "ask_gemini": ask_gemini,
+                    "ask_gemini_voice": ask_gemini_voice,
+                    "send_safe": send_safe,
+                    "_find_vip_by_name": find_vip_by_name,
+                    "_translate_en": None,
+                    "_clean_slate": clean_slate,
+                    "_execute_plan": _execute_plan,
+                    "_register_command": _register_command,
+                    "_resolve_command_status": _resolve_command_status,
+                    "_get_active_ws": _get_active_ws,
+                    "analyze_apps": analyze_apps,
+                    "_analyze_screen_context": analyze_screen_context,
+                    "_gemini_client": None,
+                    "bot": bot,
+                    "PLAN_WAIT_ACK": PLAN_WAIT_ACK,
+                }
+
+                HANDLERS = {
+                    "register": handle_register,
+                    "ping": handle_ping,
+                    "apps_list": handle_apps_list,
+                    "screen_context": handle_screen_context,
+                    "command_result": handle_command_result,
+                    "kettle_ready": handle_kettle_ready,
+                    "notification": handle_notification,
+                    "tg_message": handle_tg_message,
+                    "voice_command": handle_voice_command,
+                }
+                handler = HANDLERS.get(msg_type)
+                if handler:
+                    await handler(websocket, data, _ctx)
+                else:
+                    log.warning(f"unknown msg_type: {msg_type}")
+
+                if msg_type in ("register", "ping", "voice_command"):
+                    device_id = data.get("device_id")
+
+                update_current_track(data)
+
+            except Exception as e:
+                log.error(f"[ws_handler] {e}")
+
+    except websockets.exceptions.ConnectionClosed as e:
+        log.debug(f"[ws_handler] {type(e).__name__}: {e}")
+    finally:
+        if device_id:
+            set_device_offline(device_id)
+            connected_devices.pop(device_id, None)
+            await asyncio.to_thread(ps_offline, device_id)
+            log.info(f"Устройство отключено: {device_id}")
+
+            if is_master_device(device_id) and should_farewell():
+                farewell = await ask_gemini(get_farewell_prompt(), save_history=False)
+                if farewell:
+                    await send_to_master(farewell)
 
