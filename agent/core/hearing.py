@@ -682,22 +682,24 @@ class Hearing(threading.Thread):
             return
 
         wake = KaldiRecognizer(model, config.MIC_RATE)
-        _wake_born    = time.monotonic()
-        _WAKE_MAX_AGE = 60.0  # секунд непрерывного накопления до принудительного пересоздания
+        _last_reset   = time.monotonic()
+        _WAKE_MAX_AGE = 60.0  # секунд без сброса до принудительного пересоздания
         _last_warn    = 0.0   # троттлинг предупреждений о бюджете блока
+        _budget_ms   = config.WAKE_BLOCK / config.MIC_RATE * 1000
 
         def _fresh_wake():
-            """Пересоздаёт распознаватель вейк-ворда и обновляет его «время рождения»."""
-            nonlocal _wake_born
-            _wake_born = time.monotonic()
-            return KaldiRecognizer(model, config.MIC_RATE)
+            """Пересоздаёт распознаватель вейк-ворда и отмечает сброс."""
+            nonlocal _last_reset
+            recognizer = KaldiRecognizer(model, config.MIC_RATE)
+            _last_reset = time.monotonic()
+            return recognizer
 
         log.info("Слух включён. Жду «Сакура…»")
         try:
             with sd.RawInputStream(samplerate=config.MIC_RATE, channels=1,
-                                   dtype="int16", blocksize=config.MIC_BLOCK) as stream:
+                                   dtype="int16", blocksize=config.WAKE_BLOCK) as stream:
                 while True:
-                    data = bytes(stream.read(config.MIC_BLOCK)[0])
+                    data = bytes(stream.read(config.WAKE_BLOCK)[0])
 
                     if self.agent.player.is_playing():
                         wake = _fresh_wake()
@@ -712,22 +714,24 @@ class Hearing(threading.Thread):
                         self._capture(stream)
                         continue
 
-                    if time.monotonic() - _wake_born > _WAKE_MAX_AGE:
+                    # Бюджет вейк-блока: WAKE_BLOCK=1024 при 16000 Гц — 64 мс звука.
+                    _t0 = time.monotonic()
+                    if wake.AcceptWaveform(data):  # True — фраза завершена
+                        wake.Result()              # внутреннее состояние сброшено
+                        _last_reset = time.monotonic()
+                        partial = ""
+                    else:
+                        partial = json.loads(wake.PartialResult()).get("partial", "")
+
+                    if time.monotonic() - _last_reset > _WAKE_MAX_AGE:
                         # Тишины долго не было (телевизор, музыка) — распознаватель
                         # копит одну бесконечную фразу, сбрасываем принудительно.
                         wake = _fresh_wake()
 
-                    # Бюджет блока: MIC_BLOCK=512 при MIC_RATE=16000 — это 32 мс звука.
-                    _t0 = time.monotonic()
-                    if wake.AcceptWaveform(data):  # True — фраза завершена
-                        wake.Result()              # внутреннее состояние сброшено
-                        partial = ""
-                    else:
-                        partial = json.loads(wake.PartialResult()).get("partial", "")
                     _dt = (time.monotonic() - _t0) * 1000
-                    if _dt > 32 and time.monotonic() - _last_warn >= 5.0:
+                    if _dt > _budget_ms and time.monotonic() - _last_warn >= 5.0:
                         _last_warn = time.monotonic()
-                        log.warning(f"[hearing] блок обработан за {_dt:.0f}мс при бюджете 32мс — поток отстаёт")
+                        log.warning(f"[hearing] блок обработан за {_dt:.0f}мс при бюджете {_budget_ms:.0f}мс — поток отстаёт")
                     if any(w in partial for w in config.WAKE_WORDS):
                         wake = _fresh_wake()
                         self._capture(stream)
