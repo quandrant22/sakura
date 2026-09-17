@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 
 from sakura_core.executor import ExecutionContext, Executor, get_handler
+from sakura_core.llm import make_llm_classify
 from sakura_core.router import Router
 
 import conversation as conversation_layer
@@ -44,11 +45,13 @@ _load_capabilities()
 
 
 def get_router() -> Router:
-    """Роутер без LLM: реестр → разговорные механики → (LLM отключён)."""
+    """Роутер: реестр → clarify → разговор → LLM-классификатор → разговор."""
     global _router
     if _router is None:
-        _router = Router(llm_classify=None,
-                         conversation=conversation_layer.try_handle)
+        _router = Router(
+            llm_classify=make_llm_classify(timeout=5.0),
+            conversation=conversation_layer.try_handle,
+        )
     return _router
 
 
