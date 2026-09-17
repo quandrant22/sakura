@@ -66,7 +66,6 @@ from adapters.telegram import (
     has_tg_trigger as _has_tg_trigger,
     voice_to_tg as _voice_to_tg,
 )
-from sakura_core.pending_dialog import _handle_pending as _handle_pending_core
 
 
 # ── Протокольные хендлеры перенесены в sakura_core/ws_protocol.py (7C-1) ──
@@ -86,172 +85,8 @@ from sakura_core.ws_protocol import (
 
 # ── execute_critical_action перенесён в sakura_core/executor.py (7C-2) ──
 from sakura_core.executor import execute_critical_action
-
-
-# ── Разделители ────────────────────────────────────────────────────────
-
-_TG_MSG_LIMIT = 4096
-
-
-def _split_tg(text: str) -> list[str]:
-    """Режет текст на куски ≤4096, не рвя внутри строки (каждая строка —
-    пункт списка). Строку длиннее лимита (редкость) режем по пробелу."""
-    text = (text or "").strip()
-    if not text:
-        return []
-    if len(text) <= _TG_MSG_LIMIT:
-        return [text]
-    chunks, cur = [], ""
-    for line in text.splitlines():
-        # отдельная строка длиннее лимита — режем по пробелу
-        while len(line) >= _TG_MSG_LIMIT:
-            cut = line.rfind(" ", 0, _TG_MSG_LIMIT)
-            if cut <= 0:
-                cut = _TG_MSG_LIMIT
-            if cur:
-                chunks.append(cur)
-                cur = ""
-            chunks.append(line[:cut].strip())
-            line = line[cut:].strip()
-        nxt = (cur + "\n" + line) if cur else line
-        if len(nxt) > _TG_MSG_LIMIT:
-            chunks.append(cur)
-            cur = line
-        else:
-            cur = nxt
-    if cur:
-        chunks.append(cur)
-    return chunks
-
-
-async def answer_voice_info(action: str, arg: str, text: str,
-                            ws_dev, device_id, ask_gemini, bot) -> None:
-    """Информационные команды (steam:/vps:/reminder:/task:/weather:/music_stats:/
-    capsule:/briefing:): факты берём из модуля-источника и озвучиваем/отправляем.
-
-    Работает БЕЗ устройства. Честность: если источник недоступен или пуст —
-    говорим это прямо (literal), НЕ пропуская через LLM-стилизацию."""
-    try:
-        if action == "briefing:now":
-            from modules.briefing import build_briefing_prompt
-            bp = await build_briefing_prompt()
-            reply = await ask_gemini(
-                bp + "\nОтветь Мастеру коротко: 3-4 самых важного пункта.",
-                save_history=False) if bp else ""
-            if not reply:
-                reply = "Брифинг сейчас собрать не удалось."
-            ok = bool(reply and "не удалось" not in reply)
-        else:
-            from modules import voice_info as _vinfo
-            reply, ok = await _vinfo.handle(action, arg, text)
-    except Exception as e:
-        log.error(f"[voice_info] {action}: {type(e).__name__}: {e}")
-        reply, ok = "Не смогла получить данные — источник недоступен.", False
-
-    # ── ПОЛНЫЙ СПИСОК АЧИВОК: специальная обработка каналов ──────────
-    # Голос (по умолчанию) — сводка + «полный список в Telegram»; явная
-    # просьба «зачитай» → читаем вслух. Telegram — текстом с разбивкой.
-    if (isinstance(reply, str)
-            and action in ("steam:achievements:full",
-                           "steam:achievements:todo",
-                           "steam:achievements:done")):
-        from modules import voice_info as _vi
-        from modules.state import tts_stop_requested
-        mode = action.split(":")[-1]
-        want_read = bool(re.search(
-            r"(?<!\w)(?:зачитай|прочитай|перечисли|назови\s+все|читай\s+вслух)\w*",
-            (text or "").lower()))
-        # сводка для голоса — из уже готового reply (первая строка)
-        summary = (reply or "").strip().splitlines()
-        summary = summary[0] if summary else reply
-        if ws_dev and want_read:
-            # читаем вслух полный список, сначала загрузив части заново
-            parts, ok_read = await _vi.steam_achievements_read(arg, mode)
-            if ok_read:
-                from modules.state import tts_reading_start, tts_reading_end
-                tts_reading_start(device_id or "laptop")
-                try:
-                    for p in parts:
-                        if tts_stop_requested(device_id or "laptop"):
-                            break
-                        await stream_tts_to_device(p, ws_dev, device_id or "laptop",
-                                                   literal=True)
-                finally:
-                    tts_reading_end(device_id or "laptop")
-            return
-        if ws_dev:
-            # голос: краткая сводка + намёк про Telegram
-            await stream_tts_to_device(
-                f"{summary}. Полный список отправила в Telegram.",
-                ws_dev, device_id or "laptop", literal=True)
-        # Telegram (или фоновый путь без TTS) — текстом, с разбивкой по 4096
-        tl = strip_tone(reply)[1]
-        for chunk in _split_tg(tl):
-            await bot.send_message(MASTER_ID, chunk)
-        return
-
-    if ok and reply:
-        # Факты есть — произносим своим голосом, НО только эти факты
-        try:
-            styled = await ask_gemini(
-                f"Факты:\n{reply}\n\n"
-                "Передай это Мастеру коротко и точно. НИЧЕГО не выдумывай, "
-                "не добавляй и не меняй числа и названия. Если данных мало — "
-                "скажи об этом прямо.",
-                save_history=False)
-        except Exception as e:
-            log.debug(f"[voice_info] стилизация не удалась: {e}")
-            styled = None
-        final = (styled or "").strip() or reply
-    else:
-        # Нет данных / источник недоступен — честный literal-ответ
-        final = (reply or "").strip() or "Не нашла данных."
-
-    if ws_dev:
-        await stream_tts_to_device(final, ws_dev, device_id or "laptop", literal=True)
-    else:
-        # Текстом (нет устройства для TTS — либо это TG) — [ТОН: ...] тут не нужен,
-        # это указание для голоса, а не для чтения. Та же чистка, что у send_to_master.
-        await bot.send_message(MASTER_ID, strip_tone(final)[1])
-
-
-async def _speak_now_playing_result(cmd_id: str, ws_dev, device_id: str, bot) -> None:
-    """music:now_playing: ждём command_result от агента (до 10с) и озвучиваем.
-
-    Если результат уже озвучен в handle_command_result (payload music с
-    реальным треком — поле spoken) — молчим. Если агент не ответил или SMTC
-    не видит плеер — честное «не вижу, что играет», БЕЗ выдумок.
-    """
-    try:
-        for _ in range(125):  # 25 сек / 0.2с — агенту нужно время на SMTC +
-            # обогащение через Yandex API; двойной ответ хуже медленного
-            await asyncio.sleep(0.2)
-            _cmd = st._pending_commands.get(cmd_id, {})
-            if _cmd.get("spoken") or _cmd.get("status") in ("executed", "failed"):
-                break
-        _cmd    = st._pending_commands.get(cmd_id, {})
-        _status = _cmd.get("status", "sent")
-        _detail = (_cmd.get("detail") or "").strip()
-        if _cmd.get("spoken"):
-            return  # уже сказано с реальными данными (payload music)
-        if _status == "executed" and _detail:
-            # старый формат ack без payload: строка «артист — трек»
-            _reply = _detail
-        else:
-            _reply = ("Не вижу, что сейчас играет — Яндекс Музыка не отвечает. "
-                      "Похоже, она не запущена.")
-        # Помечаем «уже отвечено»: если реальный результат придёт ПОЗЖЕ,
-        # handle_command_result обновит данные молча — без второго ответа
-        _cmd["answered"] = True
-        log.info(f"[голос] ответ: {_reply!r}")
-        if ws_dev:
-            await stream_tts_to_device(_reply, ws_dev, device_id, literal=True)
-        try:
-            await bot.send_message(MASTER_ID, _reply)
-        except Exception as e:
-            log.debug(f"[music] now_playing tg: {type(e).__name__}: {e}")
-    except Exception as e:
-        log.debug(f"[music] now_playing: {type(e).__name__}: {e}")
+from adapters.voice import split_tg as _split_tg, answer_voice_info, speak_now_playing_result
+from sakura_core.pending_dialog import _handle_pending as _handle_pending_core
 
 
 async def _handle_pending(text, text_lower, _mk, ws_dev, device_id, ctx, data) -> bool:
@@ -928,7 +763,7 @@ async def handle_voice_command(websocket, data, ctx) -> None:
             # «что сейчас играет» — не выдумываем: ждём результат агента и
             # озвучиваем реальные данные либо честное «не вижу, что играет»
             if action == "music:now_playing":
-                await _speak_now_playing_result(
+                await speak_now_playing_result(
                     _cmd_id, ws_dev, device_id or "laptop", bot)
                 return
         elif full_action.startswith("open_app:") or full_action.startswith("close_window:"):
