@@ -192,3 +192,22 @@ async def voice_to_tg(text: str, text_lower: str, payload: str,
     except Exception as e:
         log.error(f"voice->tg: {e}")
         await send_safe_fn(master_id, "Не получилось, Мастер.")
+
+
+def split_tg(text: str) -> list[str]:
+    """Split long text into chunks for Telegram (≤4096 chars each)."""
+    limit = 4096
+    if len(text) <= limit:
+        return [text]
+    chunks = []
+    cur = ""
+    for line in text.split("\n"):
+        if len(cur) + len(line) + 1 < limit:
+            cur = (cur + "\n" + line).strip()
+        else:
+            if cur:
+                chunks.append(cur)
+            cur = line
+    if cur:
+        chunks.append(cur)
+    return chunks
