@@ -191,6 +191,21 @@ async def steam_achievements(arg: str):
     return text, ok
 
 
+async def steam_achievements_read(arg: str, mode: str = "full") -> tuple[list[str], bool]:
+    """Ачивки за период — для зачитывания вслух (TTS).
+    mode: full/todo/done. Возвращает (список фраз, ok)."""
+    word = _default_period_word(arg)
+    if word == "последняя":
+        text, ok = await steam_last()
+        return [text] if ok else [], ok
+
+    text, ok = await _steam_achievements_uncached(word)
+    if not ok or not text:
+        return [], ok
+    parts = [line.strip() for line in text.splitlines() if line.strip()]
+    return parts, True
+
+
 _RU_MONTHS = ("января", "февраля", "марта", "апреля", "мая", "июня",
               "июля", "августа", "сентября", "октября", "ноября", "декабря")
 
