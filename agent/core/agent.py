@@ -611,6 +611,8 @@ class Agent:
 
     async def run(self):
         self._loop = asyncio.get_running_loop()
+        from core.presence import prime_system_info
+        prime_system_info()
         # Запускаем локальный WS сервер для расширения браузера
         try:
             import importlib.util as _ilu, os as _o, threading as _th

@@ -221,7 +221,29 @@ class Watchdog:
 
 # ── Расширение system_info агента ────────────────────────────────────
 
+_system_info_cache = {}
+_system_info_until = 0.0
+
+
+def prime_system_info():
+    """Discard psutil's first CPU sample in the agent event-loop thread."""
+    try:
+        import psutil
+        psutil.cpu_percent(interval=None)
+    except Exception as exc:
+        log.debug("[presence] CPU warmup failed: %s", exc)
+
+
 def get_extended_system_info() -> dict:
+    """Share one sensor snapshot for two seconds; callers get their own dict."""
+    global _system_info_cache, _system_info_until
+    if time.monotonic() >= _system_info_until:
+        _system_info_cache = _collect_system_info()
+        _system_info_until = time.monotonic() + 2.0
+    return _system_info_cache.copy()
+
+
+def _collect_system_info() -> dict:
     """
     Расширяет системные данные: добавляет температуры и место на диске.
     Вызывать из core/agent.py в _payload() вместо оригинального get_system_info().
@@ -232,7 +254,7 @@ def get_extended_system_info() -> dict:
         import psutil
 
         # Базовые
-        cpu  = psutil.cpu_percent(interval=0.1)
+        cpu  = psutil.cpu_percent(interval=None)
         ram  = psutil.virtual_memory().percent
         bat  = psutil.sensors_battery()
         battery = bat.percent if bat else None
