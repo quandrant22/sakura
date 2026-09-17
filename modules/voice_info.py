@@ -191,6 +191,21 @@ async def steam_achievements(arg: str):
     return text, ok
 
 
+async def steam_achievements_read(arg: str, mode: str = "full") -> tuple[list[str], bool]:
+    """Ачивки за период — для зачитывания вслух (TTS).
+    mode: full/todo/done. Возвращает (список фраз, ok)."""
+    word = _default_period_word(arg)
+    if word == "последняя":
+        text, ok = await steam_last()
+        return [text] if ok else [], ok
+
+    text, ok = await _steam_achievements_uncached(word)
+    if not ok or not text:
+        return [], ok
+    parts = [line.strip() for line in text.splitlines() if line.strip()]
+    return parts, True
+
+
 _RU_MONTHS = ("января", "февраля", "марта", "апреля", "мая", "июня",
               "июля", "августа", "сентября", "октября", "ноября", "декабря")
 
@@ -835,3 +850,89 @@ async def handle(action: str, arg: str = "", text: str = ""):
         return "Не смогла получить данные у источника — он недоступен.", False
     log.warning(f"[voice_info] неизвестное действие: {action!r}")
     return "Такой команды у меня пока нет.", False
+
+
+# ── answer_voice_info (moved from adapters/voice.py) ──────────
+
+import re as _re
+
+
+async def answer_voice_info(action: str, arg: str, text: str,
+                            ws_dev, device_id, ask_gemini, bot) -> None:
+    """Информационные команды (steam:/vps:/reminder:/task:/weather:/music_stats:/
+    capsule:/briefing:): факты берём из модуля-источника и озвучиваем/отправляем.
+
+    Работает БЕЗ устройства. Честность: если источник недоступен или пуст —
+    говорим это прямо (literal), НЕ пропуская через LLM-стилизацию."""
+    from modules.tts_server import stream_tts_to_device as _stts, strip_tone as _st
+    from config import MASTER_ID
+
+    try:
+        if action == "briefing:now":
+            from modules.briefing import build_briefing_prompt
+            bp = await build_briefing_prompt()
+            reply = await ask_gemini(
+                bp + "\nОтветь Мастеру коротко: 3-4 самых важного пункта.",
+                save_history=False) if bp else ""
+            if not reply:
+                reply = "Брифинг сейчас собрать не удалось."
+            ok = bool(reply and "не удалось" not in reply)
+        else:
+            reply, ok = await handle(action, arg, text)
+    except Exception as e:
+        log.error(f"[voice_info] {action}: {type(e).__name__}: {e}")
+        reply, ok = "Не смогла получить данные — источник недоступен.", False
+
+    if (isinstance(reply, str)
+            and action in ("steam:achievements:full",
+                           "steam:achievements:todo",
+                           "steam:achievements:done")):
+        from modules.state import tts_stop_requested
+        mode = action.split(":")[-1]
+        want_read = bool(_re.search(
+            r"(?<!\w)(?:зачитай|прочитай|перечисли|назови\s+все|читай\s+вслух)\w*",
+            (text or "").lower()))
+        summary = (reply or "").strip().splitlines()
+        summary = summary[0] if summary else reply
+        if ws_dev and want_read:
+            parts, ok_read = await steam_achievements_read(arg, mode)
+            if ok_read:
+                from modules.state import tts_reading_start, tts_reading_end
+                tts_reading_start(device_id or "laptop")
+                try:
+                    for p in parts:
+                        if tts_stop_requested(device_id or "laptop"):
+                            break
+                        await _stts(p, ws_dev, device_id or "laptop", literal=True)
+                finally:
+                    tts_reading_end(device_id or "laptop")
+            return
+        if ws_dev:
+            await _stts(
+                f"{summary}. Полный список отправила в Telegram.",
+                ws_dev, device_id or "laptop", literal=True)
+        tl = _st(reply)[1]
+        from sakura_core.send import split_tg as _st_split
+        for chunk in _st_split(tl):
+            await bot.send_message(MASTER_ID, chunk)
+        return
+
+    if ok and reply:
+        try:
+            styled = await ask_gemini(
+                f"Факты:\n{reply}\n\n"
+                "Передай это Мастеру коротко и точно. НИЧЕГО не выдумывай, "
+                "не добавляй и не меняй числа и названия. Если данных мало — "
+                "скажи об этом прямо.",
+                save_history=False)
+        except Exception as e:
+            log.debug(f"[voice_info] стилизация не удалась: {e}")
+            styled = None
+        final = (styled or "").strip() or reply
+    else:
+        final = (reply or "").strip() or "Не нашла данных."
+
+    if ws_dev:
+        await _stts(final, ws_dev, device_id or "laptop", literal=True)
+    else:
+        await bot.send_message(MASTER_ID, _st(final)[1])

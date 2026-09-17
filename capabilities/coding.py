@@ -1,23 +1,38 @@
-"""
-modules/coding.py — модуль кодинга для Сакуры.
+"""Домен «кодинг» (этап 6, коммит 7B-3): coding.* — executor=vps.
 
-Позволяет Сакуре:
-  - Читать/править файлы на сервере
-  - Запускать команды
-  - Коммитить в git
-  - Собирать Android приложение
-  - Устанавливать APK на телефон
+Кодинговые операции: создание модулей, фикс багов, чтение файлов, коммиты,
+сборка. Реализация живёт НА СЕРВЕРЕ (этап 7, развязка восьми недостижимых
+id): MiMo Code запускается здесь же, в /opt/sakura, поэтому executor=vps,
+а не agent. Переучивать второй рантайм (Windows) тому, что уже работает
+на VPS, — лишний источник расхождений.
 
-Использует MiMo Code как движок.
+До этого кодинг жил в modules/coding.py и вызывался по подстроке из
+modules/ws_handlers.py — мимо реестра. Поэтому шесть coding.* id реестра
+были недостижимы: агент их не исполняет (в agent/core/hands.py нет verb'ов
+coding.*, в _legacy_action нет маппинга), а мост возвращал (False, None).
+
+Перенос сохраняет поведение ветки ws_handlers.py:311-355:
+  coding.create_module → mimo_fix(«Создай новый модуль по запросу Мастера: …»)
+  coding.fix           → mimo_fix(«Найди и исправь проблему: …»)
+  coding.commit        → git_commit(сообщение)
+Плюс то, что реестр обещал, но старый путь не делал вовсе:
+  coding.read_file → содержимое файла, coding.git_status → git status,
+  coding.build     → android_build().
+
+Контракт хендлеров — (текст, ok), как у VPS-доменов (capabilities/_vps.py):
+ok=False значит «источник или команда недоступны», и это говорится прямо,
+а не маскируется под «нет данных».
+
+Реализация и таблица хендлеров находятся здесь; старый modules/coding.py удалён.
 """
 
 import asyncio
-import json
 import logging
 import os
 import subprocess
-import tempfile
 from typing import Optional
+
+from sakura_core.executor import ExecutionContext, Handler, register_table
 
 log = logging.getLogger("sakura.coding")
 
@@ -37,6 +52,9 @@ DANGEROUS_COMMANDS = [
     "wget | bash",
     "curl | bash",
 ]
+
+# Префикс, которым read_file сообщает о недоступности источника (см. ниже).
+READ_ERROR_PREFIX = "Ошибка чтения:"
 
 
 def is_available() -> bool:
@@ -85,16 +103,15 @@ async def run_mimo(prompt: str, work_dir: str = PROJECT_DIR,
     """Асинхронная обёртка для _run_mimo."""
     return await asyncio.to_thread(_run_mimo, prompt, work_dir, timeout, dangerous)
 
-
-# ── Высокоуровневые функции ──────────────────────────────────────────
+# ── Работа с файлами сервера ────────────────────────────────────────
 
 async def read_file(path: str) -> str:
-    """Читает файл на сервере."""
+    """Читает файл на сервере. Ошибка источника — текстом с READ_ERROR_PREFIX."""
     try:
         with open(path, "r", encoding="utf-8") as f:
             return f.read()
     except Exception as e:
-        return f"Ошибка чтения: {e}"
+        return f"{READ_ERROR_PREFIX} {e}"
 
 
 async def write_file(path: str, content: str) -> bool:
@@ -125,16 +142,26 @@ async def edit_file(path: str, old_text: str, new_text: str) -> bool:
         return False
 
 
-async def run_command(cmd: str, timeout: int = 60) -> dict:
-    """Выполняет shell-команду на сервере."""
+# ── Команды и git ───────────────────────────────────────────────────
+
+async def run_command(cmd: str, timeout: int = 60,
+                      cwd: Optional[str] = None) -> dict:
+    """Выполняет shell-команду на сервере.
+
+    cwd добавлен при переносе (этап 7E): git_* и android_build вызывали
+    run_command(..., cwd=PROJECT_DIR) ещё в modules/coding.py, но такого
+    параметра не было — TypeError на каждом вызове. subprocess.run вынесен
+    в поток: команда с timeout=600 не должна держать event loop.
+    """
     # Проверка на опасные команды
     for dangerous in DANGEROUS_COMMANDS:
         if dangerous in cmd:
             return {"ok": False, "output": "", "error": "Опасная команда запрещена"}
 
     try:
-        result = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, timeout=timeout
+        result = await asyncio.to_thread(
+            subprocess.run, cmd, shell=True, capture_output=True,
+            text=True, timeout=timeout, cwd=cwd,
         )
         return {
             "ok": result.returncode == 0,
@@ -147,12 +174,31 @@ async def run_command(cmd: str, timeout: int = 60) -> dict:
         return {"ok": False, "output": "", "error": str(e)}
 
 
-# ── Git операции ─────────────────────────────────────────────────────
-
-async def git_status() -> str:
-    """Статус git."""
+async def git_status_result() -> tuple[str, bool]:
+    """Статус git с честным ok: ok=False — команда не выполнилась."""
     r = await run_command("git status --short", cwd=PROJECT_DIR)
-    return r["output"] if r["ok"] else r["error"]
+    if not r["ok"]:
+        return (f"git status не выполнился: {r['error'].strip()[:200]}", False)
+    return (r["output"].strip() or "Изменений нет — рабочее дерево чистое.", True)
+
+
+async def git_commit_result(message: str) -> tuple[str, bool]:
+    """Коммит с честным ok: ok=False — git вернул ошибку."""
+    add = await run_command("git add -A", cwd=PROJECT_DIR)
+    if not add["ok"]:
+        return (f"git add не выполнился: {add['error'].strip()[:200]}", False)
+    r = await run_command(f'git commit -m "{message}"', cwd=PROJECT_DIR)
+    if not r["ok"]:
+        detail = (r["error"] or r["output"]).strip()[:300]
+        return (f"Коммит не сделан: {detail}", False)
+    return (f"Коммит выполнен: {r['output'].strip()[:200]}", True)
+
+
+# Строковые формы — совместимость с modules/ws_handlers.py до его удаления.
+async def git_status() -> str:
+    """Статус git строкой."""
+    text, _ = await git_status_result()
+    return text
 
 
 async def git_diff() -> str:
@@ -162,18 +208,15 @@ async def git_diff() -> str:
 
 
 async def git_commit(message: str) -> str:
-    """Коммитит изменения."""
-    await run_command("git add -A", cwd=PROJECT_DIR)
-    r = await run_command(f'git commit -m "{message}"', cwd=PROJECT_DIR)
-    return r["output"] if r["ok"] else r["error"]
+    """Коммитит изменения, отдаёт текст результата."""
+    text, _ = await git_commit_result(message)
+    return text
 
 
 async def git_push() -> str:
     """Пушит в remote."""
     r = await run_command("git push", cwd=PROJECT_DIR)
     return r["output"] if r["ok"] else r["error"]
-
-
 # ── Автоинтеграция модулей ──────────────────────────────────────────
 
 async def auto_integrate(module_name: str, description: str = "") -> dict:
@@ -182,6 +225,11 @@ async def auto_integrate(module_name: str, description: str = "") -> dict:
     1. Добавляет import
     2. Добавляет вызов в _build_system()
     3. Добавляет в _voice_modules для голосовых команд
+
+    ЛЕГАСИ: правит разметку main.py образца до этапа 6 (_build_system,
+    _voice_modules, порядок импортов). После сворачивания main.py в точку
+    входа эта разметка исчезла, поэтому в v3 вызывающих у функции нет —
+    перенесена как есть, чтобы не терять поведение при переезде домена.
     """
     main_path = os.path.join(PROJECT_DIR, "main.py")
 
@@ -274,7 +322,7 @@ async def android_install() -> dict:
     return r
 
 
-# ── MiMo кодинг ──────────────────────────────────────────────────────
+# ─ MiMo кодинг ──────────────────────────────────────────────────────
 
 async def mimo_fix(prompt: str) -> dict:
     """
@@ -293,8 +341,79 @@ async def mimo_review(path: str) -> dict:
 async def mimo_explain(path: str) -> str:
     """Объясняет код в файле."""
     content = await read_file(path)
-    if content.startswith("Ошибка"):
+    if content.startswith(READ_ERROR_PREFIX):
         return content
     prompt = f"Объясни что делает этот код:\n\n{content[:3000]}"
     r = await run_mimo(prompt)
     return r["output"] if r["ok"] else r["error"]
+# ── Хендлеры реестра: coding.* (executor=vps) ────────────────────────
+
+def _master_text(ctx: ExecutionContext) -> str:
+    """Исходная фраза Мастера: старый путь гнал в MiMo весь текст целиком."""
+    return ((ctx.extra or {}).get("text") or "").strip()
+
+
+def _mimo_reply(result: dict) -> tuple[str, bool]:
+    """Ответ MiMo → (текст, ok): та же выдача, что была в ветке ws_handlers."""
+    if result.get("ok"):
+        return (result.get("output", "")[:1500], True)
+    return (f"Ошибка: {result.get('error', 'неизвестно')}", False)
+
+
+async def _create_module(ctx: ExecutionContext) -> tuple[str, bool]:
+    """coding.create_module: MiMo создаёт модуль по фразе Мастера."""
+    text = _master_text(ctx)
+    prompt = (f"Создай новый модуль по запросу Мастера: {text}. "
+              f"Автоматически интегрируй в main.py через auto_integrate().")
+    log.info(f"[coding] создаю модуль: {text[:50]}")
+    return _mimo_reply(await mimo_fix(prompt))
+
+
+async def _fix(ctx: ExecutionContext) -> tuple[str, bool]:
+    """coding.fix: MiMo ищет и правит проблему по фразе Мастера."""
+    text = _master_text(ctx)
+    prompt = f"Найди и исправь проблему: {text}"
+    log.info(f"[coding] исправляю баг: {text[:50]}")
+    return _mimo_reply(await mimo_fix(prompt))
+
+
+async def _read_code_file(ctx: ExecutionContext) -> tuple[str, bool]:
+    """coding.read_file: показать код файла (param: filepath).
+
+    Старый путь эти фразы («прочитай файл», «покажи код») только ловил,
+    но ничего не делал — реестр обещал больше, чем было.
+    """
+    content = await read_file(ctx.param or "")
+    return (content, not content.startswith(READ_ERROR_PREFIX))
+
+
+async def _commit(ctx: ExecutionContext) -> tuple[str, bool]:
+    """coding.commit: git add -A + commit (param: message)."""
+    message = (ctx.param or "").strip() or "Обновление от Сакуры"
+    return await git_commit_result(message)
+
+
+async def _build(ctx: ExecutionContext) -> tuple[str, bool]:
+    """coding.build: собрать APK (android_build)."""
+    r = await android_build()
+    if not r.get("ok"):
+        return (f"Сборка не прошла: {r.get('error', 'неизвестно')}", False)
+    out = (r.get("output") or "").strip()
+    return (f"Сборка завершена: {out[-300:]}" if out else "Сборка завершена.", True)
+
+
+async def _git_status(_ctx: ExecutionContext) -> tuple[str, bool]:
+    """coding.git_status: показать git status."""
+    return await git_status_result()
+
+
+CODING_HANDLERS: dict[str, Handler] = {
+    "coding.create_module": _create_module,
+    "coding.fix": _fix,
+    "coding.read_file": _read_code_file,
+    "coding.commit": _commit,
+    "coding.build": _build,
+    "coding.git_status": _git_status,
+}
+
+register_table(CODING_HANDLERS)

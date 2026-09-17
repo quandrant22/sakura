@@ -55,7 +55,8 @@ GIGAAM_ENABLED = os.getenv("GIGAAM_ENABLED", "1").strip().lower() not in ("0", "
 
 # ── Захват микрофона ────────────────────────────────────────────────
 MIC_RATE        = 16000
-MIC_BLOCK       = 512
+MIC_BLOCK       = 512    # кадр для Silero VAD — менять нельзя
+WAKE_BLOCK      = 1024   # блок цикла вейк-ворда: 64 мс звука вместо 32
 MAX_UTTER_SEC   = 60
 FOLLOWUP_SEC    = 4.0
 VAD_THRESHOLD   = 0.45     # Снижен — ловит тихую речь в тихой комнате

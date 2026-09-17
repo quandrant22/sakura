@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 from config import MAIN_MODEL
+from sakura_core.llm import generate as _llm_generate
 
 log = logging.getLogger("sakura.planner")
 
@@ -92,7 +93,6 @@ def _validate_plan(plan: dict) -> dict | None:
 
 def _is_plan_risky(plan: dict) -> bool:
     """Определяет опасность плана: powershell, type_text или необратимые примитивы."""
-    from modules.command_router import is_irreversible
     for step in plan.get("steps", []):
         action = step.get("action", "")
         if action in ("powershell", "type_text"):
@@ -112,11 +112,6 @@ async def build_plan(text: str, context: dict, source: str = "voice",
         log.info(f"[planner] источник не Master: source={source}, sender={sender_id}")
         return None
 
-    from config import get_active_key, mark_key_used
-    key = get_active_key()
-    if not key:
-        return None
-
     active_window = context.get("active_window", "")
     apps = context.get("known_apps", [])
     apps_str = ", ".join(apps[:50]) if apps else "нет данных"
@@ -130,20 +125,14 @@ async def build_plan(text: str, context: dict, source: str = "voice",
     ) + f'\n\nЗадача: "{text}"'
 
     try:
-        from google import genai
-        from google.genai import types
-        client = genai.Client(api_key=key)
-        response = await asyncio.to_thread(
-            client.models.generate_content,
+        raw = await _llm_generate(
+            prompt,
             model=MAIN_MODEL,
-            contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
-            config=types.GenerateContentConfig(
-                temperature=0.0,
-                max_output_tokens=400,
-            )
+            temperature=0.0,
+            max_tokens=400,
+            safety=False,
+            thinking=False,
         )
-        mark_key_used(key)
-        raw = (response.text or "").strip()
         raw = raw.replace("```json", "").replace("```", "").strip()
         plan = json.loads(raw)
     except json.JSONDecodeError:
@@ -160,3 +149,12 @@ async def build_plan(text: str, context: dict, source: str = "voice",
     plan["risky"] = _is_plan_risky(plan)
     log.info(f"[planner] план: {len(plan['steps'])} шагов, risky={plan['risky']}, summary={plan['summary']!r}")
     return plan
+
+
+def is_irreversible(action: str) -> bool:
+    """Необратимые действия — после них сложно вернуть состояние."""
+    irreversible_prefixes = (
+        "open_app", "close_window", "kettle:", "say:",
+        "ext:", "browser:", "music_dislike", "type_text:", "powershell:",
+    )
+    return any(action.startswith(p) for p in irreversible_prefixes)

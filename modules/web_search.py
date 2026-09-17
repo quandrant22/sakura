@@ -14,7 +14,8 @@ from urllib.parse import urlparse
 
 import httpx
 from bs4 import BeautifulSoup
-from config import MAIN_MODEL, get_active_key, mark_key_used
+from config import MAIN_MODEL
+from sakura_core.llm import generate as _llm_generate
 
 log = logging.getLogger(__name__)
 
@@ -325,28 +326,14 @@ async def search_and_fetch(query: str, max_chars: int = 3000) -> str:
 
     # 2. Fallback — Gemini без поиска (из памяти)
     try:
-        from config import get_active_key, mark_key_used
-        from google import genai
-        from google.genai import types
-
-        key = get_active_key()
-        if not key:
-            return ""
-        client = genai.Client(api_key=key)
-        response = await asyncio.to_thread(
-            client.models.generate_content,
+        text = await _llm_generate(
+            query,
             model=MAIN_MODEL,
-            contents=[types.Content(
-                role="user",
-                parts=[types.Part(text=query)]
-            )],
-            config=types.GenerateContentConfig(
-                max_output_tokens=1000,
-                temperature=0.3,
-            ),
+            max_tokens=1000,
+            temperature=0.3,
+            safety=False,
+            thinking=False,
         )
-        mark_key_used(key)
-        text = (response.text or "").strip()
         if text:
             log.info(f"[search] Gemini fallback: {len(text)} символов")
             return text[:max_chars]

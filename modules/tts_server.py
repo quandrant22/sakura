@@ -24,6 +24,7 @@ from google import genai
 from google.genai import types
 
 from config import get_active_key, mark_key_used
+from sakura_core.llm import generate as _llm_generate, stream_tokens as _llm_stream
 
 log = logging.getLogger(__name__)
 
@@ -579,48 +580,29 @@ async def stream_llm_to_tts(
     full_text = ""
 
     try:
-        from google.genai import types as _t
+        full_text = ""
 
-        response_iter = await asyncio.to_thread(
-            lambda: client.models.generate_content_stream(
-                model=model,
-                contents=contents,
-                config=_t.GenerateContentConfig(
-                    system_instruction=system,
-                    max_output_tokens=max_tokens,
-                    temperature=temperature,
-                ),
-            )
-        )
+        async for token in _llm_stream(
+            contents,
+            system=system,
+            model=model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            safety=False,
+            thinking=False,
+        ):
+            full_text += token
 
-        # Инкрементальная итерация: читаем токены по мере поступления
-        _SENT_END = re.compile(r'(?<=[.!?…])\s+')
-        buf = ""
-        sentences = []
-
-        def _drain():
-            """Читаем все доступные чанки из итератора (блокирующий поток)."""
-            parts = []
-            for chunk in response_iter:
-                t = chunk.text or ""
-                if t:
-                    parts.append(t)
-            return parts
-
-        text_chunks = await asyncio.to_thread(_drain)
         mark_key_used(api_key)
-
-        combined = "".join(text_chunks)
-        full_text = combined
 
         log.info(f"[TTS stream] LLM за {time.monotonic()-t0:.1f}с")
 
         # Парсим эмоцию
-        for line in combined.split("\n"):
+        for line in full_text.split("\n"):
             if line.strip().startswith("EMOTION:"):
                 emotion = line.strip().replace("EMOTION:", "").strip()
 
-        clean = re.sub(r'EMOTION:\w+', '', combined).strip()
+        clean = re.sub(r'EMOTION:\w+', '', full_text).strip()
 
         if clean and websocket:
             await stream_tts_to_device(clean, websocket, device_id, emotion=emotion)
@@ -632,18 +614,15 @@ async def stream_llm_to_tts(
 
         # Fallback: обычная генерация
         try:
-            from google.genai import types as _t
-            r = await asyncio.to_thread(
-                client.models.generate_content,
+            full_text = await _llm_generate(
+                contents,
+                system=system,
                 model=model,
-                contents=contents,
-                config=_t.GenerateContentConfig(
-                    system_instruction=system,
-                    max_output_tokens=max_tokens,
-                    temperature=temperature,
-                ),
+                max_tokens=max_tokens,
+                temperature=temperature,
+                safety=False,
+                thinking=False,
             )
-            full_text = (r.text or "").strip()
             mark_key_used(api_key)
 
             for line in full_text.split("\n"):

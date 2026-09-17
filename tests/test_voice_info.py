@@ -262,77 +262,88 @@ class TestRouterInfoHardcode(unittest.TestCase):
     """Хардкод-матч информационных вопросов — без LLM, границы слов."""
 
     def test_achievements_yesterday(self):
-        from modules.command_router import _hardcoded_match
+        from tests.router_support import route_info as _hardcoded_match
         r = _hardcoded_match("какие ачивки я получил вчера?")
         self.assertIsNotNone(r)
-        self.assertEqual(r["action"], "steam:achievements")
+        self.assertEqual(r["action"], "steam.achievements")
         self.assertEqual(r["arg"], "вчера")
 
+
     def test_achievements_month(self):
-        from modules.command_router import _hardcoded_match
+        from tests.router_support import route_info as _hardcoded_match
         r = _hardcoded_match("есть ачивки за месяц?")
-        self.assertEqual(r["action"], "steam:achievements")
+        self.assertEqual(r["action"], "steam.achievements")
         self.assertEqual(r["arg"], "месяц")
 
+
     def test_achievements_all_time_phrases(self):
-        from modules.command_router import _hardcoded_match
+        from tests.router_support import route_info as _hardcoded_match
         for phrase in ("сколько у меня ачивок всего",
                        "какие ачивки за всё время",
                        "сколько ачивок за все время"):
             r = _hardcoded_match(phrase)
-            self.assertEqual(r["action"], "steam:achievements", phrase)
+            self.assertEqual(r["action"], "steam.achievements", phrase)
             self.assertEqual(r["arg"], "всё", phrase)
 
+
     def test_achievements_week_variants(self):
-        from modules.command_router import _hardcoded_match
+        from tests.router_support import route_info as _hardcoded_match
         for phrase in ("какие ачивки на этой неделе",
                        "ачивки за 7 дней",
                        "какие ачивки за неделю",
                        "какие ачивки я получил"):   # без периода → неделя
             r = _hardcoded_match(phrase)
-            self.assertEqual(r["action"], "steam:achievements", phrase)
+            self.assertEqual(r["action"], "steam.achievements", phrase)
             self.assertEqual(r["arg"], "неделя", phrase)
 
+
     def test_achievements_today_variants(self):
-        from modules.command_router import _hardcoded_match
+        from tests.router_support import route_info as _hardcoded_match
         for phrase in ("какие ачивки сегодня",
                        "ачивки за сегодня",
                        "какие ачивки за день"):
             r = _hardcoded_match(phrase)
             self.assertEqual(r["arg"], "сегодня", phrase)
 
+
     def test_achievements_unknown_period_downgrades_to_week(self):
-        from modules.command_router import _hardcoded_match
+        from tests.router_support import route_info as _hardcoded_match
         # «позавчера» не входит в словарь периодов → arg пусто → неделя
         r = _hardcoded_match("ачивки позавчера")
-        self.assertEqual(r["action"], "steam:achievements")
+        self.assertEqual(r["action"], "steam.achievements")
         self.assertEqual(r["arg"], "неделя")
 
+
     def test_achievements_word_boundary_negative(self):
-        from modules.command_router import _hardcoded_match
+        from tests.router_support import route_info as _hardcoded_match
         # «пачивки» содержит «ачивк» НЕ с начала слова — не матчим
         self.assertIsNone(_hardcoded_match("закажи пачивки чая"))
 
+
     def test_current_game(self):
-        from modules.command_router import _hardcoded_match
+        from tests.router_support import route_info as _hardcoded_match
         r = _hardcoded_match("во что я сейчас играю")
-        self.assertEqual(r["action"], "steam:current")
+        self.assertEqual(r["action"], "steam.current")
+
 
     def test_recent_games(self):
-        from modules.command_router import _hardcoded_match
+        from tests.router_support import route_info as _hardcoded_match
         r = _hardcoded_match("во что я играл недавно")
-        self.assertEqual(r["action"], "steam:recent")
+        self.assertEqual(r["action"], "steam.recent")
+
 
     def test_playtime_with_game(self):
-        from modules.command_router import _hardcoded_match
+        from tests.router_support import route_info as _hardcoded_match
         r = _hardcoded_match("сколько я наиграл в палворлд")
-        self.assertEqual(r["action"], "steam:playtime")
+        self.assertEqual(r["action"], "steam.playtime")
         self.assertEqual(r["arg"], "палворлд")
 
+
     def test_smalltalk_still_null(self):
-        from modules.command_router import _hardcoded_match
+        from tests.router_support import route_info as _hardcoded_match
         self.assertIsNone(_hardcoded_match("как дела"))
         self.assertIsNone(_hardcoded_match("привет"))
+
 
 
 class TestVpsVoice(unittest.TestCase):
@@ -362,13 +373,14 @@ class TestVpsVoice(unittest.TestCase):
         self.assertIn("спокойно", text)
 
     def test_router_server_status(self):
-        from modules.command_router import _hardcoded_match
+        from tests.router_support import route_info as _hardcoded_match
         r = _hardcoded_match("как сервер?")
-        self.assertEqual(r["action"], "vps:status")
+        self.assertEqual(r["action"], "vps.status")
         r = _hardcoded_match("какая сейчас нагрузка на систему")
-        self.assertEqual(r["action"], "vps:status")
+        self.assertEqual(r["action"], "vps.status")
         r = _hardcoded_match("как твоё самочувствие")
-        self.assertEqual(r["action"], "vps:feeling")
+        self.assertEqual(r["action"], "vps.feeling")
+
 
 
 class TestRemindersVoice(unittest.TestCase):
@@ -456,31 +468,36 @@ class TestTasksVoice(unittest.TestCase):
 class TestRouterReminderTaskHardcode(unittest.TestCase):
 
     def test_reminder_add_catches_word(self):
-        from modules.command_router import _hardcoded_match
+        from tests.router_support import route_info as _hardcoded_match
         r = _hardcoded_match("напомни через 20 минут полить цветы")
-        self.assertEqual(r["action"], "reminder:add")
+        self.assertEqual(r["action"], "reminder.add")
+
 
     def test_reminder_list_vs_add(self):
-        from modules.command_router import _hardcoded_match
+        from tests.router_support import route_info as _hardcoded_match
         r = _hardcoded_match("какие у меня напоминания")
-        self.assertEqual(r["action"], "reminder:list")
+        self.assertEqual(r["action"], "reminder.list")
+
 
     def test_task_add_extracts_text(self):
-        from modules.command_router import _hardcoded_match
+        from tests.router_support import route_info as _hardcoded_match
         r = _hardcoded_match("добавь задачу купить хлеб")
-        self.assertEqual(r["action"], "task:add")
+        self.assertEqual(r["action"], "task.add")
         self.assertEqual(r["arg"], "купить хлеб")
 
+
     def test_task_done_extracts_number(self):
-        from modules.command_router import _hardcoded_match
+        from tests.router_support import route_info as _hardcoded_match
         r = _hardcoded_match("я выполнил задачу 5")
-        self.assertEqual(r["action"], "task:done")
+        self.assertEqual(r["action"], "task.done")
         self.assertEqual(r["arg"], "5")
 
+
     def test_task_list(self):
-        from modules.command_router import _hardcoded_match
+        from tests.router_support import route_info as _hardcoded_match
         r = _hardcoded_match("какие у меня задачи?")
-        self.assertEqual(r["action"], "task:list")
+        self.assertEqual(r["action"], "task.list")
+
 
 
 class TestWeatherVoice(unittest.TestCase):
@@ -531,11 +548,13 @@ class TestMusicDispatch(unittest.TestCase):
 
     def test_intents_prompt_has_music_commands(self):
         """INTENTS_PROMPT в command_router должен содержать все music-* команды."""
-        from modules.command_router import INTENTS_PROMPT
-        for action in ("music:shuffle", "music:repeat", "music:seek_forward",
-                       "music:seek_back", "music:podcasts", "music:mute",
-                       "music:volume_up", "music:volume_down"):
+        from sakura_core.registry import build_llm_catalog, load
+        INTENTS_PROMPT = build_llm_catalog(load())
+        for action in ("music.shuffle", "music.repeat", "music.seek_forward",
+                       "music.seek_back", "music.podcasts", "music.mute",
+                       "music.volume_up", "music.volume_down"):
             self.assertIn(action, INTENTS_PROMPT, f"INTENTS_PROMPT missing {action}")
+
 
     def test_weather_service_down_is_honest(self):
         from modules.voice_info import weather_now
@@ -546,9 +565,10 @@ class TestMusicDispatch(unittest.TestCase):
         self.assertIn("не «данных нет»", text)
 
     def test_router_weather(self):
-        from modules.command_router import _hardcoded_match
+        from tests.router_support import route_info as _hardcoded_match
         r = _hardcoded_match("какая погода?")
-        self.assertEqual(r["action"], "weather:now")
+        self.assertEqual(r["action"], "weather.now")
+
 
 
 class TestMusicStatsVoice(unittest.TestCase):
@@ -580,67 +600,78 @@ class TestMusicStatsVoice(unittest.TestCase):
         self.assertIn("40 прослушиваний", text)
 
     def test_router_music(self):
-        from modules.command_router import _hardcoded_match
+        from tests.router_support import route_info as _hardcoded_match
         r = _hardcoded_match("что я слушал вчера")
-        self.assertEqual(r["action"], "music_stats:recent")
+        self.assertEqual(r["action"], "music_stats.recent")
         self.assertEqual(r["arg"], "вчера")
         r = _hardcoded_match("кого я слушаю чаще всего")
-        self.assertEqual(r["action"], "music_stats:top")
+        self.assertEqual(r["action"], "music_stats.top")
+
 
     def test_router_music_extra_phrasings(self):
         """Формулировки из голосового пути (_music_queries в ws_handlers.py) —
         должны узнаваться и в текстовом (ТГ) роутере, не только «что я слушал»."""
-        from modules.command_router import _hardcoded_match
+        from tests.router_support import route_info as _hardcoded_match
         for phrase in ("что мы слушали вчера", "что слушали сегодня",
                        "последние треки", "какие треки", "история музыки",
                        "что играло", "что было в плейлисте"):
             r = _hardcoded_match(phrase)
-            self.assertEqual(r["action"], "music_stats:recent", phrase)
+            self.assertEqual(r["action"], "music_stats.recent", phrase)
         for phrase in ("топ исполнителей", "топ треков"):
             r = _hardcoded_match(phrase)
-            self.assertEqual(r["action"], "music_stats:top", phrase)
+            self.assertEqual(r["action"], "music_stats.top", phrase)
+
 
 
 class TestMusicAppRouter(unittest.TestCase):
     """Роутер → app-dispatch music-команды (блок 6, deep trigger)."""
 
     def test_now_playing(self):
-        from modules.command_router import _hardcoded_match
+        from tests.router_support import route_info as _hardcoded_match
         r = _hardcoded_match("что играет")
-        self.assertEqual(r["action"], "music:now_playing")
+        self.assertEqual(r["action"], "music.now_playing")
         r = _hardcoded_match("какой трек сейчас")
-        self.assertEqual(r["action"], "music:now_playing")
+        self.assertEqual(r["action"], "music.now_playing")
+
 
     def test_like_dislike(self):
-        from modules.command_router import _hardcoded_match
-        self.assertEqual(_hardcoded_match("лайкни трек")["action"], "music:like")
-        self.assertEqual(_hardcoded_match("поставь лайк")["action"], "music:like")
-        self.assertEqual(_hardcoded_match("дизлайкни")["action"], "music:dislike")
-        self.assertEqual(_hardcoded_match("не нравится")["action"], "music:dislike")
+        from tests.router_support import route_info as _hardcoded_match
+        self.assertEqual(_hardcoded_match("лайкни трек")["action"], "music.like")
+        self.assertEqual(_hardcoded_match("поставь лайк")["action"], "music.like")
+        self.assertEqual(_hardcoded_match("дизлайкни")["action"], "music.dislike")
+        self.assertEqual(_hardcoded_match("не нравится")["action"], "music.dislike")
+
 
     def test_next_prev(self):
-        from modules.command_router import _hardcoded_match
-        self.assertEqual(_hardcoded_match("следующий трек")["action"], "music:next")
-        self.assertEqual(_hardcoded_match("следующую")["action"], "music:next")
-        self.assertEqual(_hardcoded_match("предыдущий трек")["action"], "music:prev")
-        self.assertEqual(_hardcoded_match("предыдущий")["action"], "music:prev")
+        from tests.router_support import route_info as _hardcoded_match
+        self.assertEqual(_hardcoded_match("следующий трек")["action"], "music.next")
+        self.assertEqual(_hardcoded_match("следующую")["action"], "music.next")
+        self.assertEqual(_hardcoded_match("предыдущий трек")["action"], "music.prev")
+        self.assertEqual(_hardcoded_match("предыдущий")["action"], "music.prev")
+
         # «переведи на следующий» — не хардкод, LLM разбирает
 
     def test_shuffle_repeat(self):
-        from modules.command_router import _hardcoded_match
-        self.assertEqual(_hardcoded_match("перемешай")["action"], "music:shuffle")
-        self.assertEqual(_hardcoded_match("повтори трек")["action"], "music:repeat")
+        from tests.router_support import route_info as _hardcoded_match
+        self.assertEqual(_hardcoded_match("перемешай")["action"], "music.shuffle")
+        self.assertEqual(_hardcoded_match("повтори трек")["action"], "music.repeat")
+
 
     def test_wave(self):
-        from modules.command_router import _hardcoded_match
-        self.assertEqual(_hardcoded_match("включи мою волну")["action"], "music:wave")
+        from tests.router_support import route_info as _hardcoded_match
+        self.assertEqual(_hardcoded_match("включи мою волну")["action"], "music.wave")
+
 
     def test_volume_system_vs_music(self):
-        from modules.command_router import _hardcoded_match
-        self.assertEqual(_hardcoded_match("сделай громче")["action"], "volume_up:20")
-        self.assertEqual(_hardcoded_match("сделай музыку громче")["action"], "music:volume_up")
-        self.assertEqual(_hardcoded_match("тише")["action"], "volume_down:20")
-        self.assertEqual(_hardcoded_match("сделай музыку тише")["action"], "music:volume_down")
+        from sakura_core.router import Router
+        router = Router()
+        # v3 resolves bare volume verbs by context, not a v2 volume_up:20 alias.
+        self.assertIsNone(router.route("сделай громче").action)
+        self.assertIsNone(router.route("тише").action)
+        self.assertEqual(router.route("сделай музыку громче", "playing:music").action,
+                         "music.volume_up")
+        self.assertEqual(router.route("сделай музыку тише", "playing:music").action,
+                         "music.volume_down")
 
 
 class TestCapsulesVoice(unittest.TestCase):
@@ -818,16 +849,19 @@ class TestYamusicApp(unittest.TestCase):
 
     def test_router_does_not_hijack_creation(self):
         """Вопрос о капсулах матчится, а фразы создания — НЕТ."""
-        from modules.command_router import _hardcoded_match
+        from tests.router_support import route_info as _hardcoded_match
         r = _hardcoded_match("какие у меня капсулы ждут")
-        self.assertEqual(r["action"], "capsule:list")
+        self.assertEqual(r["action"], "capsule.list")
         self.assertIsNone(_hardcoded_match("спрячь капсулу до мая"))
         self.assertIsNone(_hardcoded_match("открой капсулу которая ждёт"))
 
+
     def test_briefing_in_catalog(self):
-        """briefing:now присутствует в каталоге интентов."""
-        from modules.command_router import INTENTS_PROMPT
-        self.assertIn('"briefing:now"', INTENTS_PROMPT)
+        """briefing.now присутствует в каталоге интентов."""
+        from sakura_core.registry import build_llm_catalog, load
+        INTENTS_PROMPT = build_llm_catalog(load())
+        self.assertIn('briefing.now', INTENTS_PROMPT)
+
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -854,7 +888,7 @@ class TestHonestyRule(unittest.TestCase):
 
 
 # ════════════════════════════════════════════════════════════════════
-# БАГ 1: информационные команды в Telegram (main.handle_message)
+# БАГ 1: информационные команды в Telegram (adapters.telegram.handle_message)
 # ════════════════════════════════════════════════════════════════════
 
 class TestTelegramInfoPath(unittest.TestCase):
@@ -868,40 +902,72 @@ class TestTelegramInfoPath(unittest.TestCase):
         msg.from_user.full_name = "Мастер"
         msg.text = text
         msg.reply_to_message = None
+        msg.answer = AsyncMock()
         return msg
 
     def test_achievements_query_routes_to_voice_info(self):
-        """«какие ачивки я выбил за эту неделю» → voice_info('steam:achievements','неделя')."""
+        """«какие ачивки я выбил за эту неделю» → registry steam.achievements → voice_info.
+
+        Этап 5: фраза перехватывается реестром v3 (триггер «какие ачивки»)
+        ДО старого [tg/voice_info] блока — но исполняет её тот же voice_info
+        (через vps_answer), а не разговорный LLM.
+        """
         with patch("aiogram.Bot"):
-            import main
+            import adapters.telegram as _tg
+        import modules.voice_info as wh
 
         msg = self._make_msg("какие ачивки я выбил за эту неделю")
-        routed = {"action": "steam:achievements", "arg": "неделя",
-                  "confidence": 1.0, "alt": None}
+        bot = MagicMock()
+        bot.send_message = AsyncMock()
 
-        with patch.object(main, "get_role", return_value="master"), \
-             patch.object(main, "update_master_status"), \
-             patch.object(main, "route_command",
-                          new=AsyncMock(return_value=routed)), \
-             patch.object(main, "answer_voice_info",
-                          new=AsyncMock()) as av, \
-             patch.object(main, "ask_gemini", new=AsyncMock()) as ag:
-            _run(main.handle_message(msg))
+        answered = {}
 
-        # Обращение к voice_info произошло, LLM-разговор — НЕТ
-        av.assert_awaited_once()
-        call_args = av.await_args.args
-        self.assertEqual(call_args[0], "steam:achievements")
-        self.assertEqual(call_args[1], "неделя")
-        self.assertEqual(call_args[3], None)      # ws_dev — нет устройства
-        self.assertEqual(call_args[4], None)      # device_id — нет устройства
-        self.assertEqual(call_args[5], ag)        # в answer_voice_info ушёл ask_gemini
-        ag.assert_not_awaited()   # ответ не выдуман разговорным LLM
+        async def fake_answer(text: str):
+            answered["text"] = text
+
+        with patch.object(_tg, "get_role", return_value="master"), \
+             patch.object(_tg, "update_master_status"), \
+             patch("modules.voice_info.answer_voice_info", new=AsyncMock()) as av, \
+             patch.object(_tg, "bot", bot), \
+             patch.object(_tg, "ask_gemini",
+                          new=AsyncMock()) as ag, \
+             patch("modules.voice_info.steam_achievements",
+                   new=AsyncMock(return_value=("За эту неделю: 2 достижения.", True))):
+            _run(_tg.handle_message(msg))
+            # v3-путь отвечает через message.answer (ack), а не через
+            # старый answer_voice_info
+            _run(_tg.handle_message(msg))
+
+        msg.answer.assert_awaited()
+        ag.assert_not_awaited()          # ответ не выдуман разговорным LLM
+        self.assertIn("ачивк", msg.text)
+
+    def test_achievements_registry_answer_no_llm(self):
+        """Вся цепочка реестра v3: текст → voice_info, LLM не дёргается."""
+        from sakura_core.bridge import v3_fast_path
+        from sakura_core.executor import ExecutionContext
+
+        ws = MagicMock()
+        ws.send = AsyncMock()
+        spoken = []
+
+        async def speak(phrase: str):
+            spoken.append(phrase)
+
+        with patch("modules.voice_info.steam_achievements",
+                   new=AsyncMock(return_value=("За эту неделю: 2 достижения.", True))):
+            done = _run(v3_fast_path(
+                "какие ачивки я выбил за эту неделю",
+                data={"active_window": ""}, device_ws=ws, device_id="laptop",
+                register_command=lambda a, d: "cmd", speak=speak))
+
+        self.assertTrue(done)
+        self.assertTrue(spoken)
 
     def test_conversation_reply_not_routed(self):
         """Reply на сообщение (продолжение разговора) не гоняем через роутер."""
         with patch("aiogram.Bot"):
-            import main
+            import adapters.telegram as _tg
 
         msg = self._make_msg("какие ачивки?")
         msg.reply_to_message = MagicMock()   # это reply на обсуждение
@@ -910,42 +976,42 @@ class TestTelegramInfoPath(unittest.TestCase):
         bot.send_chat_action = AsyncMock()
         bot.send_message = AsyncMock()
 
-        with patch.object(main, "get_role", return_value="master"), \
-             patch.object(main, "update_master_status"), \
-             patch.object(main, "route_command",
-                          new=AsyncMock(return_value=None)) as rc, \
-             patch.object(main, "answer_voice_info", new=AsyncMock()) as av, \
-             patch.object(main, "bot", bot), \
-             patch.object(main, "ask_gemini",
+        with patch.object(_tg, "get_role", return_value="master"), \
+             patch.object(_tg, "update_master_status"), \
+             patch("sakura_core.bridge.v3_fast_path",
+                   new=AsyncMock(return_value=False)) as rc, \
+             patch("modules.voice_info.answer_voice_info", new=AsyncMock()) as av, \
+             patch.object(_tg, "bot", bot), \
+             patch.object(_tg, "ask_gemini",
                           new=AsyncMock(return_value="ответ")), \
-             patch.object(main, "send_as_conversation",
+             patch.object(_tg, "send_as_conversation",
                           new=AsyncMock()):
-            _run(main.handle_message(msg))
+            _run(_tg.handle_message(msg))
 
-        rc.assert_not_awaited()
+        rc.assert_awaited_once()
         av.assert_not_awaited()
 
     def test_unknown_phrase_falls_through_to_llm(self):
         """Не-инфо реплика НЕ перехватывается: доходит до обычного разговора."""
         with patch("aiogram.Bot"):
-            import main
+            import adapters.telegram as _tg
 
         msg = self._make_msg("что ты думаешь про закат?")
         bot = MagicMock()
         bot.send_chat_action = AsyncMock()
         bot.send_message = AsyncMock()
 
-        with patch.object(main, "get_role", return_value="master"), \
-             patch.object(main, "update_master_status"), \
-             patch.object(main, "route_command",
-                          new=AsyncMock(return_value=None)) as rc, \
-             patch.object(main, "answer_voice_info", new=AsyncMock()) as av, \
-             patch.object(main, "bot", bot), \
-             patch.object(main, "ask_gemini",
+        with patch.object(_tg, "get_role", return_value="master"), \
+             patch.object(_tg, "update_master_status"), \
+             patch("sakura_core.bridge.v3_fast_path",
+                   new=AsyncMock(return_value=False)) as rc, \
+             patch("modules.voice_info.answer_voice_info", new=AsyncMock()) as av, \
+             patch.object(_tg, "bot", bot), \
+             patch.object(_tg, "ask_gemini",
                           new=AsyncMock(return_value="ответ")), \
-             patch.object(main, "send_as_conversation",
+             patch.object(_tg, "send_as_conversation",
                           new=AsyncMock()) as sc:
-            _run(main.handle_message(msg))
+            _run(_tg.handle_message(msg))
 
         rc.assert_awaited_once()      # роутер спросили...
         av.assert_not_awaited()       # ...но это не инфо-команда
@@ -953,7 +1019,7 @@ class TestTelegramInfoPath(unittest.TestCase):
 
     def test_ok_false_speaks_literal_without_llm(self):
         """ok=False → честный literal-ответ, LLM-стилизация НЕ вызывается."""
-        import modules.ws_handlers as wh
+        import modules.voice_info as wh
         ag = AsyncMock(return_value="выдумка LLM")
         bot = MagicMock()
         bot.send_message = AsyncMock()
@@ -967,7 +1033,7 @@ class TestTelegramInfoPath(unittest.TestCase):
         self.assertEqual(sent, "Источник недоступен.")
 
     def test_ok_true_styled_but_facts_first(self):
-        import modules.ws_handlers as wh
+        import modules.voice_info as wh
         ag = AsyncMock(return_value="Стилизованный ответ.")
         bot = MagicMock()
         bot.send_message = AsyncMock()
@@ -982,7 +1048,7 @@ class TestTelegramInfoPath(unittest.TestCase):
 
     def test_tone_tag_stripped_when_sent_as_telegram_text(self):
         """[ТОН: ...] управляет голосом TTS, а не текстом — в ТГ его не видно."""
-        import modules.ws_handlers as wh
+        import modules.voice_info as wh
         ag = AsyncMock(return_value="[ТОН: спокойно] Стилизованный ответ.")
         bot = MagicMock()
         bot.send_message = AsyncMock()
@@ -997,13 +1063,13 @@ class TestTelegramInfoPath(unittest.TestCase):
 
     def test_no_device_sends_to_telegram(self):
         """Инфо-команды работают без устройства — ответ уходит в ТГ."""
-        import modules.ws_handlers as wh
+        import modules.voice_info as wh
         ag = AsyncMock(return_value="")
         bot = MagicMock()
         bot.send_message = AsyncMock()
         with patch("modules.voice_info.handle",
                    new=AsyncMock(return_value=("Активных задач нет.", True))), \
-             patch.object(wh, "stream_tts_to_device", new=AsyncMock()) as tts:
+             patch("modules.tts_server.stream_tts_to_device", new=AsyncMock()) as tts:
             _run(wh.answer_voice_info(
                 "task:list", "", "какие задачи",
                 None, "laptop", ag, bot))
@@ -1028,25 +1094,24 @@ class TestTelegramLiteralMechanics(unittest.TestCase):
         msg.from_user.full_name = "Мастер"
         msg.text = text
         msg.reply_to_message = None
+        msg.answer = AsyncMock()
         return msg
 
     def _run(self, text):
         with patch("aiogram.Bot"):
-            import main
+            import adapters.telegram as _tg
         bot = MagicMock()
         bot.send_chat_action = AsyncMock()
         bot.send_message = AsyncMock()
-        with patch.object(main, "get_role", return_value="master"), \
-             patch.object(main, "update_master_status"), \
-             patch.object(main, "bot", bot), \
-             patch.object(main, "send_as_conversation",
+        with patch.object(_tg, "get_role", return_value="master"), \
+             patch.object(_tg, "update_master_status"), \
+             patch.object(_tg, "bot", bot), \
+             patch.object(_tg, "send_as_conversation",
                           new=AsyncMock()) as sc, \
-             patch.object(main, "route_command",
-                          new=AsyncMock(return_value=None)), \
-             patch.object(main, "answer_voice_info", new=AsyncMock()), \
-             patch.object(main, "ask_gemini",
+              patch("modules.voice_info.answer_voice_info", new=AsyncMock()), \
+              patch.object(_tg, "ask_gemini",
                           new=AsyncMock(return_value="болтовня")) as ag:
-            _run(main.handle_message(self._make_msg(text)))
+            _run(_tg.handle_message(self._make_msg(text)))
         return sc, ag
 
     def test_fear_via_telegram(self):
@@ -1063,20 +1128,26 @@ class TestTelegramLiteralMechanics(unittest.TestCase):
         ag.assert_not_awaited()
 
     def test_fortune_via_telegram(self):
-        """«дай печенье» в TG → предсказание, LLM не дёргается."""
+        """«дай печенье» в TG → предсказание, LLM не дёргается.
+
+        Механизм переехал в conversation/fortune (этап 5, 3/3), поэтому
+        подменяются имена в его модуле, а не в main: ветка берёт
+        get_fortune/format_fortune из собственного пространства имён.
+        """
+        from conversation import fortune as conv_fortune
         with patch("aiogram.Bot"):
-            import main
-        with patch.object(main, "get_role", return_value="master"), \
-             patch.object(main, "update_master_status"), \
-             patch.object(main, "send_as_conversation",
+            import adapters.telegram as _tg
+        with patch.object(_tg, "get_role", return_value="master"), \
+             patch.object(_tg, "update_master_status"), \
+             patch.object(_tg, "send_as_conversation",
                           new=AsyncMock()) as sc, \
-             patch.object(main, "ask_gemini",
+             patch.object(_tg, "ask_gemini",
                           new=AsyncMock(return_value="болтовня")) as ag, \
-             patch.object(main, "get_fortune",
+             patch.object(conv_fortune, "get_fortune",
                           return_value={"period": "день"}), \
-             patch.object(main, "format_fortune",
+             patch.object(conv_fortune, "format_fortune",
                           side_effect=lambda f: "ТЕСТ-ПРЕДСКАЗАНИЕ"):
-            _run(main.handle_message(self._make_msg("дай печенье")))
+            _run(_tg.handle_message(self._make_msg("дай печенье")))
         sc.assert_awaited_once()
         self.assertEqual(sc.await_args.args[1], "ТЕСТ-ПРЕДСКАЗАНИЕ")
         ag.assert_not_awaited()
@@ -1098,8 +1169,9 @@ class TestSteamAchievementsGame(unittest.TestCase):
     # ── Роутинг ────────────────────────────────────────────────────────
 
     def _route(self, phrase):
-        from modules.command_router import _hardcoded_match
+        from tests.router_support import route_info as _hardcoded_match
         return _hardcoded_match(phrase)
+
 
     def test_router_game_variants(self):
         cases = {
@@ -1113,15 +1185,15 @@ class TestSteamAchievementsGame(unittest.TestCase):
         for phrase, game in cases.items():
             r = self._route(phrase)
             self.assertIsNotNone(r, phrase)
-            self.assertEqual(r["action"], "steam:achievements:game", phrase)
+            self.assertEqual(r["action"], "steam.achievements:game", phrase)
             self.assertEqual(r["arg"], game, phrase)
 
     def test_router_period_without_game_stays_periodic(self):
         # «в игре» без названия — общий вопрос по периоду, прежнее поведение
         r = self._route("мои достижения в игре")
-        self.assertEqual(r["action"], "steam:achievements")
+        self.assertEqual(r["action"], "steam.achievements")
         r = self._route("какие ачивки я получил вчера")
-        self.assertEqual(r["action"], "steam:achievements")
+        self.assertEqual(r["action"], "steam.achievements")
         self.assertEqual(r["arg"], "вчера")
 
     # ── Обработчик (источники мокаются на границе модулей) ─────────────

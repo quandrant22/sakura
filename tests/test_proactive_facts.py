@@ -155,27 +155,27 @@ class TestProactiveRestrictions(unittest.TestCase):
     """Проактив без размышлений, без поиска, без голоса."""
 
     def test_no_freeform_prompts_left(self):
-        import main
-        self.assertFalse(hasattr(main, "_PROACTIVE_PROMPTS"))
-        self.assertFalse(hasattr(main, "_proactive_prompt_idx"))
+        import sakura_core.proactive as proactive
+        self.assertFalse(hasattr(proactive, "_PROACTIVE_PROMPTS"))
+        self.assertFalse(hasattr(proactive, "_proactive_prompt_idx"))
 
     def test_proactive_loop_never_searches(self):
-        import main
-        src = inspect.getsource(main.proactive_loop)
+        from sakura_core.proactive import proactive_loop
+        src = inspect.getsource(proactive_loop)
         for banned in ("needs_search", "search_grounded", "parallel_search",
                        "smart_search"):
             self.assertNotIn(banned, src)
 
     def test_proactive_loop_never_speaks_voice(self):
-        import main
-        src = inspect.getsource(main.proactive_loop)
+        from sakura_core.proactive import proactive_loop
+        src = inspect.getsource(proactive_loop)
         self.assertNotIn("stream_tts_to_device", src)
         self.assertNotIn("stream_llm_to_tts", src)
         self.assertIn("send_telegram_text", src), "проактив — только Telegram"
 
     def test_achievement_cb_is_fact_format(self):
-        import main
-        src = inspect.getsource(main.main)
+        from sakura_core.callbacks import make_achievement_cb
+        src = inspect.getsource(make_achievement_cb)
         self.assertIn("Выбито достижение: {ach_name} ({game_name}).", src)
         self.assertNotIn("Отреагируй живо", src)
 

@@ -23,6 +23,7 @@ import re
 import uuid
 
 import httpx
+from sakura_core.llm import generate as _llm_generate
 
 log = logging.getLogger(__name__)
 
@@ -149,27 +150,16 @@ async def _model_queries(query: str) -> list[str]:
     Сбой/пустой ответ → [] (вызывающая сторона уйдёт в резерв _keywords()).
     Все аргументы generate_content — именованные (SDK keyword-only).
     """
-    from config import MAIN_MODEL, get_active_key, mark_key_used
-    key = get_active_key()
-    if not key:
-        return []
-    from google import genai
-    from google.genai import types
-
-    client = genai.Client(api_key=key)
-    cfg_kw: dict = dict(max_output_tokens=300, temperature=0.2)
-    if MAIN_MODEL.startswith("gemini-3"):
-        # Gemini 3.x думает по умолчанию и съедает бюджет ответа
-        # (тот же приём, что main._thinking)
-        cfg_kw["thinking_config"] = types.ThinkingConfig(thinking_level="minimal")
-    response = await asyncio.to_thread(
-        client.models.generate_content,
-        model    = MAIN_MODEL,
-        contents = _QUERY_PROMPT + query,
-        config   = types.GenerateContentConfig(**cfg_kw),
+    from config import MAIN_MODEL
+    raw = await _llm_generate(
+        _QUERY_PROMPT + query,
+        model=MAIN_MODEL,
+        max_tokens=300,
+        temperature=0.2,
+        safety=False,
+        thinking=True,
     )
-    mark_key_used(key)
-    return _parse_model_queries(getattr(response, "text", None) or "")
+    return _parse_model_queries(raw)
 
 
 async def build_search_queries(query: str) -> list[str]:

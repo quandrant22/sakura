@@ -8,6 +8,7 @@ No network, temp files only.
 import os
 import sys
 import json
+import sys
 import time
 import asyncio
 import tempfile
@@ -40,16 +41,16 @@ class TestBlock1_NoNameErrors(unittest.TestCase):
 
     def test_send_telegram_text_non_master(self):
         with patch("aiogram.Bot"):
-            import main
-            with patch.object(main, "bot", MagicMock()) as bot:
-                _run(main.send_telegram_text(999, "[ТОН: мягко] Привет, гость"))
+            import adapters.telegram as _tg
+            with patch.object(_tg, "bot", MagicMock()) as bot:
+                _run(_tg.send_telegram_text(999, "[ТОН: мягко] Привет, гость"))
                 bot.send_message.assert_called_once_with(999, "Привет, гость")
 
     def test_send_telegram_text_master(self):
         with patch("aiogram.Bot"):
-            import main
-            with patch.object(main, "bot", MagicMock()) as bot:
-                _run(main.send_telegram_text(123456789, "[ТОН: мягко] Привет"))
+            import adapters.telegram as _tg
+            with patch.object(_tg, "bot", MagicMock()) as bot:
+                _run(_tg.send_telegram_text(123456789, "[ТОН: мягко] Привет"))
                 args, kwargs = bot.send_message.call_args
                 self.assertEqual(args, (123456789, "Привет"))
                 self.assertTrue(kwargs["link_preview_options"].is_disabled)
@@ -59,45 +60,46 @@ class TestBlock1_GameContext(unittest.TestCase):
     """1.2: игровой контекст попадает в промпт (раньше NameError)."""
 
     def test_ask_gemini_includes_game_context(self):
-        import main
+        import modules.steam_integration as _si
+        from sakura_core.llm import ask_gemini
         hit = {"appid": 111, "name": "Palworld", "playtime_forever": 300}
-        gen_mock = AsyncMock(return_value=MagicMock(text="ок"))
+        gen_mock = AsyncMock(return_value="ок")
 
-        with patch("main.search_game", return_value=hit), \
-             patch("modules.steam_integration._current_game",
-                   {"appid": 222, "name": "Другая игра"}), \
-             patch("main.get_active_key", return_value="fake-key"), \
-             patch("main._gemini_generate", gen_mock), \
-             patch("main.maybe_fetch_web", new=AsyncMock(return_value=None)), \
-             patch("main.maybe_read_url", new=AsyncMock(return_value=None)), \
-             patch("main._build_system", return_value="SYS"):
-            reply = _run(main.ask_gemini("как дела в Palworld?", save_history=False))
+        with patch.object(_si, "search_game", return_value=hit), \
+             patch.object(_si, "_current_game",
+                          {"appid": 222, "name": "Другая игра"}), \
+             patch("config.get_active_key", return_value="fake-key"), \
+             patch("sakura_core.llm.generate", gen_mock), \
+             patch("sakura_core.llm.maybe_fetch_web", new=AsyncMock(return_value=None)), \
+             patch("sakura_core.llm.maybe_read_url", new=AsyncMock(return_value=None)), \
+             patch("sakura_core.llm._build_system", return_value="SYS"):
+            reply = _run(ask_gemini("как дела в Palworld?", save_history=False))
 
         self.assertTrue(reply)
-        # full_system передаётся вторым позиционным аргументом _gemini_generate
         args, kwargs = gen_mock.call_args
-        full_system = args[3] if len(args) >= 4 else kwargs.get("full_system")
+        full_system = kwargs.get("system", args[1] if len(args) >= 2 else "")
         self.assertIn("ИГРА ИЗ БИБЛИОТЕКИ МАСТЕРА", full_system)
         self.assertIn("Palworld", full_system)
 
     def test_ask_gemini_skips_current_game(self):
         """Если спрошенная игра уже запущена — контекст библиотеки не добавляется."""
-        import main
+        import modules.steam_integration as _si
+        from sakura_core.llm import ask_gemini
         hit = {"appid": 111, "name": "Palworld", "playtime_forever": 300}
-        gen_mock = AsyncMock(return_value=MagicMock(text="ок"))
+        gen_mock = AsyncMock(return_value="ок")
 
-        with patch("main.search_game", return_value=hit), \
-             patch("modules.steam_integration._current_game",
-                   {"appid": 111, "name": "Palworld"}), \
-             patch("main.get_active_key", return_value="fake-key"), \
-             patch("main._gemini_generate", gen_mock), \
-             patch("main.maybe_fetch_web", new=AsyncMock(return_value=None)), \
-             patch("main.maybe_read_url", new=AsyncMock(return_value=None)), \
-             patch("main._build_system", return_value="SYS"):
-            _run(main.ask_gemini("как дела в Palworld?", save_history=False))
+        with patch.object(_si, "search_game", return_value=hit), \
+             patch.object(_si, "_current_game",
+                          {"appid": 111, "name": "Palworld"}), \
+             patch("config.get_active_key", return_value="fake-key"), \
+             patch("sakura_core.llm.generate", gen_mock), \
+             patch("sakura_core.llm.maybe_fetch_web", new=AsyncMock(return_value=None)), \
+             patch("sakura_core.llm.maybe_read_url", new=AsyncMock(return_value=None)), \
+             patch("sakura_core.llm._build_system", return_value="SYS"):
+            _run(ask_gemini("как дела в Palworld?", save_history=False))
 
         args, kwargs = gen_mock.call_args
-        full_system = args[3] if len(args) >= 4 else kwargs.get("full_system")
+        full_system = kwargs.get("system", args[1] if len(args) >= 2 else "")
         self.assertNotIn("ИГРА ИЗ БИБЛИОТЕКИ МАСТЕРА", full_system)
 
 
@@ -233,8 +235,8 @@ class TestBlock3_TTS(unittest.TestCase):
         self.assertEqual(text, "Привет")
 
     def test_main_strip_tone_removes_anywhere(self):
-        import main
-        self.assertEqual(main._strip_tone("текст [тон: хм] середина"), "текст середина")
+        from sakura_core.llm import _strip_tone
+        self.assertEqual(_strip_tone("текст [тон: хм] середина"), "текст середина")
 
     def test_junk_filter_keeps_meaningful_words(self):
         """3.3: «Google», «извините», «я не могу» в середине реплики не вырезаются."""
@@ -433,13 +435,14 @@ class TestBlock7_TTSFastStart(unittest.TestCase):
     def test_both_paths_share_stream_tts_to_device(self):
         """7.3: оба голосовых пути используют одну функцию озвучки
         (единая обработка [ТОН:], очистки, эмоции)."""
-        import main
-        import modules.ws_handlers as wh
-        self.assertIs(main.stream_tts_to_device, wh.stream_tts_to_device)
-        # stream_llm_to_tts внутри тоже вызывает stream_tts_to_device
+        from modules.tts_server import stream_tts_to_device
+        import adapters.ws as wh
+        self.assertIs(stream_tts_to_device, wh.stream_tts_to_device)
+        # stream_llm_to_tts внутри тоже вызывает _make_audio_sender (обёртку над stream_tts_to_device)
         import inspect
-        src = inspect.getsource(main.tts_server.stream_llm_to_tts)
-        self.assertIn("stream_tts_to_device(", src)
+        import adapters.voice as _voice
+        src = inspect.getsource(_voice.stream_llm_to_tts)
+        self.assertIn("_make_audio_sender(", src)
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -501,10 +504,16 @@ class TestBlock4_WordBoundaries(unittest.TestCase):
         self.assertIsNone(parse_open_date("расскажи про майнкрафт"))
 
     def test_router_kettle_word_boundary(self):
-        from modules.command_router import route_critical
-        self.assertEqual(route_critical("нагрей воду в чайнике до 80 градусов"),
-                         "kettle:heat:80")
-        self.assertIsNone(route_critical("нагрей до 80 градусов в чайничке самовара"))
+        from sakura_core.bridge import _load_capabilities
+        from sakura_core.router import Router
+        _load_capabilities()
+        router = Router()
+        decision = router.route("нагрей воду в чайнике до 80 градусов")
+        self.assertEqual(decision.action, "kettle.heat")
+        self.assertEqual(decision.param, "80")
+        # В v3 «нагрей до» — самостоятельный триггер. Проверяем границу
+        # именно триггера, а не отсутствие слова «чайник» в параметрах.
+        self.assertIsNone(router.route("поднагрей воду до 80 градусов").action)
 
 
 # БЛОК 8 — close_window: транслитерация, нормализация, защита от ложных совпадений
@@ -555,25 +564,16 @@ class TestBlock8_CloseWindow(unittest.TestCase):
         self.assertFalse(q_tokens.issubset(title_tokens))
 
     def test_router_close_app_patterns(self):
-        """8.4: роутер распознаёт «закрой X», «закрой окно X», не перехватывает «закрой вкладку»."""
-        from modules.command_router import _hardcoded_match
-
-        # Should match close_window
-        result = _hardcoded_match("закрой palworld")
-        self.assertEqual(result["action"], "close_window")
-        self.assertEqual(result["arg"], "palworld")
-
-        result = _hardcoded_match("закрой окно palworld")
-        self.assertEqual(result["action"], "close_window")
-        self.assertEqual(result["arg"], "palworld")
-
-        # Should NOT intercept "закрой вкладку" (browser:tab_close)
-        result = _hardcoded_match("закрой вкладку")
-        self.assertEqual(result["action"], "browser:tab_close")
-
-        # "закрой браузер" → close_window:браузер
-        result = _hardcoded_match("закрой браузер")
-        self.assertEqual(result["action"], "close_window:браузер")
+        """Browser-window and tab closing retain distinct canonical actions."""
+        from sakura_core.bridge import _load_capabilities
+        from sakura_core.router import Router
+        _load_capabilities()
+        router = Router()
+        self.assertEqual(router.route("закрой вкладку").action, "browser.tab_close")
+        self.assertEqual(router.route("закрой браузер").action, "close_window.браузер")
+        # Generic application closing was a v2-only matcher, not a declared action.
+        self.assertIsNone(router.route("закрой palworld").action)
+        self.assertIsNone(router.route("закрой окно palworld").action)
 
     def test_close_window_logic_with_mock(self):
         """8.5: close_window закрывает только одно окно из нескольких совпадений."""

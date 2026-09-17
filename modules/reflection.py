@@ -19,6 +19,7 @@ import os
 import tempfile
 from datetime import datetime
 from config import MAIN_MODEL
+from sakura_core.llm import generate as _llm_generate
 
 log = logging.getLogger(__name__)
 
@@ -77,9 +78,6 @@ async def run_night_reflection(ask_gemini_fn, add_to_category_fn,
     Тон промпта: Сакура анализирует день от первого лица,
     часть записей — о ней самой, а не о Мастере.
     """
-    from config import get_active_key, mark_key_used
-    from google import genai
-    from google.genai import types
 
     history = await asyncio.to_thread(get_history_fn)
     if len(history) < 4:
@@ -90,17 +88,11 @@ async def run_night_reflection(ask_gemini_fn, add_to_category_fn,
         await asyncio.to_thread(save_reflection_state, state)
         return
 
-    key = get_active_key()
-    if not key:
-        return
-
     try:
         hist_text = "\n".join([
             f"{'Мастер' if m['role'] == 'user' else 'Сакура'}: {m['parts'][0]}"
             for m in history[-60:]
         ])
-
-        client = genai.Client(api_key=key)
 
         # Расширенный промпт: теперь просим и самонаблюдения
         prompt = (
@@ -136,14 +128,9 @@ async def run_night_reflection(ask_gemini_fn, add_to_category_fn,
             "identity — 0-1 утверждений о себе, только если есть о чём."
         )
 
-        r = await asyncio.to_thread(
-            client.models.generate_content,
-            model    = MAIN_MODEL,
-            contents = [types.Content(role="user", parts=[types.Part(text=prompt)])]
-        )
-        raw  = (r.text or "").strip().replace("```json", "").replace("```", "").strip()
+        raw = await _llm_generate(prompt, model=MAIN_MODEL, safety=False, thinking=False)
+        raw = raw.replace("```json", "").replace("```", "").strip()
         data = json.loads(raw)
-        mark_key_used(key)
 
         # Сохраняем в долгосрочную память (master_memory)
         for cat in ("facts", "interests", "events", "patterns"):
@@ -401,19 +388,12 @@ async def run_morning_summary(bot, master_id: int, load_session_summary_fn):
     Утреннее резюме в 07:00 — «как будто после сна» (бэклог №5).
     Сакура сама начинает день, не ждёт вопроса.
     """
-    from config import get_active_key, mark_key_used
-    from google import genai
-    from google.genai import types
 
     summary = await asyncio.to_thread(load_session_summary_fn)
     if not summary:
         state = await asyncio.to_thread(load_reflection_state)
         state["last_morning"] = datetime.now().strftime("%Y-%m-%d")
         await asyncio.to_thread(save_reflection_state, state)
-        return
-
-    key = get_active_key()
-    if not key:
         return
 
     try:
@@ -425,7 +405,6 @@ async def run_morning_summary(bot, master_id: int, load_session_summary_fn):
         except Exception:
             pass
 
-        client = genai.Client(api_key=key)
         prompt = (
             f"Резюме вчерашнего дня:\n{summary}\n"
             + (f"\n{self_ctx}\n" if self_ctx else "")
@@ -437,13 +416,7 @@ async def run_morning_summary(bot, master_id: int, load_session_summary_fn):
             "не объясняя откуда это, просто как мысль с утра."
         )
 
-        r = await asyncio.to_thread(
-            client.models.generate_content,
-            model    = MAIN_MODEL,
-            contents = [types.Content(role="user", parts=[types.Part(text=prompt)])]
-        )
-        reply = (r.text or "").strip()
-        mark_key_used(key)
+        reply = await _llm_generate(prompt, model=MAIN_MODEL, safety=False, thinking=False)
 
         if reply:
             await bot.send_message(master_id, reply)

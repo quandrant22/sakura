@@ -15,6 +15,7 @@ import random
 import time
 from datetime import datetime
 from config import MAIN_MODEL
+from sakura_core.llm import generate as _llm_generate
 
 log = logging.getLogger("sakura.diary")
 
@@ -43,14 +44,7 @@ async def write_entry(conversation_summary: str, mood_label: str = "neutral"):
     Генерирует дневниковую запись после разговора.
     Вызывать из reflection после сохранения в память.
     """
-    from config import get_active_key, mark_key_used
-    from google import genai
-    from google.genai import types
     from memory.db import get_self_context
-
-    key = get_active_key()
-    if not key:
-        return
 
     self_ctx = get_self_context()
 
@@ -64,14 +58,7 @@ async def write_entry(conversation_summary: str, mood_label: str = "neutral"):
     )
 
     try:
-        client  = genai.Client(api_key=key)
-        r = await asyncio.to_thread(
-            client.models.generate_content,
-            model   = MAIN_MODEL,
-            contents= [types.Content(role="user", parts=[types.Part(text=prompt)])]
-        )
-        entry = (r.text or "").strip()
-        mark_key_used(key)
+        entry = await _llm_generate(prompt, model=MAIN_MODEL, safety=False, thinking=False)
 
         if not entry or len(entry) < 10:
             return

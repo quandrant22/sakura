@@ -23,26 +23,30 @@ class TestIntimacyMemoryFilter(unittest.TestCase):
         self.assertFalse(is_intimate_content("работает в Яндексе"))
 
     def test_guarded_add_blocks_intimate(self):
-        from main import _guarded_add
-        with patch("main.db_add_to_category") as mock_db:
-            result = _guarded_add("preferences", "любит секс в постели")
+        from sakura_core.startup import guarded_add
+        import modules.intimacy_mode as im
+        im._reset_state()
+        with patch("memory.db.add_to_category", return_value=False) as mock_db:
+            result = guarded_add(mock_db, "preferences", "любит секс в постели")
             self.assertFalse(result)
             mock_db.assert_not_called()
 
     def test_guarded_add_saves_normal(self):
-        from main import _guarded_add
-        with patch("main.db_add_to_category", return_value=True) as mock_db:
-            result = _guarded_add("preferences", "любит кофе по утрам")
+        from sakura_core.startup import guarded_add
+        import modules.intimacy_mode as im
+        im._reset_state()
+        with patch("memory.db.add_to_category", return_value=True) as mock_db:
+            result = guarded_add(mock_db, "preferences", "любит кофе по утрам")
             self.assertTrue(result)
             mock_db.assert_called_once_with("preferences", "любит кофе по утрам")
 
     def test_guarded_add_consume_check(self):
-        from main import _guarded_add
+        from sakura_core.startup import guarded_add
         import modules.intimacy_mode as im
         im._reset_state()
         im.mark("секс")
-        with patch("main.db_add_to_category") as mock_db:
-            result = _guarded_add("preferences", "любит кофе")
+        with patch("memory.db.add_to_category") as mock_db:
+            result = guarded_add(mock_db, "preferences", "любит кофе")
             self.assertFalse(result)
             mock_db.assert_not_called()
         im._reset_state()
