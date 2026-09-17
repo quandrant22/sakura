@@ -138,7 +138,7 @@ async def do_research() -> str:
     )
 
     try:
-        from main import ask_gemini
+        from sakura_core.llm import ask_gemini
         digest = await ask_gemini(prompt, save_history=False)
         if not digest:
             return ""
@@ -237,7 +237,7 @@ async def save_voice_note(raw_text: str) -> str:
     )
 
     try:
-        from main import ask_gemini
+        from sakura_core.llm import ask_gemini
         digest_structured = await ask_gemini(prompt, save_history=False)
         structured = (digest_structured or "").strip() or raw_text
     except Exception:
