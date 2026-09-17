@@ -141,49 +141,17 @@ _register_commands()
 
 # ── Device control ─────────────────────────────────────────────
 
-def _resolve_device(text_lower: str) -> tuple[str, str]:
-    from modules.presence_sync import get_active_device
-    dev = get_active_device()
-    return dev or "laptop", ""
-
 
 @dp.message(Command("устройство"))
 async def device_control(message: Message):
     if not is_master(message.from_user.id):
         return
-    text = (message.text or "").removeprefix("/устройство").strip()
-    if not text:
-        await message.answer("Что сделать с устройством? (выкл, перезагрузка, спящий режим)")
-        return
-    dev_id, _ = _resolve_device(text.lower())
-    ws = connected_devices.get(dev_id)
-    if not ws:
-        await message.answer("Устройство оффлайн.")
-        return
-    cmd_map = {
-        "выкл": "system.shutdown",
-        "выключить": "system.shutdown",
-        "перезагрузка": "system.restart",
-        "перезагрузить": "system.restart",
-        "спящий": "system.sleep",
-        "спящий режим": "system.sleep",
-        "спать": "system.sleep",
-    }
-    action = None
-    for key, val in cmd_map.items():
-        if key in text.lower():
-            action = val
-            break
-    if not action:
-        await message.answer("Не поняла команду. Доступно: выкл, перезагрузка, спящий режим.")
-        return
-    await ws.send(json.dumps({"type": "command", "action": action}))
-    await message.answer(f"Команда {action} отправлена на {dev_id}.")
-    await asyncio.sleep(0.3)
-    if action == "system.shutdown":
-        asyncio.create_task(stream_tts_to_device(
-            "Выключаюсь, Мастер. Спокойной ночи.", ws, dev_id,
-            literal=True, emotion=get_current_emotion()))
+    from adapters.commands import device_control_impl
+    await device_control_impl(
+        message, connected_devices=connected_devices,
+        stream_tts_to_device=stream_tts_to_device,
+        get_current_emotion=get_current_emotion,
+    )
 
 
 # ── Message handler (main) ─────────────────────────────────────

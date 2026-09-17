@@ -167,3 +167,42 @@ def _get_start_time() -> float:
         import main
         _start_time = main._START
     return _start_time
+
+
+async def device_control_impl(message: "Message", *, connected_devices,
+                               stream_tts_to_device, get_current_emotion):
+    import asyncio, json
+    text = (message.text or "").removeprefix("/устройство").strip()
+    if not text:
+        await message.answer("Что сделать с устройством? (выкл, перезагрузка, спящий режим)")
+        return
+    from modules.presence_sync import get_active_device
+    dev_id = get_active_device() or "laptop"
+    ws = connected_devices.get(dev_id)
+    if not ws:
+        await message.answer("Устройство оффлайн.")
+        return
+    cmd_map = {
+        "выкл": "system.shutdown",
+        "выключить": "system.shutdown",
+        "перезагрузка": "system.restart",
+        "перезагрузить": "system.restart",
+        "спящий": "system.sleep",
+        "спящий режим": "system.sleep",
+        "спать": "system.sleep",
+    }
+    action = None
+    for key, val in cmd_map.items():
+        if key in text.lower():
+            action = val
+            break
+    if not action:
+        await message.answer("Не поняла команду. Доступно: выкл, перезагрузка, спящий режим.")
+        return
+    await ws.send(json.dumps({"type": "command", "action": action}))
+    await message.answer(f"Команда {action} отправлена на {dev_id}.")
+    await asyncio.sleep(0.3)
+    if action == "system.shutdown":
+        asyncio.create_task(stream_tts_to_device(
+            "Выключаюсь, Мастер. Спокойной ночи.", ws, dev_id,
+            literal=True, emotion=get_current_emotion()))
