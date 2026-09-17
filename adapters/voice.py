@@ -255,12 +255,6 @@ def _get_active_ws():
     return None, None
 
 
-# ── TG-утилиты для голосового пути ────────────────────────────────────
-
-_TG_MSG_LIMIT = 4096
-
-
-
 
 async def speak_now_playing_result(cmd_id: str, ws_dev, device_id: str, bot) -> None:
     """music:now_playing: ждём command_result от агента (до 25с) и озвучиваем."""
@@ -303,7 +297,6 @@ async def speak_now_playing_result(cmd_id: str, ws_dev, device_id: str, bot) -> 
 
 async def _execute_plan(plan: dict, master_key: str, ws_dev, device_id) -> tuple[bool, str]:
     """Исполняет план по шагам. Возвращает (успех, сообщение)."""
-    import time as _pt
     steps = plan.get("steps", [])
     summary = plan.get("summary", "задача")
 
@@ -353,8 +346,6 @@ async def ws_handler(websocket):
         handle_command_result, handle_kettle_ready, handle_notification,
         handle_tg_message, handle_voice_command, update_current_track,
     )
-    from modules.web_search import search_and_fetch, needs_search, search_image, download_bytes
-    from modules.youtube import youtube_command
     device_id = None
     try:
         async for raw in websocket:
