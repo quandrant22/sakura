@@ -1,0 +1,90 @@
+# Журнал миграции тестов v2 → v3
+
+Пути ниже относительно `/opt/sakura`. Статусы относятся к тестам, не к завершению этапа. Итоговый полный прогон и публикация фиксируются отдельно.
+
+- `tests/test_smoke.py::Test1_Imports::test_all_key_modules_import` — мигрирован: действующий WS-адаптер, Router или политика риска planner вместо внутренних API v2.
+- `tests/test_smoke.py::Test1_Imports::test_ws_handlers_imports_resolve_app` — мигрирован: действующий WS-адаптер, Router или политика риска planner вместо внутренних API v2.
+- `tests/test_smoke.py::Test11_WsHandlers::test_open_app_command_routes_to_agent` — мигрирован: действующий WS-адаптер, Router или политика риска planner вместо внутренних API v2.
+- `tests/test_smoke.py::Test11_WsHandlers::test_shutdown_creates_pending_system_not_sent` — мигрирован: действующий WS-адаптер, Router или политика риска planner вместо внутренних API v2.
+- `tests/test_smoke.py::Test11_WsHandlers::test_confirm_yes_sends_command_to_agent` — мигрирован: действующий WS-адаптер, Router или политика риска planner вместо внутренних API v2.
+- `tests/test_smoke.py::Test11_WsHandlers::test_confirm_no_cancels_without_sending` — мигрирован: действующий WS-адаптер, Router или политика риска planner вместо внутренних API v2.
+- `tests/test_smoke.py::Test11_WsHandlers::test_expired_pending_system_does_not_trigger` — мигрирован: действующий WS-адаптер, Router или политика риска planner вместо внутренних API v2.
+- `tests/test_smoke.py::Test11_WsHandlers::test_tg_shutdown_creates_pending_system_not_sent` — мигрирован: действующий WS-адаптер, Router или политика риска planner вместо внутренних API v2.
+- `tests/test_smoke.py::Test11_WsHandlers::test_tg_confirm_yes_sends_command_to_agent` — мигрирован: действующий WS-адаптер, Router или политика риска planner вместо внутренних API v2.
+- `tests/test_smoke.py::Test3_PlanValidation::test_is_irreversible_powershell` — мигрирован: действующий WS-адаптер, Router или политика риска planner вместо внутренних API v2.
+- `tests/test_smoke.py::Test3_PlanValidation::test_is_reversible` — мигрирован: действующий WS-адаптер, Router или политика риска planner вместо внутренних API v2.
+- `tests/test_smoke.py::Test4_RouterThresholds::test_thresholds_in_place` — удалён: константы и зоны confidence v2 больше не используются.
+- `tests/test_smoke.py::Test4_RouterThresholds::test_hardcoded_match_returns_action` — мигрирован: действующий WS-адаптер, Router или политика риска planner вместо внутренних API v2.
+- `tests/test_smoke.py::Test4_RouterThresholds::test_hardcoded_match_stop_word` — мигрирован: действующий WS-адаптер, Router или политика риска planner вместо внутренних API v2.
+- `tests/test_smoke.py::Test4_RouterThresholds::test_hardcoded_match_no_match` — мигрирован: действующий WS-адаптер, Router или политика риска planner вместо внутренних API v2.
+- `tests/test_smoke.py::Test4_RouterThresholds::test_hardcoded_now_playing_stt_distortion` — мигрирован: действующий WS-адаптер, Router или политика риска planner вместо внутренних API v2.
+- `tests/test_smoke.py::Test4_RouterThresholds::test_route_critical_exact` — мигрирован: действующий WS-адаптер, Router или политика риска planner вместо внутренних API v2.
+- `tests/test_smoke.py::Test4b_ConfidenceZones::test_high_confidence_executes` — удалён: константы и зоны confidence v2 больше не используются.
+- `tests/test_smoke.py::Test4b_ConfidenceZones::test_gray_reversible_executes` — удалён: константы и зоны confidence v2 больше не используются.
+- `tests/test_smoke.py::Test4b_ConfidenceZones::test_gray_irreversible_clarifies` — удалён: константы и зоны confidence v2 больше не используются.
+- `tests/test_smoke.py::Test4b_ConfidenceZones::test_low_confidence_rejects` — удалён: константы и зоны confidence v2 больше не используются.
+- `tests/test_smoke.py::Test4b_ConfidenceZones::test_planner_requires_short_text` — удалён: константы и зоны confidence v2 больше не используются.
+- `tests/test_voice_info.py::TestRouterInfoHardcode::test_achievements_yesterday` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestRouterInfoHardcode::test_achievements_month` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestRouterInfoHardcode::test_achievements_all_time_phrases` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestRouterInfoHardcode::test_achievements_week_variants` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestRouterInfoHardcode::test_achievements_today_variants` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestRouterInfoHardcode::test_achievements_unknown_period_downgrades_to_week` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestRouterInfoHardcode::test_achievements_word_boundary_negative` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestRouterInfoHardcode::test_current_game` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestRouterInfoHardcode::test_recent_games` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestRouterInfoHardcode::test_playtime_with_game` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestRouterInfoHardcode::test_smalltalk_still_null` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestVpsVoice::test_router_server_status` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestRouterReminderTaskHardcode::test_reminder_add_catches_word` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestRouterReminderTaskHardcode::test_reminder_list_vs_add` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestRouterReminderTaskHardcode::test_task_add_extracts_text` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestRouterReminderTaskHardcode::test_task_done_extracts_number` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestRouterReminderTaskHardcode::test_task_list` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestMusicDispatch::test_intents_prompt_has_music_commands` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestMusicDispatch::test_router_weather` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestMusicStatsVoice::test_router_music` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestMusicStatsVoice::test_router_music_extra_phrasings` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestMusicAppRouter::test_now_playing` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestMusicAppRouter::test_like_dislike` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestMusicAppRouter::test_next_prev` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestMusicAppRouter::test_shuffle_repeat` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestMusicAppRouter::test_wave` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestMusicAppRouter::test_volume_system_vs_music` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestYamusicApp::test_router_does_not_hijack_creation` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestYamusicApp::test_briefing_in_catalog` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_voice_info.py::TestSteamAchievementsGame::_route` — мигрирован: Router и аргументы VPS вместо hardcoded v2; каталог строится из реестра.
+- `tests/test_fixes.py::TestBlock7_TTSFastStart::test_both_paths_share_stream_tts_to_device` — мигрирован: действующий Router/реестр или модуль реализации вместо удалённых импортов v2; внешние эффекты замоканы.
+- `tests/test_fixes.py::TestBlock4_WordBoundaries::test_router_kettle_word_boundary` — мигрирован: действующий Router/реестр или модуль реализации вместо удалённых импортов v2; внешние эффекты замоканы.
+- `tests/test_fixes.py::TestBlock8_CloseWindow::test_router_close_app_patterns` — мигрирован: сохранено различение окна браузера и вкладки; generic close_window v2 отсутствует в каталоге v3, его ожидания заменены проверкой отсутствия маршрута.
+- `tests/test_memory_forget.py::TestForgetRouting::test_zabud_routes_to_memory_forget` — мигрирован: действующий Router/реестр или модуль реализации вместо удалённых импортов v2; внешние эффекты замоканы.
+- `tests/test_memory_forget.py::TestForgetRouting::test_udali_iz_pamyati_routes` — мигрирован: действующий Router/реестр или модуль реализации вместо удалённых импортов v2; внешние эффекты замоканы.
+- `tests/test_memory_forget.py::TestForgetRouting::test_udali_file_does_not_route_to_forget` — мигрирован: действующий Router/реестр или модуль реализации вместо удалённых импортов v2; внешние эффекты замоканы.
+- `tests/test_memory_forget.py::TestForgetRouting::test_ne_zabud_is_not_forget` — мигрирован: действующий Router/реестр или модуль реализации вместо удалённых импортов v2; внешние эффекты замоканы.
+- `tests/test_memory_forget.py::TestDostizhenieRouting::test_dostizheniya` — мигрирован: действующий Router/реестр или модуль реализации вместо удалённых импортов v2; внешние эффекты замоканы.
+- `tests/test_memory_forget.py::TestDostizhenieRouting::test_kakie_dostizheniya_poluchil` — мигрирован: действующий Router/реестр или модуль реализации вместо удалённых импортов v2; внешние эффекты замоканы.
+- `tests/test_memory_forget.py::TestDostizhenieRouting::test_poslednee_dostizhenie_period` — мигрирован: действующий Router/реестр или модуль реализации вместо удалённых импортов v2; внешние эффекты замоканы.
+- `tests/test_memory_forget.py::TestDostizhenieRouting::test_za_mesjac` — мигрирован: действующий Router/реестр или модуль реализации вместо удалённых импортов v2; внешние эффекты замоканы.
+- `tests/test_memory_forget.py::TestDostizhenieRouting::test_moi_dostizheniya_v_igre` — мигрирован: действующий Router/реестр или модуль реализации вместо удалённых импортов v2; внешние эффекты замоканы.
+- `tests/test_memory_forget.py::TestDostizhenieRouting::test_intents_prompt_has_dostizhenie` — мигрирован: действующий Router/реестр или модуль реализации вместо удалённых импортов v2; внешние эффекты замоканы.
+- `tests/test_memory_forget.py::TestDostizhenieRouting::test_word_boundary` — мигрирован: действующий Router/реестр или модуль реализации вместо удалённых импортов v2; внешние эффекты замоканы.
+- `tests/test_voice_info.py::TestTelegramInfoPath::test_achievements_query_routes_to_voice_info` — мигрирован: действующий Router/реестр или модуль реализации вместо удалённых импортов v2; внешние эффекты замоканы.
+- `tests/test_voice_info.py::TestTelegramInfoPath::test_conversation_reply_not_routed` — мигрирован: действующий Router/реестр или модуль реализации вместо удалённых импортов v2; внешние эффекты замоканы.
+- `tests/test_voice_info.py::TestTelegramInfoPath::test_unknown_phrase_falls_through_to_llm` — мигрирован: действующий Router/реестр или модуль реализации вместо удалённых импортов v2; внешние эффекты замоканы.
+- `tests/test_voice_info.py::TestTelegramInfoPath::test_ok_false_speaks_literal_without_llm` — мигрирован: действующий Router/реестр или модуль реализации вместо удалённых импортов v2; внешние эффекты замоканы.
+- `tests/test_voice_info.py::TestTelegramInfoPath::test_ok_true_styled_but_facts_first` — мигрирован: действующий Router/реестр или модуль реализации вместо удалённых импортов v2; внешние эффекты замоканы.
+- `tests/test_voice_info.py::TestTelegramInfoPath::test_tone_tag_stripped_when_sent_as_telegram_text` — мигрирован: действующий Router/реестр или модуль реализации вместо удалённых импортов v2; внешние эффекты замоканы.
+- `tests/test_voice_info.py::TestTelegramInfoPath::test_no_device_sends_to_telegram` — мигрирован: действующий Router/реестр или модуль реализации вместо удалённых импортов v2; внешние эффекты замоканы.
+- `tests/test_voice_info.py::TestSteamAchievementsGame::test_router_game_variants` — мигрирован: действующий Router/реестр или модуль реализации вместо удалённых импортов v2; внешние эффекты замоканы.
+- `tests/test_voice_info.py::TestSteamAchievementsGame::test_router_period_without_game_stays_periodic` — мигрирован: действующий Router/реестр или модуль реализации вместо удалённых импортов v2; внешние эффекты замоканы.
+
+## Изменения контракта и ограничения
+
+- `TestBlock8_CloseWindow::test_router_close_app_patterns`: произвольное закрытие приложения (`закрой palworld`) больше не объявлено; тест не доказывает сохранение этой функции v2.
+- `TestMusicAppRouter::test_volume_system_vs_music`: системные `volume_up:20`/`volume_down:20` не объявлены; музыкальная громкость требует `playing:music`. Проверены текущие ограничения, а не сохранение системного управления.
+- `TestDostizhenieRouting::test_poslednee_dostizhenie_period`: теперь отдельный `steam.last`, не период общего действия.
+- `TestBlock4_WordBoundaries::test_router_kettle_word_boundary`: проверяется граница самостоятельного триггера `нагрей воду`; наличие слова `чайник` больше не обязательно.
+- Только шесть тестов констант/зон confidence удалены; остальные проверки перенесены. Подтверждения WS/TG, отмена и TTL сохранены.
+- Календарный API остаётся в `modules/calendar_module.py` как общий источник контекста и событий; исполнение действия находится в `capabilities/calendar.py`.
+- Реальные Google Calendar, MiMo, Telegram и Windows не вызывались: интеграции проверены с подменой внешних эффектов.
+- Новые `tests/test_vps_arguments.py` проверяют аргументы на настоящей границе зарегистрированный handler → voice_info, не только в тестовом helper.

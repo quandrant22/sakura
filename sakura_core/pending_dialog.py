@@ -138,26 +138,10 @@ async def _handle_pending(text, text_lower, _mk, ws_dev, device_id, ctx, data) -
             elif _main_action and _main_action in _pc_text:
                 _chose_main = True
             else:
-                try:
-                    from modules.command_router import route_command
-                    _router_ctx = {
-                        "active_window": data.get("active_window", ""),
-                        "current_track": st._current_track,
-                    }
-                    _correction = await route_command(text, context=_router_ctx)
-                    if _correction and _correction.get("action"):
-                        _corr_action = _correction["action"]
-                        if _corr_action in (_main_action, _alt_action):
-                            _chose_main = True
-                            _pc["main"] = _correction
-                        else:
-                            _corr_arg = _correction.get("arg", "")
-                            _corr_full = f"{_corr_action}:{_corr_arg}" if _corr_arg and ":" not in _corr_action else _corr_action
-                            if ws_dev:
-                                _cmd_id = _register_command(_corr_full, device_id or "laptop")
-                                await ws_dev.send(json.dumps({"type": "command", "action": _corr_full, "id": _cmd_id}))
-                except Exception as e:
-                    log.debug(f"[ws] _say: {type(e).__name__}: {e}")
+                # Not an answer to the old clarification: route this new text
+                # through the canonical registry in the caller.
+                del st._pending_clarify[_mk]
+                return False
 
             del st._pending_clarify[_mk]
 

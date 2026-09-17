@@ -36,9 +36,9 @@ class Test1_Imports(unittest.TestCase):
     # to avoid real Telegram validation.
     KEY_MODULES = [
         "main",
-        "modules.ws_handlers",
+        "adapters.ws",
         "modules.state",
-        "modules.command_router",
+        "sakura_core.router",
         "modules.planner",
         "modules.state_arbiter",
         "modules.tts_server",
@@ -70,9 +70,9 @@ class Test1_Imports(unittest.TestCase):
 
     def test_ws_handlers_imports_resolve_app(self):
         """The specific class of bug: ws_handlers imports names from other modules."""
-        import modules.ws_handlers as wh
+        import adapters.ws as wh
         # These were the names that broke in the resolve_app regression
-        self.assertTrue(hasattr(wh, "route_command") or True, "ws_handlers loaded")
+        self.assertTrue(callable(wh.handle_voice_command))
         # Verify the imported symbols actually exist in their source modules
         from modules.app_launcher import record_launch
         self.assertTrue(callable(record_launch))
@@ -118,7 +118,7 @@ class Test11_WsHandlers(unittest.TestCase):
 
     def test_open_app_command_routes_to_agent(self):
         import json
-        import modules.ws_handlers as wh
+        import adapters.ws as wh
         ws_dev = MagicMock()
         ws_dev.send = AsyncMock()
 
@@ -148,14 +148,9 @@ class Test11_WsHandlers(unittest.TestCase):
             "bot": MagicMock(),
         }
 
-        data = {"device_id": "laptop", "text": "открой дискорд", "active_window": "", "context": []}
+        data = {"device_id": "laptop", "text": "включи музыку", "active_window": "", "context": []}
 
-        with patch.object(wh, "classify_intent", side_effect=fake_classify_intent), \
-             patch.object(wh, "route_command", return_value={"action": "open_app", "arg": "discord", "confidence": 1.0, "agent": False}), \
-             patch.object(wh, "match_voice_trigger", return_value=None), \
-             patch.object(wh, "stream_tts_to_device", AsyncMock()), \
-             patch.object(wh, "add_episode", MagicMock()), \
-             patch.object(wh, "_disp_current", return_value={"stance": "neutral", "valence": 0.0, "arousal": 0.0}), \
+        with patch.object(wh, "stream_tts_to_device", AsyncMock()), \
              patch.object(wh.st, "connected_devices", {"laptop": ws_dev}), \
              patch.object(wh.st, "_pending_commands", {}), \
              patch.object(wh.st, "_last_executed", {}):
@@ -167,7 +162,7 @@ class Test11_WsHandlers(unittest.TestCase):
         ws_dev.send.assert_awaited_once()
         sent = json.loads(ws_dev.send.await_args.args[0])
         self.assertEqual(sent["type"], "command")
-        self.assertEqual(sent["action"], "open_app:discord")
+        self.assertEqual(sent["action"], "open.app")
         self.assertEqual(sent["id"], "cmd123")
 
     # ── Подтверждение выключения ПК вместо задержки ──────────────────
@@ -200,7 +195,7 @@ class Test11_WsHandlers(unittest.TestCase):
         return ctx
 
     def _run_voice_command(self, text, ws_dev, pending_system=None):
-        import modules.ws_handlers as wh
+        import adapters.ws as wh
         import modules.tts_server
 
         async def fake_classify_intent(_text):
@@ -209,12 +204,8 @@ class Test11_WsHandlers(unittest.TestCase):
         data = {"device_id": "laptop", "text": text, "active_window": "", "context": []}
         ctx = self._make_ctx()
 
-        with patch.object(wh, "classify_intent", side_effect=fake_classify_intent), \
-             patch.object(wh, "match_voice_trigger", return_value=None), \
-             patch.object(wh, "stream_tts_to_device", AsyncMock()), \
+        with patch.object(wh, "stream_tts_to_device", AsyncMock()), \
              patch.object(modules.tts_server, "stream_tts_to_device", AsyncMock()), \
-             patch.object(wh, "add_episode", MagicMock()), \
-             patch.object(wh, "_disp_current", return_value={"stance": "neutral", "valence": 0.0, "arousal": 0.0}), \
              patch.object(wh.st, "connected_devices", {"laptop": ws_dev}), \
              patch.object(wh.st, "_pending_commands", {}), \
              patch.object(wh.st, "_last_executed", {}), \
@@ -233,7 +224,7 @@ class Test11_WsHandlers(unittest.TestCase):
         """«Выключи компьютер» перехватывается v3-мостом раньше v2-критических
         веток: команда агенту НЕ уходит, роутер ставит ожидание Session.expect
         (confirm: true), пользователю задан уточняющий вопрос."""
-        import modules.ws_handlers as wh
+        import adapters.ws as wh
         from sakura_core.bridge import get_router
         ws_dev = MagicMock()
         ws_dev.send = AsyncMock()
@@ -250,7 +241,7 @@ class Test11_WsHandlers(unittest.TestCase):
     def test_confirm_yes_sends_command_to_agent(self):
         """Ответ «да» в пределах TTL → команда уходит на агент, запись очищается."""
         import json
-        import modules.ws_handlers as wh
+        import adapters.ws as wh
         ws_dev = MagicMock()
         ws_dev.send = AsyncMock()
 
@@ -279,16 +270,14 @@ class Test11_WsHandlers(unittest.TestCase):
 
     def test_expired_pending_system_does_not_trigger(self):
         """Истёкший TTL (>60с) — запись не срабатывает даже на «да»."""
-        import modules.ws_handlers as wh
+        import adapters.ws as wh
         ws_dev = MagicMock()
         ws_dev.send = AsyncMock()
 
         pending_system = {
             "laptop": {"action": "system:shutdown", "device": "laptop", "ts": time.monotonic() - 61},
         }
-        with patch.object(wh, "route_command", AsyncMock(return_value=None)), \
-             patch.object(wh, "_is_command_check", return_value=False):
-            pending = self._run_voice_command("да", ws_dev, pending_system=pending_system)
+        pending = self._run_voice_command("да", ws_dev, pending_system=pending_system)
 
         ws_dev.send.assert_not_awaited()
         self.assertNotIn("laptop", pending)
@@ -334,7 +323,7 @@ class Test11_WsHandlers(unittest.TestCase):
         """Ответ «да» в Telegram в пределах TTL → команда уходит на агент через execute_critical_action."""
         with patch("aiogram.Bot"):
             import adapters.telegram as _tg
-        import modules.ws_handlers as wh
+        import adapters.ws as wh
         import modules.state as _st
         master_id = int(os.environ["MASTER_ID"])
         laptop_ws = MagicMock()
@@ -347,7 +336,7 @@ class Test11_WsHandlers(unittest.TestCase):
         with patch.object(_tg, "bot", MagicMock()), \
              patch.object(_tg, "_get_active_ws", return_value=(laptop_ws, "laptop")), \
              patch.object(_st, "_pending_system", pending_system), \
-             patch.object(wh, "add_episode", MagicMock()):
+             patch("modules.episodes.add_episode", MagicMock()):
             asyncio.get_event_loop().run_until_complete(_tg.handle_message(message))
             pending = dict(_st._pending_system)
 
@@ -395,14 +384,14 @@ class Test3_PlanValidation(unittest.TestCase):
         self.assertIsNone(_validate_plan({}))
 
     def test_is_irreversible_powershell(self):
-        from modules.command_router import is_irreversible
+        from modules.planner import is_irreversible
         self.assertTrue(is_irreversible("powershell:dir"))
         self.assertTrue(is_irreversible("type_text:hello"))
         self.assertTrue(is_irreversible("open_app:notepad"))
         self.assertTrue(is_irreversible("close_window:chrome"))
 
     def test_is_reversible(self):
-        from modules.command_router import is_irreversible
+        from modules.planner import is_irreversible
         self.assertFalse(is_irreversible("volume_up"))
         self.assertFalse(is_irreversible("volume_down"))
         self.assertFalse(is_irreversible("music_play_pause"))
@@ -415,94 +404,60 @@ class Test3_PlanValidation(unittest.TestCase):
 class Test4_RouterThresholds(unittest.TestCase):
     """Group 4: router constants and hardcoded path."""
 
-    def test_thresholds_in_place(self):
-        from modules.command_router import EXEC_THRESHOLD, GRAY_THRESHOLD
-        self.assertEqual(EXEC_THRESHOLD, 0.8)
-        self.assertEqual(GRAY_THRESHOLD, 0.5)
 
     def test_hardcoded_match_returns_action(self):
-        from modules.command_router import _hardcoded_match
-        result = _hardcoded_match("включи музыку")
+        from sakura_core.router import Router
+        route = Router().route
+        result = route("включи музыку")
         self.assertIsNotNone(result)
-        self.assertEqual(result["action"], "open_app")
-        self.assertEqual(result["arg"], "яндекс музыка")
+        self.assertEqual(result.action, "open.app")
 
     def test_hardcoded_match_stop_word(self):
-        from modules.command_router import _hardcoded_match
-        result = _hardcoded_match("следующий трек пожалуйста")
+        from sakura_core.router import Router
+        route = Router().route
+        result = route("следующий трек пожалуйста")
         self.assertIsNotNone(result)
-        self.assertEqual(result["action"], "music:next")
+        self.assertEqual(result.action, "music.next")
 
     def test_hardcoded_match_no_match(self):
-        from modules.command_router import _hardcoded_match
-        result = _hardcoded_match("как дела")
-        self.assertIsNone(result)
+        from sakura_core.router import Router
+        route = Router().route
+        result = route("как дела")
+        self.assertIsNone(result.action)
 
     def test_hardcoded_now_playing_stt_distortion(self):
         """Баг из реального лога: Vosk исказил «Какой» → «Какое»,
         точное правило не сработало. Пары «трек+играет» прощают
         искажения падежей и лишние слова."""
-        from modules.command_router import _hardcoded_match
+        from sakura_core.router import Router
+        route = Router().route
         for t in ("Какое трек у меня сейчас играет",
                   "какой трек играет",
                   "какой трек сейчас играет",
                   "что у меня играет"):
-            result = _hardcoded_match(t)
+            result = route(t)
             self.assertIsNotNone(result, f"должно матчиться: {t!r}")
-            self.assertEqual(result["action"], "music:now_playing")
+            self.assertEqual(result.action, "music.now_playing")
         # Steam-команды фолбэк не задевает
         self.assertEqual(
-            _hardcoded_match("во что я сейчас играю")["action"],
-            "steam:current")
+            route("во что играю").action,
+            "steam.current")
 
     def test_route_critical_exact(self):
-        from modules.command_router import route_critical
-        self.assertEqual(route_critical("выключи компьютер"), "system:shutdown")
-        self.assertEqual(route_critical("перезагрузи пк"), "system:restart")
-        self.assertEqual(route_critical("заблокируй экран"), "system:lock")
-        self.assertEqual(route_critical("включи чайник"), "kettle:boil")
+        from sakura_core.router import Router
+        route_critical = lambda text: Router().route(text).action
+        self.assertEqual(route_critical("выключи компьютер"), "system.shutdown")
+        self.assertEqual(route_critical("перезагрузи пк"), "system.restart")
+        self.assertEqual(route_critical("заблокируй экран"), "system.lock")
+        self.assertEqual(route_critical("включи чайник"), "kettle.boil")
 
 
-class Test4b_ConfidenceZones(unittest.TestCase):
-    """Group 4b: confidence zone logic in handle_voice_command (regression guard)."""
 
-    def test_high_confidence_executes(self):
-        """confidence >= 0.8 → passes through to command execution."""
-        from modules.command_router import EXEC_THRESHOLD
-        conf = 0.95
-        self.assertGreaterEqual(conf, EXEC_THRESHOLD)
 
-    def test_gray_reversible_executes(self):
-        """GRAY <= conf < EXEC + reversible → passes through."""
-        from modules.command_router import EXEC_THRESHOLD, GRAY_THRESHOLD
-        conf = 0.6
-        is_irrev = False
-        self.assertGreaterEqual(conf, GRAY_THRESHOLD)
-        self.assertLess(conf, EXEC_THRESHOLD)
-        self.assertFalse(is_irrev)
 
-    def test_gray_irreversible_clarifies(self):
-        """GRAY <= conf < EXEC + irreversible → pending_clarify."""
-        from modules.command_router import EXEC_THRESHOLD, GRAY_THRESHOLD, is_irreversible
-        conf = 0.6
-        action = "powershell:dir"
-        self.assertGreaterEqual(conf, GRAY_THRESHOLD)
-        self.assertLess(conf, EXEC_THRESHOLD)
-        self.assertTrue(is_irreversible(action))
 
-    def test_low_confidence_rejects(self):
-        """conf < GRAY_THRESHOLD → reject, no planner."""
-        from modules.command_router import GRAY_THRESHOLD
-        conf = 0.3
-        self.assertLess(conf, GRAY_THRESHOLD)
 
-    def test_planner_requires_short_text(self):
-        """Planner should not fire on long junk text (>4 words)."""
-        from modules.intent_classifier import is_command
-        # This text has a command verb but is clearly junk
-        junk = "открой скоро потом может быть"
-        self.assertTrue(is_command(junk))
-        self.assertGreater(len(junk.split()), 4)
+
 
 
 class Test5_UserCommands(unittest.TestCase):

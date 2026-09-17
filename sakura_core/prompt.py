@@ -457,9 +457,9 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
 
     # Кодинг — доступ к MiMo
     try:
-        from modules.coding import is_available as coding_available
+        from capabilities.coding import is_available as coding_available
         if coding_available():
-            parts.append("КОДИНГ: У тебя есть доступ к MiMo Code. Ты можешь создавать и править файлы на сервере. Используй modules/coding.py и modules/prompt_builder.py.")
+            parts.append("КОДИНГ: У тебя есть доступ к MiMo Code. Ты можешь создавать и править файлы на сервере. Используй capabilities/coding.py и modules/prompt_builder.py.")
     except Exception as e:
         log.debug(f"[prompt] _build_system: {type(e).__name__}: {e}")
 

@@ -279,40 +279,31 @@ def test_ask_vs_true_skip():
 
 # ─ достижимость: какие id реестра реально исполняются ────────────────────
 
-# Домены, НАМЕРЕННО не подключённые в bridge._load_capabilities().
-# Причина: их канонические id уходят агенту, а агент их не исполняет —
-# agent._legacy_action не маппит coding./files./calendar., и в
-# hands.execute_command нет таких verb. Кодинг реализован НА СЕРВЕРЕ
-# (modules/coding.py, ветка modules/ws_handlers.py:311-355): подключив
-# домен, мост перехватил бы рабочий путь реестром и сломал его.
-# Развязка (перенос кодинга в реестр) — отдельная задача.
-KNOWN_UNREACHABLE = {
-    "calendar.list",
-    "coding.build",
-    "coding.commit",
-    "coding.create_module",
-    "coding.fix",
-    "coding.git_status",
-    "coding.read_file",
-    "files.open",
-}
+# Список «намеренно без хендлера» живёт в бою, а не только в pytest:
+# sakura_core/registry.py:KNOWN_UNREACHABLE, и его же проверяет load()
+# (require_handlers=True) на старте бота. Тест читает тот же объект, чтобы
+# список не разошёлся между тестами и стартом.
+from sakura_core.registry import KNOWN_UNREACHABLE, unreachable  # noqa: E402
 
 
 def test_unreachable_ids_are_exactly_the_known_ones():
-    """Каждый id реестра либо исполняется, либо явно перечислен ниже.
+    """Каждый id реестра либо исполняется, либо явно перечислен в KNOWN_UNREACHABLE.
 
     Находка этапа 6: 13 id были недостижимы молча — capabilities.
     calendar/coding/files/kettle не импортировались в _load_capabilities(),
-    мост возвращал (False, None) и управление уходило в старый путь.
-    kettle подключён: его провод (kettle:boil, kettle:heat:60) совпадает с
-    тем, что слал старый route_critical → execute_critical_action.
-    Остальные 8 остаются перечисленными явно — молчаливое изменение
-    достижимости (в любую сторону) упадёт этим тестом.
+    мост возвращал (False, None), и управление уходило в старый путь.
+    Этап 7 развязал последние восемь (kettle подключили раньше): coding.*
+    переехал на executor=vps с серверной реализацией, calendar.list — так же,
+    files.open свёлся к существующему verb'у агента open_file. Поэтому
+    KNOWN_UNREACHABLE пуст, а новый id без хендлера упадёт и этим тестом,
+    и стартом (registry.load).
 
     Проверка идёт в отдельном интерпретаторе: в общем процессе pytest
     таблицы доменов регистрируют и сами тесты (test_music_domain.py
-    импортирует capabilities.coding/files/calendar), из-за чего
-    достижимость в процессе завышена и ничего не доказывает.
+    импортирует capabilities.*), из-за чего достижимость в процессе завышена
+    и ничего не доказывает.
+
+    Отдельно сверяется, что количество хендлеров совпало с декларациями.
     """
     import json
     import os
@@ -322,21 +313,31 @@ def test_unreachable_ids_are_exactly_the_known_ones():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     code = (
         "import json, sakura_core.bridge;"
-        "from sakura_core.executor import get_handler;"
+        "from sakura_core.executor import get_handler, registered;"
         "from sakura_core.registry import load;"
-        "print(json.dumps(sorted(d.id for d in load()"
-        " if get_handler(d.id) is None)))"
+        "decls = load();"
+        "print(json.dumps({"
+        "'decls': len(decls),"
+        "'handlers': len(registered()),"
+        "'missing': sorted(d.id for d in decls if get_handler(d.id) is None),"
+        "}))"
     )
     proc = subprocess.run(
         [sys.executable, "-c", code], cwd=root,
         env={**os.environ, "PYTHONPATH": root},
         capture_output=True, text=True, timeout=120)
     assert proc.returncode == 0, proc.stderr[-2000:]
-    missing = set(json.loads(proc.stdout.strip().splitlines()[-1]))
-    assert missing == KNOWN_UNREACHABLE, (
+    data = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert data["handlers"] == data["decls"], (
+        f"таблицы доменов загружены не полностью: хендлеров "
+        f"{data['handlers']} из {data['decls']} деклараций — проверка "
+        f"достижимости вхолостую"
+    )
+    missing = set(data["missing"])
+    assert missing == set(KNOWN_UNREACHABLE), (
         f"достижимость реестра изменилась.\n"
-        f"  стало недостижимо: {sorted(missing - KNOWN_UNREACHABLE)}\n"
-        f"  стало достижимо:   {sorted(KNOWN_UNREACHABLE - missing)}"
+        f"  стало недостижимо: {sorted(missing - set(KNOWN_UNREACHABLE))}\n"
+        f"  стало достижимо:   {sorted(set(KNOWN_UNREACHABLE) - missing)}"
     )
 
 
@@ -396,3 +397,72 @@ def test_kettle_heat_bakes_temp_into_action():
 
     cmd = KETTLE_COMMANDS["kettle.heat"](ExecutionContext(param="60"))
     assert cmd.action == "kettle:heat:60"
+# ─ развязка этапа 7: восемь id получили исполнение ─────────────────────────
+
+
+def test_coding_and_calendar_are_executor_vps(registry):
+    """coding.* и calendar.list серверные: MiMo и Google Calendar живут на VPS."""
+    by_id = {d.id: d for d in registry}
+    for aid in ("coding.create_module", "coding.fix", "coding.read_file",
+                "coding.commit", "coding.build", "coding.git_status",
+                "calendar.list"):
+        assert by_id[aid].executor == "vps", aid
+    # файлы — наоборот, только у устройства: индекс файлов и запуск в агенте
+    assert by_id["files.open"].executor == "agent"
+
+
+def test_load_refuses_declaration_without_handler():
+    """Декларация без хендлера — отказ на старте, а не «не исполнено» в бою.
+
+    Дыра этапа 6 жила именно так: id попадал в каталог LLM (классификатор
+    мог вернуть coding.fix), а исполнять его было нечем — мост молча
+    возвращал (False, None) и управление уходило в старый путь. Проверка
+    живёт в load(), поэтому падает старт бота, а не отчёт после разбора.
+    """
+    import sakura_core.bridge  # noqa: F401  (таблицы доменов загружены)
+
+    gap = _decl(id="test.gap_without_handler", triggers=["тестовая фраза"])
+    with pytest.raises(RegistryError) as err:
+        validate([gap], require_handlers=True)
+    assert "test.gap_without_handler" in str(err.value)
+    assert "KNOWN_UNREACHABLE" in str(err.value)
+    # без require_handlers синтетические декларации не проверяются
+    validate([gap])
+    assert unreachable([gap]) == {"test.gap_without_handler"}
+
+
+def test_known_unreachable_is_the_escape_hatch(monkeypatch):
+    """Явно перечисленный id не роняет старт: исключение должно быть видимым."""
+    import sakura_core.bridge  # noqa: F401
+    import sakura_core.registry as reg
+
+    monkeypatch.setattr(reg, "KNOWN_UNREACHABLE", frozenset({"test.allowed_gap"}))
+    validate([_decl(id="test.allowed_gap", triggers=["тестовая фраза"])],
+             require_handlers=True)  # не бросает
+
+
+def test_calendar_trigger_backs_the_new_phrase(index):
+    """«покажи ближайшие события» — естественная фраза, ведёт в calendar.list."""
+    result = index.match("покажи ближайшие события")
+    assert result is not None
+    assert result[1].id == "calendar.list"
+
+
+def test_coding_and_files_phrases_route_to_their_ids(index):
+    """Фразы развязанных доменов доходят до своих id, а не в старый путь."""
+    cases = {
+        "найди файл отчёт": ("files.open", "отчёт"),
+        "открой файл README.md": ("files.open", "README.md"),
+        "создай модуль погоды": ("coding.create_module", "погоды"),
+        "исправь баг в чайнике": ("coding.fix", "в чайнике"),
+        "прочитай файл main.py": ("coding.read_file", "main.py"),
+        "закоммить правки": ("coding.commit", "правки"),
+        "собери апк": ("coding.build", None),
+        "git status": ("coding.git_status", None),
+        "покажи ближайшие события": ("calendar.list", None),
+    }
+    for phrase, (aid, param) in cases.items():
+        result = index.match(phrase)
+        assert result is not None, phrase
+        assert result[1].id == aid, (phrase, result[1].id)
+        assert result[2] == param, (phrase, result[2])

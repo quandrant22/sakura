@@ -138,6 +138,11 @@ class Router:
                 pending_kind=kind,
             )
 
+        # «Не забудь …» — просьба помнить, а не удалить память. Не отдаём
+        # её ни триггеру «забудь про», ни классификатору команд удаления.
+        if cleaned.lower().startswith("не забудь "):
+            return Decision(None, "conversation")
+
         # 2. registry — точное совпадение
         exact = self._match_exact(cleaned, ctx)
         if exact is not None:

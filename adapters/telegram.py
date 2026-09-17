@@ -44,7 +44,6 @@ from sakura_core.llm import (
 )
 from sakura_core.prompt import _get_reply_context
 from sakura_core.memory_tasks import clean_slate
-from modules.command_router import route_command
 from modules.app_mapping import resolve_app, find_vip_by_name
 from modules.proactive import update_master_status
 from modules.rituals import mark_master_interaction
@@ -165,7 +164,7 @@ async def handle_message(message: Message):
     from modules.capsules import (is_capsule_request, parse_open_date,
         create_capsule, make_create_prompt)
     from modules.audio_control import handle_audio_command
-    from modules.ws_handlers import execute_critical_action, answer_voice_info
+    from sakura_core.executor import execute_critical_action
     from adapters.group_chat import (handle_group_message, handle_guest_private,
         handle_reply_to_notification, handle_device_command)
 
@@ -300,24 +299,6 @@ async def handle_message(message: Message):
             return
     except Exception as _v3_err:
         log.debug(f"[v3] быстрый путь: {type(_v3_err).__name__}: {_v3_err}")
-
-    _tg_short = text_lower.strip().rstrip("!.?,")
-    if (not message.reply_to_message
-            and _tg_short not in _TG_ROUTER_SKIP
-            and len(_tg_short.split()) > 1):
-        try:
-            _tg_routed = await route_command(text, context=None)
-        except Exception as e:
-            log.debug(f"[tg] info route: {type(e).__name__}: {e}")
-            _tg_routed = None
-        if _tg_routed and is_info_action(_tg_routed.get("action", "")):
-            import modules.state as _st
-            _st._last_command_ts = __import__("time").monotonic()
-            log.info(f"[tg/voice_info] {text[:300]!r} → {_tg_routed}")
-            await answer_voice_info(
-                _tg_routed.get("action", ""), _tg_routed.get("arg", "") or "",
-                text, None, None, ask_gemini, bot)
-            return
 
     reply_ctx = _get_reply_context(message)
 

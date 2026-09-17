@@ -14,6 +14,7 @@ import logging
 
 from sakura_core.executor import ExecutionContext, Executor, get_handler
 from sakura_core.llm import make_llm_classify
+from sakura_core.registry import load as _load_registry
 from sakura_core.router import Router
 
 import conversation as conversation_layer
@@ -23,26 +24,34 @@ log = logging.getLogger("sakura.bridge")
 _router: Router | None = None
 _executor: Executor | None = None
 
-# Этап 5 завершён: хендлер есть у каждого из 67 действий реестра, поэтому
-# решение исполняется по любому каноническому id, известному реестру.
-_DOMAINS_MOVED = True
-
 # Загрузка таблиц actions (этап 5): без этого Executor._HANDLERS пуст и
 # быстрый путь реестра не исполняет ничего (регистрация — на импорте модуля).
+# Список обязан совпадать с доменами реестра: забытый домен — не «домен
+# работает иначе», а восемь мёртвых id, о которых узнаёшь из отчёта
+# (находка этапа 6). Проверку сторожит _load_registry() ниже.
 def _load_capabilities() -> None:
     try:
-        import capabilities.browser  # noqa: F401
-        import capabilities.ext      # noqa: F401
-        import capabilities.kettle   # noqa: F401
-        import capabilities.music    # noqa: F401
-        import capabilities.system   # noqa: F401
+        import capabilities.browser      # noqa: F401
+        import capabilities.calendar     # noqa: F401
+        import capabilities.coding       # noqa: F401
+        import capabilities.ext          # noqa: F401
+        import capabilities.files        # noqa: F401
+        import capabilities.kettle       # noqa: F401
+        import capabilities.music        # noqa: F401
+        import capabilities.system       # noqa: F401
         import capabilities.vps_domains  # noqa: F401
-        import capabilities.youtube  # noqa: F401
+        import capabilities.youtube      # noqa: F401
     except Exception:
         log.exception("[v3] не удалось загрузить таблицы доменов")
 
 
 _load_capabilities()
+
+# Стартовая проверка достижимости (этап 7): load() валидирует реестр с
+# require_handlers=True — декларация без хендлера роняет импорт моста, а не
+# уходит тихо на старый путь в бою. Импорт capabilities.* выше обязан быть
+# до этой строки: пустая таблица также считается отсутствием исполнения.
+_load_registry()
 
 
 def get_router() -> Router:

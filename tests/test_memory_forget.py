@@ -12,34 +12,41 @@ os.environ.setdefault("MASTER_ID", "123456789")
 os.environ.setdefault("TELEGRAM_TOKEN", "test:fake-token")
 
 
+from sakura_core.bridge import _load_capabilities
+from sakura_core.registry import build_llm_catalog, load
+from sakura_core.router import Router
+
+
+def route(phrase):
+    _load_capabilities()
+    return Router().route(phrase)
+
+
+
 class TestForgetRouting(unittest.TestCase):
 
     def test_zabud_routes_to_memory_forget(self):
-        from modules.command_router import _hardcoded_match
-        r = _hardcoded_match("забудь про мой старый ник")
+        r = route("забудь про мой старый ник")
         self.assertIsNotNone(r)
-        self.assertEqual(r["action"], "memory:forget")
-        self.assertIn("ник", r["arg"])
+        self.assertEqual(r.action, "memory.forget")
+        self.assertIn("ник", r.param)
 
     def test_udali_iz_pamyati_routes(self):
-        from modules.command_router import _hardcoded_match
-        r = _hardcoded_match("удали из памяти мою оценку за фильм")
+        r = route("удали из памяти мою оценку за фильм")
         self.assertIsNotNone(r)
-        self.assertEqual(r["action"], "memory:forget")
+        self.assertEqual(r.action, "memory.forget")
 
     def test_udali_file_does_not_route_to_forget(self):
         """«удали файл» — не про память, не должен уходить в memory:forget."""
-        from modules.command_router import _hardcoded_match
-        r = _hardcoded_match("удали файл отчёт")
+        r = route("удали файл отчёт")
         if r is not None:
-            self.assertNotEqual(r["action"], "memory:forget")
+            self.assertNotEqual(r.action, "memory.forget")
 
     def test_ne_zabud_is_not_forget(self):
         """«не забудь про встречу» — напоминание, не забывание."""
-        from modules.command_router import _hardcoded_match
-        r = _hardcoded_match("не забудь про встречу завтра")
+        r = route("не забудь про встречу завтра")
         if r is not None:
-            self.assertNotEqual(r["action"], "memory:forget")
+            self.assertNotEqual(r.action, "memory.forget")
 
 
 class TestForgetConfirmation(unittest.TestCase):
@@ -104,42 +111,39 @@ class TestDostizhenieRouting(unittest.TestCase):
     """Слово «достижение» работает как «ачивка»."""
 
     def _route(self, phrase):
-        from modules.command_router import _hardcoded_match
-        return _hardcoded_match(phrase)
+        return route(phrase)
 
     def test_dostizheniya(self):
         r = self._route("достижения")
-        self.assertEqual(r["action"], "steam:achievements")
+        self.assertEqual(r.action, "steam.achievements")
 
     def test_kakie_dostizheniya_poluchil(self):
         r = self._route("какие достижения я получил")
-        self.assertEqual(r["action"], "steam:achievements")
+        self.assertEqual(r.action, "steam.achievements")
 
     def test_poslednee_dostizhenie_period(self):
         r = self._route("последнее достижение")
-        self.assertEqual(r["action"], "steam:achievements")
-        self.assertEqual(r["arg"], "последняя")
+        self.assertEqual(r.action, "steam.last")
 
     def test_za_mesjac(self):
         r = self._route("достижения за месяц")
-        self.assertEqual(r["action"], "steam:achievements")
-        self.assertEqual(r["arg"], "месяц")
+        self.assertEqual(r.action, "steam.achievements")
+        from capabilities.vps_arguments import arguments
+        self.assertEqual(arguments(r.action, "достижения за месяц")[1], "месяц")
 
     def test_moi_dostizheniya_v_igre(self):
         r = self._route("мои достижения в игре")
-        self.assertEqual(r["action"], "steam:achievements")
+        self.assertEqual(r.action, "steam.achievements")
 
     def test_intents_prompt_has_dostizhenie(self):
-        from modules.command_router import INTENTS_PROMPT
-        self.assertIn("достижени", INTENTS_PROMPT)
+        self.assertIn("достижени", build_llm_catalog(load()))
 
     def test_word_boundary(self):
         """«поддостижения»-подобные подстроки не матчатся."""
-        from modules.command_router import _hardcoded_match
         r = self._route("недостижения не существует такого слова")
         if r is not None:
             # если вдруг сработало — не через ачивки
-            self.assertNotEqual(r.get("action"), "steam:achievements")
+            self.assertNotEqual(r.action, "steam.achievements")
 
 
 if __name__ == "__main__":

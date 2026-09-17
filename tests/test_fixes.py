@@ -436,7 +436,7 @@ class TestBlock7_TTSFastStart(unittest.TestCase):
         """7.3: оба голосовых пути используют одну функцию озвучки
         (единая обработка [ТОН:], очистки, эмоции)."""
         from modules.tts_server import stream_tts_to_device
-        import modules.ws_handlers as wh
+        import adapters.ws as wh
         self.assertIs(stream_tts_to_device, wh.stream_tts_to_device)
         # stream_llm_to_tts внутри тоже вызывает _make_audio_sender (обёртку над stream_tts_to_device)
         import inspect
@@ -504,10 +504,16 @@ class TestBlock4_WordBoundaries(unittest.TestCase):
         self.assertIsNone(parse_open_date("расскажи про майнкрафт"))
 
     def test_router_kettle_word_boundary(self):
-        from modules.command_router import route_critical
-        self.assertEqual(route_critical("нагрей воду в чайнике до 80 градусов"),
-                         "kettle:heat:80")
-        self.assertIsNone(route_critical("нагрей до 80 градусов в чайничке самовара"))
+        from sakura_core.bridge import _load_capabilities
+        from sakura_core.router import Router
+        _load_capabilities()
+        router = Router()
+        decision = router.route("нагрей воду в чайнике до 80 градусов")
+        self.assertEqual(decision.action, "kettle.heat")
+        self.assertEqual(decision.param, "80")
+        # В v3 «нагрей до» — самостоятельный триггер. Проверяем границу
+        # именно триггера, а не отсутствие слова «чайник» в параметрах.
+        self.assertIsNone(router.route("поднагрей воду до 80 градусов").action)
 
 
 # БЛОК 8 — close_window: транслитерация, нормализация, защита от ложных совпадений
@@ -558,25 +564,16 @@ class TestBlock8_CloseWindow(unittest.TestCase):
         self.assertFalse(q_tokens.issubset(title_tokens))
 
     def test_router_close_app_patterns(self):
-        """8.4: роутер распознаёт «закрой X», «закрой окно X», не перехватывает «закрой вкладку»."""
-        from modules.command_router import _hardcoded_match
-
-        # Should match close_window
-        result = _hardcoded_match("закрой palworld")
-        self.assertEqual(result["action"], "close_window")
-        self.assertEqual(result["arg"], "palworld")
-
-        result = _hardcoded_match("закрой окно palworld")
-        self.assertEqual(result["action"], "close_window")
-        self.assertEqual(result["arg"], "palworld")
-
-        # Should NOT intercept "закрой вкладку" (browser:tab_close)
-        result = _hardcoded_match("закрой вкладку")
-        self.assertEqual(result["action"], "browser:tab_close")
-
-        # "закрой браузер" → close_window:браузер
-        result = _hardcoded_match("закрой браузер")
-        self.assertEqual(result["action"], "close_window:браузер")
+        """Browser-window and tab closing retain distinct canonical actions."""
+        from sakura_core.bridge import _load_capabilities
+        from sakura_core.router import Router
+        _load_capabilities()
+        router = Router()
+        self.assertEqual(router.route("закрой вкладку").action, "browser.tab_close")
+        self.assertEqual(router.route("закрой браузер").action, "close_window.браузер")
+        # Generic application closing was a v2-only matcher, not a declared action.
+        self.assertIsNone(router.route("закрой palworld").action)
+        self.assertIsNone(router.route("закрой окно palworld").action)
 
     def test_close_window_logic_with_mock(self):
         """8.5: close_window закрывает только одно окно из нескольких совпадений."""

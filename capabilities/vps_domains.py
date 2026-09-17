@@ -41,7 +41,9 @@ def _make_vps_handler(aid: str) -> Handler:
         # Исходная фраза Мастера нужна voice_info: reminder/task парсят текст
         # («напомни через N минут X»), а не фиксированный arg из реестра.
         text = ((_ctx.extra or {}).get("text") or "").strip()
-        return await vps_answer(aid, "", text)
+        from capabilities.vps_arguments import arguments
+        action, arg = arguments(aid, text, _ctx.param or "")
+        return await vps_answer(action, arg, text)
 
     _handle.__name__ = f"vps_{aid.replace('.', '_')}"
     return _handle

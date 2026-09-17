@@ -28,6 +28,14 @@ EXECUTORS = ("vps", "agent")
 CONTEXTS = ("playing:music", "window:youtube", "window:browser")
 REQUIRED_FIELDS = ("id", "desc", "executor", "reversible", "confirm", "triggers")
 
+# Действия, у которых намеренно нет исполнения. С этапа 7 список пуст:
+# развязаны последние восемь id (coding.*, files.open, calendar.list), у
+# каждого id реестра есть хендлер, и validate(require_handlers=True) это
+# проверяет. Список оставлен как явный escape hatch: осознанное исключение
+# должно быть видимым, а не молчаливым (находка этапа 6 — 13 id не
+# исполнялись, мост возвращал (False, None), и никто этого не видел).
+KNOWN_UNREACHABLE: frozenset[str] = frozenset()
+
 
 class RegistryError(Exception):
     """Нарушение контракта реестра. Падать на старте, а не в бою."""
@@ -161,12 +169,34 @@ def declaration_from_dict(raw: dict) -> Declaration:
     )
 
 
-def validate(declarations: Iterable[Declaration]) -> None:
+def unreachable(declarations: Iterable[Declaration]) -> set[str]:
+    """id деклараций, для которых нет зарегистрированного хендлера.
+
+    Импорт executor локальный: sakura_core/executor.py импортирует реестр,
+    обратный импорт на уровне модуля дал бы цикл.
+
+    Пустая таблица также означает отсутствие исполнения: стартовая проверка
+    должна отклонять незагруженные домены, а не пропускать их молча.
+    """
+    from sakura_core.executor import get_handler
+
+    return {d.id for d in declarations if get_handler(d.id) is None}
+
+
+def validate(declarations: Iterable[Declaration], *,
+             require_handlers: bool = False) -> None:
     """Валидация реестра. Бросает RegistryError, если контракт нарушен.
 
     Смысл реестра в том, что двадцатое действие нельзя добавить, тихо
     сломав девятнадцатое. Это обеспечивает валидация.
+
+    require_handlers=True (ставит load(), то есть старт бота) добавляет
+    проверку достижимости: декларация без хендлера — ошибка на старте, а не
+    молчаливое «не исполнено» в бою. Проверка не для произвольных списков
+    деклараций (синтетические Declaration в тестах хендлеров не имеют),
+    поэтому по умолчанию выключена.
     """
+    declarations = list(declarations)
     seen_ids: set[str] = set()
     by_trigger: dict[str, list[Declaration]] = {}
 
@@ -210,15 +240,31 @@ def validate(declarations: Iterable[Declaration]) -> None:
                 f"без context и без param: {names} — неразрешимая неоднозначность"
             )
 
+    if require_handlers:
+        gaps = unreachable(declarations) - KNOWN_UNREACHABLE
+        if gaps:
+            raise RegistryError(
+                "декларация без хендлера (исполнять нечем): "
+                f"{', '.join(sorted(gaps))} — подключи таблицу домена в "
+                "bridge._load_capabilities() либо внеси id в KNOWN_UNREACHABLE"
+            )
+
 
 def load(path: Path = REGISTRY_PATH) -> list[Declaration]:
-    """Читает YAML и отдаёт список деклараций. Падает на старте, а не в бою."""
+    """Читает YAML и отдаёт список деклараций. Падает на старте, а не в бою.
+
+    require_handlers=True: декларация без хендлера — отказ на старте. Это
+    тот же класс дыры, что нашёлся на этапе 6 (13 id, включая coding.*,
+    files.open, calendar.list, попадали в каталог LLM, но исполнения не
+    имели — ни в реестре, ни у агента), только теперь она видна сразу,
+    а не в отчёте после разбора.
+    """
     with open(path, encoding="utf-8") as fh:
         raw = yaml.safe_load(fh)
     if not isinstance(raw, list):
         raise RegistryError(f"{path}: ожидался YAML-список деклараций")
     declarations = [declaration_from_dict(item) for item in raw]
-    validate(declarations)
+    validate(declarations, require_handlers=True)
     log.info("[registry] загружено деклараций: %d", len(declarations))
     return declarations
 

@@ -113,7 +113,7 @@
   executor: vps
   reversible: true
   confirm: false
-  triggers: ['какие капсулы', 'капсулы', 'что в капсулах', 'капсулы времени']
+  triggers: ['какие у меня капсулы', 'какие капсулы', 'капсулы', 'что в капсулах', 'капсулы времени']
 
 - id: close_window.браузер
   legacy: [close_window:браузер]
@@ -162,6 +162,10 @@
   reversible: false
   confirm: true
   triggers: ['забудь про', 'забудь что', 'удали из памяти', 'сотри из памяти', 'не помни про']
+  param:
+    name: pattern
+    pattern: '(?:забудь (?:про|что)|(?:удали|сотри) из памяти|не помни про)\s+(.+?)\s*[.!?]*$'
+    required: ask
 
 - id: music.dislike
   legacy: [music:dislike, music_dislike]
@@ -185,7 +189,7 @@
   executor: agent
   reversible: true
   confirm: false
-  triggers: ['добавь в любимые', 'лайк', 'лайк трек', 'лайкни', 'лайкни трек', 'нравится', 'нравится трек', 'понравилось']
+  triggers: ['поставь лайк', 'добавь в любимые', 'лайк', 'лайк трек', 'лайкни', 'лайкни трек', 'нравится', 'нравится трек', 'понравилось']
 
 - id: music.liked_tracks
   legacy: [music_liked_tracks]
@@ -217,7 +221,7 @@
   executor: agent
   reversible: true
   confirm: false
-  triggers: ['какая песня', 'какой трек', 'что за музыка', 'что за трек', 'что играет', 'что сейчас играет', 'что слушаем', 'что у меня играет', 'что у меня сейчас играет']
+  triggers: ['какое трек', 'какая песня', 'какой трек', 'что за музыка', 'что за трек', 'что играет', 'что сейчас играет', 'что слушаем', 'что у меня играет', 'что у меня сейчас играет']
 
 - id: music.play_pause
   legacy: [music_play_pause]
@@ -291,7 +295,7 @@
   executor: agent
   reversible: true
   confirm: false
-  triggers: ['тише', 'сделай тише', 'убавь', 'потише', 'убавь звук']
+  triggers: ['сделай музыку тише', 'тише', 'сделай тише', 'убавь', 'потише', 'убавь звук']
   context: playing:music   # голый триггер неоднозначен — решается контекстом
 
 - id: music.volume_up
@@ -300,7 +304,7 @@
   executor: agent
   reversible: true
   confirm: false
-  triggers: ['громче', 'сделай громче', 'прибавь', 'погромче', 'прибавь звук']
+  triggers: ['сделай музыку громче', 'громче', 'сделай громче', 'прибавь', 'погромче', 'прибавь звук']
   context: playing:music   # голый триггер неоднозначен — решается контекстом
 
 - id: music.wave
@@ -317,7 +321,7 @@
   executor: vps
   reversible: true
   confirm: false
-  triggers: ['что я слушал сегодня', 'что слушал вчера', 'что слушал за неделю', 'статистика прослушиваний']
+  triggers: ['что я слушал вчера', 'что мы слушали', 'что слушали', 'последние треки', 'какие треки', 'история музыки', 'что играло', 'что было в плейлисте', 'что я слушал сегодня', 'что слушал вчера', 'что слушал за неделю', 'статистика прослушиваний']
 
 - id: music_stats.top
   legacy: [music_stats:top]
@@ -325,7 +329,7 @@
   executor: vps
   reversible: true
   confirm: false
-  triggers: ['топ исполнителей', 'кого слушаю чаще', 'мои любимые исполнители', 'топ артистов']
+  triggers: ['кого я слушаю чаще всего', 'топ треков', 'топ исполнителей', 'кого слушаю чаще', 'мои любимые исполнители', 'топ артистов']
 
 - id: open.app
   legacy: [open_app]
@@ -349,7 +353,7 @@
   executor: vps
   reversible: true
   confirm: false
-  triggers: ['какие напоминания', 'мои напоминания', 'список напоминаний', 'что я просил напомнить']
+  triggers: ['какие у меня напоминания', 'какие напоминания', 'мои напоминания', 'список напоминаний', 'что я просил напомнить']
 
 - id: screenshot.describe
   legacy: [screenshot:describe]
@@ -373,7 +377,7 @@
   executor: vps
   reversible: true
   confirm: false
-  triggers: ['какие ачивки', 'ачивки за', 'достижения за', 'что я выбил', 'сколько ачивок']
+  triggers: ['ачивки', 'ачивок', 'достижения', 'достижений', 'какие ачивки', 'ачивки за', 'достижения за', 'что я выбил', 'сколько ачивок']
 
 - id: steam.current
   legacy: [steam:current]
@@ -381,7 +385,7 @@
   executor: vps
   reversible: true
   confirm: false
-  triggers: ['во что играю', 'что сейчас играю', 'какая игра запущена']
+  triggers: ['во что я сейчас играю', 'во что играю', 'что сейчас играю', 'какая игра запущена']
 
 - id: steam.last
   legacy: [steam:last]
@@ -397,7 +401,7 @@
   executor: vps
   reversible: true
   confirm: false
-  triggers: ['сколько наиграл', 'сколько часов в', 'наиграно в', 'сколько времени в игре']
+  triggers: ['сколько я наиграл', 'сколько наиграл', 'сколько часов в', 'наиграно в', 'сколько времени в игре']
 
 - id: steam.progress
   legacy: [steam:progress]
@@ -413,7 +417,7 @@
   executor: vps
   reversible: true
   confirm: false
-  triggers: ['во что играл недавно', 'последние игры', 'недавние игры', 'что запускал']
+  triggers: ['во что я играл недавно', 'во что играл недавно', 'последние игры', 'недавние игры', 'что запускал']
 
 - id: system.restart
   legacy: [system:restart]
@@ -478,7 +482,7 @@
   executor: vps
   reversible: true
   confirm: false
-  triggers: ['какие задачи', 'мои задачи', 'что по задачам', 'список задач']
+  triggers: ['какие у меня задачи', 'какие задачи', 'мои задачи', 'что по задачам', 'список задач']
 
 - id: vps.feeling
   legacy: [vps:feeling]
@@ -486,7 +490,7 @@
   executor: vps
   reversible: true
   confirm: false
-  triggers: ['как самочувствие', 'как себя чувствуешь', 'как ты себя чувствуешь', 'как твоё тело']
+  triggers: ['как твоё самочувствие', 'как самочувствие', 'как себя чувствуешь', 'как ты себя чувствуешь', 'как твоё тело']
 
 - id: vps.status
   legacy: [vps:status]
@@ -494,7 +498,7 @@
   executor: vps
   reversible: true
   confirm: false
-  triggers: ['как сервер', 'статус сервера', 'нагрузка на сервер', 'что с сервером']
+  triggers: ['нагрузка на систему', 'как сервер', 'статус сервера', 'нагрузка на сервер', 'что с сервером']
 
 - id: weather.now
   legacy: [weather:now]
@@ -668,7 +672,7 @@
 - id: coding.create_module
   legacy: [create_module]
   desc: 'Создать новый модуль'
-  executor: agent
+  executor: vps
   reversible: true
   confirm: false
   triggers: ['создай модуль', 'напиши модуль', 'новый модуль', 'сделай модуль']
@@ -680,7 +684,7 @@
 - id: coding.fix
   legacy: [fix_bug]
   desc: 'Найти и исправить баг'
-  executor: agent
+  executor: vps
   reversible: true
   confirm: false
   triggers: ['исправь баг', 'найди баг', 'почини код', 'почини модуль']
@@ -692,7 +696,7 @@
 - id: coding.read_file
   legacy: [read_code_file]
   desc: 'Показать код файла'
-  executor: agent
+  executor: vps
   reversible: true
   confirm: false
   triggers: ['прочитай файл', 'покажи код']
@@ -704,7 +708,7 @@
 - id: coding.commit
   legacy: [git_commit]
   desc: 'Сделать git коммит'
-  executor: agent
+  executor: vps
   reversible: true
   confirm: false
   triggers: ['закоммить', 'сделай коммит']
@@ -716,7 +720,7 @@
 - id: coding.build
   legacy: [android_build]
   desc: 'Собрать проект/APK'
-  executor: agent
+  executor: vps
   reversible: true
   confirm: false
   triggers: ['собери проект', 'собери апк', 'собери сборку']
@@ -724,7 +728,7 @@
 - id: coding.git_status
   legacy: [git_status]
   desc: 'Показать git статус'
-  executor: agent
+  executor: vps
   reversible: true
   confirm: false
   triggers: ['git status']
@@ -732,9 +736,10 @@
 - id: calendar.list
   legacy: [calendar:list]
   desc: 'Показать ближайшие события из Google Calendar'
-  executor: agent
+  executor: vps
   reversible: true
   confirm: false
   triggers: ['.calendar', 'календарь', 'мои события', 'какие встречи',
-             'расписание на сегодня', 'что сегодня по расписанию']
+             'расписание на сегодня', 'что сегодня по расписанию',
+             'покажи ближайшие события']
 

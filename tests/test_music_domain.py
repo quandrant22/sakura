@@ -66,8 +66,10 @@ def test_all_system_actions_registered():
 
 
 def test_all_vps_actions_registered():
+    # 19 доменов VPS этапа 5 + 7 развязанных на этапе 7 (coding.* и
+    # calendar.list): их реализация тоже серверная, поэтому executor=vps.
     want = {d.id for d in load() if d.executor == "vps"}
-    assert len(want) == 19
+    assert len(want) == 26
     assert not (want - set(registered())), f"нет хендлеров: {want - set(registered())}"
 
 

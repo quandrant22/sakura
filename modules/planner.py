@@ -93,7 +93,6 @@ def _validate_plan(plan: dict) -> dict | None:
 
 def _is_plan_risky(plan: dict) -> bool:
     """Определяет опасность плана: powershell, type_text или необратимые примитивы."""
-    from modules.command_router import is_irreversible
     for step in plan.get("steps", []):
         action = step.get("action", "")
         if action in ("powershell", "type_text"):
@@ -150,3 +149,12 @@ async def build_plan(text: str, context: dict, source: str = "voice",
     plan["risky"] = _is_plan_risky(plan)
     log.info(f"[planner] план: {len(plan['steps'])} шагов, risky={plan['risky']}, summary={plan['summary']!r}")
     return plan
+
+
+def is_irreversible(action: str) -> bool:
+    """Необратимые действия — после них сложно вернуть состояние."""
+    irreversible_prefixes = (
+        "open_app", "close_window", "kettle:", "say:",
+        "ext:", "browser:", "music_dislike", "type_text:", "powershell:",
+    )
+    return any(action.startswith(p) for p in irreversible_prefixes)

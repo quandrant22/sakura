@@ -42,6 +42,8 @@ async def main():
     import websockets
     from modules.proactive import mark_sent
 
+    from sakura_core.bridge import get_router
+    get_router()  # Load handlers and validate reachability before starting services.
     validate_secret_on_startup()
     await asyncio.to_thread(ensure_ready)
     asyncio.create_task(ensure_narrative())
