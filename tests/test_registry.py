@@ -275,3 +275,124 @@ def test_ask_vs_true_skip():
     r2 = idx2.match("тест без числа")
     assert r2 is not None
     assert r2[3] is True  # needs_clarify
+
+
+# ─ достижимость: какие id реестра реально исполняются ────────────────────
+
+# Домены, НАМЕРЕННО не подключённые в bridge._load_capabilities().
+# Причина: их канонические id уходят агенту, а агент их не исполняет —
+# agent._legacy_action не маппит coding./files./calendar., и в
+# hands.execute_command нет таких verb. Кодинг реализован НА СЕРВЕРЕ
+# (modules/coding.py, ветка modules/ws_handlers.py:311-355): подключив
+# домен, мост перехватил бы рабочий путь реестром и сломал его.
+# Развязка (перенос кодинга в реестр) — отдельная задача.
+KNOWN_UNREACHABLE = {
+    "calendar.list",
+    "coding.build",
+    "coding.commit",
+    "coding.create_module",
+    "coding.fix",
+    "coding.git_status",
+    "coding.read_file",
+    "files.open",
+}
+
+
+def test_unreachable_ids_are_exactly_the_known_ones():
+    """Каждый id реестра либо исполняется, либо явно перечислен ниже.
+
+    Находка этапа 6: 13 id были недостижимы молча — capabilities.
+    calendar/coding/files/kettle не импортировались в _load_capabilities(),
+    мост возвращал (False, None) и управление уходило в старый путь.
+    kettle подключён: его провод (kettle:boil, kettle:heat:60) совпадает с
+    тем, что слал старый route_critical → execute_critical_action.
+    Остальные 8 остаются перечисленными явно — молчаливое изменение
+    достижимости (в любую сторону) упадёт этим тестом.
+
+    Проверка идёт в отдельном интерпретаторе: в общем процессе pytest
+    таблицы доменов регистрируют и сами тесты (test_music_domain.py
+    импортирует capabilities.coding/files/calendar), из-за чего
+    достижимость в процессе завышена и ничего не доказывает.
+    """
+    import json
+    import os
+    import subprocess
+    import sys
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    code = (
+        "import json, sakura_core.bridge;"
+        "from sakura_core.executor import get_handler;"
+        "from sakura_core.registry import load;"
+        "print(json.dumps(sorted(d.id for d in load()"
+        " if get_handler(d.id) is None)))"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", code], cwd=root,
+        env={**os.environ, "PYTHONPATH": root},
+        capture_output=True, text=True, timeout=120)
+    assert proc.returncode == 0, proc.stderr[-2000:]
+    missing = set(json.loads(proc.stdout.strip().splitlines()[-1]))
+    assert missing == KNOWN_UNREACHABLE, (
+        f"достижимость реестра изменилась.\n"
+        f"  стало недостижимо: {sorted(missing - KNOWN_UNREACHABLE)}\n"
+        f"  стало достижимо:   {sorted(KNOWN_UNREACHABLE - missing)}"
+    )
+
+
+def test_kettle_domain_is_wired():
+    """kettle.* исполняется реестром, а не старым route_critical."""
+    import sakura_core.bridge  # noqa: F401
+    from sakura_core.executor import get_handler
+    for aid in ("kettle.boil", "kettle.off", "kettle.status",
+                "kettle.heat", "kettle.boil_heat"):
+        assert get_handler(aid) is not None, aid
+
+
+def test_execute_decision_forwards_param():
+    """Decision.param доезжает до хендлера, а не теряется в мосту.
+
+    Регрессия (этап 6): execute_decision вызывал execute() без param, из-за
+    чего kettle.heat/boil_heat (param: temp) падали ValueError в хендлере.
+    """
+    import asyncio
+
+    import sakura_core.bridge as bridge
+    from sakura_core.executor import AgentCommand, register_table
+    from sakura_core.router import Decision
+
+    seen = {}
+
+    def _param_echo(ctx):
+        seen["param"] = ctx.param
+        return AgentCommand(f"test.param_echo:{ctx.param}")
+
+    register_table({"test.param_echo": _param_echo})
+
+    class _FakeWS:
+        sent = None
+
+        async def send(self, payload):
+            self.sent = payload
+
+    ws = _FakeWS()
+    decision = Decision("test.param_echo", "registry_exact", param="42")
+    # get_event_loop().run_until_complete — как в остальных тестах: asyncio.run()
+    # закрыл бы общий loop и сломал легаси-хелперы других файлов (3.12).
+    executed, _ = asyncio.get_event_loop().run_until_complete(
+        bridge.execute_decision(
+            decision, device_ws=ws, device_id="laptop",
+            register_command=None, text="тест"))
+
+    assert executed is True
+    assert seen["param"] == "42"
+    assert "test.param_echo:42" in (ws.sent or "")
+
+
+def test_kettle_heat_bakes_temp_into_action():
+    """kettle.heat подставляет param в action на проводе (формат агента)."""
+    from capabilities.kettle import KETTLE_COMMANDS
+    from sakura_core.executor import ExecutionContext
+
+    cmd = KETTLE_COMMANDS["kettle.heat"](ExecutionContext(param="60"))
+    assert cmd.action == "kettle:heat:60"

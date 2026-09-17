@@ -33,6 +33,7 @@ def _load_capabilities() -> None:
     try:
         import capabilities.browser  # noqa: F401
         import capabilities.ext      # noqa: F401
+        import capabilities.kettle   # noqa: F401
         import capabilities.music    # noqa: F401
         import capabilities.system   # noqa: F401
         import capabilities.vps_domains  # noqa: F401
@@ -98,7 +99,8 @@ async def execute_decision(decision, *, device_ws, device_id, register_command,
                                   # «да» из диалога подтверждения — исполнять
                                   # без повторного вопроса (executor).
                                   "confirmed": decision.source == "session"})
-    result = await get_executor().execute(decision.action, ctx)
+    result = await get_executor().execute(decision.action, ctx,
+                                          param=decision.param)
     log.info(f"[v3] исполнено: {decision.action} ({decision.source})")
     return True, result
 
