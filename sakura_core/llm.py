@@ -408,9 +408,10 @@ async def ask_gemini(user_message: str, save_history: bool = True) -> str:
         add_to_history("user", user_message)
         add_to_history("model", reply)
         # Ленивый импорт: extract_and_remember → ask_gemini (цикл через функции)
-        from modules.memories import extract_and_remember
+        from sakura_core.memory_tasks import extract_and_remember
         asyncio.create_task(extract_and_remember(user_message, reply))
-        from memory.memory import should_summarize, summarize_session
+        from memory.memory import should_summarize
+        from sakura_core.memory_tasks import summarize_session
         if should_summarize():
             asyncio.create_task(summarize_session())
         from modules.context import get_full_context

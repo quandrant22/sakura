@@ -41,16 +41,16 @@ class TestBlock1_NoNameErrors(unittest.TestCase):
 
     def test_send_telegram_text_non_master(self):
         with patch("aiogram.Bot"):
-            import main
-            with patch.object(main, "bot", MagicMock()) as bot:
-                _run(main.send_telegram_text(999, "[ТОН: мягко] Привет, гость"))
+            import adapters.telegram as _tg
+            with patch.object(_tg, "bot", MagicMock()) as bot:
+                _run(_tg.send_telegram_text(999, "[ТОН: мягко] Привет, гость"))
                 bot.send_message.assert_called_once_with(999, "Привет, гость")
 
     def test_send_telegram_text_master(self):
         with patch("aiogram.Bot"):
-            import main
-            with patch.object(main, "bot", MagicMock()) as bot:
-                _run(main.send_telegram_text(123456789, "[ТОН: мягко] Привет"))
+            import adapters.telegram as _tg
+            with patch.object(_tg, "bot", MagicMock()) as bot:
+                _run(_tg.send_telegram_text(123456789, "[ТОН: мягко] Привет"))
                 args, kwargs = bot.send_message.call_args
                 self.assertEqual(args, (123456789, "Привет"))
                 self.assertTrue(kwargs["link_preview_options"].is_disabled)

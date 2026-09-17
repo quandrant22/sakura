@@ -312,16 +312,18 @@ class Test11_WsHandlers(unittest.TestCase):
         with patch("aiogram.Bot"):
             import main
         from sakura_core.bridge import get_router
+        import adapters.telegram as _tg
+        import modules.state as _st
         master_id = int(os.environ["MASTER_ID"])
         laptop_ws = MagicMock()
         laptop_ws.send = AsyncMock()
         message = self._make_tg_message("выключи компьютер", master_id)
         get_router().session.cancel()
 
-        with patch.object(main, "bot", MagicMock()), \
-             patch.object(main, "_get_active_ws", return_value=(laptop_ws, "laptop")), \
-             patch.object(main, "_pending_system", {}):
-            asyncio.get_event_loop().run_until_complete(main.handle_message(message))
+        with patch.object(_tg, "bot", MagicMock()), \
+             patch.object(_tg, "_get_active_ws", return_value=(laptop_ws, "laptop")), \
+             patch.object(_st, "_pending_system", {}):
+            asyncio.get_event_loop().run_until_complete(_tg.handle_message(message))
 
         laptop_ws.send.assert_not_awaited()
         v3_pending = get_router().session.pending
@@ -334,6 +336,8 @@ class Test11_WsHandlers(unittest.TestCase):
         with patch("aiogram.Bot"):
             import main
         import modules.ws_handlers as wh
+        import adapters.telegram as _tg
+        import modules.state as _st
         master_id = int(os.environ["MASTER_ID"])
         laptop_ws = MagicMock()
         laptop_ws.send = AsyncMock()
@@ -342,12 +346,12 @@ class Test11_WsHandlers(unittest.TestCase):
         pending_system = {
             "tg": {"action": "system:shutdown", "device": "laptop", "ts": time.monotonic()},
         }
-        with patch.object(main, "bot", MagicMock()), \
-             patch.object(main, "_get_active_ws", return_value=(laptop_ws, "laptop")), \
-             patch.object(main, "_pending_system", pending_system), \
+        with patch.object(_tg, "bot", MagicMock()), \
+             patch.object(_tg, "_get_active_ws", return_value=(laptop_ws, "laptop")), \
+             patch.object(_st, "_pending_system", pending_system), \
              patch.object(wh, "add_episode", MagicMock()):
-            asyncio.get_event_loop().run_until_complete(main.handle_message(message))
-            pending = dict(main._pending_system)
+            asyncio.get_event_loop().run_until_complete(_tg.handle_message(message))
+            pending = dict(_st._pending_system)
 
         laptop_ws.send.assert_awaited_once()
         sent = json.loads(laptop_ws.send.await_args.args[0])
@@ -764,10 +768,10 @@ class Test10_ProactiveBehavior(unittest.TestCase):
 
     def test_tg_sender_strips_tone_tag(self):
         with patch("aiogram.Bot"):
-            import main
-            with patch.object(main, "bot", MagicMock()) as bot:
+            import adapters.telegram as _tg
+            with patch.object(_tg, "bot", MagicMock()) as bot:
                 asyncio.get_event_loop().run_until_complete(
-                    main.send_telegram_text(123456789, "[ТОН: мягко] Привет")
+                    _tg.send_telegram_text(123456789, "[ТОН: мягко] Привет")
                 )
                 args, kwargs = bot.send_message.call_args
                 self.assertEqual(args, (123456789, "Привет"))

@@ -879,6 +879,7 @@ class TestTelegramInfoPath(unittest.TestCase):
         """
         with patch("aiogram.Bot"):
             import main
+            import adapters.telegram as _tg
         import modules.ws_handlers as wh
 
         msg = self._make_msg("какие ачивки я выбил за эту неделю")
@@ -890,14 +891,14 @@ class TestTelegramInfoPath(unittest.TestCase):
         async def fake_answer(text: str):
             answered["text"] = text
 
-        with patch.object(main, "get_role", return_value="master"), \
-             patch.object(main, "update_master_status"), \
-             patch.object(main, "route_command",
+        with patch.object(_tg, "get_role", return_value="master"), \
+             patch.object(_tg, "update_master_status"), \
+             patch.object(_tg, "route_command",
                           new=AsyncMock()) as rc, \
              patch.object(main, "answer_voice_info",
                           new=AsyncMock()) as av, \
              patch.object(main, "bot", bot), \
-             patch.object(main, "ask_gemini",
+             patch.object(_tg, "ask_gemini",
                           new=AsyncMock()) as ag, \
              patch("modules.voice_info.steam_achievements",
                    new=AsyncMock(return_value=("За эту неделю: 2 достижения.", True))):
@@ -936,6 +937,7 @@ class TestTelegramInfoPath(unittest.TestCase):
         """Reply на сообщение (продолжение разговора) не гоняем через роутер."""
         with patch("aiogram.Bot"):
             import main
+            import adapters.telegram as _tg
 
         msg = self._make_msg("какие ачивки?")
         msg.reply_to_message = MagicMock()   # это reply на обсуждение
@@ -944,15 +946,15 @@ class TestTelegramInfoPath(unittest.TestCase):
         bot.send_chat_action = AsyncMock()
         bot.send_message = AsyncMock()
 
-        with patch.object(main, "get_role", return_value="master"), \
-             patch.object(main, "update_master_status"), \
-             patch.object(main, "route_command",
+        with patch.object(_tg, "get_role", return_value="master"), \
+             patch.object(_tg, "update_master_status"), \
+             patch.object(_tg, "route_command",
                           new=AsyncMock(return_value=None)) as rc, \
              patch.object(main, "answer_voice_info", new=AsyncMock()) as av, \
              patch.object(main, "bot", bot), \
-             patch.object(main, "ask_gemini",
+             patch.object(_tg, "ask_gemini",
                           new=AsyncMock(return_value="ответ")), \
-             patch.object(main, "send_as_conversation",
+             patch.object(_tg, "send_as_conversation",
                           new=AsyncMock()):
             _run(main.handle_message(msg))
 
@@ -963,21 +965,22 @@ class TestTelegramInfoPath(unittest.TestCase):
         """Не-инфо реплика НЕ перехватывается: доходит до обычного разговора."""
         with patch("aiogram.Bot"):
             import main
+            import adapters.telegram as _tg
 
         msg = self._make_msg("что ты думаешь про закат?")
         bot = MagicMock()
         bot.send_chat_action = AsyncMock()
         bot.send_message = AsyncMock()
 
-        with patch.object(main, "get_role", return_value="master"), \
-             patch.object(main, "update_master_status"), \
-             patch.object(main, "route_command",
+        with patch.object(_tg, "get_role", return_value="master"), \
+             patch.object(_tg, "update_master_status"), \
+             patch.object(_tg, "route_command",
                           new=AsyncMock(return_value=None)) as rc, \
              patch.object(main, "answer_voice_info", new=AsyncMock()) as av, \
              patch.object(main, "bot", bot), \
-             patch.object(main, "ask_gemini",
+             patch.object(_tg, "ask_gemini",
                           new=AsyncMock(return_value="ответ")), \
-             patch.object(main, "send_as_conversation",
+             patch.object(_tg, "send_as_conversation",
                           new=AsyncMock()) as sc:
             _run(main.handle_message(msg))
 
@@ -1067,18 +1070,19 @@ class TestTelegramLiteralMechanics(unittest.TestCase):
     def _run(self, text):
         with patch("aiogram.Bot"):
             import main
+            import adapters.telegram as _tg
         bot = MagicMock()
         bot.send_chat_action = AsyncMock()
         bot.send_message = AsyncMock()
-        with patch.object(main, "get_role", return_value="master"), \
-             patch.object(main, "update_master_status"), \
+        with patch.object(_tg, "get_role", return_value="master"), \
+             patch.object(_tg, "update_master_status"), \
              patch.object(main, "bot", bot), \
-             patch.object(main, "send_as_conversation",
+             patch.object(_tg, "send_as_conversation",
                           new=AsyncMock()) as sc, \
-             patch.object(main, "route_command",
+             patch.object(_tg, "route_command",
                           new=AsyncMock(return_value=None)), \
              patch.object(main, "answer_voice_info", new=AsyncMock()), \
-             patch.object(main, "ask_gemini",
+             patch.object(_tg, "ask_gemini",
                           new=AsyncMock(return_value="болтовня")) as ag:
             _run(main.handle_message(self._make_msg(text)))
         return sc, ag
@@ -1106,11 +1110,12 @@ class TestTelegramLiteralMechanics(unittest.TestCase):
         from conversation import fortune as conv_fortune
         with patch("aiogram.Bot"):
             import main
-        with patch.object(main, "get_role", return_value="master"), \
-             patch.object(main, "update_master_status"), \
-             patch.object(main, "send_as_conversation",
+            import adapters.telegram as _tg
+        with patch.object(_tg, "get_role", return_value="master"), \
+             patch.object(_tg, "update_master_status"), \
+             patch.object(_tg, "send_as_conversation",
                           new=AsyncMock()) as sc, \
-             patch.object(main, "ask_gemini",
+             patch.object(_tg, "ask_gemini",
                           new=AsyncMock(return_value="болтовня")) as ag, \
              patch.object(conv_fortune, "get_fortune",
                           return_value={"period": "день"}), \
