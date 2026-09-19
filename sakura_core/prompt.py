@@ -2,7 +2,6 @@
 
 Перенесено из main.py без изменения логики:
 - build_identity_core — ядро личности
-- _build_voice_system — облегчённый промпт для голоса
 - _build_system — полный промпт с контекстом
 - _build_guest_system — промпт для гостей
 - _get_reply_context — контекст reply в Telegram
@@ -40,15 +39,7 @@ def build_identity_core(active_window=None, ctx_master=None) -> list[str]:
             parts.append(get_system_prompt())
     except Exception as e:
         log.debug(f"[prompt] build_identity_core: {type(e).__name__}: {e}")
-    # 2. Текущее состояние (эмоция/настроение)
-    try:
-        from modules.state_arbiter import get_state_block
-        sb = get_state_block()
-        if sb:
-            parts.append(sb)
-    except Exception as e:
-        log.debug(f"[prompt] build_identity_core: {type(e).__name__}: {e}")
-    # 3. Самопамять — кто она
+    # 2. Самопамять — кто она
     try:
         from memory.db import get_self_context
         self_ctx = get_self_context()
@@ -56,7 +47,7 @@ def build_identity_core(active_window=None, ctx_master=None) -> list[str]:
             parts.append(self_ctx)
     except Exception as e:
         log.debug(f"[prompt] build_identity_core: {type(e).__name__}: {e}")
-    # 3.1. Текущая игровая сессия — Мастер В ИГРЕ ПРЯМО СЕЙЧАС (голос и текст)
+    # 2.1. Текущая игровая сессия — Мастер В ИГРЕ ПРЯМО СЕЙЧАС (голос и текст)
     try:
         from modules.steam_integration import get_session_context
         session_ctx = get_session_context()
@@ -65,126 +56,6 @@ def build_identity_core(active_window=None, ctx_master=None) -> list[str]:
     except Exception as e:
         log.debug(f"[prompt] build_identity_core: {type(e).__name__}: {e}")
     return parts
-
-
-# ─────────────────────────────────────────────
-#  Голосовой промпт (лёгкий)
-# ─────────────────────────────────────────────
-
-_voice_system_cache: dict = {}
-
-
-def _build_voice_system() -> str:
-    """
-    Облегчённый промпт для голосового режима.
-    Только критически важные компоненты — быстрее генерация.
-    """
-    import time as _t
-    from modules.state_arbiter import get_current_emotion
-    cache_key = f"voice:{get_current_emotion()}"
-    entry = _voice_system_cache.get(cache_key)
-    if entry and _t.monotonic() < entry[1]:
-        return entry[0]
-
-    parts = build_identity_core()
-
-    # Текущая игра если есть
-    try:
-        from modules.steam_integration import format_current_game_context
-        game_ctx = format_current_game_context()
-        if game_ctx:
-            parts.append(game_ctx)
-    except Exception as e:
-        log.debug(f"[prompt] game ctx: {e}")
-
-    # 3.1. Игровой хаб — контекст сессии.
-    # Импорт локально: сбой game_hub не должен ронять сборку промпта.
-    try:
-        from modules.game_hub import build_game_prompt_context
-        hub_ctx = build_game_prompt_context()
-        if hub_ctx:
-            parts.append(hub_ctx)
-    except Exception as e:
-        log.debug(f"[prompt] game hub: {e}")
-
-    # 4. Steam библиотека (компактно)
-    try:
-        from modules.steam_integration import format_library_context
-        lib = format_library_context()
-        if lib:
-            parts.append(lib)
-    except Exception as e:
-        log.debug(f"[prompt] steam lib: {e}")
-
-    # 5. Настроение — локальный импорт: сбой mood_vector не роняет промпт
-    try:
-        from modules.mood_vector import get_mood_context
-        mood = get_mood_context()
-        if mood:
-            parts.append(mood)
-    except Exception as e:
-        log.debug(f"[prompt] mood: {e}")
-
-    # 5.5. Музыкальный вкус
-    try:
-        from modules.music_memory import get_taste_context
-        taste_ctx = get_taste_context()
-        if taste_ctx:
-            parts.append(taste_ctx)
-    except Exception as e:
-        log.debug(f"[prompt] _build_voice_system: {type(e).__name__}: {e}")
-
-    # 5.6. Страхи
-    try:
-        from modules.fears import get_fear_context
-        fear_ctx = get_fear_context()
-        if fear_ctx:
-            parts.append(fear_ctx)
-    except Exception as e:
-        log.debug(f"[prompt] _build_voice_system: {type(e).__name__}: {e}")
-
-    # 6. Память (быстро, без embed)
-    try:
-        from memory.db import get_memory_context as db_get_memory_context
-        mem = db_get_memory_context()
-        if mem:
-            parts.append(mem)
-    except Exception as e:
-        log.debug(f"[prompt] _build_voice_system: {type(e).__name__}: {e}")
-
-    # 6.1. Контекст диалога — последние 5 сообщений
-    try:
-        from memory.memory import get_history
-        hist = get_history()
-        if hist:
-            recent = hist[-5:]
-            dial_lines = []
-            for m in recent:
-                role = "Мастер" if m["role"] == "user" else "Ты"
-                dial_lines.append(f"{role}: {m['parts'][0][:100]}")
-            parts.append("НЕДАВНИЙ ДИАЛОГ:\n" + "\n".join(dial_lines))
-    except Exception as e:
-        log.debug(f"[prompt] _build_voice_system: {type(e).__name__}: {e}")
-
-    # 6.2. Уведомления — есть ли срочные
-    try:
-        from modules.notification_tracker import get_urgent_pending, get_recent_summary
-        urgent = get_urgent_pending()
-        if urgent:
-            parts.append("СРОЧНЫЕ УВЕДОМЛЕНИЯ: " + "; ".join(
-                f"[{n.source}] {n.title}: {n.body[:60]}" for n in urgent[:3]
-            ))
-        summary = get_recent_summary(hours=2)
-        if summary:
-            parts.append(summary)
-    except Exception as e:
-        log.debug(f"[prompt] _build_voice_system: {type(e).__name__}: {e}")
-
-    result = "\n\n".join(p for p in parts if p)
-
-    # Кэш на 60 секунд
-    _voice_system_cache[cache_key] = (result, _t.monotonic() + 60.0)
-    return result
 
 
 # ─────────────────────────────────────────────
@@ -218,6 +89,20 @@ _GAME_KEYS = ("игр", "steam", "стим", "библиотек", "ачивк",
               "прохожден", "патч", "сохранен")
 
 
+def _window_category(window: str | None) -> str:
+    """Категория активного окна вместо сырого заголовка (7.3).
+
+    Заголовок окна меняется при каждом переключении вкладки — кэш
+    промпта с сырым заголовком в ключе почти никогда не попадал.
+    Категория (call/game/code/browser/media/other) стабильна.
+    """
+    try:
+        from modules.window_watcher import _classify_window
+        return _classify_window(window or "", False)
+    except Exception:
+        return "unknown"
+
+
 _build_system_cache: dict = {}
 _build_system_lock = threading.Lock()
 _BUILD_SYSTEM_TTL = 20.0   # секунд
@@ -227,7 +112,6 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
     """Строит системный промпт. Кэшируется для повторных вызовов без query."""
     import time as _t
 
-    from memory.memory import get_history
     from modules.context import get_full_context
     from modules.state import _current_track
     from modules.state_arbiter import get_current_emotion
@@ -236,7 +120,7 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
     _track_sig = f"{(_current_track or {}).get('title', '')}|{(_current_track or {}).get('status', '')}"
     _emotion_sig = get_current_emotion()
     _hour_sig = __import__('datetime').datetime.now().hour
-    _raw_key = f"{include_calendar}:{active_window}:{bool(query)}:{tuple(sorted(_get_online_devices()))}:{_track_sig}:{_emotion_sig}:{_hour_sig}"
+    _raw_key = f"{include_calendar}:{_window_category(active_window)}:{bool(query)}:{tuple(sorted(_get_online_devices()))}:{_track_sig}:{_emotion_sig}:{_hour_sig}"
     cache_key = hashlib.md5(_raw_key.encode("utf-8")).hexdigest()
     if not query:
         with _build_system_lock:
@@ -312,15 +196,6 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
     except Exception as e:
         log.debug(f"[prompt] _build_system: {type(e).__name__}: {e}")
 
-    # Телесные ощущения — связь с телом через метрики
-    try:
-        from modules.vps_monitor import get_body_feeling
-        body_feel = get_body_feeling()
-        if body_feel:
-            parts.append(body_feel)
-    except Exception as e:
-        log.debug(f"[prompt] _build_system: {type(e).__name__}: {e}")
-
     # Незакрытые нити разговора
     try:
         from modules.threads import get_threads_context
@@ -362,15 +237,6 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
         patterns_hint = get_patterns_hint()
         if patterns_hint:
             parts.append(patterns_hint)
-    except Exception as e:
-        log.debug(f"[prompt] _build_system: {type(e).__name__}: {e}")
-
-    # Ощущение времени — как она изменилась
-    try:
-        from modules.reflection import get_time_feeling_hint
-        time_feel = get_time_feeling_hint()
-        if time_feel:
-            parts.append(time_feel)
     except Exception as e:
         log.debug(f"[prompt] _build_system: {type(e).__name__}: {e}")
 

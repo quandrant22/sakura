@@ -5,7 +5,7 @@ tests/test_prompt_blocks.py — состав системного промпта
      но текстовый путь (query="") остаётся ровно таким, как был.
 7.3: ключ кэша включает категорию окна, а не сырой заголовок.
 7.4: блоки настроения (СОСТОЯНИЕ / ОЩУЩЕНИЕ ВРЕМЕНИ / тело) не попадают
-     в промпт.
+     в промпт; мёртвая _build_voice_system удалена.
 
 Run: python3 -m pytest tests/test_prompt_blocks.py -q
 """
@@ -139,6 +139,65 @@ class TestSteamLibraryGate(unittest.TestCase):
         text, lib = self._prompt("во что мне поиграть из библиотеки")
         self.assertIn(SENTINEL, text)
         self.assertEqual(lib.call_count, 1, "библиотеку собираем один раз")
+
+
+class TestWindowCategoryCache(unittest.TestCase):
+    """7.3: ключ кэша — категория окна, а не сырой заголовок.
+
+    Заголовки одной категории («Chrome — Вкладка А» и «Chrome — Вкладка Б»)
+    должны попадать в один кэш: кэш-промпт живёт 20 секунд, и сырой
+    заголовок в ключе делал его бесполезным.
+    """
+
+    def _build_with_window(self, window):
+        from sakura_core import prompt as P
+        with patch("modules.context.build_context_block",
+                   return_value=f"ОКНО:{window}") as ctx:
+            text = P._build_system(active_window=window)
+        return text, ctx
+
+    def test_same_category_shares_cache(self):
+        forget_cache()
+        text_a, ctx_a = self._build_with_window("Chrome — Вкладка А")
+        text_b, _ctx_b = self._build_with_window("Chrome — Вкладка Б")
+        self.assertIn("ОКНО:Chrome — Вкладка А", text_a)
+        self.assertEqual(ctx_a.call_count, 1, "вторая сборка взята из кэша")
+        self.assertIn("ОКНО:Chrome — Вкладка А", text_b)
+
+    def test_other_category_is_cache_miss(self):
+        forget_cache()
+        _, ctx_a = self._build_with_window("Chrome — Вкладка А")
+        text_c, ctx_c = self._build_with_window("файл.py — Visual Studio Code")
+        self.assertEqual(ctx_a.call_count, 1)
+        self.assertEqual(ctx_c.call_count, 1, "другая категория — новый промпт")
+        self.assertIn("ОКНО:файл.py", text_c)
+
+
+class TestMoodBlocksRemoved(unittest.TestCase):
+    """7.4: блоки настроения не попадают в промпт.
+
+    Сентинелы стоят на месте прежних вызовов: если блок вернётся в
+    сборку, тест поймает его в готовом промпте.
+    """
+
+    def _prompt(self, query=""):
+        with patch("modules.state_arbiter.get_state_block",
+                   return_value=SENTINEL), \
+             patch("modules.reflection.get_time_feeling_hint",
+                   return_value=SENTINEL), \
+             patch("modules.vps_monitor.get_body_feeling",
+                   return_value=SENTINEL):
+            return build(query=query)
+
+    def test_mood_blocks_absent(self):
+        for q in ("", "Громче"):
+            with self.subTest(q=q or "<пусто>"):
+                self.assertNotIn(SENTINEL, self._prompt(q))
+
+    def test_voice_system_gone(self):
+        """Мёртвая _build_voice_system удалена (7.4)."""
+        from sakura_core import prompt as P
+        self.assertFalse(hasattr(P, "_build_voice_system"))
 
 
 if __name__ == "__main__":
