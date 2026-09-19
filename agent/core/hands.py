@@ -36,8 +36,8 @@ try:    import pyperclip
 except ImportError: pyperclip = None
 try:    import pyautogui; pyautogui.FAILSAFE = False
 except ImportError: pyautogui = None
-try:    from PIL import ImageGrab
-except ImportError: ImageGrab = None
+try:    from PIL import Image, ImageGrab
+except ImportError: Image = ImageGrab = None
 try:    import sounddevice as sd
 except ImportError: sd = None
 
@@ -638,13 +638,41 @@ def dictate(text: str) -> str:
         return f"диктовка недоступна: {e}"
 
 
+def _fit_for_vision(img):
+    """Ужимает скриншот по длинной стороне до config.SCREENSHOT_MAX_SIDE.
+
+    Кадр читает Gemini Vision, а не человек: промпты просят общее описание
+    (что на экране, игра или нет, чем занят человек), а название активного
+    окна передаётся текстом рядом с картинкой. Поэтому мелкий текст не нужен,
+    а вес кадра нужен: 2К в полном разрешении — до ~2.6 МБ base64 в одном
+    WS-кадре, и пока он не дописан, голосовые команды ждут в очереди.
+
+    Увеличивать не умеем: экран меньше лимита возвращаем как есть.
+    """
+    long_side = max(img.width, img.height)
+    if long_side <= config.SCREENSHOT_MAX_SIDE:
+        return img
+    scale = config.SCREENSHOT_MAX_SIDE / long_side
+    size  = (max(1, round(img.width * scale)), max(1, round(img.height * scale)))
+    # Image.LANCZOS — не Image.Resampling.LANCZOS: pillow в requirements.txt
+    # без версии, а Image.Resampling появился только в 9.1.
+    return img.resize(size, Image.LANCZOS)
+
+
 def take_screenshot() -> str | None:
     if not ImageGrab:
         return None
     try:
+        img = ImageGrab.grab().convert("RGB")
+        view = _fit_for_vision(img)
         buf = io.BytesIO()
-        ImageGrab.grab().convert("RGB").save(buf, format="JPEG", quality=70)
-        return base64.b64encode(buf.getvalue()).decode()
+        view.save(buf, format="JPEG", quality=config.SCREENSHOT_QUALITY)
+        raw = buf.getvalue()
+        log.info(
+            f"screenshot: {img.width}x{img.height} -> {view.width}x{view.height}, "
+            f"JPEG {len(raw) / 1024:.0f} КиБ, base64 {len(raw) * 4 / 3 / 1024:.0f} КиБ"
+        )
+        return base64.b64encode(raw).decode()
     except Exception as e:
         log.error(f"screenshot: {e}")
         return None
