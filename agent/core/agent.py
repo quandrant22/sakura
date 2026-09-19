@@ -15,6 +15,7 @@ import sys as _sys
 
 # Гарантируем что корень Sakura/ в sys.path (нужно для core.* импортов в тредах)
 _root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+_EXTENSION_SERVER = _os.path.join(_root, "core", "extension_server.py")
 if _root not in _sys.path:
     _sys.path.insert(0, _root)
 import logging
@@ -628,9 +629,8 @@ class Agent:
         prime_system_info()
         # Запускаем локальный WS сервер для расширения браузера
         try:
-            import importlib.util as _ilu, os as _o, threading as _th
-            _srv = _o.path.join(_o.path.dirname(_o.path.abspath(__file__)), 'extension_server.py')
-            _spec = _ilu.spec_from_file_location('extension_server', _srv)
+            import importlib.util as _ilu, threading as _th
+            _spec = _ilu.spec_from_file_location('extension_server', _EXTENSION_SERVER)
             _mod  = _ilu.module_from_spec(_spec)
             _spec.loader.exec_module(_mod)
             import sys as _s; _s.modules['core.extension_server'] = _mod

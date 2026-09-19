@@ -66,7 +66,7 @@ class TestHandsAppCache(unittest.TestCase):
     def test_open_app_unknown_returns_failure_without_os_startfile(self):
         hands._app_cache = {}
         with patch.object(hands, "_load_apps_cache", return_value=None), \
-             patch.object(hands, "scan_apps", return_value={}) as scan, \
+             patch.object(hands, "scan_apps", return_value={}), \
              patch.object(hands.file_index, "open", return_value=None), \
              patch.object(hands, "_launch", return_value=False) as launch:
             result = hands.open_app("несуществующая_хрень")

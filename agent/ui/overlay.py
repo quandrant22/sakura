@@ -123,17 +123,6 @@ class SphereCore(QWidget):
         self._timer.timeout.connect(self._tick)
         self._timer.start(50)
 
-    def set_audio_level(self, bars):
-        """Обновляет полосы эквалайзера. bars: список float 0..1 длиной 8."""
-        if isinstance(bars, (int, float)):
-            # Старый формат — одно число, конвертируем в 8 полос
-            level = float(bars)
-            import random
-            bars = [min(1.0, level * random.uniform(0.5, 1.5)) for _ in range(8)]
-        if not isinstance(bars, list) or len(bars) == 0:
-            return
-        self._eq_target = bars[:8] if len(bars) >= 8 else bars + [0.05]*(8-len(bars))
-
     def set_eq_speaking(self, active: bool):
         """Анимация эквалайзера когда Сакура говорит."""
         import random
@@ -229,7 +218,7 @@ class SphereCore(QWidget):
         current = getattr(self, '_eq_bars', [0.05] * 8)
         self._eq_bars = [
             c + (t - c) * 0.5
-            for c, t in zip(current, target)
+            for c, t in zip(current, target, strict=False)
         ]
         # Обновляем индивидуальные уровни колонок
         avg = sum(self._eq_bars) / 8

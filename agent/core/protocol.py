@@ -235,8 +235,6 @@ def parse_message(raw: str) -> Union[Event, Action, None]:
     except Exception:
         return None
 
-    msg_type = data.get("type", "")
-
     # Try event first
     event = parse_event(data)
     if event is not None:
