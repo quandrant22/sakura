@@ -202,8 +202,36 @@ def _vec_to_bytes(vec: list[float]) -> bytes:
     return struct.pack(f"{len(vec)}f", *vec)
 
 
+# ── Кэш эмбеддингов ─────────────────────────────────────────────────
+# Один и тот же текст в рамках одного task_type даёт один и тот же вектор,
+# а сетевой вызов Gemini Embeddings стоит 0.4-1.5 с. Раньше один сбор
+# промпта платил за это дважды (забывание + противоречия в памяти).
+_embed_cache: dict = {}          # (task, text) -> vec
+_embed_cache_lock = threading.Lock()
+_EMBED_CACHE_MAX = 64
+
+
 def _embed(text: str, task: str = "RETRIEVAL_DOCUMENT") -> Optional[list[float]]:
-    """Получает эмбеддинг через Gemini API."""
+    """Получает эмбеддинг через Gemini API. Кэшируется по (task, text)."""
+    key = (task, text)
+    with _embed_cache_lock:
+        cached = _embed_cache.get(key)
+    if cached is not None:
+        return cached
+
+    vec = _embed_remote(text, task)
+    if vec is not None:
+        with _embed_cache_lock:
+            _embed_cache[key] = vec
+            if len(_embed_cache) > _EMBED_CACHE_MAX:
+                # dict помнит порядок вставки — режем самые старые
+                for old in list(_embed_cache)[:len(_embed_cache) - _EMBED_CACHE_MAX]:
+                    del _embed_cache[old]
+    return vec
+
+
+def _embed_remote(text: str, task: str) -> Optional[list[float]]:
+    """Сетевой вызов Gemini Embeddings (без кэша)."""
     try:
         from config import get_active_key, mark_key_used
         from google import genai
