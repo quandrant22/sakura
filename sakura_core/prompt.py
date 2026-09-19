@@ -191,6 +191,33 @@ def _build_voice_system() -> str:
 #  Полный системный промпт
 # ─────────────────────────────────────────────
 
+# ── Релевантность блоков ─────────────────────────────────────────────
+# Часть блоков полезна только в своём разговоре. Раньше они собирались
+# на каждый вызов — даже когда Мастер говорил «Громче». Пустой query
+# считается «данных нет» и не режет ничего: текстовый путь query не
+# передаёт, и он должен остаться ровно таким, как был.
+
+def _mentions(text: str, keys: tuple) -> bool:
+    """Есть ли в запросе хоть одно из ключевых слов (подстрока, регистр не важен)."""
+    t = (text or "").strip().lower()
+    if not t:
+        return True
+    return any(k in t for k in keys)
+
+
+_JP_KEYS = ("японск", "нихонго", "кандзи", "хирагана", "катакана", "jlpt")
+_APP_KEYS = ("открой", "запусти", "включи", "закрой", "приложен", "программ",
+             "калькулятор", "браузер", "ютуб", "youtube", "телеграм", "дискорд",
+             "steam", "стим", "через приложение")
+_CODE_KEYS = ("код", "скрипт", "файл", "баг", "ошибк", "исправь", "почини",
+              "рефактор", "функци", "python", "питон", "терминал", "git",
+              "mimo", "лог", "трейсбек", "traceback", "тест", "напиши")
+_FORTUNE_KEYS = ("предсказ", "погада", "гада", "фортун", "удач", "судьб",
+                 "гороскоп", "cookie", "ждёт", "ждет", "меня жд")
+_GAME_KEYS = ("игр", "steam", "стим", "библиотек", "ачивк", "достижен",
+              "прохожден", "патч", "сохранен")
+
+
 _build_system_cache: dict = {}
 _build_system_lock = threading.Lock()
 _BUILD_SYSTEM_TTL = 20.0   # секунд
@@ -385,14 +412,16 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
     except Exception as e:
         log.debug(f"[prompt] _build_system: {type(e).__name__}: {e}")
 
-    # Steam: текущая игра и библиотека
+    # Steam: текущая игра всегда, библиотека — только если разговор про игры
     try:
         from modules.steam_integration import format_current_game_context, format_library_context
         game_ctx = format_current_game_context()
         if game_ctx:
             parts.append(game_ctx)
-        elif format_library_context():
-            parts.append(format_library_context())
+        elif _mentions(query, _GAME_KEYS):
+            lib_ctx = format_library_context()
+            if lib_ctx:
+                parts.append(lib_ctx)
     except Exception as e:
         log.debug(f"[prompt] _build_system: {type(e).__name__}: {e}")
 
@@ -437,41 +466,45 @@ def _build_system(include_calendar: bool = False, active_window: str | None = No
     except Exception as e:
         log.debug(f"[prompt] _build_system: {type(e).__name__}: {e}")
 
-    # Японский язык
-    try:
-        from modules.learn_japanese import get_context_for_prompt as get_jp_ctx
-        jp_ctx = get_jp_ctx()
-        if jp_ctx:
-            parts.append(jp_ctx)
-    except Exception as e:
-        log.debug(f"[prompt] _build_system: {type(e).__name__}: {e}")
+    # Японский язык — только когда разговор про японский
+    if _mentions(query, _JP_KEYS):
+        try:
+            from modules.learn_japanese import get_context_for_prompt as get_jp_ctx
+            jp_ctx = get_jp_ctx()
+            if jp_ctx:
+                parts.append(jp_ctx)
+        except Exception as e:
+            log.debug(f"[prompt] _build_system: {type(e).__name__}: {e}")
 
-    # Частые приложения
-    try:
-        from modules.app_launcher import get_context_for_prompt as get_app_ctx
-        app_ctx = get_app_ctx()
-        if app_ctx:
-            parts.append(app_ctx)
-    except Exception as e:
-        log.debug(f"[prompt] _build_system: {type(e).__name__}: {e}")
+    # Частые приложения — только когда Мастер просит что-то открыть
+    if _mentions(query, _APP_KEYS):
+        try:
+            from modules.app_launcher import get_context_for_prompt as get_app_ctx
+            app_ctx = get_app_ctx()
+            if app_ctx:
+                parts.append(app_ctx)
+        except Exception as e:
+            log.debug(f"[prompt] _build_system: {type(e).__name__}: {e}")
 
-    # Кодинг — доступ к MiMo
-    try:
-        from capabilities.coding import is_available as coding_available
-        if coding_available():
-            parts.append("КОДИНГ: У тебя есть доступ к MiMo Code. Ты можешь создавать и править файлы на сервере. Используй capabilities/coding.py и modules/prompt_builder.py.")
-    except Exception as e:
-        log.debug(f"[prompt] _build_system: {type(e).__name__}: {e}")
+    # Кодинг — доступ к MiMo. Только когда речь про код и файлы
+    if _mentions(query, _CODE_KEYS):
+        try:
+            from capabilities.coding import is_available as coding_available
+            if coding_available():
+                parts.append("КОДИНГ: У тебя есть доступ к MiMo Code. Ты можешь создавать и править файлы на сервере. Используй capabilities/coding.py и modules/prompt_builder.py.")
+        except Exception as e:
+            log.debug(f"[prompt] _build_system: {type(e).__name__}: {e}")
 
 
-    # fortune_cookie
-    try:
-        from modules.fortune_cookie import get_context_for_prompt as get_fortune_cookie_ctx
-        fortune_cookie_ctx = get_fortune_cookie_ctx()
-        if fortune_cookie_ctx:
-            parts.append(fortune_cookie_ctx)
-    except Exception as e:
-        log.debug(f"[prompt] _build_system: {type(e).__name__}: {e}")
+    # fortune_cookie — только на гадание
+    if _mentions(query, _FORTUNE_KEYS):
+        try:
+            from modules.fortune_cookie import get_context_for_prompt as get_fortune_cookie_ctx
+            fortune_cookie_ctx = get_fortune_cookie_ctx()
+            if fortune_cookie_ctx:
+                parts.append(fortune_cookie_ctx)
+        except Exception as e:
+            log.debug(f"[prompt] _build_system: {type(e).__name__}: {e}")
 
     if include_calendar:
         try:
