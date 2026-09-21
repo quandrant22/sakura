@@ -230,6 +230,12 @@ def _embed(text: str, task: str = "RETRIEVAL_DOCUMENT") -> Optional[list[float]]
     return vec
 
 
+def embedding_cached(text: str, task: str = "RETRIEVAL_QUERY") -> bool:
+    """Был ли embed этого текста уже посчитан (без сети)."""
+    with _embed_cache_lock:
+        return (task, text) in _embed_cache
+
+
 def _embed_remote(text: str, task: str) -> Optional[list[float]]:
     """Сетевой вызов Gemini Embeddings (без кэша)."""
     try:

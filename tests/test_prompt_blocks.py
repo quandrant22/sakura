@@ -26,6 +26,19 @@ def forget_cache():
         P._build_system_cache.clear()
 
 
+def _run_coro(coro):
+    """Прогоняет корутину, не трогая текущий event loop процесса.
+
+    asyncio.run() в конце сбрасывает текущий loop, после чего тесты,
+    которые пользуются asyncio.get_event_loop(), падают с RuntimeError.
+    """
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
 def build(query: str = "", fresh: bool = True, **kwargs) -> str:
     """Собирает промпт и в синхронной, и в async-форме."""
     from sakura_core import prompt as P
@@ -33,7 +46,7 @@ def build(query: str = "", fresh: bool = True, **kwargs) -> str:
         forget_cache()
     out = P._build_system(query=query, **kwargs)
     if inspect.isawaitable(out):
-        out = asyncio.run(out)
+        out = _run_coro(out)
     return out
 
 
@@ -153,8 +166,10 @@ class TestWindowCategoryCache(unittest.TestCase):
         from sakura_core import prompt as P
         with patch("modules.context.build_context_block",
                    return_value=f"ОКНО:{window}") as ctx:
-            text = P._build_system(active_window=window)
-        return text, ctx
+            out = P._build_system(active_window=window)
+            if inspect.isawaitable(out):
+                out = _run_coro(out)
+        return out, ctx
 
     def test_same_category_shares_cache(self):
         forget_cache()

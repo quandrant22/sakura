@@ -72,7 +72,7 @@ class TestBlock1_GameContext(unittest.TestCase):
              patch("sakura_core.llm.generate", gen_mock), \
              patch("sakura_core.llm.maybe_fetch_web", new=AsyncMock(return_value=None)), \
              patch("sakura_core.llm.maybe_read_url", new=AsyncMock(return_value=None)), \
-             patch("sakura_core.llm._build_system", return_value="SYS"):
+             patch("sakura_core.llm._build_system", new=AsyncMock(return_value="SYS")):
             reply = _run(ask_gemini("как дела в Palworld?", save_history=False))
 
         self.assertTrue(reply)
@@ -95,7 +95,7 @@ class TestBlock1_GameContext(unittest.TestCase):
              patch("sakura_core.llm.generate", gen_mock), \
              patch("sakura_core.llm.maybe_fetch_web", new=AsyncMock(return_value=None)), \
              patch("sakura_core.llm.maybe_read_url", new=AsyncMock(return_value=None)), \
-             patch("sakura_core.llm._build_system", return_value="SYS"):
+             patch("sakura_core.llm._build_system", new=AsyncMock(return_value="SYS")):
             _run(ask_gemini("как дела в Palworld?", save_history=False))
 
         args, kwargs = gen_mock.call_args
