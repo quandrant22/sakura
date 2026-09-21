@@ -38,18 +38,22 @@ CONFLICT_COS    = 0.85
 CONFLICT_DELTA  = 30   # дней — факты созданы с разницей > N дней (обновление)
 
 
-def _get_low_confidence_facts(query: str, limit: int = 3) -> list[dict]:
+def _get_low_confidence_facts(vec: Optional[list[float]], limit: int = 3) -> list[dict]:
     """
     Находит факты которые Сакура могла «подзабыть»:
     давно не запрашивались и имеют мало hits.
     Только если они семантически близки к текущему запросу.
+
+    Вектор запроса приходит готовым: эмбеддинг считается один раз
+    в get_honesty_context() и переиспользуется обеими проверками.
     """
+    if not vec:
+        return []
     try:
-        from memory.db import _conn, _embed, _vec_to_bytes
+        from memory.db import _conn, _vec_to_bytes
         conn = _conn()
 
         # Ищем семантически близкие факты с низким confidence
-        vec = _embed(query, "RETRIEVAL_QUERY")
         if vec:
             try:
                 rows = conn.execute("""
@@ -91,18 +95,18 @@ def _get_low_confidence_facts(query: str, limit: int = 3) -> list[dict]:
         return []
 
 
-def _detect_contradictions(query: str) -> list[dict]:
+def _detect_contradictions(vec: Optional[list[float]]) -> list[dict]:
     """
     Ищет пары фактов по одной теме, созданные в разное время
     (обновление информации = потенциальное противоречие).
-    """
-    try:
-        from memory.db import _conn, _embed, _vec_to_bytes
-        conn = _conn()
 
-        vec = _embed(query, "RETRIEVAL_QUERY")
-        if not vec:
-            return []
+    Вектор запроса приходит готовым — см. _get_low_confidence_facts().
+    """
+    if not vec:
+        return []
+    try:
+        from memory.db import _conn, _vec_to_bytes
+        conn = _conn()
 
         try:
             rows = conn.execute("""
@@ -152,6 +156,36 @@ def _detect_contradictions(query: str) -> list[dict]:
         return []
 
 
+# ── Нужен ли вообще семантический поиск ──────────────────────────────
+# «Честность памяти» полезна только для вопросов о том, что Сакура
+# помнит или могла забыть. Для команд («Следующий трек», «Громче») она
+# не даёт ничего, но стоила двух сетевых вызовов на каждый сбор промпта.
+# Список намеренно широкий: лучше лишний раз поискать, чем потерять
+# честное «помню смутно».
+
+_RECALL_MARKERS = (
+    "помн", "вспомн", "напомн", "запомн", "забыл", "не забуд",
+    "обо мне", "про меня", "об себе", "мой ", "моя ", "мои ",
+    "моей ", "моих ", "моё ", "мое ", "моему ",
+    "мы говорили", "мы обсуждали", "говорили о", "обсуждали",
+    "что было", "когда мы", "раньше", "в прошлый раз", "давно",
+    "расскаж", "знаешь", "как меня зовут", "день рождения",
+    "что я люблю", "что я говорил", "история",
+)
+
+
+def is_recall_query(query: str) -> bool:
+    """Похож ли запрос на вопрос о памяти.
+
+    Позитивный список: если запрос не про прошлое и не про самого
+    Мастера — честности памяти в ответе взяться неоткуда.
+    """
+    q = (query or "").strip().lower()
+    if not q:
+        return False
+    return any(m in q for m in _RECALL_MARKERS)
+
+
 def get_honesty_context(query: str = "") -> str:
     """
     Возвращает блок для системного промпта — инструкции честности.
@@ -161,15 +195,26 @@ def get_honesty_context(query: str = "") -> str:
       1. Подзабытые факты → Сакура должна признать неуверенность
       2. Противоречия → Сакура должна назвать оба варианта
 
-    Не вызываем каждый раз — только если query непустой.
+    Зовём только для запросов о памяти: семантический поиск требует
+    эмбеддинга (сеть, 0.4-1.5 с), и платить за него на «Громче» нечем.
     """
     if not query or len(query) < 5:
+        return ""
+    if not is_recall_query(query):
+        log.debug(f"[honesty] не вопрос о памяти, пропускаю: {query[:40]!r}")
+        return ""
+
+    # Один эмбеддинг на обе проверки. Раньше их было два подряд —
+    # с одним и тем же текстом и одним и тем же task_type.
+    from memory.db import _embed
+    vec = _embed(query, "RETRIEVAL_QUERY")
+    if not vec:
         return ""
 
     lines = []
 
     # №6: Подзабытые факты
-    forgotten = _get_low_confidence_facts(query)
+    forgotten = _get_low_confidence_facts(vec)
     if forgotten:
         texts = [f["text"][:60] for f in forgotten]
         lines.append(
@@ -179,7 +224,7 @@ def get_honesty_context(query: str = "") -> str:
         )
 
     # №54: Противоречия
-    conflicts = _detect_contradictions(query)
+    conflicts = _detect_contradictions(vec)
     if conflicts:
         for c in conflicts:
             lines.append(

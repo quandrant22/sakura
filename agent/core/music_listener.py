@@ -88,7 +88,7 @@ def _smooth_bars(new_bars: list[float], attack=0.8, release=0.15) -> list[float]
     """Сглаживание: быстрый рост, медленный спад."""
     global _smoothed
     result = []
-    for i, (new, old) in enumerate(zip(new_bars, _smoothed)):
+    for new, old in zip(new_bars, _smoothed, strict=False):
         if new > old:
             s = old + (new - old) * attack
         else:

@@ -15,6 +15,7 @@ import sys as _sys
 
 # Гарантируем что корень Sakura/ в sys.path (нужно для core.* импортов в тредах)
 _root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+_EXTENSION_SERVER = _os.path.join(_root, "core", "extension_server.py")
 if _root not in _sys.path:
     _sys.path.insert(0, _root)
 import logging
@@ -31,6 +32,7 @@ from core.hearing import Hearing
 from core.voice import Player
 from core.local_mood import LocalMood
 from core.dep_check import check_critical_packages
+from core.outbox import Outbox, log_send_result
 
 log = logging.getLogger("sakura.agent")
 
@@ -174,6 +176,7 @@ class Agent:
         self.hearing = Hearing(self)
         self._ws     = None
         self._loop   = None
+        self._outbox = Outbox()
         self.last_voice_prosody = None
         self._last_window    = ""
         self._window_since   = time.monotonic()
@@ -203,10 +206,21 @@ class Agent:
         })
 
     def send_threadsafe(self, obj: dict):
-        if self._ws and self._loop:
-            asyncio.run_coroutine_threadsafe(
-                self._ws.send(json.dumps(obj)), self._loop
-            )
+        if not self._outbox.put(obj):
+            return
+        kind = obj.get("type", "unknown")
+        ws, loop = self._ws, self._loop
+        if ws is None or loop is None or not loop.is_running():
+            log.warning("[outbox] deferred type=%s: disconnected", kind)
+            return
+        coro = self._outbox.flush(ws)
+        try:
+            future = asyncio.run_coroutine_threadsafe(coro, loop)
+        except RuntimeError:
+            coro.close()
+            log.exception("[outbox] scheduling failed type=%s; queued", kind)
+            return
+        future.add_done_callback(lambda done: log_send_result(done, kind))
 
     def _payload(self, kind: str) -> dict:
         # Расширенная системная информация (температуры, диск)
@@ -611,11 +625,12 @@ class Agent:
 
     async def run(self):
         self._loop = asyncio.get_running_loop()
+        from core.presence import prime_system_info
+        prime_system_info()
         # Запускаем локальный WS сервер для расширения браузера
         try:
-            import importlib.util as _ilu, os as _o, threading as _th
-            _srv = _o.path.join(_o.path.dirname(_o.path.abspath(__file__)), 'extension_server.py')
-            _spec = _ilu.spec_from_file_location('extension_server', _srv)
+            import importlib.util as _ilu, threading as _th
+            _spec = _ilu.spec_from_file_location('extension_server', _EXTENSION_SERVER)
             _mod  = _ilu.module_from_spec(_spec)
             _spec.loader.exec_module(_mod)
             import sys as _s; _s.modules['core.extension_server'] = _mod
@@ -665,8 +680,9 @@ class Agent:
                     proxy=None,
                     max_size=None,
                 ) as ws:
-                    self._ws = ws
                     await ws.send(json.dumps(self._payload("register")))
+                    self._ws = ws
+                    await self._outbox.flush(ws)
                     apps = await asyncio.to_thread(scan_apps)
                     if apps:
                         await ws.send(json.dumps({

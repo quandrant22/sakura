@@ -23,7 +23,7 @@ async def send(client, data: bytes, label: str = ""):
 async def main():
     print(f"Подключаюсь к {MAC}...")
     async with BleakClient(MAC, timeout=15) as client:
-        print(f"Подключён\n")
+        print("Подключён\n")
 
         # Подписываемся на notify
         await client.start_notify(CHAR_RX, notify_handler)

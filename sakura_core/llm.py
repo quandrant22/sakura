@@ -332,7 +332,7 @@ async def ask_gemini(user_message: str, save_history: bool = True) -> str:
     _t_mono = __import__("time").monotonic
     _t0 = _t_mono()
 
-    full_system = _build_system(query="")
+    full_system = await _build_system(query="")
     _t_build = _t_mono() - _t0
 
     try:
@@ -462,7 +462,7 @@ async def _handle_gemini_error(e: Exception, user_message: str, save_history: bo
         key = get_active_key()
         if key:
             try:
-                full_system = _build_system(query="")
+                full_system = await _build_system(query="")
                 contents    = _build_contents(user_message)
                 r2          = await generate(contents, system=full_system, model=FALLBACK_MODEL)
                 reply       = clean_reply(r2)
@@ -505,7 +505,7 @@ async def ask_gemini_voice(
         return ("Все ключи исчерпаны.", "neutral")
 
     _t_build = __import__("time").monotonic()
-    full_system = _build_system(query=user_message)
+    full_system = await _build_system(query=user_message)
     len_hint = _LEN_HINT.get(length, "")
     if len_hint:
         full_system = f"{full_system}\n\n{len_hint}"
