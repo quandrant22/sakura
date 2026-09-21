@@ -321,11 +321,11 @@ async def handle_command_result(websocket, data, ctx) -> None:
                 log.debug(f"[ws] late now_playing: {type(e).__name__}: {e}")
             return
         ws_m   = st.connected_devices.get(dev_m)
-        _silent_actions = {"music_next", "music_prev", "music_play_pause",
-                           "music_like", "music_dislike", "music_shuffle",
-                           "music_repeat", "music_mute",
-                           "music_volume_up", "music_volume_down"}
-        if music.get("action") in _silent_actions:
+        # «Будет ли ответ от модели» — из реестра, а не из захардкоженного
+        # списка: followup == llm → command_result зовёт модель и озвучивает
+        # сам; followup == ack → молча (ответ уже дан — «Готово» в мосте).
+        from sakura_core.registry import followup_for as _followup_for
+        if _followup_for(music.get("action", "")) == "ack":
             if music.get("action") == "music_like" and st._current_track:
                 try:
                     like_artist(st._current_track.get("artist", ""), "лайк от Мастера")

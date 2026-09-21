@@ -199,3 +199,99 @@ def test_voice_stream_empty_falls_back_to_generate(monkeypatch):
     assert emotion == "радостная"
     assert started and started[0][0] == "Готово, Мастер." and started[0][1] == "Всё сделано."
 
+
+class _FakeDecision:
+    def __init__(self, action, reply=None, source="test"):
+        self.action = action
+        self.reply = reply
+        self.source = source
+
+
+def _run(coro):
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
+def _patch_exec(monkeypatch, result):
+    import sakura_core.bridge as br
+
+    async def _fake_execute(decision, **kwargs):
+        return True, result
+    monkeypatch.setattr(br, "execute_decision", _fake_execute)
+
+
+def _patch_router(monkeypatch, decision):
+    import sakura_core.bridge as br
+
+    class _R:
+        def route(self, text, context):
+            return decision
+    monkeypatch.setattr(br, "get_router", lambda: _R())
+
+
+class TestFastPathFollowup:
+    """«Готово» звучит только если после него не последует ответ модели.
+
+    Регрессия 12751a8: голос говорил «Готово», потом ещё и ответ модели.
+    Правило: followup == ack → «Готово»; followup == llm → молча
+    (ответ придёт через command_result).
+    """
+
+    def test_voice_ack_speaks_gotovo(self, monkeypatch):
+        import sakura_core.bridge as br
+        _patch_router(monkeypatch, _FakeDecision("music.next"))
+        _patch_exec(monkeypatch, None)
+        spoken, acked = [], []
+        _run(br.v3_fast_path(
+            "следующий трек", data={}, device_ws=None, device_id="laptop",
+            register_command=None,
+            ack=lambda t: acked.append(t) or asyncio.sleep(0),
+            speak=lambda t: spoken.append(t) or asyncio.sleep(0)))
+        assert acked == ["Готово."], "агентная ack-команда в Telegram — «Готово»"
+        assert spoken == [], "голос по ack молчит: озвучит command_result"
+
+    def test_voice_llm_is_silent(self, monkeypatch):
+        import sakura_core.bridge as br
+        _patch_router(monkeypatch, _FakeDecision("music.now_playing"))
+        _patch_exec(monkeypatch, None)
+        spoken, acked = [], []
+        done = _run(br.v3_fast_path(
+            "что играет", data={}, device_ws=None, device_id="laptop",
+            register_command=None,
+            ack=lambda t: acked.append(t) or asyncio.sleep(0),
+            speak=lambda t: spoken.append(t) or asyncio.sleep(0)))
+        assert done is True
+        assert spoken == [], "llm-действие: голос молчит, ждёт command_result"
+        assert acked == [], "llm-действие: «Готово» не звучит"
+
+    def test_telegram_gotovo_always(self, monkeypatch):
+        import sakura_core.bridge as br
+        for action in ("music.next", "music.now_playing", "open.app"):
+            _patch_router(monkeypatch, _FakeDecision(action))
+            _patch_exec(monkeypatch, None)
+            acked = []
+            got = {}
+
+            async def _ack(t, _box=got):
+                _box.setdefault("texts", []).append(t)
+            done = _run(br.v3_fast_path(
+                "текст", data={}, device_ws=None, device_id="laptop",
+                register_command=None, ack=_ack))
+            assert done is True
+            assert got["texts"] == ["Готово."], f"Telegram: «Готово» всегда ({action})"
+
+    def test_vps_text_reply_unchanged(self, monkeypatch):
+        import sakura_core.bridge as br
+        _patch_router(monkeypatch, _FakeDecision("weather.now"))
+        _patch_exec(monkeypatch, ("Солнечно.", True))
+        spoken, acked = [], []
+        _run(br.v3_fast_path(
+            "погода", data={}, device_ws=None, device_id="laptop",
+            register_command=None,
+            ack=lambda t: acked.append(t) or asyncio.sleep(0),
+            speak=lambda t: spoken.append(t) or asyncio.sleep(0)))
+        assert acked == ["Солнечно."], "VPS-текст — первым ответчику"
+

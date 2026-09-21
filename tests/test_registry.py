@@ -25,6 +25,7 @@ BASE = {
     "reversible": True,
     "confirm": False,
     "triggers": ["тестовая фраза"],
+    "followup": "ack",
 }
 
 
@@ -88,6 +89,33 @@ def test_unknown_executor_raises():
 def test_unknown_context_raises():
     with pytest.raises(RegistryError):
         validate([_decl(context="window:steam")])
+
+
+def test_missing_followup_raises():
+    raw = dict(BASE)
+    del raw["followup"]
+    with pytest.raises(RegistryError):
+        declaration_from_dict(raw)
+
+
+def test_unknown_followup_raises():
+    with pytest.raises(RegistryError):
+        validate([_decl(followup="shout")])
+
+
+def test_followup_index_maps_wire_names():
+    from sakura_core.registry import followup_for
+    decls = [_decl(id="music.next", legacy=["music:next", "music_next"],
+                   triggers=["t1"], followup="ack"),
+             _decl(id="music.now_playing",
+                   legacy=["music:now_playing", "music_info"],
+                   triggers=["t2"], followup="llm")]
+    assert followup_for("music.next", decls) == "ack"
+    assert followup_for("music_next", decls) == "ack"
+    assert followup_for("music:now_playing", decls) == "llm"
+    assert followup_for("music_info", decls) == "llm"
+    assert followup_for("unknown_action_xyz", decls) == "ack"
+    assert followup_for("", decls) == "ack"
 
 
 # --- матчинг: границы слов, самый длинный триггер, context -----------------

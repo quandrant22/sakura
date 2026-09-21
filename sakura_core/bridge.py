@@ -125,8 +125,9 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
     разговорного слоя (LLM-подтверждения, отправки, steam): его даёт
     вызывающий хендлер со своими зависимостями; без него доставляется
     только готовый Reply.text. VPS-действие с текстовым результатом отвечает
-    найденным текстом; агентные команды — коротким «Готово.». Ни один из
-    ответчиков не обязателен: голосовой путь отвечает через command_result.
+    найденным текстом; по агентным командам «Готово.» — только в ack
+    (Telegram): голос молчит, его ответ придёт через command_result.
+    Ни один из ответчиков не обязателен.
     """
     from modules.state import _current_track
 
@@ -154,19 +155,27 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
     if not executed:
         return False
 
-    # VPS-хендлеры возвращают (текст, ok) — отвечаем текстом, а не «Готово.»
+    # «Готово» звучит только тогда, когда после него НЕ последует ответ
+    # от модели: followup == ack (реестр). При llm ответ придёт через
+    # command_result, и «Готово» перед ним — регрессия (два ответа).
+    # ack (Telegram) без speak «Готово» нужен всегда: результата
+    # с компьютера пользователь не видит.
+    from sakura_core.registry import followup_for
     reply: str | None = None
     if isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], str):
         reply = result[0]
-    for deliver in (ack, speak):
-        if deliver is None:
-            continue
-        try:
-            if reply:
+    if reply:
+        for deliver in (ack, speak):
+            if deliver is None:
+                continue
+            try:
                 await deliver(reply)
-            else:
-                await deliver("Готово.")
-            break
+                break
+            except Exception as e:
+                log.debug(f"[v3] ответ не доставлен: {type(e).__name__}: {e}")
+    elif ack is not None and (speak is None or followup_for(decision.action) == "ack"):
+        try:
+            await ack("Готово.")
         except Exception as e:
             log.debug(f"[v3] ответ не доставлен: {type(e).__name__}: {e}")
     return True

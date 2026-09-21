@@ -23,6 +23,7 @@
   executor: vps
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['брифинг', 'что нового', 'сделай брифинг', 'какие новости', 'что произошло', 'дай сводку']
 
 - id: browser.back
@@ -31,6 +32,7 @@
   executor: agent
   reversible: false
   confirm: false
+  followup: ack
   triggers: ['назад в браузере', 'вернись назад', 'шаг назад', 'предыдущая страница']
   context: window:browser   # голый триггер неоднозначен — решается контекстом
 
@@ -40,6 +42,7 @@
   executor: agent
   reversible: false
   confirm: false
+  followup: ack
   triggers: ['вперёд в браузере', 'шаг вперёд', 'следующая страница']
   context: window:browser   # голый триггер неоднозначен — решается контекстом
 
@@ -49,6 +52,7 @@
   executor: agent
   reversible: false
   confirm: false
+  followup: ack
   triggers: ['листай вниз', 'прокрути вниз']
 
 - id: browser.scroll_up
@@ -57,6 +61,7 @@
   executor: agent
   reversible: false
   confirm: false
+  followup: ack
   triggers: ['листай вверх', 'прокрути вверх']
 
 - id: browser.tab_close
@@ -65,6 +70,7 @@
   executor: agent
   reversible: false
   confirm: true
+  followup: ack
   triggers: ['закрой вкладку', 'закрой таб', 'закрыть вкладку']
 
 - id: browser.tab_dup
@@ -73,6 +79,7 @@
   executor: agent
   reversible: false
   confirm: false
+  followup: ack
   triggers: ['дублировать вкладку']
 
 - id: browser.tab_new
@@ -81,6 +88,7 @@
   executor: agent
   reversible: false
   confirm: false
+  followup: ack
   triggers: ['новая вкладка', 'открой вкладку']
 
 - id: browser.tab_next
@@ -89,6 +97,7 @@
   executor: agent
   reversible: false
   confirm: false
+  followup: ack
   triggers: ['следующая вкладка', 'следующий таб']
 
 - id: browser.tab_prev
@@ -97,6 +106,7 @@
   executor: agent
   reversible: false
   confirm: false
+  followup: ack
   triggers: ['предыдущая вкладка', 'предыдущий таб']
 
 - id: browser.tab_reload
@@ -105,6 +115,7 @@
   executor: agent
   reversible: false
   confirm: false
+  followup: ack
   triggers: ['обнови', 'обнови страницу', 'обновить страницу', 'перезагрузи страницу']
 
 - id: capsule.list
@@ -113,6 +124,7 @@
   executor: vps
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['какие у меня капсулы', 'какие капсулы', 'капсулы', 'что в капсулах', 'капсулы времени']
 
 - id: close_window.браузер
@@ -121,6 +133,7 @@
   executor: agent
   reversible: false
   confirm: true
+  followup: ack
   triggers: ['гугл хром', 'закрой chrome', 'закрой opera', 'закрой браузер', 'закрой оперу']
 
 - id: ext.page_content
@@ -129,6 +142,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: llm
   triggers: ['что на странице', 'прочитай страницу', 'о чём страница', 'перескажи страницу', 'что тут написано']
 
 - id: ext.page_content_youtube
@@ -137,6 +151,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: llm
   triggers: ['что за видео', 'о чём видео', 'что на ютубе', 'перескажи видео']
 
 - id: game_mode.off
@@ -145,6 +160,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['выключи игровой режим', 'отключи игровой режим', 'игровой режим выключить', 'выйди из игрового режима']
 
 - id: game_mode.on
@@ -153,6 +169,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['игровой режим', 'включи игровой режим', 'я играю', 'режим игры']
 
 - id: memory.forget
@@ -161,6 +178,7 @@
   executor: vps
   reversible: false
   confirm: true
+  followup: ack
   triggers: ['забудь про', 'забудь что', 'удали из памяти', 'сотри из памяти', 'не помни про']
   param:
     name: pattern
@@ -173,6 +191,7 @@
   executor: agent
   reversible: false
   confirm: false
+  followup: ack
   triggers: ['дизлайк', 'дизлайк трек', 'дизлайкни', 'дизлайкни трек', 'не нравится', 'не нравится трек']
 
 - id: music.history
@@ -181,6 +200,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: llm
   triggers: ['история прослушиваний', 'что я слушал', 'история треков', 'недавние треки']
 
 - id: music.like
@@ -189,6 +209,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['поставь лайк', 'добавь в любимые', 'лайк', 'лайк трек', 'лайкни', 'лайкни трек', 'нравится', 'нравится трек', 'понравилось']
 
 - id: music.liked_tracks
@@ -197,6 +218,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: llm
   triggers: ['мои лайки', 'любимые треки', 'что я лайкал', 'понравившиеся треки']
 
 - id: music.mute
@@ -205,6 +227,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['выключи звук', 'заглуши звук', 'тишина']
 
 - id: music.next
@@ -213,6 +236,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['дальше', 'скип', 'след трек', 'следующий', 'следующий трек', 'следующую']
 
 - id: music.now_playing
@@ -221,6 +245,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: llm
   triggers: ['какое трек', 'какая песня', 'какой трек', 'что за музыка', 'что за трек', 'что играет', 'что сейчас играет', 'что слушаем', 'что у меня играет', 'что у меня сейчас играет']
 
 - id: music.play_pause
@@ -229,6 +254,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['играй', 'на паузу', 'останови', 'пауза', 'продолжай', 'продолжи', 'стоп']
 
 - id: music.playlists
@@ -237,6 +263,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: llm
   triggers: ['мои плейлисты', 'какие плейлисты', 'список плейлистов', 'покажи плейлисты']
 
 - id: music.podcasts
@@ -245,6 +272,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: llm
   triggers: ['подкасты', 'включи подкасты', 'открой подкасты']
 
 - id: music.prev
@@ -253,6 +281,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['назад трек', 'предыдущий', 'предыдущий трек', 'прошлый трек']
 
 - id: music.repeat
@@ -261,6 +290,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['repeat', 'зацикли', 'зациклить', 'на репит', 'повтор', 'повтори трек', 'повторяй', 'поставь на повтор', 'репит']
 
 - id: music.seek_back
@@ -269,6 +299,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['назад музыка', 'перемотай назад']
   context: playing:music   # 'перемотай вперёд/назад' спорит с youtube — решается контекстом
 
@@ -278,6 +309,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['вперед музыка', 'перемотай вперёд']
   context: playing:music   # 'перемотай вперёд/назад' спорит с youtube — решается контекстом
 
@@ -287,6 +319,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['перемешай', 'перемешать', 'рандом', 'случайн']
 
 - id: music.volume_down
@@ -295,6 +328,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['сделай музыку тише', 'тише', 'сделай тише', 'убавь', 'потише', 'убавь звук']
   context: playing:music   # голый триггер неоднозначен — решается контекстом
 
@@ -304,6 +338,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['сделай музыку громче', 'громче', 'сделай громче', 'прибавь', 'погромче', 'прибавь звук']
   context: playing:music   # голый триггер неоднозначен — решается контекстом
 
@@ -313,6 +348,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: llm
   triggers: ['включи волну', 'включи мою волну', 'волну включи', 'мою волну', 'моя волна']
 
 - id: music_stats.recent
@@ -321,6 +357,7 @@
   executor: vps
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['что я слушал вчера', 'что мы слушали', 'что слушали', 'последние треки', 'какие треки', 'история музыки', 'что играло', 'что было в плейлисте', 'что я слушал сегодня', 'что слушал вчера', 'что слушал за неделю', 'статистика прослушиваний']
 
 - id: music_stats.top
@@ -329,6 +366,7 @@
   executor: vps
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['кого я слушаю чаще всего', 'топ треков', 'топ исполнителей', 'кого слушаю чаще', 'мои любимые исполнители', 'топ артистов']
 
 - id: open.app
@@ -337,6 +375,7 @@
   executor: agent
   reversible: false
   confirm: false
+  followup: ack
   triggers: ['включи музыку', 'включи яндекс', 'включить музыку', 'врубай музыку', 'запусти музыку', 'запусти яндекс', 'музон', 'музон включи', 'музыку включи', 'открой яндекс музыку', 'поставь музыку', 'хочу музыку']
 
 - id: reminder.add
@@ -345,6 +384,7 @@
   executor: vps
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['напомни через', 'напомни мне', 'поставь таймер', 'таймер на', 'будильник на']
 
 - id: reminder.list
@@ -353,6 +393,7 @@
   executor: vps
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['какие у меня напоминания', 'какие напоминания', 'мои напоминания', 'список напоминаний', 'что я просил напомнить']
 
 - id: screenshot.describe
@@ -361,6 +402,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: llm
   triggers: ['опиши экран', 'посмотри на экран', 'что на экране', 'что открыто', 'что происходит на экране', 'что ты видишь', 'что у меня на экране', 'что у меня открыто']
 
 - id: screenshot.run
@@ -369,6 +411,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: llm
   triggers: ['сделай скриншот', 'скрин', 'скриншот', 'снимок экрана']
 
 - id: steam.achievements
@@ -377,6 +420,7 @@
   executor: vps
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['ачивки', 'ачивок', 'достижения', 'достижений', 'какие ачивки', 'ачивки за', 'достижения за', 'что я выбил', 'сколько ачивок']
 
 - id: steam.current
@@ -385,6 +429,7 @@
   executor: vps
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['во что я сейчас играю', 'во что играю', 'что сейчас играю', 'какая игра запущена']
 
 - id: steam.last
@@ -393,6 +438,7 @@
   executor: vps
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['последняя ачивка', 'крайняя ачивка', 'последнее достижение', 'что выбил последнее']
 
 - id: steam.playtime
@@ -401,6 +447,7 @@
   executor: vps
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['сколько я наиграл', 'сколько наиграл', 'сколько часов в', 'наиграно в', 'сколько времени в игре']
 
 - id: steam.progress
@@ -409,6 +456,7 @@
   executor: vps
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['прогресс ачивок', 'сколько ачивок в', 'прогресс в игре', 'сколько из скольких']
 
 - id: steam.recent
@@ -417,6 +465,7 @@
   executor: vps
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['во что я играл недавно', 'во что играл недавно', 'последние игры', 'недавние игры', 'что запускал']
 
 - id: system.restart
@@ -425,6 +474,7 @@
   executor: agent
   reversible: false
   confirm: true
+  followup: ack
   triggers: ['перезагрузи компьютер', 'перезагрузи пк']
 
 - id: system.shutdown
@@ -433,6 +483,7 @@
   executor: agent
   reversible: false
   confirm: true
+  followup: ack
   triggers: ['выключи комп', 'выключи ноут', 'выключи пк', 'выключи компьютер', 'выключи ноутбук', 'завершение работы']
 
 - id: system.shutdown_cancel
@@ -441,6 +492,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['отмени выключение', 'cancel shutdown', 'не выключай', 'отмена выключения']
 
 - id: system.lock
@@ -449,6 +501,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['заблокируй комп', 'заблокируй компьютер', 'заблокируй экран', 'lock компьютер']
 
 - id: system.sleep
@@ -457,6 +510,7 @@
   executor: agent
   reversible: false
   confirm: true
+  followup: ack
   triggers: ['спящий режим', 'сон компьютера', 'в сон', 'засыпай', 'уложи спать']
 
 
@@ -466,6 +520,7 @@
   executor: vps
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['добавь задачу', 'создай задачу', 'новая задача', 'запиши задачу']
 
 - id: task.done
@@ -474,6 +529,7 @@
   executor: vps
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['выполнил задачу', 'сделал задачу', 'закрой задачу', 'задача выполнена']
 
 - id: task.list
@@ -482,6 +538,7 @@
   executor: vps
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['какие у меня задачи', 'какие задачи', 'мои задачи', 'что по задачам', 'список задач']
 
 - id: vps.feeling
@@ -490,6 +547,7 @@
   executor: vps
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['как твоё самочувствие', 'как самочувствие', 'как себя чувствуешь', 'как ты себя чувствуешь', 'как твоё тело']
 
 - id: vps.status
@@ -498,6 +556,7 @@
   executor: vps
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['нагрузка на систему', 'как сервер', 'статус сервера', 'нагрузка на сервер', 'что с сервером']
 
 - id: weather.now
@@ -506,6 +565,7 @@
   executor: vps
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['какая погода', 'погода', 'что с погодой', 'погода сейчас', 'на улице холодно']
 
 - id: youtube.forward
@@ -514,6 +574,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['перемотай вперёд', 'промотай вперёд', 'вперёд на видео']
   context: window:youtube   # голый триггер неоднозначен — решается контекстом
 
@@ -523,6 +584,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['полный экран']
 
 - id: youtube.like
@@ -531,6 +593,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['лайкни видео', 'лайк видео', 'поставь лайк видео']
   context: window:youtube   # голый триггер неоднозначен — решается контекстом
 
@@ -540,6 +603,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['мини-плеер', 'миниплеер', 'сверни в мини-плеер']
 
 - id: youtube.next
@@ -548,6 +612,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['следующее видео']
 
 - id: youtube.pause
@@ -556,6 +621,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['пауза ютуб', 'пауза на ютубе', 'стоп ютуб', 'останови ютуб', 'youtube пауза']
 
 - id: youtube.rewind
@@ -564,6 +630,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['перемотай назад', 'промотай назад', 'назад на видео', 'отмотай']
   context: window:youtube   # голый триггер неоднозначен — решается контекстом
 
@@ -573,6 +640,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['медленнее', 'замедли видео', 'скорость меньше']
   context: window:youtube   # голый триггер неоднозначен — решается контекстом
 
@@ -582,6 +650,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['быстрее', 'ускорь видео', 'скорость больше', 'на скорости']
   context: window:youtube   # голый триггер неоднозначен — решается контекстом
 
@@ -591,6 +660,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['субтитры']
 
 - id: youtube.theater
@@ -599,6 +669,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['театральный режим', 'режим театра', 'широкий экран']
 
 - id: youtube.trending
@@ -607,6 +678,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['популярное на ютубе', 'что в тренде', 'тренды ютуба', 'популярные видео']
 
 - id: kettle.boil
@@ -615,6 +687,7 @@
   executor: agent
   reversible: false
   confirm: false
+  followup: ack
   triggers: ['вскипяти чайник', 'включи чайник', 'поставь чайник', 'чай поставь', 'поставь чай', 'кипяток', 'кипящую воду', 'чайник', 'вскипяти', 'кипяти']
 
 - id: kettle.off
@@ -623,6 +696,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['выключи чайник', 'останови чайник', 'стоп чайник', 'выруби чайник', 'выключить чайник', 'отмени чайник']
 
 - id: kettle.status
@@ -631,6 +705,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['статус чайника', 'температура чайника', 'сколько градусов в чайнике', 'горячий чайник', 'горячая вода', 'как чайник', 'готов ли чайник', 'остыл чайник', 'остыла вода']
 
 - id: kettle.heat
@@ -639,6 +714,7 @@
   executor: agent
   reversible: false
   confirm: false
+  followup: ack
   triggers: ['нагрей воду', 'нагрей до', 'чайник на', 'подогрей воду', 'нагрей воду до']
   param:
     name: temp
@@ -651,6 +727,7 @@
   executor: agent
   reversible: false
   confirm: false
+  followup: ack
   triggers: ['вскипяти до', 'кипяти до', 'вскипяти на', 'кипяти на', 'вскипяти', 'кипяти']
   param:
     name: temp
@@ -663,6 +740,7 @@
   executor: agent
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['найди файл', 'открой файл', 'найди документ', 'открой документ']
   param:
     name: query
@@ -675,6 +753,7 @@
   executor: vps
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['создай модуль', 'напиши модуль', 'новый модуль', 'сделай модуль']
   param:
     name: module_name
@@ -687,6 +766,7 @@
   executor: vps
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['исправь баг', 'найди баг', 'почини код', 'почини модуль']
   param:
     name: description
@@ -699,6 +779,7 @@
   executor: vps
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['прочитай файл', 'покажи код']
   param:
     name: filepath
@@ -711,6 +792,7 @@
   executor: vps
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['закоммить', 'сделай коммит']
   param:
     name: message
@@ -723,6 +805,7 @@
   executor: vps
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['собери проект', 'собери апк', 'собери сборку']
 
 - id: coding.git_status
@@ -731,6 +814,7 @@
   executor: vps
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['git status']
 
 - id: calendar.list
@@ -739,6 +823,7 @@
   executor: vps
   reversible: true
   confirm: false
+  followup: ack
   triggers: ['.calendar', 'календарь', 'мои события', 'какие встречи',
              'расписание на сегодня', 'что сегодня по расписанию',
              'покажи ближайшие события']

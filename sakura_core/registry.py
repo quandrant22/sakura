@@ -26,7 +26,14 @@ REGISTRY_PATH = Path(__file__).resolve().parent / "capabilities.yaml"
 
 EXECUTORS = ("vps", "agent")
 CONTEXTS = ("playing:music", "window:youtube", "window:browser")
-REQUIRED_FIELDS = ("id", "desc", "executor", "reversible", "confirm", "triggers")
+# followup — что следует за исполнением действия:
+#   ack — кроме «Готово» ничего не звучит (модель не зовётся);
+#   llm — «Готово» не звучит, ответ придёт от command_result.
+# Знание лежит здесь, а не в двух местах (находка: мост говорил «Готово»
+# всегда, а command_result решал по своему захардкоженному списку).
+FOLLOWUPS = ("ack", "llm")
+REQUIRED_FIELDS = ("id", "desc", "executor", "reversible", "confirm", "triggers",
+                   "followup")
 
 # Действия, у которых намеренно нет исполнения. С этапа 7 список пуст:
 # развязаны последние восемь id (coding.*, files.open, calendar.list), у
@@ -102,6 +109,7 @@ class Declaration:
     reversible: bool
     confirm: bool
     triggers: tuple[str, ...]
+    followup: str = "ack"
     legacy: tuple[str, ...] = ()
     context: Optional[str] = None
     param: Optional[Param] = None
@@ -163,6 +171,7 @@ def declaration_from_dict(raw: dict) -> Declaration:
         reversible=bool(raw["reversible"]),
         confirm=bool(raw["confirm"]),
         triggers=_as_strings(raw["triggers"], where),
+        followup=str(raw["followup"]),
         legacy=_as_strings(raw.get("legacy"), where),
         context=raw.get("context"),
         param=_parse_param(raw.get("param"), where),
@@ -218,6 +227,12 @@ def validate(declarations: Iterable[Declaration], *,
             raise RegistryError(
                 f"'{d.id}': недопустимый context '{d.context}' "
                 f"(допустимо: {', '.join(CONTEXTS)})"
+            )
+
+        if d.followup not in FOLLOWUPS:
+            raise RegistryError(
+                f"'{d.id}': недопустимый followup '{d.followup}' "
+                f"(допустимо: {', '.join(FOLLOWUPS)})"
             )
 
         for trigger in d.triggers:
@@ -361,4 +376,43 @@ def build_llm_catalog(declarations: Iterable[Declaration]) -> str:
     в каталоге (находка 2 инвентаризации), невозможно по построению.
     """
     return "\n".join(f"- {d.id}: {d.desc}" for d in declarations)
+
+
+# ── followup по имени на проводе ────────────────────────────────────────
+# Агент отвечает именами действий (music_info, music_next, ext:page_content),
+# а не каноническими id. Поэтому индекс строится по обоим написаниям:
+# канонический id и legacy-имя. Знание о том, зазвучит ли модель после
+# исполнения, живёт в реестре — мост и command_result читают его здесь.
+
+_followup_index: Optional[dict[str, str]] = None
+
+
+def _build_followup_index(declarations: Iterable[Declaration]) -> dict[str, str]:
+    index: dict[str, str] = {}
+    for d in declarations:
+        index[d.id] = d.followup
+        for name in d.legacy:
+            index[name] = d.followup
+    return index
+
+
+def followup_index(declarations: Optional[Iterable[Declaration]] = None) -> dict[str, str]:
+    """Индекс «имя на проводе → followup». Без аргумента — по реестру из YAML."""
+    global _followup_index
+    if declarations is not None:
+        return _build_followup_index(declarations)
+    if _followup_index is None:
+        _followup_index = _build_followup_index(load())
+    return _followup_index
+
+
+def followup_for(action: str, declarations: Optional[Iterable[Declaration]] = None) -> str:
+    """followup действия по имени на проводе (канонический id или legacy).
+
+    Неизвестное имя считается ack: путь, который не смог опознать действие,
+    не должен молчать — «Готово» безопаснее тишины.
+    """
+    if not action:
+        return "ack"
+    return followup_index(declarations).get(action, "ack")
 
