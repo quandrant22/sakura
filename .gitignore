@@ -114,3 +114,4 @@ logs/
 *.jpg
 *.jpeg
 !agent/extension/icon*.png
+memory/rituals.json
