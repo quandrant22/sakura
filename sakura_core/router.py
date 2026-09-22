@@ -24,6 +24,7 @@ from sakura_core.registry import (
     TriggerIndex,
     build_index,
     build_llm_catalog,
+    installed_apps,
     load,
 )
 from sakura_core.session import Session
@@ -112,6 +113,10 @@ class Router:
         tl = text.lower().strip().rstrip("!?.,;")
         for d in self._exact.get(tl, []):
             if d.context is None or d.context == context:
+                # resolve без списка приложений (агент не подключён) —
+                # декларация не матчится, как в TriggerIndex.match.
+                if d.param is not None and d.param.resolve and not installed_apps():
+                    continue
                 return tl, d
         return None
 

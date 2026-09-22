@@ -67,6 +67,10 @@ async def analyze_apps(apps: dict, device_id: str):
             full.setdefault(name.lower(), path)
 
         save_json(f"memory/apps_mapping_{device_id}.json", full)
+        # Разговорные имена обновились — освежить список приложений для
+        # фильтра param.resolve: installed_apps (registry.TriggerIndex.match).
+        from sakura_core.registry import set_installed_apps
+        set_installed_apps(exe_apps, extra=full.keys())
         log.info(f"Маппинг приложений ({device_id}): {len(full)} записей")
     except Exception as e:
         log.error(f"Apps analyze error: {e}")

@@ -172,6 +172,15 @@ async def handle_apps_list(websocket, data, ctx) -> None:
     device_id = data.get("device_id")
     apps      = data.get("apps", {})
     log.info(f"Приложения от {device_id}: {len(apps)}")
+    # Список нужен не только LLM-маппингу: фильтр param.resolve
+    # (installed_apps) матчит по нему однословные «открой/покажи».
+    # Агент присылает apps_list после каждой регистрации, так что список
+    # обновляется при каждом подключении. Разговорные имена («дискорд»)
+    # добираются из маппинга; анализатор (analyze_apps) освежит их после
+    # сборки нового маппинга.
+    from sakura_core.registry import set_installed_apps
+    from modules.app_mapping import mapping_names
+    set_installed_apps(apps, extra=mapping_names(device_id))
     asyncio.create_task(ctx["analyze_apps"](apps, device_id))
 
 

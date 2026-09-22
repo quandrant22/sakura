@@ -32,6 +32,13 @@ CONTEXTS = ("playing:music", "window:youtube", "window:browser")
 # Знание лежит здесь, а не в двух местах (находка: мост говорил «Готово»
 # всегда, а command_result решал по своему захардкоженному списку).
 FOLLOWUPS = ("ack", "llm")
+# resolve — источник значений параметра (Param.resolve). Пока один:
+# installed_apps — параметр должен оказаться установленным приложением.
+# Список присылает агент (apps_list после каждой регистрации), сервер
+# держит его в памяти (set_installed_apps / installed_apps ниже).
+# Зачем: однословные «открой/покажи» без фильтра перехватывали
+# «покажи погоду» раньше LLM и рапортовали «Готово» (followup: ack).
+PARAM_RESOLVES = ("installed_apps",)
 REQUIRED_FIELDS = ("id", "desc", "executor", "reversible", "confirm", "triggers",
                    "followup")
 
@@ -60,6 +67,11 @@ class Param:
     name: str
     pattern: str
     required: str = "true"  # "true" | "false" | "ask"
+    # resolve — ограничение источника значения (см. PARAM_RESOLVES).
+    # "installed_apps": значение должно оказаться установленным приложением,
+    # иначе декларация не матчится. None — фильтра нет (однозначные
+    # триггеры вроде «переключись на» фильтровать не нужно).
+    resolve: Optional[str] = None
 
     def __post_init__(self):
         if isinstance(self.required, bool):
@@ -148,7 +160,15 @@ def _parse_param(raw, where: str) -> Optional[Param]:
         raise RegistryError(
             f"{where}: param.required должен быть true/false/ask, получено {req!r}"
         )
-    return Param(name=name, pattern=pattern, required=req)
+    resolve = raw.get("resolve")
+    if resolve is not None:
+        resolve = str(resolve)
+        if resolve not in PARAM_RESOLVES:
+            raise RegistryError(
+                f"{where}: param.resolve должен быть одним из "
+                f"{PARAM_RESOLVES}, получено {resolve!r}"
+            )
+    return Param(name=name, pattern=pattern, required=req, resolve=resolve)
 
 
 def declaration_from_dict(raw: dict) -> Declaration:
@@ -284,6 +304,53 @@ def load(path: Path = REGISTRY_PATH) -> list[Declaration]:
     return declarations
 
 
+# ── установленные приложения (для param.resolve: installed_apps) ─────────
+# Агент присылает список при каждой регистрации (apps_list после register).
+# Сервер держит его в памяти: рестарт сервера → агент переподключится и
+# пришлёт заново. None — списка ещё нет (агент не подключён): триггеры с
+# resolve не матчатся вовсе, фраза уходит дальше по роутеру (LLM), как до
+# появления app.switch.
+_installed_apps: Optional[frozenset[str]] = None
+
+
+def set_installed_apps(apps, extra: Optional[Iterable[str]] = None) -> None:
+    """Сохранить имена установленных приложений (сравнение без учёта регистра).
+
+    apps — словарь «имя → путь/протокол» от агента или итератор имён;
+    None — списка нет (агент не подключён). extra — дополнительные
+    разговорные имена (keys из memory/apps_mapping_<device>.json, их
+    строит sakura_core.apps.analyze_apps: «дискорд» → Discord.exe).
+    """
+    global _installed_apps
+    if apps is None and not extra:
+        _installed_apps = None
+        return
+    names: set[str] = set()
+    if isinstance(apps, dict):
+        names.update(str(k) for k in apps)
+    elif apps:
+        names.update(str(k) for k in apps)
+    if extra:
+        names.update(str(k) for k in extra)
+    _installed_apps = frozenset(
+        n.strip().lower() for n in names if n and n.strip()
+    )
+    log.info("[registry] список приложений: %d", len(_installed_apps))
+
+
+def installed_apps() -> Optional[frozenset[str]]:
+    """Текущий список установленных приложений (нижний регистр) или None."""
+    return _installed_apps
+
+
+def resolve_passes(value: Optional[str]) -> bool:
+    """Значение параметра — установленное приложение? (проверка resolve)."""
+    apps = _installed_apps
+    if not apps or not value:
+        return False
+    return value.strip().lower() in apps
+
+
 class TriggerIndex:
     """Индекс триггеров: поиск от самых длинных к коротким, по границам слов."""
 
@@ -316,6 +383,12 @@ class TriggerIndex:
           "ask"   — нет значения → нужен clarify, декларация возвращается
                     с needs_clarify=True
 
+        param.resolve ("installed_apps"):
+          значения параметра должно оказаться в списке установленных
+          приложений (set_installed_apps), иначе декларация пропускается —
+          как при required: true. Списка нет (агент не подключён, пустой
+          список) — триггер с resolve не матчится вовсе.
+
         Возвращает (триггер, декларация, param_value, needs_clarify) либо None.
         """
         if not text:
@@ -339,6 +412,10 @@ class TriggerIndex:
 
             param_value = None
             needs_clarify = False
+            resolve = declaration.param.resolve if declaration.param else None
+            apps = installed_apps() if resolve else None
+            if resolve and not apps:
+                continue  # списка нет (агент не подключён) — resolve-триггер молчит
             if declaration.param is not None:
                 param_value = declaration.param.extract(text)
                 req = declaration.param.required
@@ -346,6 +423,9 @@ class TriggerIndex:
                     continue  # required — пропускаем
                 if req == "ask" and param_value is None:
                     needs_clarify = True  # помечаем, что нужен clarify
+                if resolve and param_value is not None \
+                        and param_value.strip().lower() not in apps:
+                    continue  # параметр — не установленное приложение, пропускаем
 
             if trigger_len > best_len:
                 best_len = trigger_len

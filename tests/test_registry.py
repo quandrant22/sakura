@@ -2,9 +2,9 @@
 
 Run: python -m pytest tests/test_registry.py -q
 
-Покрывают: загрузку (67 деклараций), валидацию (негативные тесты — каждый
+Покрывают: загрузку (87 деклараций), валидацию (негативные тесты — каждый
 случай бросает RegistryError), контракт матчинга (границы слов, самый длинный
-триггер, context) и каталог для LLM.
+триггер, context, param.resolve: installed_apps) и каталог для LLM.
 """
 
 import pytest
@@ -50,8 +50,8 @@ def index(registry):
 # --- загрузка и валидация -------------------------------------------------
 
 
-def test_load_returns_86_declarations(registry):
-    assert len(registry) == 86
+def test_load_returns_87_declarations(registry):
+    assert len(registry) == 87
 
 
 def test_validate_passes_on_real_registry(registry):
@@ -438,11 +438,16 @@ def test_app_switch_routes_with_app_param(index):
 
 
 def test_app_switch_bare_verb_needs_clarify(index):
-    """Голый «открой» → app.switch с needs_clarify (required: ask)."""
-    result = index.match("открой")
-    assert result is not None
-    assert result[1].id == "app.switch"
-    assert result[3] is True
+    """Голый «открой» → app.switch_open с needs_clarify (required: ask)."""
+    from sakura_core.registry import set_installed_apps
+    set_installed_apps({"Discord": "C:/Discord.exe"})
+    try:
+        result = index.match("открой")
+        assert result is not None
+        assert result[1].id == "app.switch_open"
+        assert result[3] is True
+    finally:
+        set_installed_apps(None)
 
 
 def test_app_switch_longer_trigger_wins(index):
@@ -476,6 +481,130 @@ def test_app_switch_handler_bakes_app_into_wire():
     payload = _json.loads(ws.sent)
     assert payload["action"] == "switch_to_app"
     assert payload["arg"] == "дискорд"
+
+
+# ─ param.resolve: installed_apps — «открой/покажи» только для приложений ────
+# Однословные «открой/покажи» (app.switch_open) матчатся, только если параметр
+# оказался в списке установленных приложений агента; иначе декларация
+# пропускается и фраза уходит дальше по роутеру (LLM), как до app.switch.
+
+
+_APP_SWITCH_IDS = ("app.switch", "app.switch_open")
+
+_APPS = {"Discord": "C:/Discord/Discord.exe", "Steam": "C:/Steam/steam.exe"}
+_ALIASES = {"дискорд": "Discord.exe", "стим": "Steam.exe"}  # apps_mapping keys
+
+
+@pytest.fixture()
+def installed_apps():
+    """Ставит список приложений на время теста, снимает после (изоляция)."""
+    from sakura_core.registry import set_installed_apps
+
+    def _set(apps, extra=None):
+        set_installed_apps(apps, extra=extra)
+
+    yield _set
+    set_installed_apps(None)
+
+
+def test_param_resolve_rejects_unknown_source():
+    """validate() отвергает недопустимое значение resolve."""
+    with pytest.raises(RegistryError):
+        _decl(param={"name": "app", "pattern": "(.+)x",
+                     "resolve": "weather_api"})
+
+
+def test_param_resolve_accepted_and_wired(registry):
+    """app.switch_open несёт resolve: installed_apps; app.switch — нет."""
+    by_id = {d.id: d for d in registry}
+    assert by_id["app.switch_open"].param.resolve == "installed_apps"
+    assert by_id["app.switch"].param.resolve is None
+    # однозначные глаголы остались в app.switch без фильтра
+    assert set(by_id["app.switch"].triggers) == {
+        "переключись на", "перейди в", "разверни"}
+    assert set(by_id["app.switch_open"].triggers) == {"открой", "покажи"}
+
+
+def test_resolve_matches_installed_app(index, installed_apps):
+    """«открой дискорд» (алиас из маппинга) → app.switch_open, 'дискорд'."""
+    installed_apps(_APPS, extra=_ALIASES)
+    result = index.match("открой дискорд")
+    assert result is not None
+    assert result[1].id == "app.switch_open"
+    assert result[2] == "дискорд"
+
+
+def test_resolve_matches_latin_name_case_insensitive(index, installed_apps):
+    """Сравнение без учёта регистра: 'открой discord' по имени 'Discord'."""
+    installed_apps(_APPS)
+    result = index.match("открой discord")
+    assert result is not None
+    assert result[1].id == "app.switch_open"
+    assert result[2] == "discord"
+
+
+def test_resolve_skips_non_app(index, installed_apps):
+    """«открой ютуб» — ютуба нет в списке → декларация не матчится."""
+    installed_apps(_APPS, extra=_ALIASES)
+    assert index.match("открой ютуб") is None
+
+
+def test_resolve_muted_without_agent_list(index, installed_apps):
+    """Агент не подключён (списка нет) — «открой/покажи» не матчатся вовсе."""
+    installed_apps(None)
+    assert index.match("открой дискорд") is None
+    assert index.match("открой") is None
+
+
+def test_resolve_muted_with_empty_list(index, installed_apps):
+    """Пустой список от агента — тот же эффект: триггер молчит."""
+    installed_apps({})
+    assert index.match("открой дискорд") is None
+
+
+def test_unambiguous_verbs_ignore_resolve(index, installed_apps):
+    """«переключись на» — без resolve: матчится даже без списка приложений."""
+    installed_apps(None)
+    result = index.match("переключись на что угодно")
+    assert result is not None
+    assert result[1].id == "app.switch"
+    assert result[2] == "что угодно"
+
+
+def test_router_does_not_hijack_non_apps(installed_apps):
+    """Однословные «открой/покажи» больше не перехватывают не-приложения."""
+    import sakura_core.bridge  # noqa: F401  (регистрация хендлеров для load())
+    from sakura_core.router import Router
+    installed_apps(_APPS, extra=_ALIASES)
+    router = Router()
+    for phrase in ("покажи погоду", "открой ютуб", "открой github.com",
+                   "открой сайт хабр", "покажи ачивки", "покажи задачи"):
+        d = router.route(phrase)
+        assert d.action not in _APP_SWITCH_IDS, (phrase, d.action)
+
+
+def test_router_installed_app_routes_to_switch_family(installed_apps):
+    """Установленное приложение → семейство app.switch при любом глаголе."""
+    import sakura_core.bridge  # noqa: F401  (регистрация хендлеров для load())
+    from sakura_core.router import Router
+    installed_apps(_APPS, extra=_ALIASES)
+    router = Router()
+    d = router.route("открой дискорд")
+    assert d.action == "app.switch_open" and d.param == "дискорд"
+    d = router.route("покажи стим")
+    assert d.action == "app.switch_open" and d.param == "стим"
+    d = router.route("переключись на что угодно")
+    assert d.action == "app.switch" and d.param == "что угодно"
+
+
+def test_switch_open_handler_bakes_app_into_wire():
+    """app.switch_open ведёт на тот же провод switch_to_app:<имя>."""
+    from capabilities.system import SYSTEM_COMMANDS
+    from sakura_core.executor import ExecutionContext
+
+    cmd = SYSTEM_COMMANDS["app.switch_open"](ExecutionContext(param="стим"))
+    assert cmd.action == "switch_to_app"
+    assert cmd.arg == "стим"
 # ─ развязка этапа 7: восемь id получили исполнение ─────────────────────────
 
 

@@ -20,6 +20,7 @@ SYSTEM_AGENT_ACTIONS = (
     "game_mode.off",
     "open.app",
     "app.switch",
+    "app.switch_open",
     "close_window.браузер",
     "screenshot.run",
     "screenshot.describe",
@@ -35,9 +36,9 @@ SYSTEM_COMMANDS["open.app"] = AgentCommand("open.app", arg="яндекс муз�
 
 
 def _switch_app(ctx) -> AgentCommand:
-    """app.switch → switch_to_app:<имя> — знакомый агенту провод.
+    """app.switch / app.switch_open → switch_to_app:<имя> — знакомый агенту провод.
 
-    Пустой app — ошибка, а не голая команда: реестр объявляет param
+    Пустой app — ошибка, а не голая команда: обе декларации объявляют param
     required: ask, роутер в этом случае сначала спрашивает приложение
     (registry_clarify). Сюда пустое значение доезжает только с LLM-пути;
     падение безопасно — вызывающий хендлер уходит на старый путь.
@@ -51,5 +52,6 @@ def _switch_app(ctx) -> AgentCommand:
 
 
 SYSTEM_COMMANDS["app.switch"] = _switch_app
+SYSTEM_COMMANDS["app.switch_open"] = _switch_app
 
 register_table(SYSTEM_COMMANDS)

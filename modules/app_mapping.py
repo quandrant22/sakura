@@ -15,6 +15,25 @@ from modules.state import connected_devices
 log = logging.getLogger(__name__)
 
 
+def mapping_names(device_id: str) -> tuple[str, ...]:
+    """Разговорные имена приложений из маппинга (keys, без значений).
+
+    Используется фильтром param.resolve: installed_apps в реестре:
+    агентский список имён латинские («Discord», «Steam»), а говорит
+    Мастер «дискорд»/«стим» — разговорные варианты живут здесь.
+    """
+    try:
+        path = f"memory/apps_mapping_{device_id}.json"
+        if not os.path.exists(path):
+            return ()
+        with open(path, "r", encoding="utf-8") as f:
+            mapping = json.load(f)
+        return tuple(mapping.keys())
+    except Exception as e:
+        log.debug(f"mapping_names({device_id}): {type(e).__name__}: {e}")
+        return ()
+
+
 def find_in_mapping(query: str, device_id: str) -> str | None:
     try:
         path = f"memory/apps_mapping_{device_id}.json"

@@ -84,22 +84,45 @@
 
 - id: app.switch
   legacy: [switch_to_app]
-  desc: 'Переключиться на приложение или открыть его — открой дискорд, перейди в telegram'
+  desc: 'Переключиться на приложение — переключись на дискорд, перейди в telegram'
   executor: agent
   reversible: true
   confirm: false
   followup: ack
-  # Конфликты (разделитель — longest-match; см. test_app_switch_longer_trigger_wins):
-  #   open.app    → 'открой яндекс музыку' (длиннее/специфичнее, выигрывает)
-  #   music.podcasts → 'открой подкасты' (param required: ask → уточняется)
-  #   coding.read_file → 'покажи код' (param required: ask → уточняется)
-  #   files.open → 'открой файл ...' (длиннее, выигрывает)
-  #   'открой капсулу которая ждёт' → app.switch НЕ хватает (required: ask → clarify)
-  triggers: ['переключись на', 'перейди в', 'открой', 'покажи', 'разверни']
+  # Однозначные глаголы — resolve не нужен: «переключись на X» иначе и не значит.
+  triggers: ['переключись на', 'перейди в', 'разверни']
   param:
     name: app
-    pattern: '(?:переключись на|перейди в|открой|покажи|разверни)\s+(.+)'
+    pattern: '(?:переключись на|перейди в|разверни)\s+(.+)'
     required: ask
+
+- id: app.switch_open
+  desc: 'Открыть установленное приложение — открой дискорд, покажи стим (не: погода, сайты, задачи)'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  # Однословные «открой/покажи» без фильтра перехватывали «покажи погоду» /
+  # «открой github.com» раньше LLM и рапортовали «Готово» (followup: ack),
+  # хотя приложения-параметра не существует. param.resolve: installed_apps
+  # матчит триггер, только если параметр оказался в списке установленных
+  # приложений агента (apps_list + разговорный маппинг apps_mapping);
+  # списка нет — триггер молчит, фраза уходит в LLM, как до app.switch.
+  # Выбор «две декларации» вместо per-trigger resolve: resolve — свойство
+  # Param, две декларации переиспользуют его механизм целиком, а хендлер
+  # на второй id навешивается одной строкой (capabilities/system.py).
+  # Конфликты (разделитель — longest-match):
+  #   open.app    → 'открой яндекс музыку' (длиннее, выигрывает)
+  #   music.podcasts → 'открой подкасты' (длиннее, выигрывает)
+  #   coding.read_file → 'покажи код' (длиннее, выигрывает)
+  #   files.open → 'открой файл ...' (длиннее, выигрывает)
+  #   browser.tab_new → 'открой вкладку' (длиннее, выигрывает)
+  triggers: ['открой', 'покажи']
+  param:
+    name: app
+    pattern: '(?:открой|покажи)\s+(.+)'
+    required: ask
+    resolve: installed_apps
 
 - id: browser.tab_new
   legacy: [browser:tab_new]

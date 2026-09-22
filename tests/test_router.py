@@ -161,19 +161,26 @@ def test_llm_receives_catalog_with_all_ids(make_router):
 
 def test_all_70_actions_covered_by_triggers(registry):
     router = Router(declarations=registry, llm_classify=None)
-    missed = []
-    for decl in registry:
-        hit = None
-        for trigger in decl.triggers:
-            decision = router.route(trigger, decl.context)
-            if decision.source.startswith("registry"):
-                # action == decl.id (normal) или None (clarify — param needed)
-                if decision.action == decl.id or decision.source == "registry_clarify":
-                    hit = (trigger, decision.source)
-                    break
-        if hit is None:
-            missed.append((decl.id, decl.triggers))
-    assert not missed, f"действия без быстрого пути: {missed}"
+    # app.switch_open (param.resolve: installed_apps) матчится только при
+    # наличии списка приложений агента — для покрытия ставим его на время.
+    from sakura_core.registry import set_installed_apps
+    set_installed_apps({"Discord": "C:/Discord/Discord.exe"})
+    try:
+        missed = []
+        for decl in registry:
+            hit = None
+            for trigger in decl.triggers:
+                decision = router.route(trigger, decl.context)
+                if decision.source.startswith("registry"):
+                    # action == decl.id (normal) или None (clarify — param needed)
+                    if decision.action == decl.id or decision.source == "registry_clarify":
+                        hit = (trigger, decision.source)
+                        break
+            if hit is None:
+                missed.append((decl.id, decl.triggers))
+        assert not missed, f"действия без быстрого пути: {missed}"
+    finally:
+        set_installed_apps(None)
 
 
 # ── required: ask — clarify flow ────────────────────────────────────────
