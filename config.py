@@ -41,10 +41,10 @@ CONFIRM_LISTEN_SEC = float(os.getenv("CONFIRM_LISTEN_SEC", "10"))
 
 # ── Основная текстовая LLM ────────────────────────────────────────
 # ЕДИНАЯ точка задания основной модели для всего кода (main.py и modules/*).
-# Переопределяется через .env: MAIN_MODEL=gemini-3.5-flash-lite
+# Переопределяется через .env: MAIN_MODEL=gemini-3.1-flash-lite
 # НЕ трогать здесь: TTS Live API (modules/tts_server.py TTS_MODEL) и
 # эмбеддинги — у них свои модели.
-MAIN_MODEL     = os.getenv("MAIN_MODEL", "gemini-3.5-flash-lite")
+MAIN_MODEL     = os.getenv("MAIN_MODEL", "gemini-3.1-flash-lite")
 FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "gemma-4-31b-it")
 
 # ── Поиск в интернете через Gemini Search grounding ─────────────────────

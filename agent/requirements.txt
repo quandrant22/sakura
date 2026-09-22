@@ -37,7 +37,7 @@ silero-vad
 gigaam
 
 # Музыка (API Яндекс Музыки)
-yandex-music
+yandex-music>=3.0,<4
 
 # UI
 PyQt6

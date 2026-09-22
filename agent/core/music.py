@@ -28,7 +28,17 @@ from typing import Optional
 
 log = logging.getLogger("sakura.music")
 
-YM_TOKEN = "y0__xD-vJT9AxjBmigg4P3cnRK-d-6FQFiNbmiqOwneUJlqXAj2kA"
+YM_TOKEN = ""
+
+
+def _ym_token() -> str:
+    """Read the API token from agent config/environment, never from source."""
+    import os
+    try:
+        from config import YANDEX_MUSIC_TOKEN
+    except (ImportError, AttributeError):
+        YANDEX_MUSIC_TOKEN = ""
+    return (YANDEX_MUSIC_TOKEN or os.getenv("YANDEX_MUSIC_TOKEN", "") or YM_TOKEN).strip()
 
 # ── SMTC — системный медиа-интерфейс Windows ─────────────────────────
 
@@ -183,9 +193,24 @@ _ym_client = None
 def _get_ym_client():
     global _ym_client
     if _ym_client is None:
+        token = _ym_token()
+        if not token:
+            raise RuntimeError("не задан YANDEX_MUSIC_TOKEN")
         from yandex_music import Client
-        _ym_client = Client(YM_TOKEN).init()
+        _ym_client = Client(token).init()
     return _ym_client
+
+
+def _browser_music_fallback(action: str) -> Optional[dict]:
+    """Use the browser hotkey path when the API backend is unavailable."""
+    try:
+        from core import browser
+        fn = getattr(browser, f"music_{action}")
+        result = fn()
+        return {"ok": not result.endswith("не открыта"), "result": result}
+    except Exception as e:
+        log.debug("[music] browser fallback %s: %s", action, e)
+        return None
 
 
 def _ym_like_current(title: str, artist: str) -> dict:
@@ -197,12 +222,16 @@ def _ym_like_current(title: str, artist: str) -> dict:
             return {"ok": False, "result": "Трек не найден в Яндекс Музыке"}
         track = results.tracks.results[0]
         uid   = client.me.account.uid
-        client._request.post(
-            f"https://api.music.yandex.net/users/{uid}/likes/tracks/add-multiple",
-            {"track-ids": str(track.id)},
-        )
+        if not client.users_likes_tracks_add(str(track.id), user_id=uid):
+            return {"ok": False, "result": "Яндекс Музыка не приняла лайк"}
         artist_name = track.artists[0].name if track.artists else artist
         return {"ok": True, "result": f"Лайк: {artist_name} — {track.title}"}
+    except (ImportError, ModuleNotFoundError, RuntimeError) as e:
+        fallback = _browser_music_fallback("like")
+        if fallback is not None:
+            return fallback
+        log.error(f"[music] like: {e}")
+        return {"ok": False, "result": str(e)}
     except Exception as e:
         log.error(f"[music] like: {e}")
         return {"ok": False, "result": str(e)}
@@ -217,12 +246,16 @@ def _ym_dislike_current(title: str, artist: str) -> dict:
             return {"ok": False, "result": "Трек не найден"}
         track = results.tracks.results[0]
         uid   = client.me.account.uid
-        client._request.post(
-            f"https://api.music.yandex.net/users/{uid}/dislikes/tracks/add-multiple",
-            {"track-ids": str(track.id)},
-        )
+        if not client.users_dislikes_tracks_add(str(track.id), user_id=uid):
+            return {"ok": False, "result": "Яндекс Музыка не приняла дизлайк"}
         artist_name = track.artists[0].name if track.artists else artist
         return {"ok": True, "result": f"Дизлайк: {artist_name} — {track.title}"}
+    except (ImportError, ModuleNotFoundError, RuntimeError) as e:
+        fallback = _browser_music_fallback("dislike")
+        if fallback is not None:
+            return fallback
+        log.error(f"[music] dislike: {e}")
+        return {"ok": False, "result": str(e)}
     except Exception as e:
         log.error(f"[music] dislike: {e}")
         return {"ok": False, "result": str(e)}
@@ -365,7 +398,9 @@ def _ym_play_track(query: str) -> dict:
         if not results or not results.tracks or not results.tracks.results:
             return {"ok": False, "result": f"Трек «{query}» не найден"}
         track = results.tracks.results[0]
-        client.play([track.id], position=0)
+        album_id = track.albums[0].id if track.albums else 0
+        if not client.play_audio(track.id, "search", album_id):
+            return {"ok": False, "result": "Яндекс Музыка не запустила трек"}
         artist = track.artists[0].name if track.artists else "?"
         return {"ok": True, "result": f"Играет: {artist} — {track.title}"}
     except Exception as e:
@@ -394,7 +429,12 @@ def _ym_play_playlist(kind: str) -> dict:
         if not tracks:
             return {"ok": False, "result": "Плейлист пуст"}
         track_ids = [str(t.id) for t in tracks if t.id]
-        client.play(track_ids, position=0)
+        if not track_ids:
+            return {"ok": False, "result": "Плейлист пуст"}
+        first = tracks[0]
+        album_id = first.albums[0].id if first.albums else 0
+        if not client.play_audio(first.id, "playlist", album_id, playlist_id=str(playlist.kind)):
+            return {"ok": False, "result": "Яндекс Музыка не запустила плейлист"}
         return {"ok": True, "result": f"Плейлист «{playlist.title}»: {len(track_ids)} треков"}
     except Exception as e:
         log.error(f"[music] play_playlist: {e}")
@@ -413,7 +453,12 @@ def _ym_play_wave() -> dict:
                 track_ids.append(str(t.id))
         if not track_ids:
             return {"ok": False, "result": "Моя волна пуста"}
-        client.play(track_ids, position=0)
+        first = next((seq.track for seq in (tracks_seq.sequence or []) if getattr(seq, "track", None)), None)
+        if first is None:
+            return {"ok": False, "result": "Моя волна пуста"}
+        album_id = first.albums[0].id if first.albums else 0
+        if not client.play_audio(first.id, "radio", album_id):
+            return {"ok": False, "result": "Яндекс Музыка не запустила волну"}
         return {"ok": True, "result": f"Моя волна: {len(track_ids)} треков"}
     except Exception as e:
         log.error(f"[music] play_wave: {e}")

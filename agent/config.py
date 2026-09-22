@@ -24,6 +24,7 @@ TTS_SPEED = float(os.getenv("TTS_SPEED", "1.0"))
 # Yandex SpeechKit (TTS) — опционально
 YANDEX_API_KEY   = os.getenv("YANDEX_API_KEY", "")
 YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID", "")
+YANDEX_MUSIC_TOKEN = os.getenv("YANDEX_MUSIC_TOKEN", "")
 
 # ── Локальный WS-сервер расширения браузера ─────────────────────────
 # Агент занимает первый свободный порт из списка; расширение перебирает
