@@ -7,6 +7,8 @@ Run: python -m pytest tests/test_router.py -q
 перехватывает «да» до реестра и LLM, все 70 действий покрыты триггером.
 """
 
+import asyncio
+
 import pytest
 
 from sakura_core.registry import build_index, load
@@ -19,6 +21,10 @@ def registry():
     return load()
 
 
+def _run(coro):
+    return asyncio.get_event_loop().run_until_complete(coro)
+
+
 
 
 @pytest.fixture()
@@ -27,9 +33,12 @@ def make_router(registry):
         calls: list = []
         base = llm if llm is not None else (lambda text, catalog: None)
 
-        def classifier(text, catalog):
+        async def classifier(text, catalog):
             calls.append(text)  # счётчик оборачивает любой классификатор
-            return base(text, catalog)
+            result = base(text, catalog)
+            if hasattr(result, "__await__"):
+                return await result
+            return result
 
         router = Router(declarations=registry, llm_classify=classifier)
         return router, calls
@@ -42,7 +51,7 @@ def make_router(registry):
 
 def test_registry_exact_no_llm(make_router):
     router, calls = make_router()
-    d = router.route("следующий трек", "playing:music")
+    d = _run(router.route("следующий трек", "playing:music"))
     assert d.action == "music.next"
     assert d.source == "registry_exact"
     assert calls == []  # LLM не вызван ни разу
@@ -50,7 +59,7 @@ def test_registry_exact_no_llm(make_router):
 
 def test_wake_word_stripped_no_llm(make_router):
     router, calls = make_router()
-    d = router.route("сакура следующий трек", "playing:music")
+    d = _run(router.route("сакура следующий трек", "playing:music"))
     assert d.action == "music.next"
     # после среза wake-слова фраза стала точным совпадением
     assert d.source == "registry_exact"
@@ -59,21 +68,21 @@ def test_wake_word_stripped_no_llm(make_router):
 
 def test_wake_word_with_punctuation(make_router):
     router, _ = make_router()
-    d = router.route("Сакура, стоп")
+    d = _run(router.route("Сакура, стоп"))
     assert d.action == "music.play_pause"
 
 
 def test_context_disambiguates_seek(make_router):
     router, _ = make_router()
-    assert router.route("перемотай вперёд", {"playing": "music"}).action == "music.seek_forward"
-    assert router.route("перемотай вперёд", {"window": "youtube"}).action == "youtube.forward"
+    assert _run(router.route("перемотай вперёд", {"playing": "music"})).action == "music.seek_forward"
+    assert _run(router.route("перемотай вперёд", {"window": "youtube"})).action == "youtube.forward"
     # без контекста — не разрешается ни в music.seek_forward, ни в youtube.forward
-    assert router.route("перемотай вперёд").action is None
+    assert _run(router.route("перемотай вперёд")).action is None
 
 
 def test_exact_beats_fuzzy(make_router):
     router, _ = make_router()
-    d = router.route("НЕ НАРВИТСЯ ТРЕК" if False else "не нравится трек")
+    d = _run(router.route("НЕ НАРВИТСЯ ТРЕК" if False else "не нравится трек"))
     assert d.action == "music.dislike"
     assert d.source == "registry_exact"
 
@@ -84,7 +93,7 @@ def test_exact_beats_fuzzy(make_router):
 def test_pending_yes_goes_to_session_not_registry_llm(make_router):
     router, calls = make_router()
     router.session.expect("confirm", action="vps.status")
-    d = router.route("да")
+    d = _run(router.route("да"))
     assert d.source == "session"
     assert d.verdict == "confirm"
     assert d.action == "vps.status"
@@ -94,7 +103,7 @@ def test_pending_yes_goes_to_session_not_registry_llm(make_router):
 def test_pending_deny(make_router):
     router, _ = make_router()
     router.session.expect("confirm", action="vps.status")
-    d = router.route("нет, не надо")
+    d = _run(router.route("нет, не надо"))
     assert d.source == "session"
     assert d.verdict == "deny"
     assert d.action is None
@@ -103,7 +112,7 @@ def test_pending_deny(make_router):
 def test_pending_expired_falls_through(make_router):
     router, calls = make_router()
     router.session.expect("confirm", action="vps.status", ttl=-1.0)
-    d = router.route("да", "playing:music")
+    d = _run(router.route("да", "playing:music"))
     # «да» не матчит триггеров → разговор через LLM-стаб
     assert d.action is None
     assert d.source == "conversation"
@@ -113,7 +122,7 @@ def test_pending_expired_falls_through(make_router):
 def test_pending_survives_unrelated_phrase(make_router):
     router, _ = make_router()
     router.session.expect("confirm", action="vps.status", ttl=60.0)
-    router.route("какая погода")  # обычная команда — pending живёт
+    _run(router.route("какая погода"))  # обычная команда — pending живёт
     assert router.session.pending is not None
 
 
@@ -130,7 +139,7 @@ def test_confirmation_priority_of_denial():
 
 def test_llm_used_last_and_validated(make_router):
     router, calls = make_router(llm=lambda text, catalog: "music.next")
-    d = router.route("расскажи что-нибудь про космос", "playing:music")
+    d = _run(router.route("расскажи что-нибудь про космос", "playing:music"))
     assert d.source == "llm"
     assert d.action == "music.next"
     assert len(calls) == 1
@@ -138,7 +147,7 @@ def test_llm_used_last_and_validated(make_router):
 
 def test_llm_unknown_action_is_conversation(make_router):
     router, calls = make_router(llm=lambda text, catalog: "no.such.action")
-    d = router.route("болтаем о разном")
+    d = _run(router.route("болтаем о разном"))
     assert d.source == "conversation"
     assert d.action is None
 
@@ -151,7 +160,7 @@ def test_llm_receives_catalog_with_all_ids(make_router):
         return None
 
     router, _ = make_router(llm=llm)
-    router.route("болтаем")
+    _run(router.route("болтаем"))
     for d in load():
         assert d.id in seen["catalog"]
 
@@ -170,7 +179,7 @@ def test_all_70_actions_covered_by_triggers(registry):
         for decl in registry:
             hit = None
             for trigger in decl.triggers:
-                decision = router.route(trigger, decl.context)
+                decision = _run(router.route(trigger, decl.context))
                 if decision.source.startswith("registry"):
                     # action == decl.id (normal) или None (clarify — param needed)
                     if decision.action == decl.id or decision.source == "registry_clarify":
@@ -197,7 +206,7 @@ def test_ask_without_param_returns_clarify():
         param=Param(name="query", pattern=r"файл\s+(.+)", required="ask"),
     )
     router = Router(declarations=[decl])
-    d = router.route("найди файл")
+    d = _run(router.route("найди файл"))
     assert d.action is None
     assert d.source == "registry_clarify"
     assert d.pending_kind == "clarify"
@@ -218,7 +227,7 @@ def test_ask_with_param_executes_normally():
         param=Param(name="query", pattern=r"файл\s+(.+)", required="ask"),
     )
     router = Router(declarations=[decl])
-    d = router.route("найди файл README.md")
+    d = _run(router.route("найди файл README.md"))
     assert d.action == "test.ask"
     assert d.param == "README.md"
     assert d.pending_kind is None
@@ -236,11 +245,28 @@ def test_clarify_response_resolves_to_action():
     )
     router = Router(declarations=[decl])
     # Шаг 1: clarify
-    d1 = router.route("найди файл")
+    d1 = _run(router.route("найди файл"))
     assert d1.pending_kind == "clarify"
     # Шаг 2: ответ
-    d2 = router.route("main.py")
+    d2 = _run(router.route("main.py"))
     assert d2.action == "test.ask"
     assert d2.source == "session"
     assert d2.param == "main.py"
     assert d2.pending_kind == "clarify"
+
+
+def test_llm_classification_does_not_block_event_loop():
+    async def classify(text, catalog):
+        await asyncio.sleep(0.02)
+        return None
+
+    async def probe():
+        router = Router(declarations=[], llm_classify=classify)
+        route_task = asyncio.create_task(router.route("разговор"))
+        other_task = asyncio.create_task(asyncio.sleep(0.005, result=True))
+        assert await other_task
+        assert not route_task.done()
+        decision = await route_task
+        assert decision.source == "conversation"
+
+    _run(probe())

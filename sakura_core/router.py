@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Awaitable, Callable, Optional
 from sakura_core.registry import (
     Declaration,
     TriggerIndex,
@@ -31,7 +31,7 @@ from sakura_core.session import Session
 
 # LLM-классификатор: (текст, каталог) → id действия или None.
 # Настоящая реализация подключается на этапе 4 (sakura_core/llm.py).
-LlmClassify = Callable[[str, str], Optional[str]]
+LlmClassify = Callable[[str, str], Awaitable[Optional[str]]]
 
 
 @dataclass(frozen=True)
@@ -120,7 +120,7 @@ class Router:
                 return tl, d
         return None
 
-    def route(self, text: str, context=None) -> Decision:
+    async def route(self, text: str, context=None) -> Decision:
         ctx = _norm_context(context)
         cleaned = self._strip_wake(text or "")
 
@@ -203,7 +203,7 @@ class Router:
 
         # 5. LLM — каталог из реестра; неизвестный id считаем разговором
         if self._llm is not None:
-            action = self._llm(cleaned, self._catalog)
+            action = await self._llm(cleaned, self._catalog)
             if action and action in self._by_id:
                 return Decision(action, "llm")
 

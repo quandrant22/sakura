@@ -134,7 +134,7 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
     context = resolve_context(
         (data or {}).get("active_window", ""), _current_track or None
     )
-    decision = get_router().route(text, context)
+    decision = await get_router().route(text, context)
     if decision.reply is not None:
         if resolve_reply is not None:
             await resolve_reply(decision.reply)
@@ -193,7 +193,7 @@ async def handle_v3_confirm(text, *, on_execute, on_cancel, on_error=None):
         router = get_router()
         if router.session.pending is None:
             return False
-        dec = router.route(text, None)
+        dec = await router.route(text, None)
         if dec.source != "session" or dec.verdict is None:
             return False
         if dec.verdict == "confirm" and dec.action:

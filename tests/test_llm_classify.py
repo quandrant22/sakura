@@ -2,8 +2,7 @@
 
 Run: python -m pytest tests/test_llm_classify.py -q
 
-В продакшене пока не подключено (Router(llm_classify=None)): проверяется
-парсинг ответа (id / null / проза / обёртки в кавычки) и синхронный мост.
+Проверяется парсинг ответа (id / null / проза / обёртки в кавычки) и async-контракт классификатора.
 """
 
 import asyncio
@@ -55,10 +54,10 @@ def test_classify_action_empty_inputs(monkeypatch):
     assert _run(llm.classify_action("привет", "")) is None
 
 
-def test_make_llm_classify_bridges_to_sync(monkeypatch):
+def test_make_llm_classify_is_async(monkeypatch):
     monkeypatch.setattr(llm, "generate", _fake_generate("vps.status"))
     classify = llm.make_llm_classify()
-    assert classify("как там сервер", CATALOG) == "vps.status"
+    assert _run(classify("как там сервер", CATALOG)) == "vps.status"
 
 
 def test_make_llm_classify_failure_is_none(monkeypatch):
@@ -66,4 +65,4 @@ def test_make_llm_classify_failure_is_none(monkeypatch):
         raise RuntimeError("сеть лежит")
     monkeypatch.setattr(llm, "generate", _boom)
     classify = llm.make_llm_classify()
-    assert classify("как там сервер", CATALOG) is None
+    assert _run(classify("как там сервер", CATALOG)) is None

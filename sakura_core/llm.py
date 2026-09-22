@@ -222,40 +222,18 @@ async def classify_action(text: str, catalog: str, *, model: Optional[str] = Non
     return first if _ID_RE.fullmatch(first) else None
 
 
-# ── Синхронный мост: LlmClassify — синхронный контракт, classify_action — нет ──
-
-_classify_pool = None  # один поток со своим циклом на процесс (лениво)
-
-
-def _run_classify(coro):
-    """Выполнить корутину классификации вне работающего цикла адаптеров.
-
-    route() синхронный и вызывается из-под живого event loop'а, поэтому
-    asyncio.run() здесь нельзя — корутина уходит в отдельный поток со своим
-    циклом. Вызывается только когда реестр не смог ответить без LLM, то есть
-    на разговорных формулировках, — не на горячем пути команд.
-    """
-    global _classify_pool
-    if _classify_pool is None:
-        import concurrent.futures
-        _classify_pool = concurrent.futures.ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="sakura-classify")
-    return _classify_pool.submit(asyncio.run, coro).result()
-
-
 def make_llm_classify(*, model: Optional[str] = None,
                       timeout: float = DEFAULT_TIMEOUT_S,
                       api_key: Optional[str] = None):
-    """Собрать LlmClassify для Router(llm_classify=...).
+    """Собрать async LlmClassify для Router(llm_classify=...).
 
     Ошибки (сеть, ключи) не поднимаются: классификация — последний шаг
     перед разговором, провал означает «это разговор».
     """
-    def classify(text: str, catalog: str) -> Optional[str]:
+    async def classify(text: str, catalog: str) -> Optional[str]:
         try:
-            return _run_classify(
-                classify_action(text, catalog, model=model,
-                                 timeout=timeout, api_key=api_key))
+            return await classify_action(text, catalog, model=model,
+                                         timeout=timeout, api_key=api_key)
         except Exception as e:
             log.warning(f"[llm] classify провалился: {type(e).__name__}: {e}")
             return None
