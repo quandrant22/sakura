@@ -45,7 +45,7 @@ CONFIRM_LISTEN_SEC = float(os.getenv("CONFIRM_LISTEN_SEC", "10"))
 # НЕ трогать здесь: TTS Live API (modules/tts_server.py TTS_MODEL) и
 # эмбеддинги — у них свои модели.
 MAIN_MODEL     = os.getenv("MAIN_MODEL", "gemini-3.1-flash-lite")
-FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "gemma-4-31b-it")
+FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "gemini-3.5-flash-lite")
 
 # ── Поиск в интернете через Gemini Search grounding ─────────────────────
 # Имя модели — по решению Мастера: gemini-2.5-flash (категория «Gemini 2.5»,

@@ -97,7 +97,9 @@ async def generate(contents, *, system: str = "", model: Optional[str] = None,
     from google.genai import types as _t
 
     client = get_client(pick_key(api_key))
-    models = (model,) if model else FALLBACK_MODELS
+    # Даже при явном model пробуем разрешённый fallback: вызывающие модули
+    # передают MAIN_MODEL напрямую, и раньше 503 основной модели обрывал запрос.
+    models = tuple(dict.fromkeys((model, config.FALLBACK_MODEL))) if model else FALLBACK_MODELS
     last_exc: Optional[Exception] = None
     for m in models:
         try:
