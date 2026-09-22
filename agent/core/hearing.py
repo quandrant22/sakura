@@ -688,11 +688,11 @@ class Hearing(threading.Thread):
         _budget_ms   = config.WAKE_BLOCK / config.MIC_RATE * 1000
 
         def _fresh_wake():
-            """Пересоздаёт распознаватель вейк-ворда и отмечает сброс."""
+            """Сбрасывает распознаватель вейк-ворда и отмечает сброс."""
             nonlocal _last_reset
-            recognizer = KaldiRecognizer(model, config.MIC_RATE)
+            wake.Reset()
             _last_reset = time.monotonic()
-            return recognizer
+            return wake
 
         def _drain(stream):
             """Выбрасывает хвост команды, накопившийся за время захвата фразы."""
