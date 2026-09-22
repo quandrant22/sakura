@@ -718,7 +718,7 @@ def execute_command(action: str) -> dict:
             music_play_pause, music_next, music_prev, music_open,
             music_wave, music_playlist, music_track, music_artist,
             music_album, music_liked, music_podcasts,
-            music_like, music_dislike, music_open_and_find,
+            music_open_and_find,
             music_shuffle, music_repeat,
             music_seek_forward, music_seek_back,
             music_volume_up, music_volume_down, music_mute,
@@ -728,8 +728,12 @@ def execute_command(action: str) -> dict:
         if arg == "prev":          return {"result": music_prev()}
         if arg == "open":          return {"result": music_open()}
         if arg == "wave":          return {"result": music_wave()}
-        if arg == "like":          return {"result": music_like()}
-        if arg == "dislike":       return {"result": music_dislike()}
+        if arg == "like":
+            from core.music import like_current
+            return {"result": like_current()}
+        if arg == "dislike":
+            from core.music import dislike_current
+            return {"result": dislike_current()}
         if arg == "shuffle":       return {"result": music_shuffle()}
         if arg == "repeat":        return {"result": music_repeat()}
         if arg == "seek_forward":  return {"result": music_seek_forward()}

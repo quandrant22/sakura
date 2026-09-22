@@ -201,18 +201,6 @@ def _get_ym_client():
     return _ym_client
 
 
-def _browser_music_fallback(action: str) -> Optional[dict]:
-    """Use the browser hotkey path when the API backend is unavailable."""
-    try:
-        from core import browser
-        fn = getattr(browser, f"music_{action}")
-        result = fn()
-        return {"ok": not result.endswith("не открыта"), "result": result}
-    except Exception as e:
-        log.debug("[music] browser fallback %s: %s", action, e)
-        return None
-
-
 def _ym_like_current(title: str, artist: str) -> dict:
     """Лайкает трек по названию и исполнителю через прямой API-вызов."""
     try:
@@ -227,11 +215,8 @@ def _ym_like_current(title: str, artist: str) -> dict:
         artist_name = track.artists[0].name if track.artists else artist
         return {"ok": True, "result": f"Лайк: {artist_name} — {track.title}"}
     except (ImportError, ModuleNotFoundError, RuntimeError) as e:
-        fallback = _browser_music_fallback("like")
-        if fallback is not None:
-            return fallback
         log.error(f"[music] like: {e}")
-        return {"ok": False, "result": str(e)}
+        return {"ok": False, "result": f"API Яндекс Музыки недоступен: {e}"}
     except Exception as e:
         log.error(f"[music] like: {e}")
         return {"ok": False, "result": str(e)}
@@ -251,14 +236,28 @@ def _ym_dislike_current(title: str, artist: str) -> dict:
         artist_name = track.artists[0].name if track.artists else artist
         return {"ok": True, "result": f"Дизлайк: {artist_name} — {track.title}"}
     except (ImportError, ModuleNotFoundError, RuntimeError) as e:
-        fallback = _browser_music_fallback("dislike")
-        if fallback is not None:
-            return fallback
         log.error(f"[music] dislike: {e}")
-        return {"ok": False, "result": str(e)}
+        return {"ok": False, "result": f"API Яндекс Музыки недоступен: {e}"}
     except Exception as e:
         log.error(f"[music] dislike: {e}")
         return {"ok": False, "result": str(e)}
+
+
+
+def like_current() -> str:
+    """Synchronous API-only entry point for legacy agent commands."""
+    info = get_current_track()
+    if not info or not info.get("title"):
+        return "Неизвестно что играет"
+    return _ym_like_current(info["title"], info.get("artist", "")).get("result", "")
+
+
+def dislike_current() -> str:
+    """Synchronous API-only entry point for legacy agent commands."""
+    info = get_current_track()
+    if not info or not info.get("title"):
+        return "Неизвестно что играет"
+    return _ym_dislike_current(info["title"], info.get("artist", "")).get("result", "")
 
 
 def _ym_history() -> dict:
