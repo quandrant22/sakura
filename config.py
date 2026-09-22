@@ -37,6 +37,7 @@ WS_SECRET = os.getenv("WS_SECRET", "")
 MASTER_DEVICES = set(
     d.strip() for d in os.getenv("MASTER_DEVICES", "laptop,pc").split(",") if d.strip()
 )
+CONFIRM_LISTEN_SEC = float(os.getenv("CONFIRM_LISTEN_SEC", "10"))
 
 # ── Основная текстовая LLM ────────────────────────────────────────
 # ЕДИНАЯ точка задания основной модели для всего кода (main.py и modules/*).

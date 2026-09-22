@@ -134,6 +134,7 @@ class Session:
 
         verdict = check_confirmation(text)
         if verdict is None:
-            return None
+            self._pending = None
+            return p.kind, "deny", p
         self._pending = None
         return p.kind, verdict, p

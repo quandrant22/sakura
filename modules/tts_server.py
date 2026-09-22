@@ -500,12 +500,12 @@ async def _stream_two_stage(first: str, rest: str, websocket, device_id: str,
     return sent
 
 
-async def _send_end(websocket, device_id: str):
+async def _send_end(websocket, device_id: str, listen: float | None = None):
     try:
-        await websocket.send(json.dumps({
-            "type": "tts_end",
-            "device_id": device_id
-        }))
+        payload = {"type": "tts_end", "device_id": device_id}
+        if listen is not None:
+            payload["listen"] = listen
+        await websocket.send(json.dumps(payload))
     except Exception:
         pass
 
@@ -523,6 +523,7 @@ async def stream_tts_to_device(
     literal: bool = False,
     emotion: str = "спокойная",
     stop=None,
+    listen: float | None = None,
 ):
     """Единая точка входа озвучки (голос и все фоновые пути).
 
@@ -554,7 +555,7 @@ async def stream_tts_to_device(
     else:
         sent = await _stream_two_stage(
             parts[0], " ".join(parts[1:]), websocket, device_id, emotion, t0, stop)
-    await _send_end(websocket, device_id)
+    await _send_end(websocket, device_id, listen=listen)
     if sent == -1:
         log.info(f"[TTS] Озвучка прервана по стоп-сигналу | {device_id}")
     else:

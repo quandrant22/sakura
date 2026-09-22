@@ -529,6 +529,7 @@
   executor: agent
   reversible: false
   confirm: true
+  confirm_prompt: 'Перезагружаю?'
   followup: ack
   triggers: ['перезагрузи компьютер', 'перезагрузи пк']
 
@@ -538,6 +539,7 @@
   executor: agent
   reversible: false
   confirm: true
+  confirm_prompt: 'Выключаю?'
   followup: ack
   triggers: ['выключи комп', 'выключи ноут', 'выключи пк', 'выключи компьютер', 'выключи ноутбук', 'завершение работы']
 
@@ -565,6 +567,7 @@
   executor: agent
   reversible: false
   confirm: true
+  confirm_prompt: 'Усыпляю?'
   followup: ack
   triggers: ['спящий режим', 'сон компьютера', 'в сон', 'засыпай', 'уложи спать']
 

@@ -118,7 +118,8 @@ class Executor:
                 self._session.expect("confirm", action=action_id,
                                      device=ctx.device_id or None)
             log.info(f"[executor] confirm: {action_id} → ожидание «да»")
-            return (f"{decl.desc}? Подтверди, пожалуйста.", True)
+            prompt = decl.confirm_prompt or f"{decl.desc}?"
+            return (prompt, True)
 
         fn = _HANDLERS.get(action_id)
         if fn is None:

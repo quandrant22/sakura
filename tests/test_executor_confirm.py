@@ -45,7 +45,7 @@ def _run(coro):
 def test_confirm_action_asks_instead_of_executing():
     ex, session, calls = _make_executor(True, "test.erase.ask")
     result = _run(ex.execute("test.erase.ask", _ctx()))
-    assert result == ("Стереть данные? Подтверди, пожалуйста.", True)
+    assert result == ("Стереть данные?", True)
     assert calls == []  # хендлер не звался — исполнение остановлено
     assert session.pending is not None
     assert session.pending.action == "test.erase.ask"

@@ -119,11 +119,13 @@ def test_pending_expired_falls_through(make_router):
     assert calls == ["да"]
 
 
-def test_pending_survives_unrelated_phrase(make_router):
+def test_pending_unrelated_phrase_cancels_confirmation(make_router):
     router, _ = make_router()
     router.session.expect("confirm", action="vps.status", ttl=60.0)
-    _run(router.route("какая погода"))  # обычная команда — pending живёт
-    assert router.session.pending is not None
+    decision = _run(router.route("какая погода"))
+    assert decision.source == "session"
+    assert decision.verdict == "deny"
+    assert router.session.pending is None
 
 
 def test_confirmation_priority_of_denial():

@@ -127,6 +127,7 @@ class Declaration:
     legacy: tuple[str, ...] = ()
     context: Optional[str] = None
     param: Optional[Param] = None
+    confirm_prompt: Optional[str] = None
 
 
 def _as_strings(value, where: str) -> tuple[str, ...]:
@@ -186,6 +187,9 @@ def declaration_from_dict(raw: dict) -> Declaration:
     for field in REQUIRED_FIELDS:
         if raw.get(field) is None:
             raise RegistryError(f"{where}: отсутствует обязательное поле '{field}'")
+    confirm_prompt = raw.get("confirm_prompt")
+    if confirm_prompt is not None and not isinstance(confirm_prompt, str):
+        raise RegistryError(f"{where}: confirm_prompt должен быть строкой")
     return Declaration(
         id=decl_id,
         desc=str(raw["desc"]),
@@ -197,6 +201,7 @@ def declaration_from_dict(raw: dict) -> Declaration:
         legacy=_as_strings(raw.get("legacy"), where),
         context=raw.get("context"),
         param=_parse_param(raw.get("param"), where),
+        confirm_prompt=confirm_prompt,
     )
 
 

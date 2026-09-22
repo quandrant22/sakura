@@ -355,6 +355,12 @@ class Agent:
                 elif kind == "tts_end":
                     self.player.flush()
                     self.set_state("idle")
+                    listen = data.get("listen")
+                    if listen is not None:
+                        try:
+                            self.hearing.open_followup(float(listen))
+                        except (TypeError, ValueError):
+                            log.warning("Некорректное окно прослушивания: %r", listen)
 
                 elif kind == "reply":
                     text = (data.get("text") or "").strip()

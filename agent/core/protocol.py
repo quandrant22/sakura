@@ -152,6 +152,7 @@ class TTSChunk(Action):
 class TTSEnd(Action):
     """End of TTS stream."""
     type: str = "tts_end"
+    listen: float | None = None
 
 
 @dataclass

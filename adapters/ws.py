@@ -354,10 +354,11 @@ async def handle_voice_command(websocket, data, ctx) -> None:
 
     try:
         from sakura_core.bridge import v3_fast_path
-        async def _v3_speak(phrase: str):
+        async def _v3_speak(phrase: str, listen=None):
             if ws_dev:
                 await stream_tts_to_device(
-                    phrase, ws_dev, device_id or "laptop", literal=True)
+                    phrase, ws_dev, device_id or "laptop", literal=True,
+                    listen=listen)
         if await v3_fast_path(text, data=data, device_ws=ws_dev,
                               device_id=device_id,
                               register_command=ctx.get("_register_command"),

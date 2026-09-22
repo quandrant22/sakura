@@ -11,6 +11,7 @@ v3_fast_path до своей диспетчеризации. На этапе 5 �
 from __future__ import annotations
 
 import logging
+import config
 
 from sakura_core.executor import ExecutionContext, Executor, get_handler
 from sakura_core.llm import make_llm_classify
@@ -165,12 +166,22 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
     if isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], str):
         reply = result[0]
     if reply:
-        for deliver in (ack, speak):
-            if deliver is None:
-                continue
+        confirm_listen = None
+        router = get_router()
+        session = getattr(router, "session", None)
+        pending = session.pending if session is not None else None
+        if speak is not None and pending is not None and pending.kind == "confirm":
+            confirm_listen = config.CONFIRM_LISTEN_SEC
+        if ack is not None:
             try:
-                await deliver(reply)
-                break
+                await ack(reply)
+            except Exception as e:
+                log.debug(f"[v3] ответ не доставлен: {type(e).__name__}: {e}")
+        elif speak is not None:
+            try:
+                await speak(reply, listen=confirm_listen)
+            except TypeError:
+                await speak(reply)
             except Exception as e:
                 log.debug(f"[v3] ответ не доставлен: {type(e).__name__}: {e}")
     elif ack is not None and (speak is None or followup_for(decision.action) == "ack"):
