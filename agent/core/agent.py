@@ -645,20 +645,10 @@ class Agent:
             _mod.set_agent_loop(asyncio.get_event_loop())
 
             def _run_ext_server():
-                import asyncio as _aio, time as _ti
-                while True:
-                    try:
-                        _loop = _aio.new_event_loop()
-                        _aio.set_event_loop(_loop)
-                        _loop.run_until_complete(_mod.start())
-                    except Exception as _e:
-                        log.warning(f"[extension] Сервер упал: {_e}, перезапуск через 5с")
-                        _ti.sleep(5)
-                    finally:
-                        try:
-                            _loop.close()
-                        except Exception:
-                            pass
+                # Цикл с нарастающим перезапуском живёт в extension_server
+                # (run_forever): пауза при любом завершении start(), 5/10/30/60,
+                # сброс после минуты стабильной работы. Тестируется напрямую.
+                _mod.run_forever(start=_mod.start)
 
             _ext_thread = _th.Thread(target=_run_ext_server, daemon=True, name="extension-server")
             _ext_thread.start()

@@ -25,6 +25,18 @@ TTS_SPEED = float(os.getenv("TTS_SPEED", "1.0"))
 YANDEX_API_KEY   = os.getenv("YANDEX_API_KEY", "")
 YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID", "")
 
+# ── Локальный WS-сервер расширения браузера ─────────────────────────
+# Агент занимает первый свободный порт из списка; расширение перебирает
+# тот же список (agent/extension/background.js). Исторический 8766 может
+# занять любая программа — VS Code держал его, и агент без паузы ретраил
+# привязку каждые ~10 мс, сжигая ядро CPU. Переопределяется в .env:
+#   EXTENSION_PORTS=8766,8767,8768,8769
+EXTENSION_PORTS = tuple(
+    int(p.strip())
+    for p in os.getenv("EXTENSION_PORTS", "8766,8767,8768,8769").split(",")
+    if p.strip()
+)
+
 # ── Пути ────────────────────────────────────────────────────────────
 BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
 APPS_FILE = os.path.join(BASE_DIR, "apps.json")

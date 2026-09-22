@@ -6,7 +6,13 @@
  *   управление окнами, mute/pin, reader mode, и т.д.
  */
 
-const WS_URL       = "ws://127.0.0.1:8766";
+// Агент занимает первый свободный порт из списка (agent/config.py:
+// EXTENSION_PORTS, .env override). Перебираем те же порты по порядку и
+// проверяем, что на том конце Сакура: агент после подключения первым
+// шлёт sakura_hello. Без проверки расширение подключалось бы к чужому
+// сокету (VS Code держал 8766) и слало бы ему команды в никуда.
+const PORTS = [8766, 8767, 8768, 8769];
+const HELLO_TIMEOUT_MS = 1000;
 
 // Реконнект с экспоненциальным бэкоффом: если агент не запущен,
 // не стучимся в порт каждые 3 секунды бесконечно
@@ -18,46 +24,84 @@ let connected = false;
 
 // ── WebSocket ──────────────────────────────────────────────────────
 
-function connect() {
+function connect(portIdx = 0) {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
     return;
   }
-  try {
-    ws = new WebSocket(WS_URL);
-  } catch (e) {
-    setTimeout(connect, reconnectDelay);
+  if (portIdx >= PORTS.length) {
+    // Ни один порт не ответил как Сакура — ждём и начинаем с начала.
+    console.log("[Sakura] Агент не найден ни на одном порту из", PORTS,
+                "— повтор через", reconnectDelay, "мс");
+    setTimeout(() => connect(0), reconnectDelay);
     reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX);
+    return;
+  }
+  const url = `ws://127.0.0.1:${PORTS[portIdx]}`;
+  try {
+    ws = new WebSocket(url);
+  } catch (e) {
+    console.log("[Sakura] Не удалось открыть", url, e && e.message);
+    setTimeout(() => connect(portIdx + 1), 50);
     return;
   }
 
   ws.onopen = () => {
-    connected = true;
-    reconnectDelay = 3000;
-    console.log("[Sakura] Подключено к агенту");
-    send({ type: "extension_ready", version: "3.0.0" });
+    // Ждём sakura_hello не дольше секунды: не пришло или пришло другое —
+    // на этом порту не Сакура, закрываем и пробуем следующий порт.
+    const sock = ws;
+    const timer = setTimeout(() => {
+      console.log("[Sakura]", url, "— нет sakura_hello, пробую следующий порт");
+      try { sock.close(); } catch (_) {}
+      ws = null;
+      connect(portIdx + 1);
+    }, HELLO_TIMEOUT_MS);
+    sock.addEventListener("message", function onHello(event) {
+      let msg = null;
+      try { msg = JSON.parse(event.data); } catch (_) { return; }
+      if (!msg || msg.type !== "sakura_hello") {
+        return; // не приветствие — игнорируем, ждём дальше
+      }
+      clearTimeout(timer);
+      sock.removeEventListener("message", onHello);
+      sock.onmessage = handleMessages;
+      connected = true;
+      reconnectDelay = 3000;
+      console.log("[Sakura] Подключено к агенту:", url,
+                  "версия", msg.version || "?");
+      send({ type: "extension_ready", version: "3.0.0" });
+    });
   };
 
-  ws.onmessage = async (event) => {
-    let msg;
-    try { msg = JSON.parse(event.data); } catch { return; }
+  ws.onclose = () => {
+    // Сюда попадаем и при отказе порта (чужой сокет закрыл соединение).
+    // Если hello уже принят, onclose — обычный обрыв: реконнект с начала.
+    const wasConnected = connected;
+    connected = false;
+    ws = null;
+    if (wasConnected) {
+      console.log("[Sakura] Обрыв — реконнект через", reconnectDelay, "мс");
+      setTimeout(() => connect(0), reconnectDelay);
+      reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX);
+    } else {
+      connect(portIdx + 1);
+    }
+  };
+
+  ws.onerror = (e) => {
+    console.log("[Sakura] Ошибка WS:", url, e && e.message);
+    if (ws) { try { ws.close(); } catch (_) {} }
+  };
+}
+
+function handleMessages(event) {
+  let msg;
+  try { msg = JSON.parse(event.data); } catch { return; }
+  (async () => {
     const result = await handleCommand(msg);
     if (result !== undefined) {
       send({ type: "extension_result", id: msg.id, action: msg.action, result });
     }
-  };
-
-  ws.onclose = () => {
-    connected = false;
-    console.log("[Sakura] Обрыв — реконнект через", reconnectDelay, "мс");
-    ws = null;
-    setTimeout(connect, reconnectDelay);
-    reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX);
-  };
-
-  ws.onerror = (e) => {
-    console.log("[Sakura] Ошибка WS:", e && e.message);
-    if (ws) { try { ws.close(); } catch (_) {} }
-  };
+  })();
 }
 
 function send(data) {
