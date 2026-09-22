@@ -28,6 +28,7 @@ from core.eyes import get_active_window, get_system_info
 from core.hands import execute_command, scan_apps, init_index
 from core.hands import hotkey as _hotkey, type_text as _type_text
 from core.hands import focus_window as _focus_window, powershell as _powershell
+from core.hands import switch_to_app as _switch_to_app
 from core.hearing import Hearing
 from core.voice import Player
 from core.local_mood import LocalMood
@@ -136,6 +137,8 @@ def _legacy_action(action: str, arg: str = "") -> str:
     if action == "open.app":
         target = arg or "яндекс музыка"
         return f"open_app:{target}"
+    if action == "app.switch":
+        return f"switch_to_app:{arg}" if arg else "switch_to_app:"
     # system.* → system:<verb> (execute_command, verb "system"): опасные
     # системные действия переехали в реестр на этапе 5, подтверждение
     # спрашивает сервер (executor, confirm: true) — агент выключает сразу.
@@ -428,6 +431,11 @@ class Agent:
 
         if action.startswith("focus_window:"):
             result = await asyncio.to_thread(_focus_window, action[13:])
+            await _send_ack(result.get("ok", False), result.get("detail", ""))
+            return
+
+        if action.startswith("switch_to_app:"):
+            result = await asyncio.to_thread(_switch_to_app, action[14:])
             await _send_ack(result.get("ok", False), result.get("detail", ""))
             return
 

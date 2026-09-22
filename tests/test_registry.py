@@ -50,8 +50,8 @@ def index(registry):
 # --- загрузка и валидация -------------------------------------------------
 
 
-def test_load_returns_85_declarations(registry):
-    assert len(registry) == 85
+def test_load_returns_86_declarations(registry):
+    assert len(registry) == 86
 
 
 def test_validate_passes_on_real_registry(registry):
@@ -388,7 +388,7 @@ def test_execute_decision_forwards_param():
     """
     import asyncio
 
-    import sakura_core.bridge as bridge
+    from sakura_core import bridge
     from sakura_core.executor import AgentCommand, register_table
     from sakura_core.router import Decision
 
@@ -427,6 +427,55 @@ def test_kettle_heat_bakes_temp_into_action():
 
     cmd = KETTLE_COMMANDS["kettle.heat"](ExecutionContext(param="60"))
     assert cmd.action == "kettle:heat:60"
+
+
+def test_app_switch_routes_with_app_param(index):
+    """«переключись на дискорд» → app.switch, param='дискорд'."""
+    result = index.match("переключись на дискорд")
+    assert result is not None
+    assert result[1].id == "app.switch"
+    assert result[2] == "дискорд"
+
+
+def test_app_switch_bare_verb_needs_clarify(index):
+    """Голый «открой» → app.switch с needs_clarify (required: ask)."""
+    result = index.match("открой")
+    assert result is not None
+    assert result[1].id == "app.switch"
+    assert result[3] is True
+
+
+def test_app_switch_longer_trigger_wins(index):
+    """«открой яндекс музыку» → open.app, а не app.switch по «открой»."""
+    result = index.match("открой яндекс музыку")
+    assert result is not None
+    assert result[1].id == "open.app"
+
+
+def test_app_switch_handler_bakes_app_into_wire():
+    """app.switch подставляет param в провод (формат агента)."""
+    import asyncio
+    import json as _json
+
+    from sakura_core import bridge
+    from sakura_core.router import Decision
+
+    class _FakeWS:
+        sent = None
+
+        async def send(self, payload):
+            self.sent = payload
+
+    ws = _FakeWS()
+    decision = Decision("app.switch", "registry_fuzzy", param="дискорд")
+    executed, _ = asyncio.get_event_loop().run_until_complete(
+        bridge.execute_decision(
+            decision, device_ws=ws, device_id="laptop",
+            register_command=None, text="переключись на дискорд"))
+    assert executed is True
+    payload = _json.loads(ws.sent)
+    assert payload["action"] == "switch_to_app"
+    assert payload["arg"] == "дискорд"
 # ─ развязка этапа 7: восемь id получили исполнение ─────────────────────────
 
 

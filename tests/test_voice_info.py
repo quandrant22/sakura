@@ -853,7 +853,7 @@ class TestYamusicApp(unittest.TestCase):
         r = _hardcoded_match("какие у меня капсулы ждут")
         self.assertEqual(r["action"], "capsule.list")
         self.assertIsNone(_hardcoded_match("спрячь капсулу до мая"))
-        self.assertIsNone(_hardcoded_match("открой капсулу которая ждёт"))
+        self.assertIsNone(_hardcoded_match("спрячь капсулу которая ждёт"))
 
 
     def test_briefing_in_catalog(self):

@@ -689,6 +689,9 @@ def execute_command(action: str) -> dict:
     verb, _, arg = action.partition(":")
     verb = verb.strip()
     if verb == "open_app":      return {"result": open_app(arg)}
+    if verb == "switch_to_app":
+        r = switch_to_app(arg)
+        return {"result": r.get("detail", "")}
     if verb == "rescan_apps":
         scan_apps(force=True)
         return {"result": "пересканировала приложения"}
@@ -885,48 +888,182 @@ def type_text(text: str) -> dict:
         return {"ok": False, "detail": f"ошибка вставки: {e}"}
 
 
-def focus_window(name: str) -> dict:
-    """Найти окно по подстроке заголовка и активировать его."""
-    name_lower = name.strip().lower()
-    if not name_lower:
-        return {"ok": False, "detail": "пустое имя окна"}
-
-    # Попытка через win32gui
-    if win32gui:
-        found_hwnd = None
-        found_title = None
-
-        def _cb(hwnd, _):
-            nonlocal found_hwnd, found_title
-            if win32gui.IsWindowVisible(hwnd):
-                title = win32gui.GetWindowText(hwnd)
-                if title and name_lower in title.lower():
-                    found_hwnd = hwnd
-                    found_title = title
-
+def _activate_hwnd(hwnd) -> bool:
+    """Вывести окно вперёд с обходом блокировки переднего плана Windows."""
+    if not win32gui:
+        return False
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        SW_RESTORE = 9
+        VK_MENU = 0x12
+        KEYEVENTF_KEYUP = 0x0002
         try:
-            win32gui.EnumWindows(_cb, None)
+            if win32gui.IsIconic(hwnd):
+                win32gui.ShowWindow(hwnd, SW_RESTORE)
+        except Exception:
+            pass
+        try:
+            fg = user32.GetForegroundWindow()
+            fg_tid = user32.GetWindowThreadProcessId(fg, None) if fg else 0
+            cur_tid = user32.GetCurrentThreadId()
+            attached = False
+            if fg and fg_tid and fg_tid != cur_tid:
+                try:
+                    attached = bool(user32.AttachThreadInput(cur_tid, fg_tid, True))
+                except Exception:
+                    attached = False
+            try:
+                user32.keybd_event(VK_MENU, 0, 0, 0)
+                user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
+            except Exception:
+                pass
+            try:
+                win32gui.BringWindowToTop(hwnd)
+            except Exception:
+                pass
+            try:
+                win32gui.SetForegroundWindow(hwnd)
+            finally:
+                if attached:
+                    try:
+                        user32.AttachThreadInput(cur_tid, fg_tid, False)
+                    except Exception:
+                        pass
+        except Exception:
+            win32gui.SetForegroundWindow(hwnd)
+        try:
+            return user32.GetForegroundWindow() == hwnd
+        except Exception:
+            return True
+    except Exception:
+        return False
+
+
+def _hwnds_for_pids(pids: set[int]) -> list[tuple[int, str]]:
+    """Видимые главные окна для заданных PID (не всплывающие)."""
+    if not win32gui or not pids:
+        return []
+    import win32process
+    found: list[tuple[int, str]] = []
+
+    def _cb(hwnd, _):
+        try:
+            if not win32gui.IsWindowVisible(hwnd):
+                return
+            try:
+                _, pid = win32process.GetWindowThreadProcessId(hwnd)
+            except Exception:
+                return
+            if pid not in pids:
+                return
+            title = win32gui.GetWindowText(hwnd)
+            if not title:
+                return
+            try:
+                import win32con as _wc
+                style = win32gui.GetWindowLong(hwnd, _wc.GWL_STYLE)
+                if (style & _wc.WS_POPUP) and not (style & _wc.WS_CAPTION):
+                    return
+                if win32gui.GetParent(hwnd):
+                    return
+            except Exception:
+                pass
+            found.append((hwnd, title))
         except Exception:
             pass
 
-        if found_hwnd:
-            try:
-                win32gui.SetForegroundWindow(found_hwnd)
-                return {"ok": True, "detail": f"фокус: {found_title}"}
-            except Exception as e:
-                return {"ok": False, "detail": f"не удалось активировать окно: {e}"}
+    try:
+        win32gui.EnumWindows(_cb, None)
+    except Exception:
+        pass
+    return found
 
-    # Fallback через pyautogui
-    if pyautogui:
+
+def _resolve_exe_names(name: str) -> tuple[str, str, set[str]]:
+    """Разговорное имя → (real_key, target, кандидаты .exe).
+
+    Использует тот же _resolve_target_with_name, что и open_app:
+    русские имена («дискорд») резолвятся в латинские записи кэша
+    («discord»), заголовки окон с меняющимся текстом (браузер)
+    вообще не участвуют в поиске.
+    """
+    resolved = _resolve_target_with_name(name)
+    if resolved is None:
+        return ("", "", set())
+    real_key, target = resolved
+    names: set[str] = set()
+    base = (real_key or "").strip().lower()
+    if base:
+        names.add(base)
+        names.add(base + ".exe")
+    low = (target or "").lower()
+    if not low.startswith(("shell:", "steam:", "http://", "https://")):
         try:
-            wins = pyautogui.getWindowsWithTitle(name)
-            if wins:
-                wins[0].activate()
-                return {"ok": True, "detail": f"фокус: {wins[0].title}"}
-        except Exception as e:
-            return {"ok": False, "detail": f"pyautogui фокус: {e}"}
+            stem = os.path.splitext(os.path.basename(target.strip().strip('"')))[0].lower()
+            if stem:
+                names.add(stem)
+                names.add(stem + ".exe")
+        except Exception:
+            pass
+    return (real_key, target, {n for n in names if n})
 
-    return {"ok": False, "detail": f"окно не найдено: {name}"}
+
+def _pids_by_exe_names(exe_names: set[str]) -> set[int]:
+    """PID процессов, чьи исполняемые файлы совпадают с exe_names (tasklist)."""
+    pids: set[int] = set()
+    if not exe_names:
+        return pids
+    wanted = {n.lower() for n in exe_names}
+    try:
+        import csv as _csv
+        import io as _io
+        out = subprocess.run(
+            ["tasklist", "/FO", "CSV", "/NH"],
+            capture_output=True, timeout=10, check=False,
+        )
+        text = (out.stdout or b"").decode("utf-8", "replace")
+        for row in _csv.reader(_io.StringIO(text)):
+            if len(row) < 2:
+                continue
+            img, pid_s = row[0].strip().lower(), row[1].strip()
+            if img in wanted:
+                try:
+                    pids.add(int(pid_s))
+                except ValueError:
+                    pass
+    except Exception as e:
+        log.debug(f"tasklist: {e}")
+    return pids
+
+
+def switch_to_app(name: str) -> dict:
+    """Открыть или переключиться: запущен -> окно вперёд, нет -> запуск."""
+    query = name.strip()
+    if not query:
+        return {"ok": False, "detail": "пустое имя приложения"}
+    _ensure_app_cache()
+    real_key, target, exe_names = _resolve_exe_names(query)
+    if not real_key:
+        return {"ok": False, "detail": f"не нашла приложение '{query}'"}
+    pretty = _pretty_app_name(real_key)
+    pids = _pids_by_exe_names(exe_names)
+    if pids and win32gui:
+        wins = _hwnds_for_pids(pids)
+        if wins:
+            hwnd, title = wins[0]
+            if _activate_hwnd(hwnd):
+                return {"ok": True, "detail": f"переключилась: {title}"}
+            return {"ok": False,
+                    "detail": f"окно найдено ({title}), не удалось вывести вперёд"}
+    if _launch(target):
+        return {"ok": True, "detail": f"открыла {pretty}"}
+    return {"ok": False, "detail": f"не удалось запустить {pretty}"}
+
+
+def focus_window(name: str) -> dict:
+    """Для обратной совместимости: открыть или переключиться (см. switch_to_app)."""
+    return switch_to_app(name)
 
 
 _POWERSHELL_BLOCKLIST = (

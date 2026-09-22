@@ -82,6 +82,25 @@
   followup: ack
   triggers: ['дублировать вкладку']
 
+- id: app.switch
+  legacy: [switch_to_app]
+  desc: 'Переключиться на приложение или открыть его — открой дискорд, перейди в telegram'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  # Конфликты (разделитель — longest-match; см. test_app_switch_longer_trigger_wins):
+  #   open.app    → 'открой яндекс музыку' (длиннее/специфичнее, выигрывает)
+  #   music.podcasts → 'открой подкасты' (param required: ask → уточняется)
+  #   coding.read_file → 'покажи код' (param required: ask → уточняется)
+  #   files.open → 'открой файл ...' (длиннее, выигрывает)
+  #   'открой капсулу которая ждёт' → app.switch НЕ хватает (required: ask → clarify)
+  triggers: ['переключись на', 'перейди в', 'открой', 'покажи', 'разверни']
+  param:
+    name: app
+    pattern: '(?:переключись на|перейди в|открой|покажи|разверни)\s+(.+)'
+    required: ask
+
 - id: browser.tab_new
   legacy: [browser:tab_new]
   desc: 'Новая вкладка, открыть новую'
