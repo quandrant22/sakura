@@ -101,6 +101,9 @@ async def extract_and_remember(user_message: str, reply: str):
             [types.Content(role="user", parts=[types.Part(text=prompt)])],
             model=MAIN_MODEL,
         )
+        if not r or not r.strip():
+            log.warning("[memory] extraction skipped: LLM returned no response")
+            return
         raw       = r.replace("```json", "").replace("```", "").strip()
         extracted = json.loads(raw)
 
