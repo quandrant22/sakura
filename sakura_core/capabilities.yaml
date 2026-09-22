@@ -374,6 +374,19 @@
   triggers: ['сделай музыку тише', 'тише', 'сделай тише', 'убавь', 'потише', 'убавь звук']
   context: playing:music   # голый триггер неоднозначен — решается контекстом
 
+- id: system.volume
+  legacy: [volume]
+  desc: 'Установить громкость'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['звук на', 'громкость', 'громкость на', 'поставь звук на', 'установи громкость']
+  param:
+    name: level
+    pattern: '(?:звук|громкость)\s+(?:на\s+)?(100|\d{1,2})'
+    required: ask
+
 - id: music.volume_up
   legacy: [music:volume_up]
   desc: 'Громче/тише (без числа)'

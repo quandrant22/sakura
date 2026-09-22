@@ -29,6 +29,7 @@ SYSTEM_AGENT_ACTIONS = (
     "system.restart",
     "system.sleep",
     "system.lock",
+    "system.volume",
 )
 
 SYSTEM_COMMANDS = {aid: AgentCommand(aid) for aid in SYSTEM_AGENT_ACTIONS}
@@ -53,5 +54,16 @@ def _switch_app(ctx) -> AgentCommand:
 
 SYSTEM_COMMANDS["app.switch"] = _switch_app
 SYSTEM_COMMANDS["app.switch_open"] = _switch_app
+
+
+def _set_volume(ctx) -> AgentCommand:
+    """Установить системную громкость на переданный процент."""
+    level = (ctx.param or "").strip()
+    if not level:
+        raise ValueError("system.volume: не извлечён уровень громкости")
+    return AgentCommand("volume", arg=level)
+
+
+SYSTEM_COMMANDS["system.volume"] = _set_volume
 
 register_table(SYSTEM_COMMANDS)
