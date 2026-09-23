@@ -292,7 +292,6 @@ def get_presence(ctx: dict) -> dict:
     activity = m["activity"]
     status   = m["status"]
     loc      = m["location"]
-    silence  = m["silence_minutes"]
     body     = ctx.get("body", {})
 
     if 2 <= hour < 7:
@@ -320,9 +319,8 @@ def get_presence(ctx: dict) -> dict:
         mode, d = "home_free", ("Он дома и свободен. Будь собой полностью — тепло, живо, "
                                 "можешь разговориться, подколоть, увести в сторону.")
 
-    if silence >= 240 and not (2 <= hour < 7):
-        h = silence // 60
-        d += f" Ты не слышала его около {h}ч — при первом ответе мягко это заметь и подхвати, где остановились."
+    # Упоминания долгого молчания убраны из промпта по решению Мастера —
+    # сколько её не было, Сакура не упоминает.
 
     sleep = body.get("sleep_hours")
     if isinstance(sleep, (int, float)) and sleep < 5:
@@ -349,10 +347,6 @@ def build_context_block(active_window_override: str | None = None) -> str:
     }
     if activity_map.get(m["activity"]):
         lines.append(f"АКТИВНОСТЬ: {activity_map[m['activity']]}")
-
-    if m["silence_minutes"] > 0:
-        sm = m["silence_minutes"]
-        lines.append(f"МОЛЧИТ: {sm} мин" if sm < 60 else f"МОЛЧИТ: {sm // 60}ч {sm % 60}мин")
 
     if body:
         bits = []

@@ -23,7 +23,6 @@ from modules.device_manager import update_device
 from modules.window_watcher import update as watcher_update
 from modules.proactive_recs import track_activity as track_rec_activity
 from modules.steam_integration import get_current_game
-from modules.autonomous import update_sprint
 from modules.integrations import (
     should_comment_music, get_current_music_from_window,
     make_music_comment_prompt, mark_music_commented,
@@ -129,15 +128,6 @@ async def handle_ping(websocket, data, ctx) -> None:
         await asyncio.to_thread(track_rec_activity, active_win)
         asyncio.create_task(get_current_game(active_win))
 
-    sys_info = data.get("system_info", {})
-    if sys_info and active_win:
-        sprint_prompt = update_sprint(
-            sys_info.get("cpu", 0), active_win
-        )
-        if sprint_prompt:
-            reply = await ask_gemini(sprint_prompt, save_history=False)
-            if reply:
-                await bot.send_message(MASTER_ID, reply)
 
     import time as _t_music
     if active_win and should_comment_music() and \
