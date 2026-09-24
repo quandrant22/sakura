@@ -18,7 +18,7 @@ log = logging.getLogger("sakura.media")
 
 
 async def handle_voice_impl(message: "Message", *, bot, is_master, get_active_key,
-                             get_client, mark_key_used, ask_gemini, send_as_conversation):
+                             get_client, mark_key_used, ask_gemini, send_as_conversation, **_):
     if not is_master(message.from_user.id):
         return
     await bot.send_chat_action(message.chat.id, "typing")
@@ -70,7 +70,7 @@ async def handle_voice_impl(message: "Message", *, bot, is_master, get_active_ke
 async def handle_photo_impl(message: "Message", *, bot, is_master, get_active_key,
                              get_client, mark_key_used, send_as_conversation,
                              _get_reply_context, get_system_prompt, clean_reply,
-                             add_to_history):
+                             add_to_history, **_):
     if not is_master(message.from_user.id):
         return
     await bot.send_chat_action(message.chat.id, "typing")
@@ -115,7 +115,7 @@ async def handle_photo_impl(message: "Message", *, bot, is_master, get_active_ke
 async def handle_video_impl(message: "Message", *, bot, is_master, get_active_key,
                              get_client, mark_key_used, send_as_conversation,
                              _get_reply_context, get_system_prompt, clean_reply,
-                             add_to_history, log):
+                             add_to_history, log, **_):
     if not is_master(message.from_user.id):
         return
     await bot.send_chat_action(message.chat.id, "upload_video")
@@ -175,7 +175,7 @@ async def handle_video_impl(message: "Message", *, bot, is_master, get_active_ke
 
 async def handle_video_note_impl(message: "Message", *, bot, is_master, get_active_key,
                                   get_client, mark_key_used, send_as_conversation,
-                                  get_system_prompt, clean_reply, add_to_history, log):
+                                  get_system_prompt, clean_reply, add_to_history, log, **_):
     if not is_master(message.from_user.id):
         return
     await bot.send_chat_action(message.chat.id, "typing")

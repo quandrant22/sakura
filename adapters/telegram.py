@@ -103,6 +103,14 @@ async def send_as_conversation(chat_id: int, text: str):
     return await _shared_send_as_conversation(bot, MASTER_ID, chat_id, text)
 
 
+def _master_only(impl, **extra_kw):
+    async def _h(message: Message):
+        if not is_master(message.from_user.id):
+            return
+        await impl(message, **extra_kw)
+    return _h
+
+
 # ── Command handlers ───────────────────────────────────────────
 
 def _register_commands():
@@ -113,12 +121,6 @@ def _register_commands():
         cmd_clean_slate_impl, cmd_guests_impl, cmd_vip_impl, cmd_trusted_impl,
         cmd_users_impl, cmd_unvip_impl, cmd_block_impl,
     )
-    def _master_only(impl, **extra_kw):
-        async def _h(message: Message):
-            if not is_master(message.from_user.id):
-                return
-            await impl(message, **extra_kw)
-        return _h
     dp.message(Command("помощь"))(_master_only(cmd_help_impl))
     dp.message(Command("health"))(_master_only(cmd_health_impl))
     dp.message(Command("restart"))(_master_only(cmd_restart_impl))
@@ -350,22 +352,24 @@ async def handle_message(message: Message):
 
 # ── Media handlers ─────────────────────────────────────────────
 
+def _media_handler(impl, **extra_kw):
+    async def _h(message: Message):
+        await impl(message, bot=bot, is_master=is_master,
+                   get_active_key=get_active_key, get_client=get_client,
+                   mark_key_used=mark_key_used, ask_gemini=ask_gemini,
+                   send_as_conversation=send_as_conversation,
+                   _get_reply_context=_get_reply_context,
+                   get_system_prompt=get_system_prompt,
+                   clean_reply=clean_reply, add_to_history=add_to_history,
+                   log=log, **extra_kw)
+    return _h
+
+
 def _register_media():
     from adapters.media import (
         handle_voice_impl, handle_photo_impl,
         handle_video_impl, handle_video_note_impl,
     )
-    def _media_handler(impl, **extra_kw):
-        async def _h(message: Message):
-            await impl(message, bot=bot, is_master=is_master,
-                       get_active_key=get_active_key, get_client=get_client,
-                       mark_key_used=mark_key_used, ask_gemini=ask_gemini,
-                       send_as_conversation=send_as_conversation,
-                       _get_reply_context=_get_reply_context,
-                       get_system_prompt=get_system_prompt,
-                       clean_reply=clean_reply, add_to_history=add_to_history,
-                       log=log, **extra_kw)
-        return _h
     dp.message(F.voice)(_media_handler(handle_voice_impl))
     dp.message(F.photo)(_media_handler(handle_photo_impl))
     dp.message(F.video)(_media_handler(handle_video_impl))
