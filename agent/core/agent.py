@@ -553,7 +553,7 @@ class Agent:
                     log.info(f"[yt] {action} via extension → {result}")
                 else:
                     from core.browser import youtube_player_cmd
-                    result = youtube_player_cmd(action)
+                    result = await asyncio.to_thread(youtube_player_cmd, action)
                     log.info(f"[yt] {action} via hotkey → {result}")
                 await _send_ack(True, str(result))
             except Exception as e:
