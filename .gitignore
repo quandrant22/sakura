@@ -47,6 +47,7 @@ memory/muiv_schedule.json
 memory/users.json
 memory/devices.json
 memory/guest_relations.json
+memory/sakura_taste.json
 
 # Файловый индекс (большой, генерируется локально)
 file_index.json
