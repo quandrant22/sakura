@@ -65,3 +65,53 @@ def test_non_confirm_action_executes_immediately():
     assert result == ("стёрла", True)
     assert len(calls) == 1
     assert session.pending is None
+
+
+def test_coding_confirm_executes_only_after_router_accepts_yes(monkeypatch):
+    import capabilities.coding as cap
+    import sakura_core.bridge as bridge
+    from sakura_core.registry import load
+    from sakura_core.router import Router
+
+    declarations = load()
+    calls = []
+
+    async def _fake_mimo(prompt):
+        calls.append(prompt)
+        return {"ok": True, "output": "изменение выполнено", "error": ""}
+
+    monkeypatch.setattr(cap, "mimo_fix", _fake_mimo)
+    by_id = {decl.id: decl for decl in declarations}
+
+    async def _exercise(action_id, text):
+        call_count = len(calls)
+        router = Router(declarations=declarations, llm_classify=None)
+        executor = Executor(session=router.session, declarations=declarations)
+        monkeypatch.setattr(bridge, "_router", router)
+        monkeypatch.setattr(bridge, "_executor", executor)
+
+        requested = await router.route(text)
+        assert requested.action == action_id
+        handled, result = await bridge.execute_decision(
+            requested, device_ws=None, device_id="tg",
+            register_command=None, text=text)
+        assert handled is True
+        assert result[0] == by_id[action_id].confirm_prompt
+        assert len(calls) == call_count
+
+        confirmed = await router.route("да")
+        assert confirmed.action == action_id
+        assert confirmed.source == "session"
+        handled, result = await bridge.execute_decision(
+            confirmed, device_ws=None, device_id="tg",
+            register_command=None, text=text)
+        assert handled is True
+        assert result == ("изменение выполнено", True)
+
+    async def _scenario():
+        await _exercise("coding.create_module", "создай модуль тестовый")
+        assert len(calls) == 1
+        await _exercise("coding.fix", "исправь баг в коде тестовый")
+        assert len(calls) == 2
+
+    _run(_scenario())

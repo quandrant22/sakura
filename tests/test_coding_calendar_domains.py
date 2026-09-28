@@ -12,6 +12,7 @@ verb'у агента open_file — без правок агента.
 """
 
 import asyncio
+import subprocess
 
 import pytest
 
@@ -86,8 +87,34 @@ def test_coding_git_status_passes_project_dir(monkeypatch):
 
     text, ok = _run(get_handler("coding.git_status")(ExecutionContext()))
     assert ok is True
-    assert seen == {"cmd": "git status --short", "cwd": cap_coding.PROJECT_DIR}
+    assert seen == {"cmd": ["git", "status", "--short"], "cwd": cap_coding.PROJECT_DIR}
     assert "file.py" in text
+
+
+def test_git_commit_message_is_passed_literally(tmp_path, monkeypatch):
+    """Shell metacharacters in a commit message remain ordinary message text."""
+    for args in (
+        ["git", "init", "--quiet"],
+        ["git", "config", "user.name", "Test User"],
+        ["git", "config", "user.email", "test@example.invalid"],
+    ):
+        subprocess.run(args, cwd=tmp_path, check=True, shell=False)
+    (tmp_path / "tracked.txt").write_text("content\n", encoding="utf-8")
+    monkeypatch.setattr(cap_coding, "PROJECT_DIR", str(tmp_path))
+
+    message = 'fix "quotes" $(whoami); echo'
+    text, ok = _run(cap_coding.git_commit_result(message))
+
+    assert ok is True, text
+    saved_message = subprocess.run(
+        ["git", "log", "-1", "--format=%s"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+        shell=False,
+    ).stdout.removesuffix("\n")
+    assert saved_message == message
 
 
 def test_coding_build_without_android_project_is_honest(monkeypatch):
