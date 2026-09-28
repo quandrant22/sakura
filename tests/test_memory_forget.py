@@ -5,6 +5,7 @@ tests/test_memory_forget.py — «забудь про Х»: подтвержде
 Run: python3 -m pytest tests/test_memory_forget.py -q
 """
 import os
+import asyncio
 import unittest
 from unittest.mock import patch
 
@@ -19,7 +20,7 @@ from sakura_core.router import Router
 
 def route(phrase):
     _load_capabilities()
-    return Router().route(phrase)
+    return asyncio.run(Router().route(phrase))
 
 
 

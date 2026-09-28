@@ -81,3 +81,49 @@ def test_stream_tokens_accepts_safety_thinking():
     sig = inspect.signature(stream_tokens)
     assert "safety" in sig.parameters, "stream_tokens() missing 'safety' parameter"
     assert "thinking" in sig.parameters, "stream_tokens() missing 'thinking' parameter"
+
+
+def test_voice_contents_respect_voice_history_limit(monkeypatch):
+    import asyncio
+    import config
+    from config import VOICE_HISTORY_LIMIT
+    from memory import memory
+    from modules import web_search
+    from sakura_core import llm
+
+    history = [
+        {"role": "user", "parts": [f"message {index}"]}
+        for index in range(VOICE_HISTORY_LIMIT + 5)
+    ]
+    monkeypatch.setattr(memory, "get_history", lambda: history)
+    monkeypatch.setattr(memory, "add_to_history", lambda *_args: None)
+    monkeypatch.setattr(config, "get_active_key", lambda: "test-key")
+    monkeypatch.setattr(config, "mark_key_used", lambda *_args: None)
+    monkeypatch.setattr(web_search, "needs_search", lambda _text: False)
+
+    async def fake_build_system(**_kwargs):
+        return "system"
+
+    async def fake_generate(*_args, **_kwargs):
+        return "Готово."
+
+    monkeypatch.setattr(llm, "_build_system", fake_build_system)
+    monkeypatch.setattr(llm, "generate", fake_generate)
+    seen = {}
+    build_contents = llm._build_contents
+
+    def capture_contents(*args, **kwargs):
+        contents = build_contents(*args, **kwargs)
+        seen["count"] = len(contents)
+        seen["history_limit"] = kwargs["history_limit"]
+        return contents
+
+    monkeypatch.setattr(llm, "_build_contents", capture_contents)
+    monkeypatch.setattr(
+        llm, "spawn", lambda coroutine, **_kwargs: coroutine.close()
+    )
+
+    asyncio.run(llm.ask_gemini_voice("сделай громче"))
+
+    assert seen["history_limit"] == VOICE_HISTORY_LIMIT
+    assert seen["count"] <= VOICE_HISTORY_LIMIT + 1

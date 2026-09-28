@@ -7,6 +7,8 @@ Run: python -m pytest tests/test_registry.py -q
 триггер, context, param.resolve: installed_apps) и каталог для LLM.
 """
 
+import asyncio
+
 import pytest
 
 from sakura_core.registry import (
@@ -50,8 +52,9 @@ def index(registry):
 # --- загрузка и валидация -------------------------------------------------
 
 
-def test_load_returns_87_declarations(registry):
-    assert len(registry) == 87
+def test_load_returns_88_declarations(registry):
+    # system.volume was intentionally added in commit 5fe1b3f.
+    assert len(registry) == 88
 
 
 def test_validate_passes_on_real_registry(registry):
@@ -408,9 +411,8 @@ def test_execute_decision_forwards_param():
 
     ws = _FakeWS()
     decision = Decision("test.param_echo", "registry_exact", param="42")
-    # get_event_loop().run_until_complete — как в остальных тестах: asyncio.run()
-    # закрыл бы общий loop и сломал легаси-хелперы других файлов (3.12).
-    executed, _ = asyncio.get_event_loop().run_until_complete(
+    # asyncio.run() creates and closes an event loop for this operation.
+    executed, _ = asyncio.run(
         bridge.execute_decision(
             decision, device_ws=ws, device_id="laptop",
             register_command=None, text="тест"))
@@ -473,7 +475,7 @@ def test_app_switch_handler_bakes_app_into_wire():
 
     ws = _FakeWS()
     decision = Decision("app.switch", "registry_fuzzy", param="дискорд")
-    executed, _ = asyncio.get_event_loop().run_until_complete(
+    executed, _ = asyncio.run(
         bridge.execute_decision(
             decision, device_ws=ws, device_id="laptop",
             register_command=None, text="переключись на дискорд"))
@@ -579,7 +581,7 @@ def test_router_does_not_hijack_non_apps(installed_apps):
     router = Router()
     for phrase in ("покажи погоду", "открой ютуб", "открой github.com",
                    "открой сайт хабр", "покажи ачивки", "покажи задачи"):
-        d = router.route(phrase)
+        d = asyncio.run(router.route(phrase))
         assert d.action not in _APP_SWITCH_IDS, (phrase, d.action)
 
 
@@ -589,11 +591,11 @@ def test_router_installed_app_routes_to_switch_family(installed_apps):
     from sakura_core.router import Router
     installed_apps(_APPS, extra=_ALIASES)
     router = Router()
-    d = router.route("открой дискорд")
+    d = asyncio.run(router.route("открой дискорд"))
     assert d.action == "app.switch_open" and d.param == "дискорд"
-    d = router.route("покажи стим")
+    d = asyncio.run(router.route("покажи стим"))
     assert d.action == "app.switch_open" and d.param == "стим"
-    d = router.route("переключись на что угодно")
+    d = asyncio.run(router.route("переключись на что угодно"))
     assert d.action == "app.switch" and d.param == "что угодно"
 
 

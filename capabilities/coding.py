@@ -41,18 +41,6 @@ MIMO_BIN = os.path.expanduser("~/.mimocode/bin/mimo")
 PROJECT_DIR = "/opt/sakura"
 ANDROID_PROJECT = os.getenv("ANDROID_PROJECT", "")  # Путь к проекту Android
 
-# Опасные команды — запрещены
-DANGEROUS_COMMANDS = [
-    "rm -rf /",
-    "rm -rf ~",
-    "mkfs",
-    "dd if=",
-    ":(){:|:&};:",  # fork bomb
-    "chmod -R 777 /",
-    "wget | bash",
-    "curl | bash",
-]
-
 # Префикс, которым read_file сообщает о недоступности источника (см. ниже).
 READ_ERROR_PREFIX = "Ошибка чтения:"
 
@@ -144,23 +132,12 @@ async def edit_file(path: str, old_text: str, new_text: str) -> bool:
 
 # ── Команды и git ───────────────────────────────────────────────────
 
-async def run_command(cmd: str, timeout: int = 60,
+async def run_command(cmd: list[str], timeout: int = 60,
                       cwd: Optional[str] = None) -> dict:
-    """Выполняет shell-команду на сервере.
-
-    cwd добавлен при переносе (этап 7E): git_* и android_build вызывали
-    run_command(..., cwd=PROJECT_DIR) ещё в modules/coding.py, но такого
-    параметра не было — TypeError на каждом вызове. subprocess.run вынесен
-    в поток: команда с timeout=600 не должна держать event loop.
-    """
-    # Проверка на опасные команды
-    for dangerous in DANGEROUS_COMMANDS:
-        if dangerous in cmd:
-            return {"ok": False, "output": "", "error": "Опасная команда запрещена"}
-
+    """Выполняет команду как argv, без shell-интерпретации аргументов."""
     try:
         result = await asyncio.to_thread(
-            subprocess.run, cmd, shell=True, capture_output=True,
+            subprocess.run, cmd, shell=False, capture_output=True,
             text=True, timeout=timeout, cwd=cwd,
         )
         return {
@@ -176,7 +153,7 @@ async def run_command(cmd: str, timeout: int = 60,
 
 async def git_status_result() -> tuple[str, bool]:
     """Статус git с честным ok: ok=False — команда не выполнилась."""
-    r = await run_command("git status --short", cwd=PROJECT_DIR)
+    r = await run_command(["git", "status", "--short"], cwd=PROJECT_DIR)
     if not r["ok"]:
         return (f"git status не выполнился: {r['error'].strip()[:200]}", False)
     return (r["output"].strip() or "Изменений нет — рабочее дерево чистое.", True)
@@ -184,10 +161,10 @@ async def git_status_result() -> tuple[str, bool]:
 
 async def git_commit_result(message: str) -> tuple[str, bool]:
     """Коммит с честным ok: ok=False — git вернул ошибку."""
-    add = await run_command("git add -A", cwd=PROJECT_DIR)
+    add = await run_command(["git", "add", "-A"], cwd=PROJECT_DIR)
     if not add["ok"]:
         return (f"git add не выполнился: {add['error'].strip()[:200]}", False)
-    r = await run_command(f'git commit -m "{message}"', cwd=PROJECT_DIR)
+    r = await run_command(["git", "commit", "-m", message], cwd=PROJECT_DIR)
     if not r["ok"]:
         detail = (r["error"] or r["output"]).strip()[:300]
         return (f"Коммит не сделан: {detail}", False)
@@ -203,7 +180,7 @@ async def git_status() -> str:
 
 async def git_diff() -> str:
     """Разница изменений."""
-    r = await run_command("git diff", cwd=PROJECT_DIR)
+    r = await run_command(["git", "diff"], cwd=PROJECT_DIR)
     return r["output"] if r["ok"] else r["error"]
 
 
@@ -215,7 +192,7 @@ async def git_commit(message: str) -> str:
 
 async def git_push() -> str:
     """Пушит в remote."""
-    r = await run_command("git push", cwd=PROJECT_DIR)
+    r = await run_command(["git", "push"], cwd=PROJECT_DIR)
     return r["output"] if r["ok"] else r["error"]
 # ── Автоинтеграция модулей ──────────────────────────────────────────
 
@@ -299,7 +276,7 @@ async def android_build() -> dict:
     if not os.path.isfile(gradlew):
         return {"ok": False, "error": "gradlew не найден"}
 
-    r = await run_command(f"{gradlew} assembleDebug", cwd=ANDROID_PROJECT, timeout=600)
+    r = await run_command([gradlew, "assembleDebug"], cwd=ANDROID_PROJECT, timeout=600)
     return r
 
 
@@ -318,7 +295,7 @@ async def android_install() -> dict:
         return {"ok": False, "error": "APK файл не найден"}
 
     apk_path = os.path.join(apk_dir, apk_files[0])
-    r = await run_command(f"adb install -r {apk_path}")
+    r = await run_command(["adb", "install", "-r", apk_path])
     return r
 
 

@@ -22,6 +22,7 @@ from typing import Optional
 import threading
 import discord
 from discord.ext import commands, voice_recv
+from sakura_core.tasks import spawn
 
 log = logging.getLogger("sakura.discord")
 
@@ -305,7 +306,7 @@ class SakuraSink(voice_recv.AudioSink):
                 if not buf or len(buf) < 8000:  # 0.5с минимум
                     continue
                 _processing = True
-                asyncio.create_task(self._process(uid, bytes(buf)))
+                spawn(self._process(uid, bytes(buf)), name="discord-audio-process")
 
     async def _process(self, uid: int, pcm: bytes):
         global _processing
@@ -500,5 +501,5 @@ async def start_bot():
         return
     log.info("[Discord] Запуск в основном event loop...")
     # Предзагружаем Whisper в фоне
-    asyncio.create_task(asyncio.to_thread(_get_whisper))
-    asyncio.create_task(bot.start(_TOKEN))
+    spawn(asyncio.to_thread(_get_whisper), name="discord-whisper-warmup")
+    spawn(bot.start(_TOKEN), name="discord-bot")

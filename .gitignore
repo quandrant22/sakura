@@ -14,6 +14,7 @@ token.json
 
 # API ключи (теперь в .env, файл-кэш не должен коммититься)
 memory/api_keys.json
+agent/memory/kettle_key.json
 
 # Память пользователя — приватные данные
 memory/long_term.json
@@ -46,6 +47,7 @@ memory/muiv_schedule.json
 memory/users.json
 memory/devices.json
 memory/guest_relations.json
+memory/sakura_taste.json
 
 # Файловый индекс (большой, генерируется локально)
 file_index.json

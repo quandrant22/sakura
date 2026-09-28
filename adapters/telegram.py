@@ -205,17 +205,20 @@ async def handle_message(message: Message):
     # ── Личный чат: гость ──────────────────────────────────────────
     _user_role = get_role(message.from_user.id)
     if _user_role != "master":
-        if await handle_guest_private(
-            message, bot=bot,
-            ask_gemini_as_guest=ask_gemini_as_guest,
-            ask_gemini=ask_gemini,
-            send_to_master=send_to_master,
-            send_as_conversation=send_as_conversation,
-            get_role=get_role,
-            format_master_notification=format_master_notification,
-            get_user_data=get_user_data,
-        ):
-            return
+        try:
+            await handle_guest_private(
+                message, bot=bot,
+                ask_gemini_as_guest=ask_gemini_as_guest,
+                ask_gemini=ask_gemini,
+                send_to_master=send_to_master,
+                send_as_conversation=send_as_conversation,
+                get_role=get_role,
+                format_master_notification=format_master_notification,
+                get_user_data=get_user_data,
+            )
+        except Exception:
+            log.exception("[tg] guest private handler failed")
+        return
 
     # ── Мастер ────────────────────────────────────────────────────
     text       = message.text
@@ -325,7 +328,10 @@ async def handle_message(message: Message):
         return
 
     _t0 = __import__("time").monotonic()
-    reply = await ask_gemini(_text_raw + reply_ctx)
+    from config import CHAT_HISTORY_LIMIT
+    reply = await ask_gemini(
+        _text_raw + reply_ctx, history_limit=CHAT_HISTORY_LIMIT
+    )
     log.info(f"[ответ] {__import__('time').monotonic()-_t0:.1f}с | {reply!r}")
     await send_as_conversation(message.chat.id, reply)
 

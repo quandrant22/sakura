@@ -18,11 +18,10 @@ from sakura_core.router import Router
 ])
 def test_vps_handler_passes_arguments(monkeypatch, phrase, action, arg):
     _load_capabilities()
-    decision = Router().route(phrase)
+    decision = asyncio.run(Router().route(phrase))
     answer = AsyncMock(return_value=("Ответ", True))
     monkeypatch.setattr("modules.voice_info.handle", answer)
-    result = asyncio.get_event_loop().run_until_complete(
-        get_handler(decision.action)(ExecutionContext(
-            param=decision.param, extra={"text": phrase})))
+    result = asyncio.run(get_handler(decision.action)(ExecutionContext(
+        param=decision.param, extra={"text": phrase})))
     assert result == ("Ответ", True)
     answer.assert_awaited_once_with(action, arg, phrase)

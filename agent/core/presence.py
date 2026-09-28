@@ -17,6 +17,7 @@ core/presence.py — Присутствие на стороне клиента (
 """
 
 import asyncio
+from core.tasks import spawn
 import logging
 import threading
 import time
@@ -215,7 +216,7 @@ class Watchdog:
 
     def start(self):
         """Запустить в asyncio event loop агента."""
-        asyncio.create_task(self.run())
+        spawn(self.run(), name="presence-monitor")
         log.info("[watchdog] Watchdog запущен.")
 
 

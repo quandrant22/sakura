@@ -26,6 +26,7 @@ import time
 from collections import deque
 from datetime import datetime
 from typing import Optional
+from sakura_core.tasks import spawn
 
 log = logging.getLogger("sakura.vps")
 
@@ -177,7 +178,7 @@ def _apply_agent_temps(sys_info: dict):
 
 async def start_monitor():
     """Запустить фоновый мониторинг. Добавить в gather в main.py."""
-    asyncio.create_task(_monitor_loop())
+    spawn(_monitor_loop(), name="vps-monitor")
     log.info("[vps] Мониторинг запущен")
 
 

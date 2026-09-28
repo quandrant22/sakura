@@ -39,13 +39,23 @@ MASTER_DEVICES = set(
 )
 CONFIRM_LISTEN_SEC = float(os.getenv("CONFIRM_LISTEN_SEC", "10"))
 
+def _history_limit(name, default):
+    try:
+        return max(0, int(os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        log.warning("Invalid %s; using default %s", name, default)
+        return default
+
+VOICE_HISTORY_LIMIT = _history_limit("VOICE_HISTORY_LIMIT", 10)
+CHAT_HISTORY_LIMIT = _history_limit("CHAT_HISTORY_LIMIT", 30)
+
 # ── Основная текстовая LLM ────────────────────────────────────────
 # ЕДИНАЯ точка задания основной модели для всего кода (main.py и modules/*).
 # Переопределяется через .env: MAIN_MODEL=gemini-3.1-flash-lite
 # НЕ трогать здесь: TTS Live API (modules/tts_server.py TTS_MODEL) и
 # эмбеддинги — у них свои модели.
-MAIN_MODEL     = os.getenv("MAIN_MODEL", "gemini-3.1-flash-lite")
-FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "gemini-3.5-flash-lite")
+MAIN_MODEL     = os.getenv("MAIN_MODEL", "gemini-3.5-flash-lite")
+FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "gemini-3.1-flash-lite")
 
 # ── Поиск в интернете через Gemini Search grounding ─────────────────────
 # Имя модели — по решению Мастера: gemini-2.5-flash (категория «Gemini 2.5»,

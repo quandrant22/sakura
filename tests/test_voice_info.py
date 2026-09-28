@@ -22,7 +22,7 @@ if _root not in sys.path:
 
 
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 class TestParsePeriod(unittest.TestCase):
@@ -666,11 +666,11 @@ class TestMusicAppRouter(unittest.TestCase):
         from sakura_core.router import Router
         router = Router()
         # v3 resolves bare volume verbs by context, not a v2 volume_up:20 alias.
-        self.assertIsNone(router.route("сделай громче").action)
-        self.assertIsNone(router.route("тише").action)
-        self.assertEqual(router.route("сделай музыку громче", "playing:music").action,
+        self.assertIsNone(_run(router.route("сделай громче")).action)
+        self.assertIsNone(_run(router.route("тише")).action)
+        self.assertEqual(_run(router.route("сделай музыку громче", "playing:music")).action,
                          "music.volume_up")
-        self.assertEqual(router.route("сделай музыку тише", "playing:music").action,
+        self.assertEqual(_run(router.route("сделай музыку тише", "playing:music")).action,
                          "music.volume_down")
 
 

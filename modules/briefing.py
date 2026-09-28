@@ -22,6 +22,7 @@ import logging
 import os
 import tempfile
 from datetime import datetime, date
+from sakura_core.tasks import spawn
 
 log = logging.getLogger("sakura.briefing")
 
@@ -135,7 +136,7 @@ def _get_anniversaries_snippet() -> str:
 
 
 async def build_briefing_prompt() -> str:
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     calendar      = await loop.run_in_executor(None, _get_calendar_snippet)
     tasks         = await loop.run_in_executor(None, _get_tasks_snippet)

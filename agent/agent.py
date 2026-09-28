@@ -19,6 +19,7 @@ from core.eyes import get_active_window, get_system_info
 from core.hands import execute_command, _scan_start_menu as scan_start_menu
 from core.hearing import Hearing
 from core.voice import Player
+from core.tasks import spawn
 from core.protocol import (
     Event, Registered, Ping, VoiceCommand, CommandResult, AppsList,
     Action, Command, TTSChunk, TTSEnd, Reply, MoodUpdate,
@@ -104,7 +105,7 @@ class Agent:
                     continue
 
                 if isinstance(action, Command):
-                    asyncio.create_task(self._run_command(action))
+                    spawn(self._run_command(action), name="command-execution")
                 elif isinstance(action, TTSChunk):
                     self.set_state("speaking")
                     self.player.feed(base64.b64decode(action.audio))
@@ -152,7 +153,7 @@ class Agent:
 
     async def run(self):
         self._loop = asyncio.get_running_loop()
-        asyncio.create_task(self._heartbeat())
+        spawn(self._heartbeat(), name="agent-heartbeat")
         self.hearing.start()
 
         while True:

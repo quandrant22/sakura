@@ -29,9 +29,9 @@ from sakura_core.registry import load
 
 def _run(coro):
     """Запуск корутины тем же паттерном, что и весь репозиторий
-    (asyncio.get_event_loop().run_until_complete): asyncio.run() и
+    (asyncio.run): asyncio.run() и
     set_event_loop(None) ломают легаси-тесты на закрытом/снятом цикле."""
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 # ── Покрытие реестра ──────────────────────────────────────────────────

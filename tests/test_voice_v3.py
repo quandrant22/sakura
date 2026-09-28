@@ -41,11 +41,24 @@ class _FakeClient:
 
 def test_generate_timeout_kills_hang(monkeypatch):
     monkeypatch.setattr(llm, "get_client", lambda key: _FakeClient(_SlowModels()))
-    t0 = time.monotonic()
-    text = asyncio.get_event_loop().run_until_complete(
-        llm.generate("тест", timeout=0.05)
+    from google.genai import types
+
+    safety_settings = llm._no_safety()
+    thinking_config = llm._thinking(llm.config.MAIN_MODEL)
+    types.GenerateContentConfig(
+        system_instruction=None,
+        max_output_tokens=512,
+        temperature=0.85,
+        safety_settings=safety_settings,
+        thinking_config=thinking_config,
     )
-    dt = time.monotonic() - t0
+
+    async def _measure_generate():
+        t0 = time.monotonic()
+        result = await llm.generate("тест", timeout=0.05)
+        return result, time.monotonic() - t0
+
+    text, dt = asyncio.run(_measure_generate())
     assert text == ""
     assert dt < 1.0  # зависший вызов не подвесил путь (в v2 подвешивал)
 
@@ -61,7 +74,7 @@ def test_generate_falls_back_between_models(monkeypatch):
             return type("R", (), {"text": "ответ"})()
 
     monkeypatch.setattr(llm, "get_client", lambda key: _FakeClient(_FirstFails()))
-    text = asyncio.get_event_loop().run_until_complete(llm.generate("тест"))
+    text = asyncio.run(llm.generate("тест"))
     assert text == "ответ"
     assert calls == [llm.config.MAIN_MODEL, llm.config.FALLBACK_MODEL]
 
@@ -80,7 +93,7 @@ def test_stream_tokens_yields_incrementally(monkeypatch):
     async def _collect():
         return [t async for t in llm.stream_tokens("тест")]
 
-    assert asyncio.get_event_loop().run_until_complete(_collect()) == \
+    assert asyncio.run(_collect()) == \
         ["При", "вет. ", "Как дела?"]
 
 
@@ -121,7 +134,7 @@ def test_iter_sentences_releases_incrementally():
             out.append((s, len(consumed)))
         return out
 
-    out = asyncio.get_event_loop().run_until_complete(_go())
+    out = asyncio.run(_go())
     # первое предложение высвобождено, когда прочитан только 2-й токен
     assert out[0] == ("Привет, Мастер.", 2)
     assert out[1][0] == "Как дела?"
@@ -158,7 +171,7 @@ def test_voice_stream_sends_packets_in_order(monkeypatch):
     monkeypatch.setattr(av, "_live_synthesize", fake_synthesize)
     monkeypatch.setattr(av, "_make_audio_sender", fake_sender)
 
-    full_text, emotion = asyncio.get_event_loop().run_until_complete(
+    full_text, emotion = asyncio.run(
         av.stream_llm_to_tts(
             contents="тест", system="", websocket=FakeWS(), device_id="laptop",
             client=object(), model="m", api_key="test-key-cache-1",
@@ -190,7 +203,7 @@ def test_voice_stream_empty_falls_back_to_generate(monkeypatch):
     monkeypatch.setattr(llm, "generate", fake_generate)
     monkeypatch.setattr(av, "_stream_two_stage", fake_two_stage)
 
-    text, emotion = asyncio.get_event_loop().run_until_complete(
+    text, emotion = asyncio.run(
         av.stream_llm_to_tts(contents="тест", system="", websocket=object(),
                              device_id="laptop", client=object(), model="m",
                              api_key="test-key-cache-1")

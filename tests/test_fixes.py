@@ -29,7 +29,7 @@ if _root not in sys.path:
 
 
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -508,12 +508,12 @@ class TestBlock4_WordBoundaries(unittest.TestCase):
         from sakura_core.router import Router
         _load_capabilities()
         router = Router()
-        decision = router.route("нагрей воду в чайнике до 80 градусов")
+        decision = _run(router.route("нагрей воду в чайнике до 80 градусов"))
         self.assertEqual(decision.action, "kettle.heat")
         self.assertEqual(decision.param, "80")
         # В v3 «нагрей до» — самостоятельный триггер. Проверяем границу
         # именно триггера, а не отсутствие слова «чайник» в параметрах.
-        self.assertIsNone(router.route("поднагрей воду до 80 градусов").action)
+        self.assertIsNone(_run(router.route("поднагрей воду до 80 градусов")).action)
 
 
 # БЛОК 8 — close_window: транслитерация, нормализация, защита от ложных совпадений
@@ -569,11 +569,11 @@ class TestBlock8_CloseWindow(unittest.TestCase):
         from sakura_core.router import Router
         _load_capabilities()
         router = Router()
-        self.assertEqual(router.route("закрой вкладку").action, "browser.tab_close")
-        self.assertEqual(router.route("закрой браузер").action, "close_window.браузер")
+        self.assertEqual(_run(router.route("закрой вкладку")).action, "browser.tab_close")
+        self.assertEqual(_run(router.route("закрой браузер")).action, "close_window.браузер")
         # Generic application closing was a v2-only matcher, not a declared action.
-        self.assertIsNone(router.route("закрой palworld").action)
-        self.assertIsNone(router.route("закрой окно palworld").action)
+        self.assertIsNone(_run(router.route("закрой palworld")).action)
+        self.assertIsNone(_run(router.route("закрой окно palworld")).action)
 
     def test_close_window_logic_with_mock(self):
         """8.5: close_window закрывает только одно окно из нескольких совпадений."""

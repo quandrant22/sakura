@@ -61,7 +61,10 @@ async def handle_voice_impl(message: "Message", *, bot, is_master, get_active_ke
         if not recognized:
             await message.answer("Не смогла разобрать.")
             return
-        reply = await ask_gemini(recognized)
+        from config import VOICE_HISTORY_LIMIT
+        reply = await ask_gemini(
+            recognized, history_limit=VOICE_HISTORY_LIMIT
+        )
         await send_as_conversation(message.chat.id, reply)
     except Exception as e:
         await message.answer(f"Ошибка: {e}")

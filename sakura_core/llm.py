@@ -16,6 +16,7 @@ import re
 from typing import AsyncIterator, Optional
 
 import config
+from sakura_core.tasks import spawn
 
 log = logging.getLogger("sakura.llm")
 
@@ -146,7 +147,7 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
     from google.genai import types as _t
 
     client = get_client(pick_key(api_key))
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     q: asyncio.Queue = asyncio.Queue()
     _model = model or FALLBACK_MODELS[0]
 
@@ -267,10 +268,13 @@ def clean_reply(text: str) -> str:
 
 # ── Сборка contents ──────────────────────────────────────────────────────
 
-def _build_contents(user_message: str, extra_system: str = "") -> list:
+def _build_contents(
+    user_message: str, extra_system: str = "", history_limit: int = 60
+) -> list:
     from google.genai import types as _t
     from memory.memory import get_history
-    history  = get_history()[-60:]
+    history = get_history()
+    history = history[-history_limit:] if history_limit > 0 else []
     contents = [
         _t.Content(role=m["role"], parts=[_t.Part(text=m["parts"][0])])
         for m in history
@@ -306,7 +310,9 @@ _LEN_HINT = {
 }
 
 
-async def ask_gemini(user_message: str, save_history: bool = True) -> str:
+async def ask_gemini(
+    user_message: str, save_history: bool = True, history_limit: int = 60
+) -> str:
     from config import MAIN_MODEL, get_active_key, mark_key_used
 
     _t_mono = __import__("time").monotonic
@@ -358,7 +364,7 @@ async def ask_gemini(user_message: str, save_history: bool = True) -> str:
     _t_llm = None
     if not key:
         return "Мастер, все API ключи исчерпаны на сегодня."
-    contents = _build_contents(user_message)
+    contents = _build_contents(user_message, history_limit=history_limit)
     try:
         _t_prep = _t_mono() - _t0
         response = await generate(contents, system=full_system, model=MAIN_MODEL)
@@ -389,61 +395,65 @@ async def ask_gemini(user_message: str, save_history: bool = True) -> str:
         add_to_history("model", reply)
         # Ленивый импорт: extract_and_remember → ask_gemini (цикл через функции)
         from sakura_core.memory_tasks import extract_and_remember
-        asyncio.create_task(extract_and_remember(user_message, reply))
+        spawn(extract_and_remember(user_message, reply), name="remember-from-chat")
         from memory.memory import should_summarize
         from sakura_core.memory_tasks import summarize_session
         if should_summarize():
-            asyncio.create_task(summarize_session())
+            spawn(summarize_session(), name="summarize-session")
         from modules.context import get_full_context
         ctx_snap = get_full_context()
         from modules.timeline import extract_and_save_from_dialogue
-        asyncio.create_task(asyncio.to_thread(
+        spawn(asyncio.to_thread(
             extract_and_save_from_dialogue, user_message, reply, ctx_snap
-        ))
+        ), name="save-dialogue-timeline")
         from modules.mood_vector import mark_interaction, auto_detect_mood_from_reply
         mark_interaction()
-        asyncio.create_task(asyncio.to_thread(
+        spawn(asyncio.to_thread(
             auto_detect_mood_from_reply, reply, user_message
-        ))
+        ), name="update-mood-from-reply")
         try:
             from modules.self_correction import process_conversation
-            asyncio.create_task(asyncio.to_thread(
+            spawn(asyncio.to_thread(
                 process_conversation, user_message, reply
-            ))
+            ), name="self-correction")
         except Exception as e:
             log.debug(f"[llm] ask_gemini: {type(e).__name__}: {e}")
         try:
             from modules.secret_diary import write_entry as diary_write
-            asyncio.create_task(diary_write(
+            spawn(diary_write(
                 f"Мастер: {user_message[:200]}\nСакура: {reply[:200] if reply else ''}",
                 "neutral"
-            ))
+            ), name="write-diary-entry")
         except Exception as e:
             log.debug(f"[llm] ask_gemini: {type(e).__name__}: {e}")
 
     return reply
 
 
-async def _handle_gemini_error(e: Exception, user_message: str, save_history: bool) -> str:
+async def _handle_gemini_error(
+    e: Exception, user_message: str, save_history: bool, history_limit: int = 60
+) -> str:
     from config import MAIN_MODEL, FALLBACK_MODEL, get_active_key, mark_key_used
 
     err = str(e)
     if "429" in err or "quota" in err.lower():
         await asyncio.sleep(60)
-        return await ask_gemini(user_message, save_history)
+        return await ask_gemini(user_message, save_history, history_limit)
     if "500" in err or "INTERNAL" in err:
         await asyncio.sleep(5)
-        return await ask_gemini(user_message, save_history)
+        return await ask_gemini(user_message, save_history, history_limit)
     if "SSL" in err or "DECRYPTION" in err or "bad record mac" in err:
         await asyncio.sleep(3)
-        return await ask_gemini(user_message, save_history)
+        return await ask_gemini(user_message, save_history, history_limit)
     if "503" in err or "UNAVAILABLE" in err:
         log.warning("Основная модель недоступна → Gemma fallback")
         key = get_active_key()
         if key:
             try:
                 full_system = await _build_system(query="")
-                contents    = _build_contents(user_message)
+                contents    = _build_contents(
+                    user_message, history_limit=history_limit
+                )
                 r2          = await generate(contents, system=full_system, model=FALLBACK_MODEL)
                 reply       = clean_reply(r2)
                 mark_key_used(key)
@@ -493,7 +503,9 @@ async def ask_gemini_voice(
     log.info(f"[voice] len={length} → hint={'да' if len_hint else 'нет'}, max_tokens={max_tok}")
     log.info(f"[voice] _build_system за {__import__('time').monotonic()-_t_build:.2f}с")
 
-    contents  = _build_contents(user_message)
+    contents  = _build_contents(
+        user_message, history_limit=config.VOICE_HISTORY_LIMIT
+    )
     emotion   = "neutral"
     full_text = ""
 
@@ -585,9 +597,9 @@ async def ask_gemini_voice(
     try:
         from modules.mood_broadcast import broadcast_mood_after_reply
         from modules.state_arbiter import get_current_emotion
-        asyncio.create_task(broadcast_mood_after_reply(
+        spawn(broadcast_mood_after_reply(
             clean_text, user_message, emotion
-        ))
+        ), name="voice-mood-broadcast")
     except Exception as e:
         log.debug(f"[llm] ask_gemini_voice: {type(e).__name__}: {e}")
 

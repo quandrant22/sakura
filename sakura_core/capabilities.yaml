@@ -809,8 +809,9 @@
   legacy: [create_module]
   desc: 'Создать новый модуль'
   executor: vps
-  reversible: true
-  confirm: false
+  reversible: false
+  confirm: true
+  confirm_prompt: 'Создать модуль?'
   followup: ack
   triggers: ['создай модуль', 'напиши модуль', 'новый модуль', 'сделай модуль']
   param:
@@ -822,8 +823,9 @@
   legacy: [fix_bug]
   desc: 'Найти и исправить баг'
   executor: vps
-  reversible: true
-  confirm: false
+  reversible: false
+  confirm: true
+  confirm_prompt: 'Исправить баг?'
   followup: ack
   triggers: ['исправь баг', 'найди баг', 'почини код', 'почини модуль']
   param:

@@ -20,6 +20,7 @@ core/extension_server.py — локальный WebSocket сервер для р
 import asyncio
 import json
 import logging
+import os
 import time
 
 log = logging.getLogger("sakura.extension")
@@ -73,6 +74,32 @@ def next_restart_delay(fail_count: int) -> int:
     return RESTART_MAX_DELAY
 
 
+def _allowed_origins():
+    """Return the configured extension ID, or empty for any Chrome extension."""
+    return os.getenv("SAKURA_EXTENSION_ID", "").strip()
+
+
+def _origin_allowed(origin: str | None) -> bool:
+    if not origin or not origin.startswith("chrome-extension://"):
+        return False
+    extension_id = origin.removeprefix("chrome-extension://")
+    if not extension_id:
+        return False
+    configured_id = _allowed_origins()
+    return not configured_id or extension_id == configured_id
+
+
+def _request_origin(websocket) -> str | None:
+    request = getattr(websocket, "request", None)
+    headers = getattr(request, "headers", None)
+    if headers is not None:
+        return headers.get("Origin")
+    legacy_headers = getattr(websocket, "request_headers", None)
+    if legacy_headers is not None:
+        return legacy_headers.get("Origin")
+    return None
+
+
 def run_forever(start=None, sleep=time.sleep, logger=None):
     """Цикл запуска сервера: пауза при ЛЮБОМ завершении start().
 
@@ -124,7 +151,7 @@ async def send_command(action: str, arg: str = "", timeout: float = 8.0) -> dict
 
     import uuid
     cmd_id = str(uuid.uuid4())[:8]
-    loop   = asyncio.get_event_loop()
+    loop   = asyncio.get_running_loop()
     fut    = loop.create_future()
     _pending[cmd_id] = fut
 
@@ -151,7 +178,7 @@ async def send_command_with_code(action: str, code: str = "", timeout: float = 8
 
     import uuid
     cmd_id = str(uuid.uuid4())[:8]
-    loop   = asyncio.get_event_loop()
+    loop   = asyncio.get_running_loop()
     fut    = loop.create_future()
     _pending[cmd_id] = fut
 
@@ -183,6 +210,12 @@ async def _handler(websocket):
         except Exception:
             pass
 
+    origin = _request_origin(websocket)
+    if not _origin_allowed(origin):
+        log.warning("[extension] Отклонено соединение с Origin=%r", origin)
+        await websocket.close(code=1008, reason="Origin not allowed")
+        return
+
     # Представляемся первым сообщением: расширение ждёт sakura_hello не
     # дольше секунды и уходит к следующему порту, если на том конце не
     # Сакура (в бою 8766 держал VS Code — без проверки расширение слало
@@ -195,7 +228,7 @@ async def _handler(websocket):
         return
 
     _extension_ws = websocket
-    _last_activity = asyncio.get_event_loop().time()
+    _last_activity = asyncio.get_running_loop().time()
     log.info("[extension] Расширение подключено")
 
     try:
@@ -205,7 +238,7 @@ async def _handler(websocket):
             except Exception:
                 continue
 
-            _last_activity = asyncio.get_event_loop().time()
+            _last_activity = asyncio.get_running_loop().time()
             msg_type = msg.get("type", "")
 
             if msg_type == "extension_ready":

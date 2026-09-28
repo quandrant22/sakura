@@ -12,6 +12,7 @@ core/browser.py — управление Opera GX и Яндекс Музыкой
   track search, artist, playlist, wave, shuffle, repeat
 """
 
+import asyncio
 import ctypes
 import logging
 import subprocess
@@ -448,16 +449,22 @@ def youtube_player_cmd(action: str) -> str:
     """
     # Через расширение — надёжно, без фокуса
     try:
-        from core.extension_server import is_connected, send_command
-        import asyncio
-        if is_connected():
-            loop = asyncio.get_event_loop()
-            result = loop.run_until_complete(send_command(action))
+        from core import extension_server as _ext
+        if _ext.is_connected():
+            loop = getattr(_ext, "_agent_loop", None)
+            if loop is None:
+                raise RuntimeError("agent event loop не установлен")
+            future = asyncio.run_coroutine_threadsafe(
+                _ext.send_command(action), loop
+            )
+            try:
+                result = future.result(timeout=9.0)
+            except Exception:
+                future.cancel()
+                raise
             if result.get("ok") is not False:
                 log.info(f"[yt] {action} via extension → {result.get('result', 'ok')}")
                 return f"youtube: {action}"
-    except RuntimeError:
-        pass  # event loop не запущен — используем хоткеи
     except Exception as e:
         log.debug(f"[yt] extension: {e}")
 
