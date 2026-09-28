@@ -3,6 +3,8 @@ import os
 import sys
 import tempfile
 
+import pytest
+
 # Must run before any project imports
 os.environ.setdefault("MASTER_ID", "123456789")
 os.environ.setdefault("TELEGRAM_TOKEN", "123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw")
@@ -18,3 +20,10 @@ if _root not in sys.path:
 # Point memory DB to a temp directory so we never touch the production DB
 _tmpdir = tempfile.mkdtemp(prefix="sakura_test_")
 os.environ["MEMORY_DB_PATH"] = os.path.join(_tmpdir, "test.db")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def load_capability_tables():
+    from sakura_core.bridge import _load_capabilities
+
+    _load_capabilities()

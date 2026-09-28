@@ -107,7 +107,7 @@ class Test2_SourceGate(unittest.TestCase):
     def test_build_plan_rejects_non_master(self, mock_gate):
         import asyncio
         from modules.planner import build_plan
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             build_plan("открой браузер", {}, source="web", sender_id="evil")
         )
         self.assertIsNone(result)
@@ -155,7 +155,7 @@ class Test11_WsHandlers(unittest.TestCase):
              patch.object(wh.st, "_pending_commands", {}), \
              patch.object(wh.st, "_last_executed", {}):
             import asyncio
-            asyncio.get_event_loop().run_until_complete(
+            asyncio.run(
                 wh.handle_voice_command(None, data, ctx)
             )
 
@@ -212,7 +212,7 @@ class Test11_WsHandlers(unittest.TestCase):
              patch.object(wh.st, "_pending_plan", {}), \
              patch.object(wh.st, "_pending_clarify", {}), \
              patch.object(wh.st, "_pending_system", pending_system if pending_system is not None else {}):
-            asyncio.get_event_loop().run_until_complete(
+            asyncio.run(
                 wh.handle_voice_command(None, data, ctx)
             )
             # Снимок словаря делаем ДО выхода из patch.object — иначе он
@@ -311,7 +311,7 @@ class Test11_WsHandlers(unittest.TestCase):
         with patch.object(_tg, "bot", MagicMock()), \
              patch.object(_tg, "_get_active_ws", return_value=(laptop_ws, "laptop")), \
              patch.object(_st, "_pending_system", {}):
-            asyncio.get_event_loop().run_until_complete(_tg.handle_message(message))
+            asyncio.run(_tg.handle_message(message))
 
         laptop_ws.send.assert_not_awaited()
         v3_pending = get_router().session.pending
@@ -337,7 +337,7 @@ class Test11_WsHandlers(unittest.TestCase):
              patch.object(_tg, "_get_active_ws", return_value=(laptop_ws, "laptop")), \
              patch.object(_st, "_pending_system", pending_system), \
              patch("modules.episodes.add_episode", MagicMock()):
-            asyncio.get_event_loop().run_until_complete(_tg.handle_message(message))
+            asyncio.run(_tg.handle_message(message))
             pending = dict(_st._pending_system)
 
         laptop_ws.send.assert_awaited_once()
@@ -407,21 +407,21 @@ class Test4_RouterThresholds(unittest.TestCase):
 
     def test_hardcoded_match_returns_action(self):
         from sakura_core.router import Router
-        route = Router().route
+        route = lambda text: asyncio.run(Router().route(text))
         result = route("включи музыку")
         self.assertIsNotNone(result)
         self.assertEqual(result.action, "open.app")
 
     def test_hardcoded_match_stop_word(self):
         from sakura_core.router import Router
-        route = Router().route
+        route = lambda text: asyncio.run(Router().route(text))
         result = route("следующий трек пожалуйста")
         self.assertIsNotNone(result)
         self.assertEqual(result.action, "music.next")
 
     def test_hardcoded_match_no_match(self):
         from sakura_core.router import Router
-        route = Router().route
+        route = lambda text: asyncio.run(Router().route(text))
         result = route("как дела")
         self.assertIsNone(result.action)
 
@@ -430,7 +430,7 @@ class Test4_RouterThresholds(unittest.TestCase):
         точное правило не сработало. Пары «трек+играет» прощают
         искажения падежей и лишние слова."""
         from sakura_core.router import Router
-        route = Router().route
+        route = lambda text: asyncio.run(Router().route(text))
         for t in ("Какое трек у меня сейчас играет",
                   "какой трек играет",
                   "какой трек сейчас играет",
@@ -445,7 +445,7 @@ class Test4_RouterThresholds(unittest.TestCase):
 
     def test_route_critical_exact(self):
         from sakura_core.router import Router
-        route_critical = lambda text: Router().route(text).action
+        route_critical = lambda text: asyncio.run(Router().route(text)).action
         self.assertEqual(route_critical("выключи компьютер"), "system.shutdown")
         self.assertEqual(route_critical("перезагрузи пк"), "system.restart")
         self.assertEqual(route_critical("заблокируй экран"), "system.lock")
@@ -723,7 +723,7 @@ class Test10_ProactiveBehavior(unittest.TestCase):
         with patch("aiogram.Bot"):
             import adapters.telegram as _tg
             with patch.object(_tg, "bot", MagicMock()) as bot:
-                asyncio.get_event_loop().run_until_complete(
+                asyncio.run(
                     _tg.send_telegram_text(123456789, "[ТОН: мягко] Привет")
                 )
                 args, kwargs = bot.send_message.call_args
@@ -809,7 +809,7 @@ class Test13_SteamAchievementsTTL(unittest.TestCase):
                  "ok": True, "reason": "ok",
                  "data": {"playerstats": {"achievements": [{"apiname": "a1", "achieved": 1}]}}
              }):
-            res = asyncio.get_event_loop().run_until_complete(first())
+            res = asyncio.run(first())
             self.assertEqual(len(res), 1)
 
         # Кэш заполнен
@@ -829,7 +829,7 @@ class Test13_SteamAchievementsTTL(unittest.TestCase):
             return await si.get_achievements(1234)
         with patch.object(si, "_get_config", return_value=("key", "sid")), \
              patch.object(si, "_fetch", side_effect=fake_fetch):
-            res = asyncio.get_event_loop().run_until_complete(second())
+            res = asyncio.run(second())
         self.assertEqual(len(calls), 1, "протухший кэш должен перезапросить данные")
         self.assertEqual(res[0]["apiname"], "a2")
 
@@ -850,7 +850,7 @@ class Test14_SteamSession(unittest.TestCase):
         async def start():
             return await si.get_current_game("Palworld - Steam")
         with patch.object(si, "find_game_by_window", return_value=game):
-            asyncio.get_event_loop().run_until_complete(start())
+            asyncio.run(start())
         self.assertIsNotNone(si._session)
         self.assertEqual(si._session["game"]["name"], "Palworld")
 
@@ -869,7 +869,7 @@ class Test14_SteamSession(unittest.TestCase):
             return await si.get_current_game("")
         with patch.object(si, "find_game_by_window", return_value=None), \
              patch("memory.db.add_to_category", return_value=True) as mock_add:
-            asyncio.get_event_loop().run_until_complete(stop())
+            asyncio.run(stop())
         self.assertIsNone(si._session)
         # Сессия >15 мин → записана в память
         mock_add.assert_called_once()
@@ -890,7 +890,7 @@ class Test14_SteamSession(unittest.TestCase):
         async def start():
             return await si.get_current_game("TestGame")
         with patch.object(si, "find_game_by_window", return_value=game):
-            asyncio.get_event_loop().run_until_complete(start())
+            asyncio.run(start())
 
         # Сессия длилась 5 минут (< 15) — не записываем
         si._session["started_at"] = time.monotonic() - 5 * 60
@@ -898,7 +898,7 @@ class Test14_SteamSession(unittest.TestCase):
             return await si.get_current_game("")
         with patch.object(si, "find_game_by_window", return_value=None), \
              patch("memory.db.add_to_category", return_value=True) as mock_add:
-            asyncio.get_event_loop().run_until_complete(stop())
+            asyncio.run(stop())
         mock_add.assert_not_called()
 
 
@@ -918,7 +918,7 @@ class Test15_SteamNewAchievements(unittest.TestCase):
         with patch.object(si, "get_achievements", return_value=[ach1, ach2]), \
              patch.object(si, "_seen_achievements", return_value=set()), \
              patch.object(si, "_mark_achievements_seen") as mock_mark:
-            res = asyncio.get_event_loop().run_until_complete(si.check_new_achievements(999))
+            res = asyncio.run(si.check_new_achievements(999))
         self.assertEqual(res, [])
         mock_mark.assert_called_once()
         # Записаны обе ачивки
@@ -929,7 +929,7 @@ class Test15_SteamNewAchievements(unittest.TestCase):
         with patch.object(si, "get_achievements", return_value=[ach1, ach2, ach3]), \
              patch.object(si, "_seen_achievements", return_value={"a1", "a2"}), \
              patch.object(si, "_mark_achievements_seen") as mock_mark2:
-            res = asyncio.get_event_loop().run_until_complete(si.check_new_achievements(999))
+            res = asyncio.run(si.check_new_achievements(999))
         self.assertEqual(len(res), 1)
         self.assertEqual(res[0]["apiname"], "a3")
         mock_mark2.assert_called_once()

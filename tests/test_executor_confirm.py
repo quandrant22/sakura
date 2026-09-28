@@ -39,7 +39,7 @@ def _ctx(confirmed: bool = False) -> ExecutionContext:
 def _run(coro):
     """Паттерн репозитория: asyncio.run() снимает глобальный цикл и ломает
     легаси-тесты (см. tests/test_music_domain.py)."""
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 def test_confirm_action_asks_instead_of_executing():

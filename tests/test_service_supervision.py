@@ -9,7 +9,7 @@ import main as entrypoint
 
 
 def run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 def test_background_failure_keeps_surfaces_alive(caplog):

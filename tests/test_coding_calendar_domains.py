@@ -24,7 +24,7 @@ from sakura_core.executor import ExecutionContext, get_handler
 def _run(coro):
     """Тот же паттерн, что в остальных тестах репозитория: asyncio.run()
     закрыл бы общий event loop и сломал легаси-хелперы других файлов."""
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 # ── files.open: агентский, но нового verb'а не потребовалось ────────────

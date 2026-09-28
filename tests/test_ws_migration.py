@@ -36,7 +36,7 @@ def test_ws_registry_dispatch(monkeypatch, text, expected):
         "_execute_plan": AsyncMock(), "_register_command": lambda *_: "cmd",
         "_get_active_ws": lambda: (device, "test"), "bot": AsyncMock(),
     }
-    asyncio.get_event_loop().run_until_complete(ws.handle_voice_command(
+    asyncio.run(ws.handle_voice_command(
         device, {"text": text, "device_id": "test"}, ctx))
     voice.assert_not_awaited()
     if expected == "calendar":
