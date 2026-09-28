@@ -151,7 +151,7 @@ async def send_command(action: str, arg: str = "", timeout: float = 8.0) -> dict
 
     import uuid
     cmd_id = str(uuid.uuid4())[:8]
-    loop   = asyncio.get_event_loop()
+    loop   = asyncio.get_running_loop()
     fut    = loop.create_future()
     _pending[cmd_id] = fut
 
@@ -178,7 +178,7 @@ async def send_command_with_code(action: str, code: str = "", timeout: float = 8
 
     import uuid
     cmd_id = str(uuid.uuid4())[:8]
-    loop   = asyncio.get_event_loop()
+    loop   = asyncio.get_running_loop()
     fut    = loop.create_future()
     _pending[cmd_id] = fut
 
@@ -228,7 +228,7 @@ async def _handler(websocket):
         return
 
     _extension_ws = websocket
-    _last_activity = asyncio.get_event_loop().time()
+    _last_activity = asyncio.get_running_loop().time()
     log.info("[extension] Расширение подключено")
 
     try:
@@ -238,7 +238,7 @@ async def _handler(websocket):
             except Exception:
                 continue
 
-            _last_activity = asyncio.get_event_loop().time()
+            _last_activity = asyncio.get_running_loop().time()
             msg_type = msg.get("type", "")
 
             if msg_type == "extension_ready":

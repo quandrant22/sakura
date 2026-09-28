@@ -157,10 +157,11 @@ async def execute_critical_action(critical_action: str, ws_dev, device_id,
     st._last_command_ts = _time.monotonic()
     await ws_dev.send(json.dumps({"type": "command", "action": critical_action}))
     if critical_action.startswith("kettle:"):
+        from config import VOICE_HISTORY_LIMIT
         from modules.tts_server import stream_tts_to_device
         _kreply = await ask_gemini(
             f"Мастер попросил: {text}. Команда: {critical_action}. Скажи коротко.",
-            save_history=False)
+            save_history=False, history_limit=VOICE_HISTORY_LIMIT)
         if _kreply:
             await stream_tts_to_device(_kreply, ws_dev, device_id or "laptop", literal=True)
     try:

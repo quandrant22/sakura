@@ -10,6 +10,7 @@ import subprocess
 import time
 import logging
 from typing import TYPE_CHECKING
+from sakura_core.tasks import spawn
 
 if TYPE_CHECKING:
     from aiogram.types import Message
@@ -49,7 +50,11 @@ async def cmd_restart_impl(message: "Message"):
 
 
 async def cmd_start_impl(message: "Message", ask_gemini):
-    reply = await ask_gemini("Мастер только что запустил бота. Поприветствуй коротко.")
+    from config import VOICE_HISTORY_LIMIT
+    reply = await ask_gemini(
+        "Мастер только что запустил бота. Поприветствуй коротко.",
+        history_limit=VOICE_HISTORY_LIMIT,
+    )
     await message.answer(reply)
 
 
@@ -74,7 +79,11 @@ async def cmd_clear_impl(message: "Message", ask_gemini):
     from memory.memory import clear_history, clear_session_summary
     clear_history()
     clear_session_summary()
-    reply = await ask_gemini("Мастер очистил историю диалога. Отреагируй коротко.")
+    from config import VOICE_HISTORY_LIMIT
+    reply = await ask_gemini(
+        "Мастер очистил историю диалога. Отреагируй коротко.",
+        history_limit=VOICE_HISTORY_LIMIT,
+    )
     await message.answer(reply)
 
 
@@ -207,6 +216,6 @@ async def device_control_impl(message: "Message", *, connected_devices,
     await message.answer(f"Команда {action} отправлена на {dev_id}.")
     await asyncio.sleep(0.3)
     if action == "system.shutdown":
-        asyncio.create_task(stream_tts_to_device(
+        spawn(stream_tts_to_device(
             "Выключаюсь, Мастер. Спокойной ночи.", ws, dev_id,
-            literal=True, emotion=get_current_emotion()))
+            literal=True, emotion=get_current_emotion()), name="shutdown-tts")

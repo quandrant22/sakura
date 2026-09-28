@@ -865,7 +865,7 @@ async def answer_voice_info(action: str, arg: str, text: str,
     Работает БЕЗ устройства. Честность: если источник недоступен или пуст —
     говорим это прямо (literal), НЕ пропуская через LLM-стилизацию."""
     from modules.tts_server import stream_tts_to_device as _stts, strip_tone as _st
-    from config import MASTER_ID
+    from config import MASTER_ID, VOICE_HISTORY_LIMIT
 
     try:
         if action == "briefing:now":
@@ -873,7 +873,8 @@ async def answer_voice_info(action: str, arg: str, text: str,
             bp = await build_briefing_prompt()
             reply = await ask_gemini(
                 bp + "\nОтветь Мастеру коротко: 3-4 самых важного пункта.",
-                save_history=False) if bp else ""
+                save_history=False,
+                history_limit=VOICE_HISTORY_LIMIT) if bp else ""
             if not reply:
                 reply = "Брифинг сейчас собрать не удалось."
             ok = bool(reply and "не удалось" not in reply)
@@ -924,7 +925,8 @@ async def answer_voice_info(action: str, arg: str, text: str,
                 "Передай это Мастеру коротко и точно. НИЧЕГО не выдумывай, "
                 "не добавляй и не меняй числа и названия. Если данных мало — "
                 "скажи об этом прямо.",
-                save_history=False)
+                save_history=False,
+                history_limit=VOICE_HISTORY_LIMIT)
         except Exception as e:
             log.debug(f"[voice_info] стилизация не удалась: {e}")
             styled = None

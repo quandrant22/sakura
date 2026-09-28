@@ -17,6 +17,7 @@ import time as _time
 
 import modules.state as st
 from config import MASTER_ID, get_active_key, mark_key_used, MAIN_MODEL
+from sakura_core.tasks import spawn
 from sakura_core.llm import generate as _llm_generate
 from modules.tts_server import stream_tts_to_device
 from modules.device_manager import update_device
@@ -72,10 +73,10 @@ async def handle_register(websocket, data, ctx) -> None:
 
     try:
         if is_master_device(device_id) and await asyncio.to_thread(should_brief):
-            asyncio.create_task(run_briefing(
+            spawn(run_briefing(
                 device_id, websocket, ask_gemini, stream_tts_to_device,
                 telegram_bot=bot, master_id=MASTER_ID,
-            ))
+            ), name="device-briefing")
     except Exception as e:
         log.debug(f"briefing: {e}")
 
@@ -126,7 +127,7 @@ async def handle_ping(websocket, data, ctx) -> None:
 
     if active_win:
         await asyncio.to_thread(track_rec_activity, active_win)
-        asyncio.create_task(get_current_game(active_win))
+        spawn(get_current_game(active_win), name="detect-current-game")
 
 
     import time as _t_music
@@ -171,7 +172,7 @@ async def handle_apps_list(websocket, data, ctx) -> None:
     from sakura_core.registry import set_installed_apps
     from modules.app_mapping import mapping_names
     set_installed_apps(apps, extra=mapping_names(device_id))
-    asyncio.create_task(ctx["analyze_apps"](apps, device_id))
+    spawn(ctx["analyze_apps"](apps, device_id), name="analyze-installed-apps")
 
 
 # ── screen_context ─────────────────────────────────────────────────────
@@ -180,9 +181,9 @@ async def handle_screen_context(websocket, data, ctx) -> None:
     screenshot = data.get("screenshot")
     active_win = data.get("active_window", "")
     if screenshot:
-        asyncio.create_task(ctx["_analyze_screen_context"](
+        spawn(ctx["_analyze_screen_context"](
             screenshot, active_win, data.get("device_id")
-        ))
+        ), name="analyze-screen-context")
 
 
 # ── kettle_ready ───────────────────────────────────────────────────────
@@ -289,7 +290,11 @@ async def handle_command_result(websocket, data, ctx) -> None:
             else:
                 _page_prompt = None
             if _page_prompt:
-                _page_reply = await ask_gemini(_page_prompt, save_history=False)
+                from config import VOICE_HISTORY_LIMIT
+                _page_reply = await ask_gemini(
+                    _page_prompt, save_history=False,
+                    history_limit=VOICE_HISTORY_LIMIT,
+                )
                 if _page_reply and ext_ws:
                     log.info(f"[голос] ответ: {_page_reply!r}")
                     await stream_tts_to_device(_page_reply, ext_ws, ext_dev, literal=True)
@@ -384,7 +389,10 @@ async def handle_command_result(websocket, data, ctx) -> None:
                 prompt += f"\n\nКстати, у тебя есть мнение об этом исполнителе: {_taste_comment}"
         else:
             prompt = f"Результат: {music.get('result', 'готово')}. Скажи коротко."
-        music_reply = await ask_gemini(prompt, save_history=False)
+        from config import VOICE_HISTORY_LIMIT
+        music_reply = await ask_gemini(
+            prompt, save_history=False, history_limit=VOICE_HISTORY_LIMIT
+        )
         if music_reply:
             log.info(f"[голос] ответ: {music_reply!r}")
             if ws_m:
@@ -446,11 +454,13 @@ async def handle_command_result(websocket, data, ctx) -> None:
                 caption = f"Скриншот с {dev_name}, Мастер.")
     elif result and result.startswith("app_not_found:"):
         app_name = result.split(":", 1)[1]
+        from config import VOICE_HISTORY_LIMIT
         reply    = await ask_gemini(
             f"Приложение '{app_name}' не найдено на {dev_name}. "
             f"Скажи коротко и предложи написать путь: "
             f"'запомни {app_name} = C:\\путь\\к\\файлу.exe'",
-            save_history=False)
+            save_history=False,
+            history_limit=VOICE_HISTORY_LIMIT)
         await bot.send_message(MASTER_ID, reply)
     elif result:
         err_triggers = ("ошибка", "не нашла", "не найдено", "app_not_found", "оффлайн")

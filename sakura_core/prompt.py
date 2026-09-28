@@ -97,7 +97,12 @@ _build_system_warm = False   # была ли хотя бы одна сборка
 _BUILD_SYSTEM_TTL = 20.0   # секунд
 
 
-async def _build_system(include_calendar: bool = False, active_window: str | None = None, query: str = "") -> str:
+async def _build_system(
+    include_calendar: bool = False,
+    active_window: str | None = None,
+    query: str = "",
+    blocks_out: list[str] | None = None,
+) -> str:
     """Строит системный промпт. Кэшируется для повторных вызовов без query.
 
     Блоки — независимые чтения, собираются параллельно (gather поверх
@@ -431,6 +436,8 @@ async def _build_system(include_calendar: bool = False, active_window: str | Non
         parts.append(d["tasks"])
 
     result = "\n\n".join(parts)
+    if blocks_out is not None:
+        blocks_out.extend(parts)
 
     _dt = _t.monotonic() - _bs_t0
     # Холодный старт процесса платит за импорты и прогревы модулей — это

@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+from sakura_core.tasks import spawn
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -72,10 +73,10 @@ async def main():
     get_router()  # Load handlers and validate reachability before starting services.
     validate_secret_on_startup()
     await asyncio.to_thread(ensure_ready)
-    asyncio.create_task(ensure_narrative())
-    asyncio.create_task(init_japanese_vocab())
-    asyncio.create_task(init_weather(MASTER_LAT, MASTER_LON))
-    asyncio.create_task(load_library())
+    spawn(ensure_narrative(), name="ensure-narrative")
+    spawn(init_japanese_vocab(), name="init-japanese-vocab")
+    spawn(init_weather(MASTER_LAT, MASTER_LON), name="init-weather")
+    spawn(load_library(), name="load-steam-library")
     await start_monitor()
     apply_all_patches()
 
@@ -86,19 +87,19 @@ async def main():
             reply = await ask_gemini(milestone["prompt"], save_history=False)
             if reply:
                 await send_to_master(reply)
-        asyncio.create_task(_send_milestone())
+        spawn(_send_milestone(), name="send-milestone")
 
     tts_server.start()
-    asyncio.create_task(warmup_cache())
+    spawn(warmup_cache(), name="warmup-tts-cache")
 
     set_reminder_callback(await make_reminder_cb(_get_active_ws, stream_tts_to_device, send_to_master, get_current_emotion))
-    asyncio.create_task(reminder_check_loop())
+    spawn(reminder_check_loop(), name="reminder-check-loop")
 
     try:
         from modules.tg_monitor import get_monitor
         tg_mon = get_monitor()
         tg_mon.set_callback(await make_tg_notif_cb(_get_active_ws, stream_tts_to_device, ask_gemini))
-        asyncio.create_task(tg_mon.start())
+        spawn(tg_mon.start(), name="telegram-monitor")
     except Exception as e:
         log.warning(f"[tg_monitor] Не удалось запустить: {e}")
 
@@ -113,7 +114,7 @@ async def main():
     )
 
     set_achievement_callback(await make_achievement_cb(MASTER_ID, send_telegram_text, mark_sent))
-    asyncio.create_task(discord_start_bot())
+    spawn(discord_start_bot(), name="discord-bot")
     log.info("WebSocket сервер запущен на порту 8765")
     await run_services(
         dp.start_polling(bot),

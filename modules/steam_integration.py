@@ -20,6 +20,7 @@ import urllib.parse
 from typing import Optional
 from config import MAIN_MODEL
 from sakura_core.llm import generate as _llm_generate
+from sakura_core.tasks import spawn
 
 log = logging.getLogger("sakura.steam")
 
@@ -228,7 +229,7 @@ async def load_library(force: bool = False) -> list[dict]:
         log.info(f"[steam] Из БД: {len(_library)} игр")
 
     # Фоновая синхронизация с API
-    asyncio.create_task(_sync_from_api())
+    spawn(_sync_from_api(), name="steam-library-sync")
     return _library
 
 

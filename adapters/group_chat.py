@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import TYPE_CHECKING
+from sakura_core.tasks import spawn
 
 if TYPE_CHECKING:
     from aiogram.types import Message
@@ -291,7 +292,10 @@ async def handle_reply_to_notification(
         f"его сообщение, ситуацию. Отвечай живо, как в обычном разговоре."
     )
     await bot.send_chat_action(message.chat.id, "typing")
-    reply = await ask_gemini(discuss_prompt)
+    from config import CHAT_HISTORY_LIMIT
+    reply = await ask_gemini(
+        discuss_prompt, history_limit=CHAT_HISTORY_LIMIT
+    )
     await send_as_conversation(message.chat.id, reply)
     return True
 
@@ -331,7 +335,7 @@ async def handle_device_command(
     done = []
     for action, human in actions:
         if action.startswith("say:"):
-            asyncio.create_task(stream_tts_to_device(action[4:], ws, dev, literal=True, emotion=get_current_emotion()))
+            spawn(stream_tts_to_device(action[4:], ws, dev, literal=True, emotion=get_current_emotion()), name="group-tts")
         else:
             await ws.send(json.dumps({"type": "command", "action": action}))
         done.append(human)

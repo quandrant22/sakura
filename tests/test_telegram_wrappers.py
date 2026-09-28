@@ -2,6 +2,8 @@ import asyncio
 import inspect
 from types import SimpleNamespace
 
+import pytest
+
 
 def _run(coro):
     return asyncio.run(coro)
@@ -76,3 +78,35 @@ def test_master_only_wrappers_match_all_registered_commands(monkeypatch):
             inspect.signature(_implementation).bind(message, **kwargs)
 
         _run(telegram._master_only(checked, **extra_kw)(_message()))
+
+
+@pytest.mark.parametrize("guest_result", [False, RuntimeError("guest failed")])
+def test_non_master_never_reaches_master_message_path(monkeypatch, guest_result):
+    import adapters.telegram as telegram
+    import adapters.group_chat as group_chat
+
+    message = SimpleNamespace(
+        from_user=SimpleNamespace(id=234567890),
+        chat=SimpleNamespace(id=234567890),
+        text="гостевое сообщение",
+    )
+    reached_master_path = []
+
+    async def _not_group_message(*_args, **_kwargs):
+        return False
+
+    async def _guest_handler(*_args, **_kwargs):
+        if isinstance(guest_result, Exception):
+            raise guest_result
+        return guest_result
+
+    monkeypatch.setattr(group_chat, "handle_group_message", _not_group_message)
+    monkeypatch.setattr(group_chat, "handle_guest_private", _guest_handler)
+    monkeypatch.setattr(telegram, "get_role", lambda _user_id: "guest")
+    monkeypatch.setattr(
+        telegram, "update_master_status",
+        lambda _text: reached_master_path.append(True),
+    )
+
+    _run(telegram.handle_message(message))
+    assert reached_master_path == []

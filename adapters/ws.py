@@ -14,6 +14,7 @@ import uuid
 import random
 
 from modules.state import _pending_commands, connected_devices, _plan_cancel
+from sakura_core.tasks import spawn
 
 log = logging.getLogger("sakura.ws")
 
@@ -434,12 +435,13 @@ async def handle_voice_command(websocket, data, ctx) -> None:
 
     # ── ОБУЧЕНИЕ НОВЫМ КОМАНДАМ (раньше всего) ───────────
     if any(w in text.lower() for w in ('покажи команды', 'список команд', 'мои команды')):
+        from config import VOICE_HISTORY_LIMIT
         cmds = list_cmds()
         cmd_list = ', '.join(list(cmds.keys())[:10]) if cmds else None
         if cmd_list:
-            _lr = await ask_gemini(f'Скажи Мастеру его сохранённые команды: {cmd_list}. Коротко.', save_history=False)
+            _lr = await ask_gemini(f'Скажи Мастеру его сохранённые команды: {cmd_list}. Коротко.', save_history=False, history_limit=VOICE_HISTORY_LIMIT)
         else:
-            _lr = await ask_gemini('Скажи Мастеру что он ещё не добавил своих команд. Можно добавить голосом: "запомни: слово = действие".', save_history=False)
+            _lr = await ask_gemini('Скажи Мастеру что он ещё не добавил своих команд. Можно добавить голосом: "запомни: слово = действие".', save_history=False, history_limit=VOICE_HISTORY_LIMIT)
         if _lr:
             _active_ws, _ad = _get_active_ws()
             if _active_ws:
@@ -447,9 +449,10 @@ async def handle_voice_command(websocket, data, ctx) -> None:
         return
     _teaching = parse_teaching(text)
     if _teaching:
+        from config import VOICE_HISTORY_LIMIT
         _trigger, _action = _teaching
         add_cmd(_trigger, _action)
-        _tr = await ask_gemini(f'Запомнила команду "{_trigger}". Подтверди коротко.', save_history=False)
+        _tr = await ask_gemini(f'Запомнила команду "{_trigger}". Подтверди коротко.', save_history=False, history_limit=VOICE_HISTORY_LIMIT)
         if _tr:
             _active_ws, _ad = _get_active_ws()
             if _active_ws:
@@ -458,12 +461,13 @@ async def handle_voice_command(websocket, data, ctx) -> None:
 
     # ── ПОЛЬЗОВАТЕЛЬСКИЕ ЦЕПОЧКИ ────────────────────
     if any(w in text.lower() for w in ("создай цепочку", "новая цепочка", "добавь цепочку")):
+        from config import VOICE_HISTORY_LIMIT
         _chain_prompt = (
             "Мастер хочет создать цепочку команд. "
             "Попроси его описать что нужно сделать по порядку. "
             "Скажи коротко какие действия доступны: открыть приложение, громкость, музыка, сказать фразу."
         )
-        _chain_reply = await ask_gemini(_chain_prompt, save_history=False)
+        _chain_reply = await ask_gemini(_chain_prompt, save_history=False, history_limit=VOICE_HISTORY_LIMIT)
         if _chain_reply and ws_dev:
             await stream_tts_to_device(_chain_reply, ws_dev, device_id or "laptop", literal=True)
         return
@@ -476,13 +480,14 @@ async def handle_voice_command(websocket, data, ctx) -> None:
 
     # ── ГОЛОСОВЫЕ ТРИГГЕРЫ: создание ──────────────────
     if "запомни триггер" in text.lower() or "создай триггер" in text.lower():
+        from config import VOICE_HISTORY_LIMIT
         _trig_prompt = (
             "Мастер хочет создать голосовой триггер. "
             "Попроси его сказать фразу-триггер и что делать при срабатывании. "
             "Доступные действия: остановить музыку, включить музыку, сказать фразу, "
             "выключить звук, включить приложение."
         )
-        _trig_reply = await ask_gemini(_trig_prompt, save_history=False)
+        _trig_reply = await ask_gemini(_trig_prompt, save_history=False, history_limit=VOICE_HISTORY_LIMIT)
         if _trig_reply and ws_dev:
             await stream_tts_to_device(_trig_reply, ws_dev, device_id or "laptop", literal=True)
         return
@@ -561,4 +566,4 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                         log.debug(f"[ws] reaction gif: {type(e).__name__}: {e}")
         except Exception as e:
             log.debug(f"[pranks/react] error: {e}")
-    asyncio.create_task(_maybe_prank_and_react())
+    spawn(_maybe_prank_and_react(), name="prank-and-react")

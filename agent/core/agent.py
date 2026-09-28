@@ -24,6 +24,7 @@ import time
 import websockets
 
 import config
+from core.tasks import spawn
 from core.eyes import get_active_window, get_system_info
 from core.hands import execute_command, scan_apps, init_index
 from core.hands import hotkey as _hotkey, type_text as _type_text
@@ -343,7 +344,7 @@ class Agent:
                         continue
                     self._abort_flag = False
                     _arg = data.get("arg", "")
-                    asyncio.create_task(self._run_command(_action, _cmd_id, _arg))
+                    spawn(self._run_command(_action, _cmd_id, _arg), name="command-execution")
 
                 elif kind == "tts_chunk":
                     # При первом чанке нового ответа — сбрасываем буфер
@@ -573,7 +574,7 @@ class Agent:
                     "kettle": result,
                 }))
                 if result.get("ok") and kettle_action in ("boil", "boil_heat") or kettle_action.startswith("boil"):
-                    asyncio.create_task(self._kettle_watch())
+                    spawn(self._kettle_watch(), name="kettle-watch")
             except Exception as e:
                 log.error(f"kettle error: {e}")
                 await _send_ack(False, f"kettle error: {e}")
@@ -648,7 +649,7 @@ class Agent:
             _mod  = _ilu.module_from_spec(_spec)
             _spec.loader.exec_module(_mod)
             import sys as _s; _s.modules['core.extension_server'] = _mod
-            _mod.set_agent_loop(asyncio.get_event_loop())
+            _mod.set_agent_loop(asyncio.get_running_loop())
 
             def _run_ext_server():
                 # Цикл с нарастающим перезапуском живёт в extension_server
@@ -661,8 +662,8 @@ class Agent:
         except Exception as _ext_e:
             log.warning(f"[extension] Не удалось запустить сервер: {_ext_e}")
 
-        asyncio.create_task(self._heartbeat())
-        asyncio.create_task(self._screen_analysis_loop())
+        spawn(self._heartbeat(), name="agent-heartbeat")
+        spawn(self._screen_analysis_loop(), name="screen-analysis-loop")
         self.hearing.start()
 
         # Фоновый индекс — не блокируем event loop
