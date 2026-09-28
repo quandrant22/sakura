@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -61,6 +62,7 @@ async def main():
     from adapters.ws import ws_handler
     from adapters.voice import _get_active_ws
     from modules.ws_auth import validate_secret_on_startup
+    from modules.ws_auth import MAX_WS_MESSAGE_SIZE
     import modules.tts_server as tts_server
     from modules.state_arbiter import get_current_emotion
     import websockets
@@ -100,7 +102,15 @@ async def main():
     except Exception as e:
         log.warning(f"[tg_monitor] Не удалось запустить: {e}")
 
-    ws_server = await websockets.serve(ws_handler, "0.0.0.0", 8765, max_size=None)
+    ws_host = os.getenv("WS_HOST", "0.0.0.0")
+    ws_server = await websockets.serve(
+        ws_handler,
+        ws_host,
+        8765,
+        max_size=MAX_WS_MESSAGE_SIZE,
+        ping_interval=20,
+        ping_timeout=20,
+    )
 
     set_achievement_callback(await make_achievement_cb(MASTER_ID, send_telegram_text, mark_sent))
     asyncio.create_task(discord_start_bot())

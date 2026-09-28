@@ -131,6 +131,7 @@ async def speak_now_playing_result(cmd_id: str, ws_dev, device_id: str, bot) -> 
 async def ws_handler(websocket):
     from adapters.telegram import bot, send_to_master, send_safe
     from modules.ws_auth import check_token, is_master_device, reject
+    from modules.ws_auth import WS_AUTH_TIMEOUT_SECONDS
     from modules.device_manager import set_device_offline
     from modules.presence_sync import set_offline as ps_offline
     from modules.rituals import should_farewell, get_farewell_prompt
@@ -142,7 +143,29 @@ async def ws_handler(websocket):
 
     device_id = None
     try:
-        async for raw in websocket:
+        try:
+            first_raw = await asyncio.wait_for(
+                websocket.recv(), timeout=WS_AUTH_TIMEOUT_SECONDS
+            )
+        except asyncio.TimeoutError:
+            await reject(websocket, reason="authentication timeout")
+            return
+
+        try:
+            first_data = json.loads(first_raw)
+        except (TypeError, ValueError):
+            await reject(websocket, reason="invalid authentication message")
+            return
+        if not isinstance(first_data, dict) or not check_token(first_data):
+            await reject(websocket, reason="invalid token on first message")
+            return
+
+        async def incoming_messages():
+            yield first_raw
+            async for message in websocket:
+                yield message
+
+        async for raw in incoming_messages():
             try:
                 data     = json.loads(raw)
                 msg_type = data.get("type")

@@ -11,6 +11,9 @@ import os
 
 log = logging.getLogger("sakura.ws_auth")
 
+WS_AUTH_TIMEOUT_SECONDS = 5
+MAX_WS_MESSAGE_SIZE = 2 * 1024 * 1024
+
 _WS_SECRET: str = os.getenv("WS_SECRET", "").strip()
 
 _MASTER_DEVICES: set[str] = set(
