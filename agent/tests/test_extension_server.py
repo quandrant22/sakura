@@ -111,7 +111,8 @@ def test_start_binds_next_port_when_first_busy(caplog):
             # Проверка рукопожатия: агент первым шлёт sakura_hello
             import websockets
             async with websockets.connect(
-                    "ws://127.0.0.1:8767", open_timeout=3) as ws:
+                    "ws://127.0.0.1:8767", open_timeout=3,
+                    origin="chrome-extension://test-extension") as ws:
                 hello = json.loads(await asyncio.wait_for(ws.recv(), 3))
                 assert hello["type"] == "sakura_hello"
                 assert "version" in hello
@@ -130,3 +131,48 @@ def test_start_binds_next_port_when_first_busy(caplog):
     finally:
         if blocker is not None:
             blocker.close()
+
+
+@pytest.mark.parametrize("origin", [None, "", "https://attacker.example"])
+def test_handler_rejects_missing_or_foreign_origin(monkeypatch, origin):
+    from types import SimpleNamespace
+
+    mod = load_ext_server()
+    monkeypatch.delenv("SAKURA_EXTENSION_ID", raising=False)
+
+    class FakeWebSocket:
+        request = SimpleNamespace(headers={"Origin": origin} if origin is not None else {})
+        closed = None
+        sent = False
+
+        async def close(self, code, reason):
+            self.closed = (code, reason)
+
+        async def send(self, _payload):
+            self.sent = True
+
+    websocket = FakeWebSocket()
+    asyncio.run(mod._handler(websocket))
+
+    assert websocket.closed == (1008, "Origin not allowed")
+    assert websocket.sent is False
+    assert mod.is_connected() is False
+
+
+def test_handler_requires_configured_extension_id(monkeypatch):
+    from types import SimpleNamespace
+
+    mod = load_ext_server()
+    monkeypatch.setenv("SAKURA_EXTENSION_ID", "trusted-id")
+
+    class FakeWebSocket:
+        request = SimpleNamespace(headers={"Origin": "chrome-extension://other-id"})
+        closed = None
+
+        async def close(self, code, reason):
+            self.closed = (code, reason)
+
+    websocket = FakeWebSocket()
+    asyncio.run(mod._handler(websocket))
+
+    assert websocket.closed == (1008, "Origin not allowed")
