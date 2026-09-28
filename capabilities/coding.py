@@ -140,16 +140,10 @@ async def run_command(cmd: list[str], timeout: int = 60,
             subprocess.run, cmd, shell=False, capture_output=True,
             text=True, timeout=timeout, cwd=cwd,
         )
-        if isinstance(result, dict):
-            return {
-                "ok": bool(result.get("ok", result.get("returncode", 0) == 0)),
-                "output": result.get("output", ""),
-                "error": result.get("error", ""),
-            }
         return {
             "ok": result.returncode == 0,
-            "output": getattr(result, "stdout", ""),
-            "error": getattr(result, "stderr", ""),
+            "output": result.stdout,
+            "error": result.stderr,
         }
     except subprocess.TimeoutExpired:
         return {"ok": False, "output": "", "error": f"Таймаут {timeout}с"}

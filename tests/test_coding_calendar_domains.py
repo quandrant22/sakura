@@ -91,6 +91,17 @@ def test_coding_git_status_passes_project_dir(monkeypatch):
     assert "file.py" in text
 
 
+def test_run_command_handles_completed_process(monkeypatch):
+    completed = subprocess.CompletedProcess(
+        args=["fake-command"], returncode=0, stdout="done\n", stderr=""
+    )
+    monkeypatch.setattr(cap_coding.subprocess, "run", lambda *_args, **_kwargs: completed)
+
+    result = _run(cap_coding.run_command(["fake-command"]))
+
+    assert result == {"ok": True, "output": "done\n", "error": ""}
+
+
 def test_git_commit_message_is_passed_literally(tmp_path, monkeypatch):
     """Shell metacharacters in a commit message remain ordinary message text."""
     for args in (
