@@ -19,6 +19,7 @@ import adapters.ws as wh
 import sakura_core.bridge as br
 import sakura_core.llm as llm
 import sakura_core.reactions as reactions
+from sakura_core import budget
 from sakura_core.router import Decision, Router
 
 T_CLASSIFY = 0.35   # «классификатор» в фейковом роутере
@@ -218,4 +219,78 @@ def test_gate_timeout_behaves_as_not_command():
 
     verdict, opened = asyncio.run(_go())
     assert verdict is False and opened is True
+
+
+# ── п.5: бюджеты голосового пути считаются ОТ ПРИЁМА голоса ──────────
+
+
+def test_budgets_voice_stages_receipt_based():
+    """Первый звук — 2с, ответ готов — 3с, старого voice_total нет."""
+    assert budget.BUDGETS_MS["voice_first_audio"] == 2000
+    assert budget.BUDGETS_MS["voice_llm_done"] == 3000
+    assert "voice_total" not in budget.BUDGETS_MS
+    # точка отсчёта: приём голоса, иначе старт стрима
+    assert budget.since(None, 7.0) == 7.0
+    assert budget.since(3.0, 7.0) == 3.0
+
+
+def test_voice_budgets_include_parallel_classifier_time(monkeypatch):
+    """received_at=? — в бюджет входит и классификация, и стрим."""
+    seen = []
+    monkeypatch.setattr(budget, "check",
+                        lambda stage, ms: seen.append((stage, ms)))
+    monkeypatch.setattr(llm, "pick_key", lambda api_key=None: "test-key")
+    monkeypatch.setattr(llm, "get_client", lambda key: MagicMock())
+    monkeypatch.setattr(llm, "stream_tokens", _fake_stream_tokens)
+
+    async def _fake_live(text, emotion, on_packet, label=""):
+        await on_packet(b"AUDIO")
+        return 1
+
+    async def _fake_send(data):
+        return None
+
+    monkeypatch.setattr(voice_mod, "_live_synthesize", _fake_live)
+    monkeypatch.setattr(voice_mod, "_make_audio_sender",
+                        lambda websocket, device_id: _fake_send)
+
+    async def _go():
+        recv = time.monotonic() - 0.4        # голос приняли 400мс назад
+        await voice_mod.stream_llm_to_tts(
+            contents="тест", system="", websocket=MagicMock(),
+            device_id="laptop", max_tokens=60, timeout=6.0,
+            received_at=recv)
+
+    asyncio.run(_go())
+    stages = dict(seen)
+    assert stages["voice_first_audio"] >= 400, stages
+    assert stages["voice_llm_done"] >= 400, stages
+    assert "voice_total" not in stages
+
+
+def test_ws_passes_receipt_time_to_voice(monkeypatch):
+    """ws отдаёт в голосовой путь момент приёма голоса (п.5)."""
+    tts_calls, outcome, got = [], {}, {}
+    _setup(monkeypatch, tts_calls,
+           decision=Decision(None, "conversation"), executed=False)
+    ctx = _mk_ctx(_mk_ask_voice(outcome, tts_calls))
+    real_ask = ctx["ask_gemini_voice"]
+
+    async def _ask(**kw):
+        got.update(kw)
+        await real_ask(**kw)
+
+    ctx["ask_gemini_voice"] = _ask
+
+    t_before = time.monotonic()
+    asyncio.run(wh.handle_voice_command(
+        None, _data("давно не виделись как проходит время"), ctx))
+    t_after = time.monotonic()
+
+    assert outcome.get("completed") is True
+    recv = got.get("received_at")
+    assert recv is not None, "ws обязан передать момент приёма голоса"
+    assert t_before <= recv <= t_after
+    # приём раньше первого звука — отсчёт бюджетов честный
+    assert recv <= tts_calls[0][0]
 

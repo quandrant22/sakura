@@ -311,6 +311,9 @@ async def handle_voice_command(websocket, data, ctx) -> None:
     ws_dev     = st.connected_devices.get(device_id)
     text_lower = text.lower()
     log.info(f"[voice] получено: {text!r}")
+    # П.5: точка отсчёта голосовых бюджетов — приём голоса, а не старт
+    # стрима/сборки ответа (классификация идёт параллельно, п.2).
+    t_recv = time.monotonic()
 
     # Интим-режим: детект на каждое сообщение Мастера
     _im_mark(text)
@@ -411,12 +414,15 @@ async def handle_voice_command(websocket, data, ctx) -> None:
             return
         from adapters.voice import VoiceGate
         voice_gate = VoiceGate()
+        log.info(f"[voice] prefetch старт +{(time.monotonic()-t_recv)*1000:.0f}мс "
+                 f"от приёма (параллельно классификатору)")
         voice_task = asyncio.create_task(ask_gemini_voice(
             user_message  = text + ctx_str,
             websocket     = ws_dev,
             device_id     = device_id or "laptop",
             active_window = data.get("active_window", ""),
             gate          = voice_gate,
+            received_at   = t_recv,
         ))
 
     async def _cancel_voice_prefetch():
@@ -632,6 +638,7 @@ async def handle_voice_command(websocket, data, ctx) -> None:
             websocket     = ws_dev,
             device_id     = device_id or "laptop",
             active_window = active_win,
+            received_at   = t_recv,
         )
     # Предконнект TTS: если его не забрала первая стадия (например, пустой
     # ответ), закрываем сразу — слот семафора не держим зря.

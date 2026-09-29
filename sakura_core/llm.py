@@ -703,11 +703,15 @@ async def ask_gemini_voice(
     active_window: str | None = None,
     length       : str = "short",
     gate         = None,
+    received_at  : float | None = None,
 ) -> tuple[str, str]:
     """Голосовой ответ с истинным стримингом LLM→TTS.
 
     gate — VoiceGate (п.2): шлюз «классификатор ∥ стрим»; без него
     (None) поведение прежнее — предложения уходят в TTS сразу.
+    received_at — time.monotonic() приёма голоса (п.5): бюджеты
+    «первый звук»/«ответ готов» считаются от приёма, а не от старта
+    ответа (параллельная классификация входит в замер).
     """
     from config import MAIN_MODEL, FALLBACK_MODEL, get_active_key, mark_key_used
     from memory.memory import add_to_history
@@ -735,7 +739,10 @@ async def ask_gemini_voice(
     max_tok = (config.VOICE_MAX_TOKENS if config.VOICE_MAX_TOKENS_OVERRIDE
                else _LEN_TOKENS.get(length, config.VOICE_MAX_TOKENS))
     log.info(f"[voice] len={length} → hint={'да' if len_hint else 'нет'}, max_tokens={max_tok}")
-    log.info(f"[voice] _build_system за {__import__('time').monotonic()-_t_build:.2f}с")
+    _t_now = __import__("time").monotonic()
+    _from_recv = (f" (+{_t_now-received_at:.2f}с от приёма)"
+                  if received_at is not None else "")
+    log.info(f"[voice] _build_system за {_t_now-_t_build:.2f}с{_from_recv}")
 
     contents  = _build_contents(
         user_message, history_limit=config.VOICE_HISTORY_LIMIT
@@ -783,6 +790,7 @@ async def ask_gemini_voice(
                 timeout     = 8.0,
                 chain       = config.VOICE_MODEL_CHAIN,
                 gate        = gate,
+                received_at = received_at,
             )
         else:
             response  = await generate(contents, system=full_system, model=MAIN_MODEL,
@@ -801,6 +809,7 @@ async def ask_gemini_voice(
                     model=FALLBACK_MODEL, max_tokens=max_tok,
                     api_key=key, emotion=get_current_emotion(), timeout=8.0,
                     chain=config.VOICE_MODEL_CHAIN, gate=gate,
+                    received_at=received_at,
                 )
             else:
                 r = await generate(contents, system=full_system, model=FALLBACK_MODEL,

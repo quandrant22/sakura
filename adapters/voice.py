@@ -116,6 +116,7 @@ async def stream_llm_to_tts(
     timeout: float = 8.0,
     chain=None,
     gate: Optional[VoiceGate] = None,
+    received_at: Optional[float] = None,
 ) -> tuple[str, str]:
     """Стриминг LLM→TTS: предложение готово → сразу в синтез.
 
@@ -124,11 +125,15 @@ async def stream_llm_to_tts(
     stop — опциональный callable(): True между пакетами → обрыв озвучки.
     gate — шлюз классификатора (п.2): пока не открыт, накопленные
     предложения НЕ уходят в стадии TTS, но чтение токенов продолжается.
+    received_at — time.monotonic() приёма голоса (п.5): бюджеты «первый
+    звук» и «ответ готов» считаются от него, а не от старта этого стрима,
+    иначе параллельная классификация выпадает из замера.
     """
     key = _llm.pick_key(api_key)
     if client is None:
         client = _llm.get_client(key)
     t0 = time.monotonic()
+    base = budget.since(received_at, t0)   # точка отсчёта голосовых бюджетов
     deadline = t0 + timeout
     parts: list[str] = []
     queues: list[asyncio.Queue] = []
@@ -178,8 +183,8 @@ async def stream_llm_to_tts(
                 return True
             if not first_audio_logged:
                 first_audio_logged = True
-                _ms = (time.monotonic() - t0) * 1000
-                log.info(f"[voice] первый звук за {_ms:.0f}мс")
+                _ms = (time.monotonic() - base) * 1000
+                log.info(f"[voice] первый звук за {_ms:.0f}мс (от приёма голоса)")
                 budget.check("voice_first_audio", _ms)
 
 
@@ -253,9 +258,11 @@ async def stream_llm_to_tts(
                 log.debug(f"[voice] продюсер: {e}")
 
     if not synth_failed:
-        budget.timed("voice_total", t0)
+        budget.timed("voice_llm_done", base)
     full_text = " ".join(parts)
-    log.info(f"[voice] ответ за {time.monotonic() - t0:.1f}с, {len(full_text)} симв")
+    now = time.monotonic()
+    log.info(f"[voice] ответ готов: {now-base:.1f}с от приёма голоса, "
+             f"{now-t0:.1f}с от старта стрима, {len(full_text)} симв")
     return full_text, emotion
 
 
