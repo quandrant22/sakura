@@ -1,6 +1,9 @@
 """Run actual service orchestration with deliberate background/critical faults."""
 import asyncio
 import logging
+import signal
+import time
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -91,3 +94,98 @@ def test_bridge_reuses_loaded_declarations(monkeypatch):
     monkeypatch.setattr("sakura_core.executor._load_registry", unexpected_load)
     assert bridge.get_router() is bridge.get_router()
     assert bridge.get_executor() is bridge.get_executor()
+
+
+def test_shutdown_signal_stops_components_and_closes_resources(monkeypatch):
+    from memory import db
+    from sakura_core import tasks as task_registry
+
+    calls = []
+    stop_event = asyncio.Event()
+    polling_stopped = asyncio.Event()
+    websocket_closed = asyncio.Event()
+    services_started = asyncio.Event()
+
+    class WebSocketServer:
+        def close(self):
+            calls.append("websocket.close")
+
+        async def wait_closed(self):
+            calls.append("websocket.wait_closed")
+            websocket_closed.set()
+
+    class Dispatcher:
+        async def stop_polling(self):
+            calls.append("telegram.stop_polling")
+            polling_stopped.set()
+
+    class DiscordBot:
+        async def close(self):
+            calls.append("discord.close")
+
+    async def fake_cancel_all(timeout):
+        calls.append(("cancel_all", timeout))
+        return set()
+
+    def fake_db_close():
+        calls.append("db.close")
+
+    monkeypatch.setattr(task_registry, "cancel_all", fake_cancel_all)
+    monkeypatch.setattr(db, "close", fake_db_close)
+
+    async def polling():
+        services_started.set()
+        await polling_stopped.wait()
+
+    async def websocket_surface():
+        await websocket_closed.wait()
+
+    async def background():
+        await asyncio.Event().wait()
+
+    async def scenario():
+        started = time.monotonic()
+        lifecycle = SimpleNamespace(
+            polling=polling(),
+            websocket=websocket_surface(),
+            background=[("test-background", background())],
+            dispatcher=Dispatcher(),
+            websocket_server=WebSocketServer(),
+            discord_bot=DiscordBot(),
+        )
+        service = asyncio.create_task(entrypoint.main(
+            lifecycle=lifecycle, stop_event=stop_event,
+        ))
+        await services_started.wait()
+        stop_event.set()
+        await asyncio.wait_for(service, timeout=10)
+        assert time.monotonic() - started < 10
+
+    asyncio.run(scenario())
+
+    assert calls == [
+        "telegram.stop_polling",
+        "websocket.close",
+        "websocket.wait_closed",
+        "discord.close",
+        ("cancel_all", 5.0),
+        "db.close",
+    ]
+
+
+def test_shutdown_signal_handlers_set_event():
+    stop_event = asyncio.Event()
+
+    class FakeLoop:
+        def __init__(self):
+            self.handlers = {}
+
+        def add_signal_handler(self, sig, callback):
+            self.handlers[sig] = callback
+
+    loop = FakeLoop()
+    entrypoint.install_shutdown_handlers(loop, stop_event)
+
+    assert set(loop.handlers) == {signal.SIGTERM, signal.SIGINT}
+    loop.handlers[signal.SIGTERM]()
+    assert stop_event.is_set()
