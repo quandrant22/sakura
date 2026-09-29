@@ -340,6 +340,29 @@ def test_stream_deadline_bounds_slow_request(monkeypatch):
     assert elapsed < 1.0
 
 
+def test_stream_queue_waits_share_one_deadline(monkeypatch):
+    _mock_keys(monkeypatch)
+
+    class Models:
+        def generate_content_stream(self, **_kwargs):
+            for text in ("first", "second", "too-late"):
+                time.sleep(3)
+                yield SimpleNamespace(text=text)
+
+    monkeypatch.setattr(llm, "get_client", lambda _key: _Client(Models()))
+
+    async def measure():
+        started = time.monotonic()
+        result = [token async for token in llm.stream_tokens(
+            "hello", chain=("model-a",), timeout=8,
+        )]
+        return result, time.monotonic() - started
+
+    result, elapsed = asyncio.run(measure())
+    assert result == ["first", "second"]
+    assert elapsed <= 9
+
+
 def test_error_handler_has_no_recursive_ask_gemini_call():
     tree = ast.parse(open(llm.__file__, encoding="utf-8").read())
     handler = next(node for node in tree.body

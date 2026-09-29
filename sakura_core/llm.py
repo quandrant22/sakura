@@ -313,7 +313,7 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
     loop = asyncio.get_running_loop()
     import threading
 
-    async def _one_stream(client, model_name: str, remaining: float):
+    async def _one_stream(client, model_name: str, deadline: float):
         queue: asyncio.Queue = asyncio.Queue()
 
         def _enqueue(item) -> None:
@@ -352,6 +352,9 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
 
         threading.Thread(target=_produce, daemon=True).start()
         while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise asyncio.TimeoutError()
             item = await asyncio.wait_for(queue.get(), timeout=remaining)
             if item is None:
                 return
@@ -361,6 +364,7 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
 
     models = _models_to_try(model, chain, contents)
     started = time.monotonic()
+    deadline = started + timeout
     first_key = _initial_key(api_key)
     if not first_key:
         log.error("[llm] no active Gemini API key")
@@ -383,7 +387,7 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
                 remaining = timeout - (time.monotonic() - started)
                 if remaining <= 0:
                     raise asyncio.TimeoutError()
-                async for text in _one_stream(client, model_name, remaining):
+                async for text in _one_stream(client, model_name, deadline):
                     emitted = True
                     yield text
                 if not emitted:
