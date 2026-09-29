@@ -95,6 +95,16 @@ def _models_to_try(model: Optional[str], chain=None, contents=None) -> tuple[str
     return tuple(dict.fromkeys(FALLBACK_MODELS))
 
 
+def _chain_path(chain, contents) -> str:
+    if _has_image(contents):
+        return "vision"
+    if chain is config.VOICE_MODEL_CHAIN:
+        return "voice"
+    if chain is config.BACKGROUND_MODEL_CHAIN:
+        return "background"
+    return "chat"
+
+
 def _chain_for_request(history_limit: int, save_history: bool):
     if not save_history:
         caller = inspect.stack()[2].function
@@ -228,6 +238,7 @@ async def generate(contents, *, system: str = "", model: Optional[str] = None,
                    chain=None) -> str:
     """Generate with bounded retries and a single request-wide time budget."""
     models = _models_to_try(model, chain, contents)
+    chain_path = _chain_path(chain, contents)
     started = time.monotonic()
     first_key = _initial_key(api_key)
     if not first_key:
@@ -279,6 +290,10 @@ async def generate(contents, *, system: str = "", model: Optional[str] = None,
                 text = (response.text or "").strip()
                 if not text:
                     raise _EmptyResponseError("model returned empty text")
+                log.info(
+                    "[llm] success model=%s chain=%s elapsed=%.2fs",
+                    model_name, chain_path, time.monotonic() - started,
+                )
                 return text
             except Exception as error:
                 elapsed = time.monotonic() - attempt_started
@@ -363,6 +378,7 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
             yield item
 
     models = _models_to_try(model, chain, contents)
+    chain_path = _chain_path(chain, contents)
     started = time.monotonic()
     deadline = started + timeout
     first_key = _initial_key(api_key)
@@ -380,6 +396,7 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
                 return
             attempt_started = time.monotonic()
             emitted = False
+            first_token_elapsed = None
             try:
                 client = await asyncio.wait_for(
                     asyncio.to_thread(get_client, current_key), timeout=remaining,
@@ -389,14 +406,24 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
                     raise asyncio.TimeoutError()
                 async for text in _one_stream(client, model_name, deadline):
                     emitted = True
+                    if first_token_elapsed is None:
+                        first_token_elapsed = time.monotonic() - started
                     yield text
                 if not emitted:
                     raise RuntimeError("empty stream")
+                log.info(
+                    "[llm] success model=%s chain=%s first_token=%.2fs",
+                    model_name, chain_path, first_token_elapsed,
+                )
                 return
             except Exception as error:
                 elapsed = time.monotonic() - attempt_started
                 _log_attempt_failure(model_name, current_key, error, elapsed)
                 if emitted:
+                    log.info(
+                        "[llm] partial model=%s chain=%s first_token=%.2fs",
+                        model_name, chain_path, first_token_elapsed,
+                    )
                     log.warning("[llm] stream model=%s stopped after first token; returning partial text",
                                 model_name)
                     return

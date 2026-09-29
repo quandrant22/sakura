@@ -18,10 +18,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-import config
 from PIL import Image
 
 from core import hands
+
+config = hands.config
 
 
 def _textured(width: int, height: int) -> Image.Image:
