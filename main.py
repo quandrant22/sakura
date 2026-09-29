@@ -75,12 +75,20 @@ async def graceful_shutdown(dispatcher, websocket_server, discord_bot) -> None:
     from sakura_core.tasks import cancel_all
 
     log.info("[shutdown] stopping Telegram polling")
-    await dispatcher.stop_polling()
+    polling_stop = asyncio.create_task(dispatcher.stop_polling(), name="telegram-stop")
+    await asyncio.sleep(0)
     log.info("[shutdown] closing WebSocket server")
     websocket_server.close()
-    await websocket_server.wait_closed()
     log.info("[shutdown] stopping Discord bot")
-    await discord_bot.close()
+    close_tasks = [
+        polling_stop,
+        asyncio.create_task(websocket_server.wait_closed(), name="websocket-close"),
+        asyncio.create_task(discord_bot.close(), name="discord-close"),
+    ]
+    results = await asyncio.gather(*close_tasks, return_exceptions=True)
+    for task, result in zip(close_tasks, results):
+        if isinstance(result, BaseException):
+            log.error("[shutdown] %s failed: %s", task.get_name(), result)
     log.info("[shutdown] cancelling spawned tasks")
     pending = await cancel_all(timeout=5.0)
     if pending:
@@ -244,6 +252,7 @@ async def main(*, lifecycle=None, stop_event=None):
         max_size=MAX_WS_MESSAGE_SIZE,
         ping_interval=20,
         ping_timeout=20,
+        close_timeout=0.5,
     )
 
     set_achievement_callback(await make_achievement_cb(MASTER_ID, send_telegram_text, mark_sent))
