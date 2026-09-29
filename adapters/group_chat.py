@@ -9,6 +9,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 from sakura_core.tasks import spawn
+from config import BACKGROUND_MODEL_CHAIN
 
 if TYPE_CHECKING:
     from aiogram.types import Message
@@ -76,7 +77,9 @@ async def handle_group_message(
                 "Ты ответила ей: " + reply[:200] + "\n\n"
                 "Поделись с Мастером своим наблюдением — одно предложение."
             )
-            opinion = await ask_gemini(opinion_prompt, save_history=False)
+            opinion = await ask_gemini(
+                opinion_prompt, save_history=False, chain=BACKGROUND_MODEL_CHAIN,
+            )
             notif = "[химари] Химари: " + text[:120] + "\n\n" + opinion + "\n\n<- ответь чтобы обсудить"
             await send_to_master(notif, disable_notification=True)
         except Exception as e:
@@ -175,7 +178,9 @@ async def handle_group_message(
             "Ты ответила: " + reply[:200] + "\n\n"
             "Поделись с Мастером своим мнением — одно предложение."
         )
-        opinion = await ask_gemini(opinion_prompt, save_history=False)
+        opinion = await ask_gemini(
+            opinion_prompt, save_history=False, chain=BACKGROUND_MODEL_CHAIN,
+        )
         notif = "[гость] " + user_name + " (id=" + str(user_id) + "): " + text[:120] + "\n\n" + opinion + "\n\n<- ответь чтобы обсудить"
         await send_to_master(notif, disable_notification=True)
     except Exception as e:
@@ -237,7 +242,9 @@ async def handle_guest_private(
                 "Коротко поделись с Мастером наблюдением — что за человек, что хотел. "
                 "Спокойно и доброжелательно, без высокомерия и приговоров. Одно предложение."
             )
-        opinion = await ask_gemini(opinion_prompt, save_history=False)
+        opinion = await ask_gemini(
+            opinion_prompt, save_history=False, chain=BACKGROUND_MODEL_CHAIN,
+        )
         tag = "[химари]" if role == "himari" else "[гость]"
         full_notification = (
             f"{tag} {notification}\n\n"

@@ -11,6 +11,7 @@ generate() / stream_tokens().
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import random
 import re
@@ -95,11 +96,16 @@ def _models_to_try(model: Optional[str], chain=None, contents=None) -> tuple[str
 
 
 def _chain_for_request(history_limit: int, save_history: bool):
+    if not save_history:
+        caller = inspect.stack()[2].function
+        log.warning(
+            "[llm] save_history=False without explicit chain in %s; using MODEL_CHAIN",
+            caller,
+        )
+        return config.MODEL_CHAIN
     if history_limit == config.VOICE_HISTORY_LIMIT:
         return config.VOICE_MODEL_CHAIN
-    if save_history:
-        return config.MODEL_CHAIN
-    return config.BACKGROUND_MODEL_CHAIN
+    return config.MODEL_CHAIN
 
 
 def _error_code(error: Exception) -> str:

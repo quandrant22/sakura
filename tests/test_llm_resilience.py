@@ -1,6 +1,7 @@
 import ast
 import asyncio
 import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -241,15 +242,45 @@ def test_text_requests_use_path_chain(monkeypatch, api):
     assert calls == ["chat-model"]
 
 
-def test_ask_gemini_selects_chat_voice_and_background_chains(monkeypatch):
+def test_ask_gemini_defaults_to_model_chain_without_history(monkeypatch, caplog):
     monkeypatch.setattr(llm.config, "VOICE_HISTORY_LIMIT", 10)
     monkeypatch.setattr(llm.config, "MODEL_CHAIN", ("chat",))
     monkeypatch.setattr(llm.config, "VOICE_MODEL_CHAIN", ("voice",))
     monkeypatch.setattr(llm.config, "BACKGROUND_MODEL_CHAIN", ("background",))
 
     assert llm._chain_for_request(30, True) == ("chat",)
-    assert llm._chain_for_request(10, False) == ("voice",)
-    assert llm._chain_for_request(30, False) == ("background",)
+    assert llm._chain_for_request(10, False) == ("chat",)
+    assert llm._chain_for_request(30, False) == ("chat",)
+    assert "using MODEL_CHAIN" in caplog.text
+
+
+def test_all_save_history_false_ask_calls_set_chain():
+    root = Path(__file__).resolve().parents[1]
+    missed = []
+    for directory in ("adapters", "modules", "sakura_core"):
+        for path in (root / directory).rglob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            names = {"ask_gemini", "ask_gemini_fn"}
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom):
+                    names.update(
+                        alias.asname or alias.name
+                        for alias in node.names
+                        if alias.name == "ask_gemini"
+                    )
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                callee = (node.func.id if isinstance(node.func, ast.Name)
+                          else node.func.attr if isinstance(node.func, ast.Attribute)
+                          else None)
+                keywords = {keyword.arg: keyword.value for keyword in node.keywords}
+                save_history = keywords.get("save_history")
+                if (callee in names and isinstance(save_history, ast.Constant)
+                        and save_history.value is False and "chain" not in keywords):
+                    missed.append(f"{path.relative_to(root)}:{node.lineno}")
+
+    assert not missed, "ask_gemini(save_history=False) without chain=: " + ", ".join(missed)
 
 
 def test_model_chain_parser_preserves_legacy_and_child_defaults(monkeypatch):
