@@ -128,6 +128,94 @@ def test_stream_does_not_retry_after_first_token(monkeypatch):
     assert len(calls) == 1
 
 
+@pytest.mark.parametrize("api", ("generate", "stream"))
+@pytest.mark.parametrize("image_field", ("inline_data", "file_data"))
+@pytest.mark.parametrize("wrapped", (False, True))
+def test_image_requests_use_vision_chain(monkeypatch, api, image_field, wrapped):
+    _mock_keys(monkeypatch)
+    monkeypatch.setattr(llm.config, "MODEL_CHAIN", ("chat-model",))
+    monkeypatch.setattr(llm.config, "VISION_MODEL_CHAIN", ("vision-model",))
+    image_part = SimpleNamespace(**{
+        "inline_data": None,
+        "file_data": None,
+        image_field: SimpleNamespace(mime_type="image/png"),
+    })
+    contents = ([SimpleNamespace(parts=[image_part])] if wrapped else [image_part])
+    calls = []
+
+    class Models:
+        def generate_content(self, *, model, **_kwargs):
+            calls.append(model)
+            return SimpleNamespace(text="ok")
+
+        def generate_content_stream(self, *, model, **_kwargs):
+            calls.append(model)
+            yield SimpleNamespace(text="ok")
+
+    monkeypatch.setattr(llm, "get_client", lambda _key: _Client(Models()))
+
+    async def run_api():
+        if api == "generate":
+            return await llm.generate(contents)
+        return "".join([token async for token in llm.stream_tokens(contents)])
+
+    assert asyncio.run(run_api()) == "ok"
+    assert calls == ["vision-model"]
+
+
+@pytest.mark.parametrize("api", ("generate", "stream"))
+def test_text_requests_use_path_chain(monkeypatch, api):
+    _mock_keys(monkeypatch)
+    monkeypatch.setattr(llm.config, "MODEL_CHAIN", ("chat-model", "chat-fallback"))
+    monkeypatch.setattr(llm.config, "VISION_MODEL_CHAIN", ("vision-model",))
+    calls = []
+
+    class Models:
+        def generate_content(self, *, model, **_kwargs):
+            calls.append(model)
+            return SimpleNamespace(text="ok")
+
+        def generate_content_stream(self, *, model, **_kwargs):
+            calls.append(model)
+            yield SimpleNamespace(text="ok")
+
+    monkeypatch.setattr(llm, "get_client", lambda _key: _Client(Models()))
+
+    async def run_api():
+        if api == "generate":
+            return await llm.generate("hello")
+        return "".join([token async for token in llm.stream_tokens("hello")])
+
+    assert asyncio.run(run_api()) == "ok"
+    assert calls == ["chat-model"]
+
+
+def test_ask_gemini_selects_chat_voice_and_background_chains(monkeypatch):
+    monkeypatch.setattr(llm.config, "VOICE_HISTORY_LIMIT", 10)
+    monkeypatch.setattr(llm.config, "MODEL_CHAIN", ("chat",))
+    monkeypatch.setattr(llm.config, "VOICE_MODEL_CHAIN", ("voice",))
+    monkeypatch.setattr(llm.config, "BACKGROUND_MODEL_CHAIN", ("background",))
+
+    assert llm._chain_for_request(30, True) == ("chat",)
+    assert llm._chain_for_request(10, False) == ("voice",)
+    assert llm._chain_for_request(30, False) == ("background",)
+
+
+def test_model_chain_parser_preserves_legacy_and_child_defaults(monkeypatch):
+    import config
+
+    monkeypatch.delenv("MODEL_CHAIN", raising=False)
+    monkeypatch.delenv("VOICE_MODEL_CHAIN", raising=False)
+    assert config._parse_model_chain("MODEL_CHAIN", ("main", "fallback")) == (
+        "main", "fallback",
+    )
+    default_chain = config._parse_model_chain("MODEL_CHAIN", ("main", "fallback"))
+    assert config._parse_model_chain("VOICE_MODEL_CHAIN", default_chain) == default_chain
+
+    monkeypatch.setenv("MODEL_CHAIN", "first, second,first,,")
+    assert config._parse_model_chain("MODEL_CHAIN", ("main",)) == ("first", "second")
+
+
 def test_generate_deadline_bounds_slow_request(monkeypatch):
     _mock_keys(monkeypatch)
 

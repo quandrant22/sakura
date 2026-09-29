@@ -283,6 +283,8 @@ async def handle_message(message: Message):
     from sakura_core.bridge import resolve_conv_reply
 
     async def _tg_resolve_reply(_r):
+        from config import MODEL_CHAIN
+
         await resolve_conv_reply(
             _r, text=text,
             deliver=lambda t: send_as_conversation(message.chat.id, t) if t else None,
@@ -292,6 +294,7 @@ async def handle_message(message: Message):
             strip_tone_fn=_strip_tone,
             on_photo=lambda url: bot.send_photo(message.chat.id, photo=url),
             send_vip_fn=lambda vip_id, txt: bot.send_message(vip_id, txt),
+            request_chain=MODEL_CHAIN,
         )
 
     try:

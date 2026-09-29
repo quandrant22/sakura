@@ -144,6 +144,8 @@ async def voice_to_tg(text: str, text_lower: str, payload: str,
                        search_image_fn, download_bytes_fn,
                        search_and_fetch_fn, needs_search_fn,
                        translate_en_fn, bot, master_id) -> None:
+    from config import VOICE_MODEL_CHAIN
+
     if not payload:
         await send_safe_fn(master_id, "Что прислать в телеграм, Мастер?")
         return
@@ -184,10 +186,12 @@ async def voice_to_tg(text: str, text_lower: str, payload: str,
                 "Оформи это как аккуратный нумерованный список (1. 2. 3.), "
                 "сохрани смысл дословно, ничего не добавляй, не комментируй, "
                 "не отвечай — только список:\n" + payload,
-                save_history=False)
+                save_history=False, chain=VOICE_MODEL_CHAIN)
             await send_safe_fn(master_id, formatted)
         else:
-            answer = await ask_gemini_fn(payload, save_history=False)
+            answer = await ask_gemini_fn(
+                payload, save_history=False, chain=VOICE_MODEL_CHAIN,
+            )
             await send_safe_fn(master_id, answer)
     except Exception as e:
         log.error(f"voice->tg: {e}")

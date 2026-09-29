@@ -365,6 +365,8 @@ async def handle_voice_command(websocket, data, ctx) -> None:
     from sakura_core.bridge import resolve_conv_reply
 
     async def _ws_resolve_reply(_r):
+        from config import VOICE_MODEL_CHAIN
+
         async def _speak(phrase):
             if ws_dev:
                 await stream_tts_to_device(phrase, ws_dev, device_id or "laptop", literal=True)
@@ -374,6 +376,7 @@ async def handle_voice_command(websocket, data, ctx) -> None:
             ask_gemini_fn=ask_gemini,
             get_active_ws_fn=_get_active_ws,
             clean_slate_fn=_clean_slate,
+            request_chain=VOICE_MODEL_CHAIN,
         )
 
     try:

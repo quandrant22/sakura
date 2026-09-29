@@ -59,12 +59,47 @@ def _no_safety():
     ]
 
 
-def _models_to_try(model: Optional[str], chain=None) -> tuple[str, ...]:
+def _part_value(part, name):
+    if isinstance(part, dict):
+        return part.get(name)
+    return getattr(part, name, None)
+
+
+def _has_image(contents) -> bool:
+    for content in contents if isinstance(contents, (list, tuple)) else (contents,):
+        parts = _part_value(content, "parts") or ()
+        if not parts and any(_part_value(content, field) is not None
+                             for field in ("inline_data", "file_data")):
+            parts = (content,)
+        for part in parts:
+            for field in ("inline_data", "file_data"):
+                blob = _part_value(part, field)
+                mime_type = _part_value(blob, "mime_type") if blob is not None else None
+                if isinstance(mime_type, str) and mime_type.lower().startswith("image/"):
+                    return True
+    return False
+
+
+def _models_to_try(model: Optional[str], chain=None, contents=None) -> tuple[str, ...]:
+    if _has_image(contents):
+        chain = getattr(config, "VISION_MODEL_CHAIN", ())
+    elif chain is None:
+        chain = getattr(config, "MODEL_CHAIN", None)
     if chain is not None:
-        return tuple(dict.fromkeys(m for m in chain if m))
+        models = tuple(dict.fromkeys(m for m in chain if m))
+        if models:
+            return models
     if model:
         return tuple(dict.fromkeys((model, config.FALLBACK_MODEL)))
     return tuple(dict.fromkeys(FALLBACK_MODELS))
+
+
+def _chain_for_request(history_limit: int, save_history: bool):
+    if history_limit == config.VOICE_HISTORY_LIMIT:
+        return config.VOICE_MODEL_CHAIN
+    if save_history:
+        return config.MODEL_CHAIN
+    return config.BACKGROUND_MODEL_CHAIN
 
 
 def _error_code(error: Exception) -> str:
@@ -182,7 +217,7 @@ async def generate(contents, *, system: str = "", model: Optional[str] = None,
                    response_mime_type: Optional[str] = None,
                    chain=None) -> str:
     """Generate with bounded retries and a single request-wide time budget."""
-    models = _models_to_try(model, chain)
+    models = _models_to_try(model, chain, contents)
     started = time.monotonic()
     first_key = _initial_key(api_key)
     if not first_key:
@@ -199,7 +234,12 @@ async def generate(contents, *, system: str = "", model: Optional[str] = None,
                 break
             attempt_started = time.monotonic()
             try:
-                client = get_client(current_key)
+                client = await asyncio.wait_for(
+                    asyncio.to_thread(get_client, current_key), timeout=remaining,
+                )
+                remaining = timeout - (time.monotonic() - started)
+                if remaining <= 0:
+                    raise asyncio.TimeoutError()
 
                 def _invoke(m=model_name, c=client):
                     from google.genai import types as _t
@@ -306,7 +346,7 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
                 raise item
             yield item
 
-    models = _models_to_try(model, chain)
+    models = _models_to_try(model, chain, contents)
     started = time.monotonic()
     first_key = _initial_key(api_key)
     if not first_key:
@@ -324,7 +364,12 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
             attempt_started = time.monotonic()
             emitted = False
             try:
-                client = get_client(current_key)
+                client = await asyncio.wait_for(
+                    asyncio.to_thread(get_client, current_key), timeout=remaining,
+                )
+                remaining = timeout - (time.monotonic() - started)
+                if remaining <= 0:
+                    raise asyncio.TimeoutError()
                 async for text in _one_stream(client, model_name, remaining):
                     emitted = True
                     yield text
@@ -477,7 +522,8 @@ _LEN_HINT = {
 
 
 async def ask_gemini(
-    user_message: str, save_history: bool = True, history_limit: int = 60
+    user_message: str, save_history: bool = True, history_limit: int = 60,
+    chain=None,
 ) -> str:
     from config import MAIN_MODEL, get_active_key, mark_key_used
 
@@ -533,7 +579,10 @@ async def ask_gemini(
     contents = _build_contents(user_message, history_limit=history_limit)
     try:
         _t_prep = _t_mono() - _t0
-        response = await generate(contents, system=full_system, model=MAIN_MODEL)
+        request_chain = chain or _chain_for_request(history_limit, save_history)
+        response = await generate(
+            contents, system=full_system, model=MAIN_MODEL, chain=request_chain,
+        )
         _t_llm = _t_mono() - _t0
         reply    = clean_reply(response)
         mark_key_used(key)
@@ -634,7 +683,8 @@ async def ask_gemini_voice(
     len_hint = _LEN_HINT.get(length, "")
     if len_hint:
         full_system = f"{full_system}\n\n{len_hint}"
-    max_tok = _LEN_TOKENS.get(length, 150)
+    max_tok = (config.VOICE_MAX_TOKENS if config.VOICE_MAX_TOKENS_OVERRIDE
+               else _LEN_TOKENS.get(length, config.VOICE_MAX_TOKENS))
     log.info(f"[voice] len={length} → hint={'да' if len_hint else 'нет'}, max_tokens={max_tok}")
     log.info(f"[voice] _build_system за {__import__('time').monotonic()-_t_build:.2f}с")
 
@@ -682,11 +732,12 @@ async def ask_gemini_voice(
                 api_key     = key,
                 emotion     = get_current_emotion(),
                 timeout     = 8.0,
+                chain       = config.VOICE_MODEL_CHAIN,
             )
         else:
             response  = await generate(contents, system=full_system, model=MAIN_MODEL,
                                        max_tokens=max_tok, temperature=0.85,
-                                       timeout=8.0)
+                                       timeout=8.0, chain=config.VOICE_MODEL_CHAIN)
             full_text = response
             mark_key_used(key)
     except Exception as e:
@@ -699,10 +750,12 @@ async def ask_gemini_voice(
                     contents, full_system, websocket, device_id,
                     model=FALLBACK_MODEL, max_tokens=max_tok,
                     api_key=key, emotion=get_current_emotion(), timeout=8.0,
+                    chain=config.VOICE_MODEL_CHAIN,
                 )
             else:
                 r = await generate(contents, system=full_system, model=FALLBACK_MODEL,
-                                   max_tokens=max_tok, timeout=8.0)
+                                   max_tokens=max_tok, timeout=8.0,
+                                   chain=config.VOICE_MODEL_CHAIN)
                 full_text = r
                 mark_key_used(key)
         except Exception as e2:
@@ -784,7 +837,10 @@ async def ask_gemini_as_guest(
         full_system = _build_guest_system(role, user_name, user_id)
         contents    = _build_guest_contents(user_id, user_message)
 
-        response = await generate(contents, system=full_system, model=MAIN_MODEL)
+        response = await generate(
+            contents, system=full_system, model=MAIN_MODEL,
+            chain=config.MODEL_CHAIN,
+        )
         reply    = clean_reply(response)
         mark_key_used(key)
 

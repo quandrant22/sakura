@@ -70,6 +70,7 @@ async def stream_llm_to_tts(
     emotion: str = "спокойная",
     stop=None,
     timeout: float = 8.0,
+    chain=None,
 ) -> tuple[str, str]:
     """Стриминг LLM→TTS: предложение готово → сразу в синтез.
 
@@ -131,6 +132,7 @@ async def stream_llm_to_tts(
             contents, system=system, model=model, max_tokens=max_tokens,
             temperature=temperature, api_key=key,
             timeout=max(0.0, deadline - time.monotonic()),
+            chain=chain,
         )
         async for sentence in iter_sentences(tokens):
             m = _EMOTION_LINE.match(sentence)
@@ -149,7 +151,8 @@ async def stream_llm_to_tts(
             return "", emotion
         text = (await _llm.generate(contents, system=system, model=model,
                                     max_tokens=max_tokens, temperature=temperature,
-                                    api_key=key, timeout=remaining)).strip()
+                                    api_key=key, timeout=remaining,
+                                    chain=chain)).strip()
         if not text:
             return "", emotion
         clean = text

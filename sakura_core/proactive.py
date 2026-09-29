@@ -120,7 +120,11 @@ async def proactive_loop():
                             _proactive_attempts[_tk] = _proactive_attempts.get(_tk, 0) + 1
                     if trigger:
                         from sakura_core.llm import ask_gemini as _ask
-                        reply = await _ask(prompt, save_history=False)
+                        from config import BACKGROUND_MODEL_CHAIN
+                        reply = await _ask(
+                            prompt, save_history=False,
+                            chain=BACKGROUND_MODEL_CHAIN,
+                        )
 
                     if reply and not is_crit and has_recent_semantic_duplicate(reply):
                         log.info("[proactive] skip duplicate reminder: %s", reply)
