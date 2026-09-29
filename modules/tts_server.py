@@ -228,7 +228,7 @@ _preconnect_lock    = asyncio.Lock()
 class _Preconnected:
     """Забранная из предбанника сессия: её жизнью владеет потребитель."""
 
-    __slots__ = ("session", "key", "release", "task")
+    __slots__ = ("key", "release", "session", "task")
 
     def __init__(self, session, key, release, task):
         self.session = session
@@ -463,7 +463,6 @@ async def _claim_preconnected(grace: float = PRECONNECT_GRACE):
     своей сессией, а предбанник снимается (слот освобождается). Забравший
     ОБЯЗАН выставить release — держатель закроет сессию и вернёт слот.
     """
-    global _preconnect_task, _preconnect_ready, _preconnect_release
     ready = _preconnect_ready
     if ready is None:
         return None
