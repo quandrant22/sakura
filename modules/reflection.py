@@ -18,7 +18,7 @@ import logging
 import os
 import tempfile
 from datetime import datetime
-from config import MAIN_MODEL
+from config import MAIN_MODEL, BACKGROUND_MODEL_CHAIN
 from sakura_core.llm import generate as _llm_generate
 
 log = logging.getLogger(__name__)
@@ -128,7 +128,8 @@ async def run_night_reflection(ask_gemini_fn, add_to_category_fn,
             "identity — 0-1 утверждений о себе, только если есть о чём."
         )
 
-        raw = await _llm_generate(prompt, model=MAIN_MODEL, safety=False, thinking=False)
+        raw = await _llm_generate(prompt, model=MAIN_MODEL, safety=False,
+                      thinking=False, chain=BACKGROUND_MODEL_CHAIN)
         raw = raw.replace("```json", "").replace("```", "").strip()
         data = json.loads(raw)
 
@@ -416,7 +417,8 @@ async def run_morning_summary(bot, master_id: int, load_session_summary_fn):
             "не объясняя откуда это, просто как мысль с утра."
         )
 
-        reply = await _llm_generate(prompt, model=MAIN_MODEL, safety=False, thinking=False)
+        reply = await _llm_generate(prompt, model=MAIN_MODEL, safety=False,
+                        thinking=False, chain=BACKGROUND_MODEL_CHAIN)
 
         if reply:
             await bot.send_message(master_id, reply)

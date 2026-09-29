@@ -11,7 +11,7 @@ import logging
 import os
 import time
 
-from config import get_active_key, mark_key_used, MAIN_MODEL
+from config import get_active_key, mark_key_used, MAIN_MODEL, BACKGROUND_MODEL_CHAIN
 from modules.jsonio import save_json
 
 log = logging.getLogger(__name__)
@@ -46,6 +46,7 @@ async def analyze_apps(apps: dict, device_id: str):
             model=MAIN_MODEL,
             max_tokens=2000,
             response_mime_type="application/json",
+            chain=BACKGROUND_MODEL_CHAIN,
         )
         raw           = r.replace("```json", "").replace("```", "").strip()
         mapping_names = json.loads(raw)
@@ -101,6 +102,7 @@ async def analyze_screen_context(screenshot_b64: str, active_window: str, device
             ])],
             model=MAIN_MODEL,
             max_tokens=100,
+            chain=BACKGROUND_MODEL_CHAIN,
         )
         description = r
         mark_key_used(key)

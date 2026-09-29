@@ -14,7 +14,7 @@ import logging
 import random
 import time
 from datetime import datetime
-from config import MAIN_MODEL
+from config import MAIN_MODEL, BACKGROUND_MODEL_CHAIN
 from sakura_core.llm import generate as _llm_generate
 
 log = logging.getLogger("sakura.diary")
@@ -58,7 +58,8 @@ async def write_entry(conversation_summary: str, mood_label: str = "neutral"):
     )
 
     try:
-        entry = await _llm_generate(prompt, model=MAIN_MODEL, safety=False, thinking=False)
+        entry = await _llm_generate(prompt, model=MAIN_MODEL, safety=False,
+                        thinking=False, chain=BACKGROUND_MODEL_CHAIN)
 
         if not entry or len(entry) < 10:
             return

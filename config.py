@@ -57,6 +57,25 @@ CHAT_HISTORY_LIMIT = _history_limit("CHAT_HISTORY_LIMIT", 30)
 MAIN_MODEL     = os.getenv("MAIN_MODEL", "gemini-3.5-flash-lite")
 FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "gemini-3.1-flash-lite")
 
+
+def _parse_model_chain(name, default):
+    value = os.getenv(name, "")
+    configured = tuple(model.strip() for model in value.split(",") if model.strip())
+    return tuple(dict.fromkeys(configured or default))
+
+
+MODEL_CHAIN = _parse_model_chain("MODEL_CHAIN", (MAIN_MODEL, FALLBACK_MODEL))
+VOICE_MODEL_CHAIN = _parse_model_chain("VOICE_MODEL_CHAIN", MODEL_CHAIN)
+BACKGROUND_MODEL_CHAIN = _parse_model_chain("BACKGROUND_MODEL_CHAIN", MODEL_CHAIN)
+VISION_MODEL_CHAIN = _parse_model_chain("VISION_MODEL_CHAIN", MODEL_CHAIN)
+
+try:
+    VOICE_MAX_TOKENS = max(1, int(os.getenv("VOICE_MAX_TOKENS", "120")))
+except (TypeError, ValueError):
+    log.warning("Invalid VOICE_MAX_TOKENS; using default 120")
+    VOICE_MAX_TOKENS = 120
+VOICE_MAX_TOKENS_OVERRIDE = "VOICE_MAX_TOKENS" in os.environ
+
 # ── Поиск в интернете через Gemini Search grounding ─────────────────────
 # Имя модели — по решению Мастера: gemini-2.5-flash (категория «Gemini 2.5»,
 # квота 1.5K/день). НЕ менять на другое. ЖИВАЯ ПРОВЕРКА 2026-09: вызов с

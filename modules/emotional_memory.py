@@ -21,7 +21,7 @@ import re
 import time
 from datetime import datetime, date
 from typing import Optional
-from config import MAIN_MODEL
+from config import MAIN_MODEL, BACKGROUND_MODEL_CHAIN
 from sakura_core.llm import generate as _llm_generate
 
 log = logging.getLogger("sakura.emotional_memory")
@@ -256,7 +256,8 @@ async def generate_spontaneous_thought() -> str:
     )
 
     try:
-        r = await _llm_generate(prompt, model=MAIN_MODEL, safety=False, thinking=False)
+        r = await _llm_generate(prompt, model=MAIN_MODEL, safety=False,
+                    thinking=False, chain=BACKGROUND_MODEL_CHAIN)
         return r
     except Exception as e:
         log.error(f"[thought] {e}")

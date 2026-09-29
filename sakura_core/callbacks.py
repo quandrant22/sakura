@@ -2,6 +2,7 @@
 
 import logging
 from modules.state_arbiter import get_current_emotion
+from config import VOICE_MODEL_CHAIN
 
 log = logging.getLogger("sakura.callbacks")
 
@@ -30,7 +31,9 @@ async def make_tg_notif_cb(_get_active_ws, stream_tts_to_device, ask_gemini):
                     f"Поступило важное сообщение в Telegram от {sender} в {chat_name}: «{text[:80]}». "
                     "Скажи Мастеру одной короткой фразой обратить внимание."
                 )
-                reply = await ask_gemini(prompt, save_history=False)
+                reply = await ask_gemini(
+                    prompt, save_history=False, chain=VOICE_MODEL_CHAIN,
+                )
                 if reply:
                     await stream_tts_to_device(reply, ws, dev or "laptop",
                                                literal=True, emotion=get_current_emotion())

@@ -27,3 +27,27 @@ def load_capability_tables():
     from sakura_core.bridge import _load_capabilities
 
     _load_capabilities()
+
+
+@pytest.fixture(autouse=True)
+def deterministic_model_configuration(monkeypatch):
+    import config
+
+    main_model = "gemini-3.5-flash-lite"
+    fallback_model = "gemini-3.1-flash-lite"
+    chain = (main_model, fallback_model)
+
+    monkeypatch.setattr(config, "MAIN_MODEL", main_model)
+    monkeypatch.setattr(config, "FALLBACK_MODEL", fallback_model)
+    for setting in (
+        "MODEL_CHAIN",
+        "VOICE_MODEL_CHAIN",
+        "BACKGROUND_MODEL_CHAIN",
+        "VISION_MODEL_CHAIN",
+    ):
+        monkeypatch.setattr(config, setting, chain)
+
+    monkeypatch.setattr(config, "VOICE_HISTORY_LIMIT", 10)
+    monkeypatch.setattr(config, "CHAT_HISTORY_LIMIT", 30)
+    monkeypatch.setattr(config, "VOICE_MAX_TOKENS", 120)
+    monkeypatch.setattr(config, "VOICE_MAX_TOKENS_OVERRIDE", False)

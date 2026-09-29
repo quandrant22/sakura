@@ -16,7 +16,9 @@ import re
 import time as _time
 
 import modules.state as st
-from config import MASTER_ID, get_active_key, mark_key_used, MAIN_MODEL
+from config import (
+    MASTER_ID, get_active_key, mark_key_used, MAIN_MODEL, VOICE_MODEL_CHAIN,
+)
 from sakura_core.tasks import spawn
 from sakura_core.llm import generate as _llm_generate
 from modules.tts_server import stream_tts_to_device
@@ -67,7 +69,9 @@ async def handle_register(websocket, data, ctx) -> None:
     log.info(f"Устройство подключено: {device_id}")
 
     if is_master_device(device_id) and should_greet_device(device_id):
-        greeting = await ask_gemini(get_greeting_prompt(), save_history=False)
+        greeting = await ask_gemini(
+            get_greeting_prompt(), save_history=False, chain=VOICE_MODEL_CHAIN,
+        )
         if greeting:
             await bot.send_message(MASTER_ID, greeting)
 
@@ -137,7 +141,9 @@ async def handle_ping(websocket, data, ctx) -> None:
         if track:
             mem = db_get_memory_context()
             prompt = make_music_comment_prompt(track, mem[:200])
-            reply = await ask_gemini(prompt, save_history=False)
+            reply = await ask_gemini(
+                prompt, save_history=False, chain=VOICE_MODEL_CHAIN,
+            )
             if reply:
                 await bot.send_message(MASTER_ID, reply)
                 mark_music_commented()
@@ -152,7 +158,9 @@ async def handle_ping(websocket, data, ctx) -> None:
     if sys_info:
         alert = await asyncio.to_thread(check_pc_health, sys_info)
         if alert:
-            reply_pc = await ask_gemini(alert["prompt"], save_history=False)
+            reply_pc = await ask_gemini(
+                alert["prompt"], save_history=False, chain=VOICE_MODEL_CHAIN,
+            )
             if reply_pc:
                 await bot.send_message(MASTER_ID, reply_pc)
 
@@ -196,7 +204,9 @@ async def handle_kettle_ready(websocket, data, ctx) -> None:
     dev  = data.get("device_id", "laptop")
     ws_k = st.connected_devices.get(dev)
     prompt = f"Чайник закипел и выключился, температура {temp}°C. Скажи Мастеру одной короткой фразой — чай готов. Без банальщины."
-    reply_k = await ask_gemini(prompt, save_history=False)
+    reply_k = await ask_gemini(
+        prompt, save_history=False, chain=VOICE_MODEL_CHAIN,
+    )
     if reply_k:
         if ws_k:
             await stream_tts_to_device(reply_k, ws_k, dev, literal=True)
@@ -222,7 +232,9 @@ async def handle_notification(websocket, data, ctx) -> None:
                     f"«{title}» — {body[:100]}. "
                     "Скажи Мастеру одной короткой фразой обратить внимание. Без банальщины."
                 )
-                _reply = await ask_gemini(prompt, save_history=False)
+                _reply = await ask_gemini(
+                    prompt, save_history=False, chain=VOICE_MODEL_CHAIN,
+                )
                 if _reply:
                     await stream_tts_to_device(_reply, _active_ws, _ad or "laptop", literal=True)
     except Exception as e:
@@ -294,6 +306,7 @@ async def handle_command_result(websocket, data, ctx) -> None:
                 _page_reply = await ask_gemini(
                     _page_prompt, save_history=False,
                     history_limit=VOICE_HISTORY_LIMIT,
+                    chain=VOICE_MODEL_CHAIN,
                 )
                 if _page_reply and ext_ws:
                     log.info(f"[голос] ответ: {_page_reply!r}")
@@ -391,7 +404,8 @@ async def handle_command_result(websocket, data, ctx) -> None:
             prompt = f"Результат: {music.get('result', 'готово')}. Скажи коротко."
         from config import VOICE_HISTORY_LIMIT
         music_reply = await ask_gemini(
-            prompt, save_history=False, history_limit=VOICE_HISTORY_LIMIT
+            prompt, save_history=False, history_limit=VOICE_HISTORY_LIMIT,
+            chain=VOICE_MODEL_CHAIN,
         )
         if music_reply:
             log.info(f"[голос] ответ: {music_reply!r}")
@@ -437,7 +451,8 @@ async def handle_command_result(websocket, data, ctx) -> None:
                 event = await detect_game_event(screenshot, dev_name)
                 if event:
                     ev_reply = await ask_gemini(
-                        make_event_prompt(event), save_history=False
+                        make_event_prompt(event), save_history=False,
+                        chain=VOICE_MODEL_CHAIN,
                     )
                     if ev_reply:
                         ws_ev = st.connected_devices.get(dev_name)
@@ -460,7 +475,8 @@ async def handle_command_result(websocket, data, ctx) -> None:
             f"Скажи коротко и предложи написать путь: "
             f"'запомни {app_name} = C:\\путь\\к\\файлу.exe'",
             save_history=False,
-            history_limit=VOICE_HISTORY_LIMIT)
+            history_limit=VOICE_HISTORY_LIMIT,
+            chain=VOICE_MODEL_CHAIN)
         await bot.send_message(MASTER_ID, reply)
     elif result:
         err_triggers = ("ошибка", "не нашла", "не найдено", "app_not_found", "оффлайн")

@@ -11,8 +11,11 @@ generate() / stream_tokens().
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
+import random
 import re
+import time
 from typing import AsyncIterator, Optional
 
 import config
@@ -23,7 +26,8 @@ log = logging.getLogger("sakura.llm")
 _clients: dict[str, object] = {}
 _created = 0  # счётчик созданий клиента — тест этапа 4 следит, что он не растёт
 
-DEFAULT_TIMEOUT_S = 12.0
+DEFAULT_TIMEOUT_S = 20.0
+_TRANSIENT_RETRY_DELAYS = (1.0, 2.0)
 
 # Фолбэк моделей: основная → запасная (config не менять, имена из v2)
 FALLBACK_MODELS = (config.MAIN_MODEL, config.FALLBACK_MODEL)
@@ -54,6 +58,134 @@ def _no_safety():
         _t.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="OFF"),
         _t.SafetySetting(category="HARM_CATEGORY_CIVIC_INTEGRITY",   threshold="OFF"),
     ]
+
+
+def _part_value(part, name):
+    if isinstance(part, dict):
+        return part.get(name)
+    return getattr(part, name, None)
+
+
+def _has_image(contents) -> bool:
+    for content in contents if isinstance(contents, (list, tuple)) else (contents,):
+        parts = _part_value(content, "parts") or ()
+        if not parts and any(_part_value(content, field) is not None
+                             for field in ("inline_data", "file_data")):
+            parts = (content,)
+        for part in parts:
+            for field in ("inline_data", "file_data"):
+                blob = _part_value(part, field)
+                mime_type = _part_value(blob, "mime_type") if blob is not None else None
+                if isinstance(mime_type, str) and mime_type.lower().startswith("image/"):
+                    return True
+    return False
+
+
+def _models_to_try(model: Optional[str], chain=None, contents=None) -> tuple[str, ...]:
+    if _has_image(contents):
+        chain = getattr(config, "VISION_MODEL_CHAIN", ())
+    elif chain is None:
+        chain = getattr(config, "MODEL_CHAIN", None)
+    if chain is not None:
+        models = tuple(dict.fromkeys(m for m in chain if m))
+        if models:
+            return models
+    if model:
+        return tuple(dict.fromkeys((model, config.FALLBACK_MODEL)))
+    return tuple(dict.fromkeys(FALLBACK_MODELS))
+
+
+def _chain_for_request(history_limit: int, save_history: bool):
+    if not save_history:
+        caller = inspect.stack()[2].function
+        log.warning(
+            "[llm] save_history=False without explicit chain in %s; using MODEL_CHAIN",
+            caller,
+        )
+        return config.MODEL_CHAIN
+    if history_limit == config.VOICE_HISTORY_LIMIT:
+        return config.VOICE_MODEL_CHAIN
+    return config.MODEL_CHAIN
+
+
+def _error_code(error: Exception) -> str:
+    code = getattr(error, "code", None)
+    if callable(code):
+        try:
+            code = code()
+        except Exception:
+            code = None
+    if code is None:
+        code = getattr(error, "status_code", None)
+    if code is not None:
+        return str(getattr(code, "value", code))
+    text = str(error).upper()
+    for marker in ("RESOURCE_EXHAUSTED", "UNAVAILABLE", "INTERNAL"):
+        if marker in text:
+            return marker
+    match = re.search(r"\b(400|403|404|408|429|500|502|503|504)\b", text)
+    if match:
+        return match.group(1)
+    if isinstance(error, (asyncio.TimeoutError, TimeoutError)) or "TIMEOUT" in text:
+        return "TIMEOUT"
+    if any(marker in text for marker in ("SSL", "DECRYPTION", "BAD RECORD MAC")):
+        return "SSL"
+    return type(error).__name__
+
+
+def _error_kind(error: Exception) -> str:
+    code = _error_code(error).upper()
+    text = str(error).upper()
+    if code in ("429", "RESOURCE_EXHAUSTED") or "QUOTA" in text:
+        return "rate_limit"
+    if code in ("503", "UNAVAILABLE", "500", "INTERNAL", "408", "TIMEOUT", "SSL"):
+        return "transient"
+    if code in ("400", "403", "404"):
+        return "request"
+    return "other"
+
+
+def _key_number(api_key: str) -> str:
+    try:
+        return str(config.GEMINI_KEYS.index(api_key) + 1)
+    except (ValueError, AttributeError):
+        return "?"
+
+
+def _next_key_after_limit(api_key: str, tried: set[str]) -> Optional[str]:
+    try:
+        config.mark_key_rate_limited(api_key)
+    except Exception as error:
+        log.debug("[llm] could not mark rate-limited key: %s", type(error).__name__)
+    try:
+        next_key = config.get_active_key()
+    except Exception:
+        next_key = None
+    if next_key and next_key not in tried:
+        return next_key
+    return next((key for key in config.GEMINI_KEYS if key and key not in tried), None)
+
+
+def _log_attempt_failure(model: str, api_key: str, error: Exception,
+                         elapsed: float) -> None:
+    code = _error_code(error)
+    log.info("[llm] attempt failed model=%s key=%s code=%s elapsed=%.2fs",
+             model, _key_number(api_key), code, elapsed)
+    if _error_kind(error) == "request":
+        log.warning("[llm] model=%s rejected request with code=%s", model, code)
+
+
+class _EmptyResponseError(Exception):
+    code = "empty"
+
+
+def _initial_key(api_key: Optional[str]) -> Optional[str]:
+    if api_key:
+        return api_key
+    try:
+        return config.get_active_key()
+    except Exception:
+        return None
 
 
 # ── Клиент ───────────────────────────────────────────────────────────────
@@ -92,44 +224,82 @@ async def generate(contents, *, system: str = "", model: Optional[str] = None,
                    timeout: float = DEFAULT_TIMEOUT_S,
                    api_key: Optional[str] = None,
                    safety: bool = True, thinking: bool = True,
-                   response_mime_type: Optional[str] = None) -> str:
-    """generate_content с таймаутом, фолбэком моделей, NO_SAFETY и thinking.
-    '' при полном провале."""
-    from google.genai import types as _t
+                   response_mime_type: Optional[str] = None,
+                   chain=None) -> str:
+    """Generate with bounded retries and a single request-wide time budget."""
+    models = _models_to_try(model, chain, contents)
+    started = time.monotonic()
+    first_key = _initial_key(api_key)
+    if not first_key:
+        log.error("[llm] no active Gemini API key")
+        return ""
 
-    client = get_client(pick_key(api_key))
-    # Даже при явном model пробуем разрешённый fallback: вызывающие модули
-    # передают MAIN_MODEL напрямую, и раньше 503 основной модели обрывал запрос.
-    models = tuple(dict.fromkeys((model, config.FALLBACK_MODEL))) if model else FALLBACK_MODELS
-    last_exc: Optional[Exception] = None
-    for m in models:
-        try:
-            cfg_kwargs = dict(
-                system_instruction=system or None,
-                max_output_tokens=max_tokens,
-                temperature=temperature,
-            )
-            if safety:
-                cfg_kwargs["safety_settings"] = _no_safety()
-            if thinking:
-                tc = _thinking(m)
-                if tc is not None:
-                    cfg_kwargs["thinking_config"] = tc
-            if response_mime_type:
-                cfg_kwargs["response_mime_type"] = response_mime_type
-            r = await asyncio.wait_for(asyncio.to_thread(
-                lambda m=m, cfg=cfg_kwargs: client.models.generate_content(
-                    model=m,
-                    contents=contents,
-                    config=_t.GenerateContentConfig(**cfg),
-                ),
-            ), timeout=timeout)
-            return (r.text or "").strip()
-        except Exception as e:
-            last_exc = e
-            log.warning(f"[llm] {m}: {type(e).__name__}: {e}; фолбэк моделей")
-    if last_exc is not None:
-        log.error(f"[llm] все модели не ответили: {last_exc}")
+    for model_index, model_name in enumerate(models):
+        current_key = first_key if model_index == 0 else (_initial_key(None) or first_key)
+        tried_keys: set[str] = set()
+        transient_retries = 0
+        while current_key:
+            remaining = timeout - (time.monotonic() - started)
+            if remaining <= 0:
+                break
+            attempt_started = time.monotonic()
+            try:
+                client = await asyncio.wait_for(
+                    asyncio.to_thread(get_client, current_key), timeout=remaining,
+                )
+                remaining = timeout - (time.monotonic() - started)
+                if remaining <= 0:
+                    raise asyncio.TimeoutError()
+
+                def _invoke(m=model_name, c=client):
+                    from google.genai import types as _t
+
+                    cfg_kwargs = dict(
+                        system_instruction=system or None,
+                        max_output_tokens=max_tokens,
+                        temperature=temperature,
+                    )
+                    if safety:
+                        cfg_kwargs["safety_settings"] = _no_safety()
+                    if thinking:
+                        tc = _thinking(m)
+                        if tc is not None:
+                            cfg_kwargs["thinking_config"] = tc
+                    if response_mime_type:
+                        cfg_kwargs["response_mime_type"] = response_mime_type
+                    return c.models.generate_content(
+                        model=m,
+                        contents=contents,
+                        config=_t.GenerateContentConfig(**cfg_kwargs),
+                    )
+
+                response = await asyncio.wait_for(asyncio.to_thread(
+                    _invoke,
+                ), timeout=remaining)
+                text = (response.text or "").strip()
+                if not text:
+                    raise _EmptyResponseError("model returned empty text")
+                return text
+            except Exception as error:
+                elapsed = time.monotonic() - attempt_started
+                _log_attempt_failure(model_name, current_key, error, elapsed)
+                kind = _error_kind(error)
+                if kind == "rate_limit":
+                    tried_keys.add(current_key)
+                    next_key = _next_key_after_limit(current_key, tried_keys)
+                    if next_key:
+                        current_key = next_key
+                        transient_retries = 0
+                        continue
+                elif kind == "transient" and transient_retries < len(_TRANSIENT_RETRY_DELAYS):
+                    delay = _TRANSIENT_RETRY_DELAYS[transient_retries] + random.random() * 0.5
+                    transient_retries += 1
+                    if delay < timeout - (time.monotonic() - started):
+                        await asyncio.sleep(delay)
+                        continue
+                break
+        if time.monotonic() - started >= timeout:
+            break
     return ""
 
 
@@ -137,56 +307,114 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
                         max_tokens: int = 200, temperature: float = 0.85,
                         timeout: float = DEFAULT_TIMEOUT_S,
                         api_key: Optional[str] = None,
-                        safety: bool = True, thinking: bool = True) -> AsyncIterator[str]:
-    """Стриминг текста LLM: токены по мере поступления.
-
-    Итератор google-genai блокирующий → читается в отдельном треде, чанки
-    кладутся в asyncio-очередь. Именно здесь v2 (tts_server._drain) читала
-    весь поток до конца — это и делало «стриминг» фикцией.
-    """
-    from google.genai import types as _t
-
-    client = get_client(pick_key(api_key))
+                        safety: bool = True, thinking: bool = True,
+                        chain=None) -> AsyncIterator[str]:
+    """Stream incrementally, retrying only before the first emitted token."""
     loop = asyncio.get_running_loop()
-    q: asyncio.Queue = asyncio.Queue()
-    _model = model or FALLBACK_MODELS[0]
-
-    def _produce() -> None:
-        try:
-            cfg_kwargs = dict(
-                system_instruction=system or None,
-                max_output_tokens=max_tokens,
-                temperature=temperature,
-            )
-            if safety:
-                cfg_kwargs["safety_settings"] = _no_safety()
-            if thinking:
-                tc = _thinking(_model)
-                if tc is not None:
-                    cfg_kwargs["thinking_config"] = tc
-            for chunk in client.models.generate_content_stream(
-                model=_model,
-                contents=contents,
-                config=_t.GenerateContentConfig(**cfg_kwargs),
-            ):
-                t = getattr(chunk, "text", None)
-                if t:
-                    loop.call_soon_threadsafe(q.put_nowait, t)
-        except Exception as e:  # ошибка потока → исключение в очередь
-            loop.call_soon_threadsafe(q.put_nowait, e)
-        finally:
-            loop.call_soon_threadsafe(q.put_nowait, None)
-
     import threading
-    threading.Thread(target=_produce, daemon=True).start()
 
-    while True:
-        item = await asyncio.wait_for(q.get(), timeout=timeout)
-        if item is None:
-            return
-        if isinstance(item, Exception):
-            raise item
-        yield item
+    async def _one_stream(client, model_name: str, deadline: float):
+        queue: asyncio.Queue = asyncio.Queue()
+
+        def _enqueue(item) -> None:
+            try:
+                loop.call_soon_threadsafe(queue.put_nowait, item)
+            except RuntimeError:
+                pass
+
+        def _produce() -> None:
+            try:
+                from google.genai import types as _t
+
+                cfg_kwargs = dict(
+                    system_instruction=system or None,
+                    max_output_tokens=max_tokens,
+                    temperature=temperature,
+                )
+                if safety:
+                    cfg_kwargs["safety_settings"] = _no_safety()
+                if thinking:
+                    tc = _thinking(model_name)
+                    if tc is not None:
+                        cfg_kwargs["thinking_config"] = tc
+                for chunk in client.models.generate_content_stream(
+                    model=model_name,
+                    contents=contents,
+                    config=_t.GenerateContentConfig(**cfg_kwargs),
+                ):
+                    text = getattr(chunk, "text", None)
+                    if text:
+                        _enqueue(text)
+            except Exception as error:
+                _enqueue(error)
+            finally:
+                _enqueue(None)
+
+        threading.Thread(target=_produce, daemon=True).start()
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise asyncio.TimeoutError()
+            item = await asyncio.wait_for(queue.get(), timeout=remaining)
+            if item is None:
+                return
+            if isinstance(item, Exception):
+                raise item
+            yield item
+
+    models = _models_to_try(model, chain, contents)
+    started = time.monotonic()
+    deadline = started + timeout
+    first_key = _initial_key(api_key)
+    if not first_key:
+        log.error("[llm] no active Gemini API key")
+        return
+
+    for model_index, model_name in enumerate(models):
+        current_key = first_key if model_index == 0 else (_initial_key(None) or first_key)
+        tried_keys: set[str] = set()
+        transient_retries = 0
+        while current_key:
+            remaining = timeout - (time.monotonic() - started)
+            if remaining <= 0:
+                return
+            attempt_started = time.monotonic()
+            emitted = False
+            try:
+                client = await asyncio.wait_for(
+                    asyncio.to_thread(get_client, current_key), timeout=remaining,
+                )
+                remaining = timeout - (time.monotonic() - started)
+                if remaining <= 0:
+                    raise asyncio.TimeoutError()
+                async for text in _one_stream(client, model_name, deadline):
+                    emitted = True
+                    yield text
+                if not emitted:
+                    raise RuntimeError("empty stream")
+                return
+            except Exception as error:
+                elapsed = time.monotonic() - attempt_started
+                _log_attempt_failure(model_name, current_key, error, elapsed)
+                if emitted:
+                    log.warning("[llm] stream model=%s stopped after first token; returning partial text",
+                                model_name)
+                    return
+                kind = _error_kind(error)
+                if kind == "rate_limit":
+                    tried_keys.add(current_key)
+                    next_key = _next_key_after_limit(current_key, tried_keys)
+                    if next_key:
+                        current_key = next_key
+                        transient_retries = 0
+                        continue
+                elif kind == "transient" and transient_retries < len(_TRANSIENT_RETRY_DELAYS):
+                    delay = _TRANSIENT_RETRY_DELAYS[transient_retries] + random.random() * 0.5
+                    transient_retries += 1
+                    if delay < timeout - (time.monotonic() - started):
+                        await asyncio.sleep(delay)
+                        continue
+                break
 
 # ── Контракт LlmClassify (роутер, этап 2): (текст, каталог) → id | None ──
 
@@ -311,7 +539,8 @@ _LEN_HINT = {
 
 
 async def ask_gemini(
-    user_message: str, save_history: bool = True, history_limit: int = 60
+    user_message: str, save_history: bool = True, history_limit: int = 60,
+    chain=None,
 ) -> str:
     from config import MAIN_MODEL, get_active_key, mark_key_used
 
@@ -367,7 +596,10 @@ async def ask_gemini(
     contents = _build_contents(user_message, history_limit=history_limit)
     try:
         _t_prep = _t_mono() - _t0
-        response = await generate(contents, system=full_system, model=MAIN_MODEL)
+        request_chain = chain or _chain_for_request(history_limit, save_history)
+        response = await generate(
+            contents, system=full_system, model=MAIN_MODEL, chain=request_chain,
+        )
         _t_llm = _t_mono() - _t0
         reply    = clean_reply(response)
         mark_key_used(key)
@@ -433,39 +665,8 @@ async def ask_gemini(
 async def _handle_gemini_error(
     e: Exception, user_message: str, save_history: bool, history_limit: int = 60
 ) -> str:
-    from config import MAIN_MODEL, FALLBACK_MODEL, get_active_key, mark_key_used
-
-    err = str(e)
-    if "429" in err or "quota" in err.lower():
-        await asyncio.sleep(60)
-        return await ask_gemini(user_message, save_history, history_limit)
-    if "500" in err or "INTERNAL" in err:
-        await asyncio.sleep(5)
-        return await ask_gemini(user_message, save_history, history_limit)
-    if "SSL" in err or "DECRYPTION" in err or "bad record mac" in err:
-        await asyncio.sleep(3)
-        return await ask_gemini(user_message, save_history, history_limit)
-    if "503" in err or "UNAVAILABLE" in err:
-        log.warning("Основная модель недоступна → Gemma fallback")
-        key = get_active_key()
-        if key:
-            try:
-                full_system = await _build_system(query="")
-                contents    = _build_contents(
-                    user_message, history_limit=history_limit
-                )
-                r2          = await generate(contents, system=full_system, model=FALLBACK_MODEL)
-                reply       = clean_reply(r2)
-                mark_key_used(key)
-                if save_history:
-                    from memory.memory import add_to_history
-                    add_to_history("user", user_message)
-                    add_to_history("model", reply)
-                return reply or "Мастер, серверы перегружены. Попробуй позже."
-            except Exception as e2:
-                log.error(f"Fallback error: {e2}")
-    log.error(f"Gemini error: {e}")
-    return f"Мастер, что-то пошло не так. Ошибка: {err[:100]}"
+    log.error("[llm] request failed after retries: %s", _error_code(e))
+    return ""
 
 
 async def ask_gemini_voice(
@@ -499,7 +700,8 @@ async def ask_gemini_voice(
     len_hint = _LEN_HINT.get(length, "")
     if len_hint:
         full_system = f"{full_system}\n\n{len_hint}"
-    max_tok = _LEN_TOKENS.get(length, 150)
+    max_tok = (config.VOICE_MAX_TOKENS if config.VOICE_MAX_TOKENS_OVERRIDE
+               else _LEN_TOKENS.get(length, config.VOICE_MAX_TOKENS))
     log.info(f"[voice] len={length} → hint={'да' if len_hint else 'нет'}, max_tokens={max_tok}")
     log.info(f"[voice] _build_system за {__import__('time').monotonic()-_t_build:.2f}с")
 
@@ -546,10 +748,13 @@ async def ask_gemini_voice(
                 temperature = 0.85,
                 api_key     = key,
                 emotion     = get_current_emotion(),
+                timeout     = 8.0,
+                chain       = config.VOICE_MODEL_CHAIN,
             )
         else:
             response  = await generate(contents, system=full_system, model=MAIN_MODEL,
-                                       max_tokens=max_tok, temperature=0.85)
+                                       max_tokens=max_tok, temperature=0.85,
+                                       timeout=8.0, chain=config.VOICE_MODEL_CHAIN)
             full_text = response
             mark_key_used(key)
     except Exception as e:
@@ -561,11 +766,13 @@ async def ask_gemini_voice(
                 full_text, emotion = await stream_llm_to_tts(
                     contents, full_system, websocket, device_id,
                     model=FALLBACK_MODEL, max_tokens=max_tok,
-                    api_key=key, emotion=get_current_emotion(),
+                    api_key=key, emotion=get_current_emotion(), timeout=8.0,
+                    chain=config.VOICE_MODEL_CHAIN,
                 )
             else:
                 r = await generate(contents, system=full_system, model=FALLBACK_MODEL,
-                                   max_tokens=max_tok)
+                                   max_tokens=max_tok, timeout=8.0,
+                                   chain=config.VOICE_MODEL_CHAIN)
                 full_text = r
                 mark_key_used(key)
         except Exception as e2:
@@ -647,7 +854,10 @@ async def ask_gemini_as_guest(
         full_system = _build_guest_system(role, user_name, user_id)
         contents    = _build_guest_contents(user_id, user_message)
 
-        response = await generate(contents, system=full_system, model=MAIN_MODEL)
+        response = await generate(
+            contents, system=full_system, model=MAIN_MODEL,
+            chain=config.MODEL_CHAIN,
+        )
         reply    = clean_reply(response)
         mark_key_used(key)
 

@@ -23,6 +23,7 @@ import os
 import tempfile
 from datetime import datetime, date
 from sakura_core.tasks import spawn
+from config import BACKGROUND_MODEL_CHAIN
 
 log = logging.getLogger("sakura.briefing")
 
@@ -188,7 +189,9 @@ async def run_briefing(
 ):
     try:
         prompt = await build_briefing_prompt()
-        reply  = await ask_gemini_fn(prompt, save_history=False)
+        reply  = await ask_gemini_fn(
+            prompt, save_history=False, chain=BACKGROUND_MODEL_CHAIN,
+        )
         if not reply:
             return
 

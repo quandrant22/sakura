@@ -223,7 +223,7 @@ async def handle_v3_confirm(text, *, on_execute, on_cancel, on_error=None):
 async def resolve_conv_reply(reply, *, text, deliver, ask_gemini_fn,
                               get_active_ws_fn, clean_slate_fn,
                               strip_tone_fn=None, on_photo=None,
-                              send_vip_fn=None):
+                              send_vip_fn=None, request_chain=None):
     """Resolve conversation-layer reply: clean slate, WS commands, steam, VIP, text.
 
     deliver(text) — send text to the user.
@@ -243,7 +243,10 @@ async def resolve_conv_reply(reply, *, text, deliver, ask_gemini_fn,
             {"type": "command", "action": reply.ws_command}))
     composed = None
     if reply.prompt:
-        composed = await ask_gemini_fn(reply.prompt, save_history=False)
+        composed = await ask_gemini_fn(
+            reply.prompt, save_history=False,
+            chain=request_chain or config.MODEL_CHAIN,
+        )
     for _act in reply.actions:
         if _act[0] == "steam_recommend":
             from modules.steam_integration import recommend_games

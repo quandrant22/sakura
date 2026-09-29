@@ -69,6 +69,8 @@ async def stream_llm_to_tts(
     api_key: Optional[str] = None,
     emotion: str = "спокойная",
     stop=None,
+    timeout: float = 8.0,
+    chain=None,
 ) -> tuple[str, str]:
     """Стриминг LLM→TTS: предложение готово → сразу в синтез.
 
@@ -80,6 +82,7 @@ async def stream_llm_to_tts(
     if client is None:
         client = _llm.get_client(key)
     t0 = time.monotonic()
+    deadline = t0 + timeout
     parts: list[str] = []
     queues: list[asyncio.Queue] = []
     producers: list[asyncio.Task] = []
@@ -128,6 +131,8 @@ async def stream_llm_to_tts(
         tokens = _llm.stream_tokens(
             contents, system=system, model=model, max_tokens=max_tokens,
             temperature=temperature, api_key=key,
+            timeout=max(0.0, deadline - time.monotonic()),
+            chain=chain,
         )
         async for sentence in iter_sentences(tokens):
             m = _EMOTION_LINE.match(sentence)
@@ -141,9 +146,13 @@ async def stream_llm_to_tts(
 
     # Ни одного предложения — фолбэк: обычная генерация → двухстадийный путь v2
     if not parts:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return "", emotion
         text = (await _llm.generate(contents, system=system, model=model,
                                     max_tokens=max_tokens, temperature=temperature,
-                                    api_key=key)).strip()
+                                    api_key=key, timeout=remaining,
+                                    chain=chain)).strip()
         if not text:
             return "", emotion
         clean = text

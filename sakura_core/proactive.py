@@ -120,7 +120,11 @@ async def proactive_loop():
                             _proactive_attempts[_tk] = _proactive_attempts.get(_tk, 0) + 1
                     if trigger:
                         from sakura_core.llm import ask_gemini as _ask
-                        reply = await _ask(prompt, save_history=False)
+                        from config import BACKGROUND_MODEL_CHAIN
+                        reply = await _ask(
+                            prompt, save_history=False,
+                            chain=BACKGROUND_MODEL_CHAIN,
+                        )
 
                     if reply and not is_crit and has_recent_semantic_duplicate(reply):
                         log.info("[proactive] skip duplicate reminder: %s", reply)
@@ -144,7 +148,11 @@ async def proactive_loop():
                 from config import MASTER_ID
                 from adapters.telegram import send_telegram_text as _send_tg
                 for cap in due_caps:
-                    cap_reply = await _ask(make_open_prompt(cap), save_history=False)
+                    from config import BACKGROUND_MODEL_CHAIN
+                    cap_reply = await _ask(
+                        make_open_prompt(cap), save_history=False,
+                        chain=BACKGROUND_MODEL_CHAIN,
+                    )
                     if cap_reply:
                         await _send_tg(MASTER_ID, cap_reply)
                     await asyncio.to_thread(mark_opened, cap["id"])
@@ -167,7 +175,11 @@ async def proactive_loop():
                 from config import MASTER_ID
                 from adapters.telegram import send_telegram_text as _send_tg
                 for cap in due_sakura:
-                    cap_reply = await _ask(make_sakura_open_prompt(cap), save_history=False)
+                    from config import BACKGROUND_MODEL_CHAIN
+                    cap_reply = await _ask(
+                        make_sakura_open_prompt(cap), save_history=False,
+                        chain=BACKGROUND_MODEL_CHAIN,
+                    )
                     if cap_reply:
                         await _send_tg(MASTER_ID, cap_reply)
                     await asyncio.to_thread(mark_sakura_opened, cap["id"])
@@ -185,7 +197,11 @@ async def proactive_loop():
                         f"Мастер записал идею: «{note['raw_text'][:80]}». "
                         "Вспомни об этом вскользь — одно предложение."
                     )
-                    note_reply = await _ask(remind_prompt, save_history=False)
+                    from config import BACKGROUND_MODEL_CHAIN
+                    note_reply = await _ask(
+                        remind_prompt, save_history=False,
+                        chain=BACKGROUND_MODEL_CHAIN,
+                    )
                     if note_reply:
                         await _send_tg(MASTER_ID, note_reply)
                         mark_reminded(note["id"])

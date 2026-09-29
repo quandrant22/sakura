@@ -21,7 +21,7 @@ import logging
 import time
 from datetime import datetime, date, timedelta
 from typing import Optional
-from config import MAIN_MODEL
+from config import MAIN_MODEL, BACKGROUND_MODEL_CHAIN
 
 log = logging.getLogger("sakura.autonomous")
 
@@ -144,7 +144,9 @@ async def do_research() -> str:
 
     try:
         from sakura_core.llm import ask_gemini
-        digest = await ask_gemini(prompt, save_history=False)
+        digest = await ask_gemini(
+            prompt, save_history=False, chain=BACKGROUND_MODEL_CHAIN,
+        )
         if not digest:
             return ""
 
@@ -249,7 +251,9 @@ async def save_voice_note(raw_text: str) -> str:
 
     try:
         from sakura_core.llm import ask_gemini
-        digest_structured = await ask_gemini(prompt, save_history=False)
+        digest_structured = await ask_gemini(
+            prompt, save_history=False, chain=BACKGROUND_MODEL_CHAIN,
+        )
         structured = (digest_structured or "").strip() or raw_text
     except Exception:
         structured = raw_text

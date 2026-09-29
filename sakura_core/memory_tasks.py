@@ -10,7 +10,7 @@ import json
 import logging
 from datetime import datetime
 
-from config import get_active_key, mark_key_used, MAIN_MODEL
+from config import get_active_key, mark_key_used, MAIN_MODEL, BACKGROUND_MODEL_CHAIN
 from memory.memory import (
     add_to_history, get_history, clear_history,
     needs_daily_analysis, mark_analysis_done,
@@ -100,6 +100,7 @@ async def extract_and_remember(user_message: str, reply: str):
         r = await _llm_generate(
             [types.Content(role="user", parts=[types.Part(text=prompt)])],
             model=MAIN_MODEL,
+            chain=BACKGROUND_MODEL_CHAIN,
         )
         if not r or not r.strip():
             log.warning("[memory] extraction skipped: LLM returned no response")
@@ -197,6 +198,7 @@ async def summarize_session():
                 text=f"Сделай краткое резюме диалога (макс 300 слов):\n{hist_text}"
             )])],
             model=MAIN_MODEL,
+            chain=BACKGROUND_MODEL_CHAIN,
         )
         save_session_summary(r)
         mark_key_used(key)
@@ -231,6 +233,7 @@ async def daily_analysis():
                          'Верни JSON: {"patterns":[],"preferences":[]}'
                 )])],
                 model=MAIN_MODEL,
+                chain=BACKGROUND_MODEL_CHAIN,
             )
             mark_key_used(key)
             raw = r.replace("```json", "").replace("```", "").strip()

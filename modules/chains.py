@@ -21,7 +21,7 @@ import logging
 import os
 import re
 from typing import Optional
-from config import MAIN_MODEL
+from config import MAIN_MODEL, MODEL_CHAIN
 from sakura_core.llm import generate as _llm_generate
 
 from modules.jsonio import save_json
@@ -205,7 +205,7 @@ async def run_chain(
             f"Не удалось: {', '.join(fails)}. Скажи коротко что сделала и что нет."
         )
 
-    reply = await ask_gemini_fn(prompt, save_history=False)
+    reply = await ask_gemini_fn(prompt, save_history=False, chain=MODEL_CHAIN)
     return reply or f"Цепочка '{name}' выполнена."
 
 

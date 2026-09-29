@@ -45,7 +45,7 @@ async def handle_voice_impl(message: "Message", *, bot, is_master, get_active_ke
             audio_b64 = base64.b64encode(f.read()).decode()
         os.unlink(temp_wav)
 
-        from config import MAIN_MODEL
+        from config import MAIN_MODEL, VOICE_MODEL_CHAIN
         from sakura_core.llm import generate as _llm_generate
         from google.genai import types
         r = await _llm_generate(
@@ -54,6 +54,7 @@ async def handle_voice_impl(message: "Message", *, bot, is_master, get_active_ke
                 types.Part(text="Распознай речь, верни только текст."),
             ])],
             model=MAIN_MODEL,
+            chain=VOICE_MODEL_CHAIN,
         )
         recognized = r
         mark_key_used(key)

@@ -23,7 +23,7 @@ from typing import AsyncIterator
 from google import genai
 from google.genai import types
 
-from config import get_active_key, mark_key_used
+from config import get_active_key, mark_key_used, VOICE_MODEL_CHAIN
 from sakura_core.llm import generate as _llm_generate, stream_tokens as _llm_stream
 
 log = logging.getLogger(__name__)
@@ -591,6 +591,7 @@ async def stream_llm_to_tts(
             temperature=temperature,
             safety=False,
             thinking=False,
+            chain=VOICE_MODEL_CHAIN,
         ):
             full_text += token
 
@@ -623,6 +624,7 @@ async def stream_llm_to_tts(
                 temperature=temperature,
                 safety=False,
                 thinking=False,
+                chain=VOICE_MODEL_CHAIN,
             )
             mark_key_used(api_key)
 

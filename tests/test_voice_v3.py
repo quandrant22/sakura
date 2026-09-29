@@ -65,18 +65,20 @@ def test_generate_timeout_kills_hang(monkeypatch):
 
 def test_generate_falls_back_between_models(monkeypatch):
     calls = []
+    chain = ("model-a", "model-b")
+    monkeypatch.setattr(llm.config, "MODEL_CHAIN", chain)
 
     class _FirstFails:
         def generate_content(self, *, model, **kwargs):
             calls.append(model)
-            if model == llm.config.MAIN_MODEL:
+            if model == "model-a":
                 raise RuntimeError("упала основная")
             return type("R", (), {"text": "ответ"})()
 
     monkeypatch.setattr(llm, "get_client", lambda key: _FakeClient(_FirstFails()))
     text = asyncio.run(llm.generate("тест"))
     assert text == "ответ"
-    assert calls == [llm.config.MAIN_MODEL, llm.config.FALLBACK_MODEL]
+    assert calls == ["model-a", "model-b"]
 
 
 def test_stream_tokens_yields_incrementally(monkeypatch):
