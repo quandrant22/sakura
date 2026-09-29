@@ -74,14 +74,19 @@ async def graceful_shutdown(dispatcher, websocket_server, discord_bot) -> None:
     """Stop external surfaces and cancel process-spawned background tasks."""
     from sakura_core.tasks import cancel_all
 
+    log.info("[shutdown] stopping Telegram polling")
     await dispatcher.stop_polling()
+    log.info("[shutdown] closing WebSocket server")
     websocket_server.close()
     await websocket_server.wait_closed()
+    log.info("[shutdown] stopping Discord bot")
     await discord_bot.close()
+    log.info("[shutdown] cancelling spawned tasks")
     pending = await cancel_all(timeout=5.0)
     if pending:
         log.warning("[shutdown] spawned tasks still pending: %s",
                     ", ".join(task.get_name() for task in pending))
+    log.info("[shutdown] spawned tasks stopped")
 
 
 async def run_services_until_stopped(
@@ -246,7 +251,7 @@ async def main(*, lifecycle=None, stop_event=None):
     log.info("WebSocket сервер запущен на порту 8765")
 
     await _run_lifecycle(SimpleNamespace(
-        polling=dp.start_polling(bot),
+        polling=dp.start_polling(bot, handle_signals=False),
         websocket=ws_server.wait_closed(),
         background=[
             ("daily_analysis", daily_analysis()),
