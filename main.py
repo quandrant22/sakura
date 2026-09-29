@@ -164,6 +164,7 @@ async def run_services_until_stopped(
             for task in tasks:
                 task.cancel()
             service_completion.cancel()
+        await asyncio.gather(service_completion, return_exceptions=True)
 
 
 async def main(*, lifecycle=None, stop_event=None):
