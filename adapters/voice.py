@@ -26,6 +26,7 @@ from sakura_core import llm as _llm
 from modules.tts_server import (
     _make_audio_sender,
     _live_synthesize,
+    _live_synthesize_preferred,
     _stream_two_stage,
 )
 from modules.state import connected_devices
@@ -137,7 +138,16 @@ async def stream_llm_to_tts(
 
     async def _produce(text: str, q: asyncio.Queue, stage: int) -> None:
         try:
-            await _live_synthesize(text, emotion, q.put, label=f"стадия {stage}")
+            if stage == 1:
+                # Стадия 1 — из предбанника TTS (п.3): коннект открыт
+                # заранее, handshake не на критическом пути. synth —
+                # подмена синтеза (тесты/этап 6).
+                await _live_synthesize_preferred(
+                    text, emotion, q.put, label=f"стадия {stage}",
+                    synth=_live_synthesize)
+            else:
+                await _live_synthesize(text, emotion, q.put,
+                                       label=f"стадия {stage}")
         except Exception as e:
             log.error(f"[voice] стадия {stage}: синтез упал: {e}")
             await q.put(e)
@@ -220,8 +230,9 @@ async def stream_llm_to_tts(
                 await _stream_two_stage(first.strip() + ".", rest.strip(), websocket,
                                         device_id, emotion, t0, stop=stop)
             elif websocket:
-                await _live_synthesize(clean, emotion,
-                                       _make_audio_sender(websocket, device_id))
+                await _live_synthesize_preferred(
+                    clean, emotion, _make_audio_sender(websocket, device_id),
+                    synth=_live_synthesize)
             return clean, emotion
 
         # Пакеты уходят строго по порядку стадий

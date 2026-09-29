@@ -246,7 +246,11 @@ async def ws_handler(websocket):
 import modules.state as st
 from config import MASTER_ID
 from modules.chains import match_voice_trigger, list_voice_triggers, list_custom_chains
-from modules.tts_server import stream_tts_to_device
+from modules.tts_server import (
+    stream_tts_to_device,
+    preconnect as tts_preconnect,
+    release_preconnect as tts_release_preconnect,
+)
 from modules.user_commands import parse_teaching, add as add_cmd, list_all as list_cmds
 from modules.voice_info import pending_forget_active
 from modules.pranks import should_prank, choose_prank, record_prank
@@ -383,6 +387,16 @@ async def handle_voice_command(websocket, data, ctx) -> None:
             request_chain=VOICE_MODEL_CHAIN,
         )
 
+    # ── Предконнект TTS (п.3 perf/voice-latency) ────────────────────
+    # Пока идут проверки реестра и LLM-классификатор, Live-сессия
+    # открывается заранее: первая стадия синтеза платит только за
+    # генерацию звука. Команда/отмена — предконнект закрывается.
+    if ws_dev is not None:
+        try:
+            await tts_preconnect()
+        except Exception as _pc_err:
+            log.debug(f"[voice] предконнект: {type(_pc_err).__name__}: {_pc_err}")
+
     # ── v3 (этап 5): быстрый путь реестра — все домены ────────────────
     # П.2 (perf/voice-latency): до LLM-классификатора голос готовим
     # ПАРАЛЛЕЛЬНО (build_system + стрим токенов), но токены в TTS не идут,
@@ -410,6 +424,11 @@ async def handle_voice_command(websocket, data, ctx) -> None:
         nonlocal voice_task
         task = voice_task
         voice_task = None
+        # Предконнект TTS больше не нужен: команда отвечает своим путём.
+        try:
+            await tts_release_preconnect()
+        except Exception as _pc_err:
+            log.debug(f"[voice] предконнект: закрытие: {_pc_err}")
         if task is None:
             return
         task.cancel()
@@ -614,6 +633,14 @@ async def handle_voice_command(websocket, data, ctx) -> None:
             device_id     = device_id or "laptop",
             active_window = active_win,
         )
+    # Предконнект TTS: если его не забрала первая стадия (например, пустой
+    # ответ), закрываем сразу — слот семафора не держим зря.
+    try:
+        await tts_release_preconnect()
+    except Exception as _pc_err:
+        log.debug(f"[voice] предконнект: закрытие: {_pc_err}")
+
+
 
     # ── ПРАНКИ + РЕАКЦИИ САКУРЫ (фоновая задача) ──────
     async def _maybe_prank_and_react():

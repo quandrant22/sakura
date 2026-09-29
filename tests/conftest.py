@@ -51,3 +51,26 @@ def deterministic_model_configuration(monkeypatch):
     monkeypatch.setattr(config, "CHAT_HISTORY_LIMIT", 30)
     monkeypatch.setattr(config, "VOICE_MAX_TOKENS", 120)
     monkeypatch.setattr(config, "VOICE_MAX_TOKENS_OVERRIDE", False)
+
+@pytest.fixture(autouse=True)
+def no_tts_preconnect_network(monkeypatch):
+    """Тесты не ходят в сеть: предконнект Live-сессии TTS выключен.
+
+    По умолчанию preconnect() открыл бы РЕАЛЬНЫЙ websocket, если в .env
+    есть ключ, — тесты этого не должны делать. Проверки самого предконнекта
+    (tests/test_tts_preconnect.py) подменяют tts_server._get_client фейковым
+    клиентом и вызывают настоящий preconnect().
+    """
+    from unittest.mock import AsyncMock
+
+    import adapters.ws as wh
+    import modules.tts_server as tts
+
+    # Состояние предбанника не переносится между тестами.
+    monkeypatch.setattr(tts, "_preconnect_task", None)
+    monkeypatch.setattr(tts, "_preconnect_ready", None)
+    monkeypatch.setattr(tts, "_preconnect_release", None)
+    # ws дёргает предконнект по имени — гасим и его.
+    monkeypatch.setattr(wh, "tts_preconnect", AsyncMock(return_value=False))
+    monkeypatch.setattr(wh, "tts_release_preconnect", AsyncMock())
+
