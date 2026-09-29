@@ -383,6 +383,43 @@ async def handle_voice_command(websocket, data, ctx) -> None:
             request_chain=VOICE_MODEL_CHAIN,
         )
 
+    # ── v3 (этап 5): быстрый путь реестра — все домены ────────────────
+    # П.2 (perf/voice-latency): до LLM-классификатора голос готовим
+    # ПАРАЛЛЕЛЬНО (build_system + стрим токенов), но токены в TTS не идут,
+    # пока вердикт не станет «не команда» (шлюз VoiceGate).
+    voice_gate = None
+    voice_task = None
+
+    def _prefetch_voice():
+        """Хук Router.route: классификатор запущен — стартует и голос."""
+        nonlocal voice_gate, voice_task
+        if voice_task is not None:
+            return
+        from adapters.voice import VoiceGate
+        voice_gate = VoiceGate()
+        voice_task = asyncio.create_task(ask_gemini_voice(
+            user_message  = text + ctx_str,
+            websocket     = ws_dev,
+            device_id     = device_id or "laptop",
+            active_window = data.get("active_window", ""),
+            gate          = voice_gate,
+        ))
+
+    async def _cancel_voice_prefetch():
+        """Команда подтверждена — стрим ответа отменяется, TTS не зван."""
+        nonlocal voice_task
+        task = voice_task
+        voice_task = None
+        if task is None:
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            log.debug(f"[voice] prefetch отменён: {type(e).__name__}: {e}")
+
     try:
         from sakura_core.bridge import v3_fast_path
         async def _v3_speak(phrase: str, listen=None):
@@ -394,7 +431,9 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                               device_id=device_id,
                               register_command=ctx.get("_register_command"),
                               speak=_v3_speak,
-                              resolve_reply=_ws_resolve_reply):
+                              resolve_reply=_ws_resolve_reply,
+                              on_llm=_prefetch_voice):
+            await _cancel_voice_prefetch()
             return
     except Exception as _v3_err:
         log.debug(f"[v3] быстрый путь: {type(_v3_err).__name__}: {_v3_err}")
@@ -403,6 +442,7 @@ async def handle_voice_command(websocket, data, ctx) -> None:
     # ── ГОЛОСОВЫЕ ТРИГГЕРЫ (проверяются первыми) ──────
     _trigger = match_voice_trigger(text)
     if _trigger and ws_dev:
+        await _cancel_voice_prefetch()
         log.info(f"[trigger] сработал: '{_trigger['phrase']}'")
         for act in _trigger["actions"]:
             action = act.get("action", "")
@@ -442,6 +482,7 @@ async def handle_voice_command(websocket, data, ctx) -> None:
 
     # ── ОБУЧЕНИЕ НОВЫМ КОМАНДАМ (раньше всего) ───────────
     if any(w in text.lower() for w in ('покажи команды', 'список команд', 'мои команды')):
+        await _cancel_voice_prefetch()
         from config import VOICE_HISTORY_LIMIT, VOICE_MODEL_CHAIN
         cmds = list_cmds()
         cmd_list = ', '.join(list(cmds.keys())[:10]) if cmds else None
@@ -464,6 +505,7 @@ async def handle_voice_command(websocket, data, ctx) -> None:
         return
     _teaching = parse_teaching(text)
     if _teaching:
+        await _cancel_voice_prefetch()
         from config import VOICE_HISTORY_LIMIT, VOICE_MODEL_CHAIN
         _trigger, _action = _teaching
         add_cmd(_trigger, _action)
@@ -480,6 +522,7 @@ async def handle_voice_command(websocket, data, ctx) -> None:
 
     # ── ПОЛЬЗОВАТЕЛЬСКИЕ ЦЕПОЧКИ ────────────────────
     if any(w in text.lower() for w in ("создай цепочку", "новая цепочка", "добавь цепочку")):
+        await _cancel_voice_prefetch()
         from config import VOICE_HISTORY_LIMIT, VOICE_MODEL_CHAIN
         _chain_prompt = (
             "Мастер хочет создать цепочку команд. "
@@ -495,6 +538,7 @@ async def handle_voice_command(websocket, data, ctx) -> None:
         return
 
     if any(w in text.lower() for w in ("цепочки", "список цепочек", "мои цепочки")):
+        await _cancel_voice_prefetch()
         _chain_list = list_custom_chains()
         if ws_dev:
             await stream_tts_to_device(_chain_list, ws_dev, device_id or "laptop", literal=True)
@@ -502,6 +546,7 @@ async def handle_voice_command(websocket, data, ctx) -> None:
 
     # ── ГОЛОСОВЫЕ ТРИГГЕРЫ: создание ──────────────────
     if "запомни триггер" in text.lower() or "создай триггер" in text.lower():
+        await _cancel_voice_prefetch()
         from config import VOICE_HISTORY_LIMIT, VOICE_MODEL_CHAIN
         _trig_prompt = (
             "Мастер хочет создать голосовой триггер. "
@@ -518,6 +563,7 @@ async def handle_voice_command(websocket, data, ctx) -> None:
         return
 
     if any(w in text.lower() for w in ("триггеры", "список триггеров", "мои триггеры")):
+        await _cancel_voice_prefetch()
         _trig_list = list_voice_triggers()
         if ws_dev:
             await stream_tts_to_device(_trig_list, ws_dev, device_id or "laptop", literal=True)
@@ -528,6 +574,7 @@ async def handle_voice_command(websocket, data, ctx) -> None:
     # Написать VIP — в conversation/vip_message (этап 5, 3/3).
     # ── отправка в Telegram по голосу ──
     if _has_tg_trigger(text_lower):
+        await _cancel_voice_prefetch()
         payload = _strip_payload_words(text_lower)
 
         async def _say(phrase):
@@ -555,12 +602,18 @@ async def handle_voice_command(websocket, data, ctx) -> None:
     except Exception as e:
         log.debug(f"[voice] game_hub ctx: {e}")
     log.info(f"[voice] → ask_gemini_voice ws_dev={ws_dev is not None} device={device_id}")
-    await ask_gemini_voice(
-        user_message  = text + ctx_str,
-        websocket     = ws_dev,
-        device_id     = device_id or "laptop",
-        active_window = active_win,
-    )
+    if voice_task is not None:
+        # Классификатор вернул «не команда» (и ветки-команды выше не
+        # сработали): накопленный буфер отдаём в TTS и дожидаемся стрима.
+        voice_gate.open()
+        await voice_task
+    else:
+        await ask_gemini_voice(
+            user_message  = text + ctx_str,
+            websocket     = ws_dev,
+            device_id     = device_id or "laptop",
+            active_window = active_win,
+        )
 
     # ── ПРАНКИ + РЕАКЦИИ САКУРЫ (фоновая задача) ──────
     async def _maybe_prank_and_react():

@@ -120,7 +120,14 @@ class Router:
                 return tl, d
         return None
 
-    async def route(self, text: str, context=None) -> Decision:
+    async def route(self, text: str, context=None, *,
+                    on_llm: Optional[Callable[[], None]] = None) -> Decision:
+        """Разобрать текст: session → registry → механики → LLM → разговор.
+
+        on_llm — одноразовый хук, вызывается ТОЛЬКО если точные пути не
+        сработали и дошёл шаг LLM-классификатора (п.2: голос параллельно
+        классификатору стартует именно здесь).
+        """
         ctx = _norm_context(context)
         cleaned = self._strip_wake(text or "")
 
@@ -203,6 +210,10 @@ class Router:
 
         # 5. LLM — каталог из реестра; неизвестный id считаем разговором
         if self._llm is not None:
+            if on_llm is not None:
+                # Точка параллелизма (п.2): классификация и подготовка
+                # голосового ответа идут одновременно.
+                on_llm()
             action = await self._llm(cleaned, self._catalog)
             if action and action in self._by_id:
                 return Decision(action, "llm")

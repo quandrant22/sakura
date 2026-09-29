@@ -242,7 +242,7 @@ def _patch_router(monkeypatch, decision):
     import sakura_core.bridge as br
 
     class _R:
-        async def route(self, text, context):
+        async def route(self, text, context, *, on_llm=None):
             return decision
     monkeypatch.setattr(br, "get_router", lambda: _R())
 

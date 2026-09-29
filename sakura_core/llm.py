@@ -702,8 +702,13 @@ async def ask_gemini_voice(
     device_id    : str = "laptop",
     active_window: str | None = None,
     length       : str = "short",
+    gate         = None,
 ) -> tuple[str, str]:
-    """Голосовой ответ с истинным стримингом LLM→TTS."""
+    """Голосовой ответ с истинным стримингом LLM→TTS.
+
+    gate — VoiceGate (п.2): шлюз «классификатор ∥ стрим»; без него
+    (None) поведение прежнее — предложения уходят в TTS сразу.
+    """
     from config import MAIN_MODEL, FALLBACK_MODEL, get_active_key, mark_key_used
     from memory.memory import add_to_history
 
@@ -777,6 +782,7 @@ async def ask_gemini_voice(
                 emotion     = get_current_emotion(),
                 timeout     = 8.0,
                 chain       = config.VOICE_MODEL_CHAIN,
+                gate        = gate,
             )
         else:
             response  = await generate(contents, system=full_system, model=MAIN_MODEL,
@@ -794,7 +800,7 @@ async def ask_gemini_voice(
                     contents, full_system, websocket, device_id,
                     model=FALLBACK_MODEL, max_tokens=max_tok,
                     api_key=key, emotion=get_current_emotion(), timeout=8.0,
-                    chain=config.VOICE_MODEL_CHAIN,
+                    chain=config.VOICE_MODEL_CHAIN, gate=gate,
                 )
             else:
                 r = await generate(contents, system=full_system, model=FALLBACK_MODEL,

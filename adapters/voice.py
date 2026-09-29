@@ -57,6 +57,49 @@ async def iter_sentences(tokens: AsyncIterator[str]) -> AsyncIterator[str]:
         yield buf.strip()
 
 
+class VoiceGate:
+    """Шлюз «классификатор роутера ∥ голосовой стрим» (п.2 perf/voice-latency).
+
+    Пока классификатор не вернул «не команда», накопленные предложения
+    НЕ уходят в TTS: их буфер держит stream_llm_to_tts, читая токены
+    LLM дальше (подготовка параллельна классификации). Вердикт «команда»
+    приходит снаружи — задача голоса отменяется, буфер выбрасывается.
+    open() после «не команда» (и по таймауту — как «не команда») отдаёт
+    буфер в TTS и продолжает стрим без потери токенов.
+    """
+
+    # Таймаут классификатора — 5с (bridge.get_router: llm_classify timeout=5.0);
+    # ждём чуть дольше, дальше считаем «не команда» (спека п.2).
+    WAIT_S = 6.0
+
+    def __init__(self) -> None:
+        self._ev = asyncio.Event()
+
+    def open(self) -> None:
+        self._ev.set()
+
+    @property
+    def opened(self) -> bool:
+        return self._ev.is_set()
+
+    async def wait_open(self, timeout: Optional[float] = None) -> bool:
+        """Ждать вердикта; по таймауту открываемся сами («не команда»).
+
+        Возвращает True — вердикт пришёл, False — открылись по таймауту.
+        """
+        if self._ev.is_set():
+            return True
+        try:
+            await asyncio.wait_for(
+                self._ev.wait(),
+                self.WAIT_S if timeout is None else timeout,
+            )
+            return True
+        except asyncio.TimeoutError:
+            self._ev.set()
+            return False
+
+
 async def stream_llm_to_tts(
     contents,
     system: str = "",
@@ -71,12 +114,15 @@ async def stream_llm_to_tts(
     stop=None,
     timeout: float = 8.0,
     chain=None,
+    gate: Optional[VoiceGate] = None,
 ) -> tuple[str, str]:
     """Стриминг LLM→TTS: предложение готово → сразу в синтез.
 
     Сигнатура совместима с вызовами v2 (main.py ask_gemini_voice): голосовой
     путь идёт через этот адаптер. Возвращает (полный текст, эмоция).
     stop — опциональный callable(): True между пакетами → обрыв озвучки.
+    gate — шлюз классификатора (п.2): пока не открыт, накопленные
+    предложения НЕ уходят в стадии TTS, но чтение токенов продолжается.
     """
     key = _llm.pick_key(api_key)
     if client is None:
@@ -128,61 +174,72 @@ async def stream_llm_to_tts(
 
 
     try:
-        tokens = _llm.stream_tokens(
-            contents, system=system, model=model, max_tokens=max_tokens,
-            temperature=temperature, api_key=key,
-            timeout=max(0.0, deadline - time.monotonic()),
-            chain=chain,
-        )
-        async for sentence in iter_sentences(tokens):
-            m = _EMOTION_LINE.match(sentence)
-            if m:
-                emotion = m.group(1)
-                continue
-            parts.append(sentence)
-            _new_stage(sentence)
-    except Exception as e:
-        log.error(f"[voice] стрим LLM упал: {e}")
-
-    # Ни одного предложения — фолбэк: обычная генерация → двухстадийный путь v2
-    if not parts:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            return "", emotion
-        text = (await _llm.generate(contents, system=system, model=model,
-                                    max_tokens=max_tokens, temperature=temperature,
-                                    api_key=key, timeout=remaining,
-                                    chain=chain)).strip()
-        if not text:
-            return "", emotion
-        clean = text
-        for line in text.split("\n"):
-            if line.strip().startswith("EMOTION:"):
-                emotion = line.strip().replace("EMOTION:", "").strip()
-        clean = _NL_WS.sub(" ", _EMOTION_LINE.sub("", clean)).strip()
-        first, _, rest = clean.partition(". ")
-        if rest.strip():
-            await _stream_two_stage(first.strip() + ".", rest.strip(), websocket,
-                                    device_id, emotion, t0, stop=stop)
-        elif websocket:
-            await _live_synthesize(clean, emotion,
-                                   _make_audio_sender(websocket, device_id))
-        return clean, emotion
-
-    # Пакеты уходят строго по порядку стадий
-    for q in queues:
-        if not await _drain(q):
-            break
-
-    for t in producers:
-        if not t.done():
-            t.cancel()
         try:
-            await t
-        except asyncio.CancelledError:
-            pass
+            tokens = _llm.stream_tokens(
+                contents, system=system, model=model, max_tokens=max_tokens,
+                temperature=temperature, api_key=key,
+                timeout=max(0.0, deadline - time.monotonic()),
+                chain=chain,
+            )
+            async for sentence in iter_sentences(tokens):
+                m = _EMOTION_LINE.match(sentence)
+                if m:
+                    emotion = m.group(1)
+                    continue
+                parts.append(sentence)
+                if gate is not None:
+                    # Токены читаются параллельно классификатору, но в TTS
+                    # предложение уходит только после вердикта «не команда».
+                    await gate.wait_open()
+                _new_stage(sentence)
         except Exception as e:
-            log.debug(f"[voice] продюсер: {e}")
+            log.error(f"[voice] стрим LLM упал: {e}")
+
+        # Ни одного предложения — фолбэк: обычная генерация → двухстадийный путь v2
+        if not parts:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return "", emotion
+            text = (await _llm.generate(contents, system=system, model=model,
+                                        max_tokens=max_tokens, temperature=temperature,
+                                        api_key=key, timeout=remaining,
+                                        chain=chain)).strip()
+            if not text:
+                return "", emotion
+            clean = text
+            for line in text.split("\n"):
+                if line.strip().startswith("EMOTION:"):
+                    emotion = line.strip().replace("EMOTION:", "").strip()
+            clean = _NL_WS.sub(" ", _EMOTION_LINE.sub("", clean)).strip()
+            if gate is not None:
+                # Вердикта ещё нет: команда → задача отменена здесь же,
+                # буфер выброшен, TTS не вызван.
+                await gate.wait_open()
+            first, _, rest = clean.partition(". ")
+            if rest.strip():
+                await _stream_two_stage(first.strip() + ".", rest.strip(), websocket,
+                                        device_id, emotion, t0, stop=stop)
+            elif websocket:
+                await _live_synthesize(clean, emotion,
+                                       _make_audio_sender(websocket, device_id))
+            return clean, emotion
+
+        # Пакеты уходят строго по порядку стадий
+        for q in queues:
+            if not await _drain(q):
+                break
+    finally:
+        # Отмена задачи (команда) и обычный выход — продюсеры TTS снимаются
+        # всегда: зависшая Live-сессия не переживает обрыв стрима.
+        for t in producers:
+            if not t.done():
+                t.cancel()
+            try:
+                await t
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                log.debug(f"[voice] продюсер: {e}")
 
     if not synth_failed:
         budget.timed("voice_total", t0)
