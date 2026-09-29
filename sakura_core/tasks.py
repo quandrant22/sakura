@@ -28,3 +28,14 @@ def spawn(coro: Coroutine[Any, Any, Any], name: str | None = None) -> asyncio.Ta
     _tasks.add(task)
     task.add_done_callback(_task_done)
     return task
+
+
+async def cancel_all(timeout: float = 5.0) -> set[asyncio.Task]:
+    """Cancel tracked background tasks and return those still pending at timeout."""
+    tasks = tuple(_tasks)
+    for task in tasks:
+        task.cancel()
+    if not tasks:
+        return set()
+    _done, pending = await asyncio.wait(tasks, timeout=max(0.0, timeout))
+    return pending

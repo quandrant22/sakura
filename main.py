@@ -1,12 +1,16 @@
 """Sakura entry point — main() and background task orchestration."""
 
 import asyncio
+import inspect
 import logging
 import os
+import signal
+from types import SimpleNamespace
 from sakura_core.tasks import spawn
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
+SHUTDOWN_TIMEOUT = 10.0
 
 
 async def supervised(coro, name):
@@ -33,7 +37,145 @@ async def run_services(polling, websocket, background):
         await asyncio.gather(*tasks, return_exceptions=True)
 
 
-async def main():
+async def _run_shutdown_steps(steps, deadline: float) -> None:
+    loop = asyncio.get_running_loop()
+    for name, callback in steps:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            raise asyncio.TimeoutError(f"shutdown deadline before {name}")
+        result = callback()
+        if inspect.isawaitable(result):
+            await asyncio.wait_for(result, timeout=remaining)
+
+
+def install_shutdown_handlers(loop, stop_event: asyncio.Event) -> None:
+    loop.add_signal_handler(signal.SIGTERM, stop_event.set)
+    loop.add_signal_handler(signal.SIGINT, stop_event.set)
+
+
+async def _run_lifecycle(lifecycle, stop_event: asyncio.Event) -> None:
+    def _close_database():
+        from memory.db import close as close_db
+        close_db()
+
+    await run_services_until_stopped(
+        lifecycle.polling,
+        lifecycle.websocket,
+        lifecycle.background,
+        stop_event,
+        [("service components", lambda: graceful_shutdown(
+            lifecycle.dispatcher, lifecycle.websocket_server, lifecycle.discord_bot,
+        ))],
+        [("sqlite", lambda: asyncio.to_thread(_close_database))],
+    )
+
+
+async def graceful_shutdown(dispatcher, websocket_server, discord_bot) -> None:
+    """Stop external surfaces and cancel process-spawned background tasks."""
+    from sakura_core.tasks import cancel_all
+
+    log.info("[shutdown] stopping Telegram polling")
+    polling_stop = asyncio.create_task(dispatcher.stop_polling(), name="telegram-stop")
+    await asyncio.sleep(0)
+    log.info("[shutdown] closing WebSocket server")
+    websocket_server.close()
+    log.info("[shutdown] stopping Discord bot")
+    close_tasks = [
+        polling_stop,
+        asyncio.create_task(websocket_server.wait_closed(), name="websocket-close"),
+        asyncio.create_task(discord_bot.close(), name="discord-close"),
+    ]
+    results = await asyncio.gather(*close_tasks, return_exceptions=True)
+    for task, result in zip(close_tasks, results):
+        if isinstance(result, BaseException):
+            log.error("[shutdown] %s failed: %s", task.get_name(), result)
+    log.info("[shutdown] cancelling spawned tasks")
+    pending = await cancel_all(timeout=5.0)
+    if pending:
+        log.warning("[shutdown] spawned tasks still pending: %s",
+                    ", ".join(task.get_name() for task in pending))
+    log.info("[shutdown] spawned tasks stopped")
+
+
+async def run_services_until_stopped(
+    polling,
+    websocket,
+    background,
+    stop_event: asyncio.Event,
+    shutdown_steps,
+    final_steps=(),
+) -> None:
+    """Run service surfaces until failure or stop request, then shut down boundedly."""
+    tasks = [asyncio.create_task(polling, name="telegram-polling"),
+             asyncio.create_task(websocket, name="websocket-server")]
+    tasks.extend(asyncio.create_task(supervised(coro, name), name=name)
+                 for name, coro in background)
+    service_completion = asyncio.gather(*tasks)
+    stop_waiter = asyncio.create_task(stop_event.wait(), name="shutdown-event")
+    try:
+        done, _pending = await asyncio.wait(
+            (service_completion, stop_waiter),
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if service_completion in done:
+            await service_completion
+            return
+
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + SHUTDOWN_TIMEOUT
+        shutdown_task = asyncio.create_task(
+            _run_shutdown_steps(shutdown_steps, deadline),
+            name="graceful-shutdown",
+        )
+        _done, shutdown_pending = await asyncio.wait(
+            (shutdown_task,), timeout=max(0.0, deadline - loop.time()),
+        )
+        unfinished = []
+        if shutdown_pending:
+            shutdown_task.cancel()
+            unfinished.append(shutdown_task.get_name())
+        elif shutdown_task.exception() is not None:
+            error = shutdown_task.exception()
+            if isinstance(error, asyncio.TimeoutError):
+                log.warning("[shutdown] step deadline exceeded: %s", error)
+            else:
+                log.error("[shutdown] step failed: %s", error)
+
+        for task in tasks:
+            task.cancel()
+        _done, pending = await asyncio.wait(
+            tasks, timeout=max(0.0, deadline - loop.time()),
+        )
+        unfinished.extend(task.get_name() for task in pending)
+        if final_steps and loop.time() < deadline:
+            try:
+                await _run_shutdown_steps(final_steps, deadline)
+            except asyncio.TimeoutError as error:
+                unfinished.append("final shutdown steps")
+                log.warning("[shutdown] final step deadline exceeded: %s", error)
+            except Exception:
+                log.exception("[shutdown] final step failed")
+        if unfinished:
+            log.warning("[shutdown] deadline %.1fs; unfinished tasks: %s",
+                        SHUTDOWN_TIMEOUT, ", ".join(unfinished))
+    finally:
+        stop_waiter.cancel()
+        if not service_completion.done():
+            for task in tasks:
+                task.cancel()
+            service_completion.cancel()
+        await asyncio.gather(service_completion, return_exceptions=True)
+
+
+async def main(*, lifecycle=None, stop_event=None):
+    loop = asyncio.get_running_loop()
+    if stop_event is None:
+        stop_event = asyncio.Event()
+    install_shutdown_handlers(loop, stop_event)
+    if lifecycle is not None:
+        await _run_lifecycle(lifecycle, stop_event)
+        return
+
     from config import MASTER_ID, MASTER_LAT, MASTER_LON
     from memory.memory import (
         get_history, clear_history,
@@ -46,7 +188,7 @@ async def main():
     from modules.relationship import check_milestone
     from modules.intimacy_mode import reset_reflection_flag
     from modules.reminders import set_callback as set_reminder_callback, check_loop as reminder_check_loop
-    from modules.discord_bot import start_bot as discord_start_bot
+    from modules.discord_bot import bot as discord_bot, start_bot as discord_start_bot
     from modules.sakura_narrative import ensure_narrative
     from modules.steam_integration import (
         load_library, steam_library_loop, steam_achievements_loop, set_achievement_callback,
@@ -111,15 +253,17 @@ async def main():
         max_size=MAX_WS_MESSAGE_SIZE,
         ping_interval=20,
         ping_timeout=20,
+        close_timeout=0.5,
     )
 
     set_achievement_callback(await make_achievement_cb(MASTER_ID, send_telegram_text, mark_sent))
     spawn(discord_start_bot(), name="discord-bot")
     log.info("WebSocket сервер запущен на порту 8765")
-    await run_services(
-        dp.start_polling(bot),
-        ws_server.wait_closed(),
-        [
+
+    await _run_lifecycle(SimpleNamespace(
+        polling=dp.start_polling(bot, handle_signals=False),
+        websocket=ws_server.wait_closed(),
+        background=[
             ("daily_analysis", daily_analysis()),
             ("proactive_loop", proactive_loop()),
             ("steam_library_loop", steam_library_loop()),
@@ -133,7 +277,10 @@ async def main():
                 get_history_fn=get_history, on_night_done=reset_reflection_flag,
             )),
         ],
-    )
+        dispatcher=dp,
+        websocket_server=ws_server,
+        discord_bot=discord_bot,
+    ), stop_event)
 
 
 if __name__ == "__main__":

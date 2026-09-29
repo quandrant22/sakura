@@ -85,13 +85,32 @@ _PRIORITY = ["notes", "facts", "patterns", "preferences", "interests", "events",
 
 # ── Поток-безопасный пул соединений ─────────────────────────────────
 _local = threading.local()
+_connections: set[sqlite3.Connection] = set()
+_connections_lock = threading.Lock()
 
 
 def _conn() -> sqlite3.Connection:
     """Возвращает соединение для текущего потока."""
-    if not hasattr(_local, "conn") or _local.conn is None:
+    connection = getattr(_local, "conn", None)
+    with _connections_lock:
+        is_open = connection in _connections if connection is not None else False
+    if not is_open:
         _local.conn = _open_db()
     return _local.conn
+
+
+def close() -> None:
+    """Close all SQLite connections opened by this process."""
+    with _connections_lock:
+        connections = tuple(_connections)
+        _connections.clear()
+    for connection in connections:
+        try:
+            connection.close()
+        except sqlite3.Error as error:
+            log.warning("[db] SQLite close failed: %s", error)
+    _local.conn = None
+    _cache_clear()
 
 
 def _open_db() -> sqlite3.Connection:
@@ -152,6 +171,8 @@ def _open_db() -> sqlite3.Connection:
         pass  # sqlite-vec не загружен — работаем без векторного поиска
 
     conn.commit()
+    with _connections_lock:
+        _connections.add(conn)
     return conn
 
 
