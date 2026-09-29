@@ -109,6 +109,39 @@ def test_generate_moves_to_next_model_immediately_on_404(monkeypatch):
     assert calls == ["model-a", "model-b"]
 
 
+def test_generate_builds_valid_gemma4_config(monkeypatch):
+    _mock_keys(monkeypatch)
+    captured = {}
+    model_name = "gemma-4-26b-a4b-it"
+
+    class Models:
+        def generate_content(self, *, model, contents, config):
+            captured.update(model=model, contents=contents, config=config)
+            return SimpleNamespace(text="ok")
+
+    monkeypatch.setattr(llm, "get_client", lambda _key: _Client(Models()))
+    system_prompt = "Ты — Сакура. Отвечай кратко и естественно."
+    result = asyncio.run(llm.generate(
+        "Привет", system=system_prompt, model=model_name,
+        chain=(model_name,), safety=True, thinking=True,
+    ))
+
+    from google.genai import types
+
+    assert result == "ok"
+    assert captured["model"] == model_name
+    assert isinstance(captured["config"], types.GenerateContentConfig)
+    assert captured["config"].system_instruction == system_prompt
+    assert {setting.category for setting in captured["config"].safety_settings} == {
+        types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+        types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+        types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+        types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+        types.HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY,
+    }
+    assert captured["config"].thinking_config is None
+
+
 def test_stream_does_not_retry_after_first_token(monkeypatch):
     _mock_keys(monkeypatch)
     calls = []
