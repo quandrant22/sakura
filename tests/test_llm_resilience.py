@@ -109,6 +109,24 @@ def test_generate_moves_to_next_model_immediately_on_404(monkeypatch):
     assert calls == ["model-a", "model-b"]
 
 
+def test_generate_moves_to_next_model_on_empty_response(monkeypatch, caplog):
+    _mock_keys(monkeypatch)
+    calls = []
+
+    class Models:
+        def generate_content(self, *, model, **_kwargs):
+            calls.append(model)
+            return SimpleNamespace(text="  " if model == "model-a" else "fallback")
+
+    monkeypatch.setattr(llm, "get_client", lambda _key: _Client(Models()))
+    with caplog.at_level("INFO", logger="sakura.llm"):
+        result = asyncio.run(llm.generate("hello", chain=("model-a", "model-b")))
+
+    assert result == "fallback"
+    assert calls == ["model-a", "model-b"]
+    assert "code=empty" in caplog.text
+
+
 def test_generate_builds_valid_gemma4_config(monkeypatch):
     _mock_keys(monkeypatch)
     captured = {}

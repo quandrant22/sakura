@@ -169,6 +169,10 @@ def _log_attempt_failure(model: str, api_key: str, error: Exception,
         log.warning("[llm] model=%s rejected request with code=%s", model, code)
 
 
+class _EmptyResponseError(Exception):
+    code = "empty"
+
+
 def _initial_key(api_key: Optional[str]) -> Optional[str]:
     if api_key:
         return api_key
@@ -266,7 +270,10 @@ async def generate(contents, *, system: str = "", model: Optional[str] = None,
                 response = await asyncio.wait_for(asyncio.to_thread(
                     _invoke,
                 ), timeout=remaining)
-                return (response.text or "").strip()
+                text = (response.text or "").strip()
+                if not text:
+                    raise _EmptyResponseError("model returned empty text")
+                return text
             except Exception as error:
                 elapsed = time.monotonic() - attempt_started
                 _log_attempt_failure(model_name, current_key, error, elapsed)
