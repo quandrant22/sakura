@@ -117,7 +117,8 @@ async def execute_decision(decision, *, device_ws, device_id, register_command,
 
 
 async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
-                       ack=None, speak=None, resolve_reply=None) -> bool:
+                       ack=None, speak=None, resolve_reply=None,
+                       on_llm=None) -> bool:
     """Быстрый путь: реестр (без LLM) → исполнение переехавших доменов.
 
     False — решение не для v3 (разговор или id без хендлера), старый путь
@@ -129,13 +130,15 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
     найденным текстом; по агентным командам «Готово.» — только в ack
     (Telegram): голос молчит, его ответ придёт через command_result.
     Ни один из ответчиков не обязателен.
+    on_llm — хук Router.route: вызывается в момент старта LLM-классификатора
+    (п.2: голосовой стрим стартует параллельно классификации).
     """
     from modules.state import _current_track
 
     context = resolve_context(
         (data or {}).get("active_window", ""), _current_track or None
     )
-    decision = await get_router().route(text, context)
+    decision = await get_router().route(text, context, on_llm=on_llm)
     if decision.reply is not None:
         if resolve_reply is not None:
             await resolve_reply(decision.reply)

@@ -246,7 +246,11 @@ async def ws_handler(websocket):
 import modules.state as st
 from config import MASTER_ID
 from modules.chains import match_voice_trigger, list_voice_triggers, list_custom_chains
-from modules.tts_server import stream_tts_to_device
+from modules.tts_server import (
+    stream_tts_to_device,
+    preconnect as tts_preconnect,
+    release_preconnect as tts_release_preconnect,
+)
 from modules.user_commands import parse_teaching, add as add_cmd, list_all as list_cmds
 from modules.voice_info import pending_forget_active
 from modules.pranks import should_prank, choose_prank, record_prank
@@ -307,6 +311,9 @@ async def handle_voice_command(websocket, data, ctx) -> None:
     ws_dev     = st.connected_devices.get(device_id)
     text_lower = text.lower()
     log.info(f"[voice] получено: {text!r}")
+    # П.5: точка отсчёта голосовых бюджетов — приём голоса, а не старт
+    # стрима/сборки ответа (классификация идёт параллельно, п.2).
+    t_recv = time.monotonic()
 
     # Интим-режим: детект на каждое сообщение Мастера
     _im_mark(text)
@@ -383,212 +390,290 @@ async def handle_voice_command(websocket, data, ctx) -> None:
             request_chain=VOICE_MODEL_CHAIN,
         )
 
-    try:
-        from sakura_core.bridge import v3_fast_path
-        async def _v3_speak(phrase: str, listen=None):
-            if ws_dev:
-                await stream_tts_to_device(
-                    phrase, ws_dev, device_id or "laptop", literal=True,
-                    listen=listen)
-        if await v3_fast_path(text, data=data, device_ws=ws_dev,
-                              device_id=device_id,
-                              register_command=ctx.get("_register_command"),
-                              speak=_v3_speak,
-                              resolve_reply=_ws_resolve_reply):
+    # ── v3 (этап 5): быстрый путь реестра — все домены ────────────────
+    # П.2 (perf/voice-latency): до LLM-классификатора голос готовим
+    # ПАРАЛЛЕЛЬНО (build_system + стрим токенов), но токены в TTS не идут,
+    # пока вердикт не станет «не команда» (шлюз VoiceGate).
+    voice_gate = None
+    voice_task = None
+
+    def _prefetch_voice():
+        """Хук Router.route: классификатор запущен — стартует и голос."""
+        nonlocal voice_gate, voice_task
+        if voice_task is not None:
             return
-    except Exception as _v3_err:
-        log.debug(f"[v3] быстрый путь: {type(_v3_err).__name__}: {_v3_err}")
+        from adapters.voice import VoiceGate
+        voice_gate = VoiceGate()
+        log.info(f"[voice] prefetch старт +{(time.monotonic()-t_recv)*1000:.0f}мс "
+                 f"от приёма (параллельно классификатору)")
+        voice_task = asyncio.create_task(ask_gemini_voice(
+            user_message  = text + ctx_str,
+            websocket     = ws_dev,
+            device_id     = device_id or "laptop",
+            active_window = data.get("active_window", ""),
+            gate          = voice_gate,
+            received_at   = t_recv,
+        ))
 
-    # «Протокол чистый лист» — в conversation/clean_slate (этап 5, 3/3).
-    # ── ГОЛОСОВЫЕ ТРИГГЕРЫ (проверяются первыми) ──────
-    _trigger = match_voice_trigger(text)
-    if _trigger and ws_dev:
-        log.info(f"[trigger] сработал: '{_trigger['phrase']}'")
-        for act in _trigger["actions"]:
-            action = act.get("action", "")
-            if action.startswith("say:"):
-                await stream_tts_to_device(action[4:], ws_dev, device_id or "laptop", literal=True)
-            elif action.startswith("volume:"):
-                await ws_dev.send(json.dumps({"type": "command", "action": action}))
-            elif action == "music:play_pause":
-                await ws_dev.send(json.dumps({"type": "command", "action": "music:play_pause"}))
-            elif action == "music:wave":
-                await ws_dev.send(json.dumps({"type": "command", "action": "music:wave"}))
-            elif action.startswith("open_app:"):
-                await ws_dev.send(json.dumps({"type": "command", "action": action}))
-            else:
-                await ws_dev.send(json.dumps({"type": "command", "action": action}))
-        return
+    prefetch_closed = False
 
-    # ── ГОЛОСОВЫЕ ТРИГГЕРЫ (проверяются первыми) ──────
-    _trigger = match_voice_trigger(text)
-    if _trigger and ws_dev:
-        log.info(f"[trigger] сработал: '{_trigger['phrase']}'")
-        for act in _trigger["actions"]:
-            action = act.get("action", "")
-            if action.startswith("say:"):
-                await stream_tts_to_device(action[4:], ws_dev, device_id or "laptop", literal=True)
-            elif action.startswith("volume:"):
-                await ws_dev.send(json.dumps({"type": "command", "action": action}))
-            elif action == "music:play_pause":
-                await ws_dev.send(json.dumps({"type": "command", "action": "music:play_pause"}))
-            elif action == "music:wave":
-                await ws_dev.send(json.dumps({"type": "command", "action": "music:wave"}))
-            elif action.startswith("open_app:"):
-                await ws_dev.send(json.dumps({"type": "command", "action": action}))
-            else:
-                await ws_dev.send(json.dumps({"type": "command", "action": action}))
-        return
+    async def _cancel_voice_prefetch():
+        """Команда подтверждена — стрим ответа отменяется, TTS не зван.
 
-    # ── ОБУЧЕНИЕ НОВЫМ КОМАНДАМ (раньше всего) ───────────
-    if any(w in text.lower() for w in ('покажи команды', 'список команд', 'мои команды')):
-        from config import VOICE_HISTORY_LIMIT, VOICE_MODEL_CHAIN
-        cmds = list_cmds()
-        cmd_list = ', '.join(list(cmds.keys())[:10]) if cmds else None
-        if cmd_list:
-            _lr = await ask_gemini(
-                f'Скажи Мастеру его сохранённые команды: {cmd_list}. Коротко.',
-                save_history=False, history_limit=VOICE_HISTORY_LIMIT,
-                chain=VOICE_MODEL_CHAIN,
-            )
-        else:
-            _lr = await ask_gemini(
-                'Скажи Мастеру что он ещё не добавил своих команд. Можно добавить голосом: "запомни: слово = действие".',
-                save_history=False, history_limit=VOICE_HISTORY_LIMIT,
-                chain=VOICE_MODEL_CHAIN,
-            )
-        if _lr:
-            _active_ws, _ad = _get_active_ws()
-            if _active_ws:
-                await stream_tts_to_device(_lr, _active_ws, _ad or 'laptop', literal=True)
-        return
-    _teaching = parse_teaching(text)
-    if _teaching:
-        from config import VOICE_HISTORY_LIMIT, VOICE_MODEL_CHAIN
-        _trigger, _action = _teaching
-        add_cmd(_trigger, _action)
-        _tr = await ask_gemini(
-            f'Запомнила команду "{_trigger}". Подтверди коротко.',
-            save_history=False, history_limit=VOICE_HISTORY_LIMIT,
-            chain=VOICE_MODEL_CHAIN,
-        )
-        if _tr:
-            _active_ws, _ad = _get_active_ws()
-            if _active_ws:
-                await stream_tts_to_device(_tr, _active_ws, _ad or 'laptop', literal=True)
-        return
-
-    # ── ПОЛЬЗОВАТЕЛЬСКИЕ ЦЕПОЧКИ ────────────────────
-    if any(w in text.lower() for w in ("создай цепочку", "новая цепочка", "добавь цепочку")):
-        from config import VOICE_HISTORY_LIMIT, VOICE_MODEL_CHAIN
-        _chain_prompt = (
-            "Мастер хочет создать цепочку команд. "
-            "Попроси его описать что нужно сделать по порядку. "
-            "Скажи коротко какие действия доступны: открыть приложение, громкость, музыка, сказать фразу."
-        )
-        _chain_reply = await ask_gemini(
-            _chain_prompt, save_history=False,
-            history_limit=VOICE_HISTORY_LIMIT, chain=VOICE_MODEL_CHAIN,
-        )
-        if _chain_reply and ws_dev:
-            await stream_tts_to_device(_chain_reply, ws_dev, device_id or "laptop", literal=True)
-        return
-
-    if any(w in text.lower() for w in ("цепочки", "список цепочек", "мои цепочки")):
-        _chain_list = list_custom_chains()
-        if ws_dev:
-            await stream_tts_to_device(_chain_list, ws_dev, device_id or "laptop", literal=True)
-        return
-
-    # ── ГОЛОСОВЫЕ ТРИГГЕРЫ: создание ──────────────────
-    if "запомни триггер" in text.lower() or "создай триггер" in text.lower():
-        from config import VOICE_HISTORY_LIMIT, VOICE_MODEL_CHAIN
-        _trig_prompt = (
-            "Мастер хочет создать голосовой триггер. "
-            "Попроси его сказать фразу-триггер и что делать при срабатывании. "
-            "Доступные действия: остановить музыку, включить музыку, сказать фразу, "
-            "выключить звук, включить приложение."
-        )
-        _trig_reply = await ask_gemini(
-            _trig_prompt, save_history=False,
-            history_limit=VOICE_HISTORY_LIMIT, chain=VOICE_MODEL_CHAIN,
-        )
-        if _trig_reply and ws_dev:
-            await stream_tts_to_device(_trig_reply, ws_dev, device_id or "laptop", literal=True)
-        return
-
-    if any(w in text.lower() for w in ("триггеры", "список триггеров", "мои триггеры")):
-        _trig_list = list_voice_triggers()
-        if ws_dev:
-            await stream_tts_to_device(_trig_list, ws_dev, device_id or "laptop", literal=True)
-        return
-
-    # Чтение активной страницы переехало в реестр (ext.page_content /
-    # ext.page_content_youtube, этап 5 2/2) — ветка снята.
-    # Написать VIP — в conversation/vip_message (этап 5, 3/3).
-    # ── отправка в Telegram по голосу ──
-    if _has_tg_trigger(text_lower):
-        payload = _strip_payload_words(text_lower)
-
-        async def _say(phrase):
-            if ws_dev:
-                await stream_tts_to_device(phrase, ws_dev, device_id or "laptop", literal=True)
-
-        if not payload:
-            await _say("Что прислать в телеграм, Мастер?")
+        Идемпотентна: ветка-команда зовёт её вручную, finally — ещё раз.
+        """
+        nonlocal voice_task, prefetch_closed
+        if prefetch_closed:
             return
-
-        aw = data.get("active_window", "")
-        await _voice_to_tg(
-            text, text_lower, payload, aw,
-            ask_gemini, send_safe, search_image, download_bytes,
-            search_and_fetch, needs_search, _translate_en, bot, MASTER_ID,
-        )
-        await _say("Готово, Мастер.")
-        return
-
-    active_win = data.get("active_window", "")
-    # Обновляем контекст игрового хаба
-    try:
-        from modules.game_hub import get_game_context_for_device
-        get_game_context_for_device(active_win)
-    except Exception as e:
-        log.debug(f"[voice] game_hub ctx: {e}")
-    log.info(f"[voice] → ask_gemini_voice ws_dev={ws_dev is not None} device={device_id}")
-    await ask_gemini_voice(
-        user_message  = text + ctx_str,
-        websocket     = ws_dev,
-        device_id     = device_id or "laptop",
-        active_window = active_win,
-    )
-
-    # ── ПРАНКИ + РЕАКЦИИ САКУРЫ (фоновая задача) ──────
-    async def _maybe_prank_and_react():
+        prefetch_closed = True
+        task = voice_task
+        voice_task = None
+        # Отмена стрима — до первого await: при отмене самого обработчика
+        # release_preconnect пере-бросает CancelledError, и стрим бы выжил.
+        if task is not None:
+            task.cancel()
+        # Предконнект TTS больше не нужен: команда отвечает своим путём.
         try:
-            if should_prank(text):
-                prank = choose_prank()
-                record_prank()
-                response = random.choice(prank.get("responses", ["Хаха"]))
-                log.info(f"[pranks] выполняю: {prank['name']}")
-                if ws_dev:
-                    await stream_tts_to_device(response, ws_dev, device_id or "laptop", literal=True)
-
-            from sakura_core.reactions import get_mood_reaction, get_sticker_or_gif
-            reaction = get_mood_reaction(text)
-            if reaction:
-                sticker, gif = get_sticker_or_gif(reaction["emotion"])
-                if sticker:
-                    log.info(f"[reactions] {reaction['emotion']} → sticker")
-                    try:
-                        await bot.send_sticker(MASTER_ID, sticker)
-                    except Exception as e:
-                        log.debug(f"[ws] reaction sticker: {type(e).__name__}: {e}")
-                elif gif:
-                    log.info(f"[reactions] {reaction['emotion']} → GIF")
-                    try:
-                        await bot.send_animation(MASTER_ID, gif)
-                    except Exception as e:
-                        log.debug(f"[ws] reaction gif: {type(e).__name__}: {e}")
+            await tts_release_preconnect()
+        except Exception as _pc_err:
+            log.debug(f"[voice] предконнект: закрытие: {_pc_err}")
+        if task is None:
+            return
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
         except Exception as e:
-            log.debug(f"[pranks/react] error: {e}")
-    spawn(_maybe_prank_and_react(), name="prank-and-react")
+            log.debug(f"[voice] prefetch отменён: {type(e).__name__}: {e}")
+
+    # Выход любым путём (return, исключение, отмена) до передачи стрима
+    # в TTS через voice_gate.open() — стрим снимается, предконнект
+    # закрывается. Ручные вызовы в ветках-командах идемпотентны.
+    handed_off = False
+    try:
+        # ── Предконнект TTS (п.3 perf/voice-latency) ────────────────────
+        # Пока идут проверки реестра и LLM-классификатор, Live-сессия
+        # открывается заранее: первая стадия синтеза платит только за
+        # генерацию звука. Команда/отмена — предконнект закрывается.
+        if ws_dev is not None:
+            try:
+                await tts_preconnect()
+            except Exception as _pc_err:
+                log.debug(f"[voice] предконнект: {type(_pc_err).__name__}: {_pc_err}")
+
+        try:
+            from sakura_core.bridge import v3_fast_path
+            async def _v3_speak(phrase: str, listen=None):
+                if ws_dev:
+                    await stream_tts_to_device(
+                        phrase, ws_dev, device_id or "laptop", literal=True,
+                        listen=listen)
+            if await v3_fast_path(text, data=data, device_ws=ws_dev,
+                                  device_id=device_id,
+                                  register_command=ctx.get("_register_command"),
+                                  speak=_v3_speak,
+                                  resolve_reply=_ws_resolve_reply,
+                                  on_llm=_prefetch_voice):
+                await _cancel_voice_prefetch()
+                return
+        except Exception as _v3_err:
+            log.debug(f"[v3] быстрый путь: {type(_v3_err).__name__}: {_v3_err}")
+
+        # «Протокол чистый лист» — в conversation/clean_slate (этап 5, 3/3).
+        # ── ГОЛОСОВЫЕ ТРИГГЕРЫ (проверяются первыми) ──────
+        _trigger = match_voice_trigger(text)
+        if _trigger and ws_dev:
+            await _cancel_voice_prefetch()
+            log.info(f"[trigger] сработал: '{_trigger['phrase']}'")
+            for act in _trigger["actions"]:
+                action = act.get("action", "")
+                if action.startswith("say:"):
+                    await stream_tts_to_device(action[4:], ws_dev, device_id or "laptop", literal=True)
+                elif action.startswith("volume:"):
+                    await ws_dev.send(json.dumps({"type": "command", "action": action}))
+                elif action == "music:play_pause":
+                    await ws_dev.send(json.dumps({"type": "command", "action": "music:play_pause"}))
+                elif action == "music:wave":
+                    await ws_dev.send(json.dumps({"type": "command", "action": "music:wave"}))
+                elif action.startswith("open_app:"):
+                    await ws_dev.send(json.dumps({"type": "command", "action": action}))
+                else:
+                    await ws_dev.send(json.dumps({"type": "command", "action": action}))
+            return
+
+        # ── ОБУЧЕНИЕ НОВЫМ КОМАНДАМ (раньше всего) ───────────
+        if any(w in text.lower() for w in ('покажи команды', 'список команд', 'мои команды')):
+            await _cancel_voice_prefetch()
+            from config import VOICE_HISTORY_LIMIT, VOICE_MODEL_CHAIN
+            cmds = list_cmds()
+            cmd_list = ', '.join(list(cmds.keys())[:10]) if cmds else None
+            if cmd_list:
+                _lr = await ask_gemini(
+                    f'Скажи Мастеру его сохранённые команды: {cmd_list}. Коротко.',
+                    save_history=False, history_limit=VOICE_HISTORY_LIMIT,
+                    chain=VOICE_MODEL_CHAIN,
+                )
+            else:
+                _lr = await ask_gemini(
+                    'Скажи Мастеру что он ещё не добавил своих команд. Можно добавить голосом: "запомни: слово = действие".',
+                    save_history=False, history_limit=VOICE_HISTORY_LIMIT,
+                    chain=VOICE_MODEL_CHAIN,
+                )
+            if _lr:
+                _active_ws, _ad = _get_active_ws()
+                if _active_ws:
+                    await stream_tts_to_device(_lr, _active_ws, _ad or 'laptop', literal=True)
+            return
+        _teaching = parse_teaching(text)
+        if _teaching:
+            await _cancel_voice_prefetch()
+            from config import VOICE_HISTORY_LIMIT, VOICE_MODEL_CHAIN
+            _trigger, _action = _teaching
+            add_cmd(_trigger, _action)
+            _tr = await ask_gemini(
+                f'Запомнила команду "{_trigger}". Подтверди коротко.',
+                save_history=False, history_limit=VOICE_HISTORY_LIMIT,
+                chain=VOICE_MODEL_CHAIN,
+            )
+            if _tr:
+                _active_ws, _ad = _get_active_ws()
+                if _active_ws:
+                    await stream_tts_to_device(_tr, _active_ws, _ad or 'laptop', literal=True)
+            return
+
+        # ── ПОЛЬЗОВАТЕЛЬСКИЕ ЦЕПОЧКИ ────────────────────
+        if any(w in text.lower() for w in ("создай цепочку", "новая цепочка", "добавь цепочку")):
+            await _cancel_voice_prefetch()
+            from config import VOICE_HISTORY_LIMIT, VOICE_MODEL_CHAIN
+            _chain_prompt = (
+                "Мастер хочет создать цепочку команд. "
+                "Попроси его описать что нужно сделать по порядку. "
+                "Скажи коротко какие действия доступны: открыть приложение, громкость, музыка, сказать фразу."
+            )
+            _chain_reply = await ask_gemini(
+                _chain_prompt, save_history=False,
+                history_limit=VOICE_HISTORY_LIMIT, chain=VOICE_MODEL_CHAIN,
+            )
+            if _chain_reply and ws_dev:
+                await stream_tts_to_device(_chain_reply, ws_dev, device_id or "laptop", literal=True)
+            return
+
+        if any(w in text.lower() for w in ("цепочки", "список цепочек", "мои цепочки")):
+            await _cancel_voice_prefetch()
+            _chain_list = list_custom_chains()
+            if ws_dev:
+                await stream_tts_to_device(_chain_list, ws_dev, device_id or "laptop", literal=True)
+            return
+
+        # ── ГОЛОСОВЫЕ ТРИГГЕРЫ: создание ──────────────────
+        if "запомни триггер" in text.lower() or "создай триггер" in text.lower():
+            await _cancel_voice_prefetch()
+            from config import VOICE_HISTORY_LIMIT, VOICE_MODEL_CHAIN
+            _trig_prompt = (
+                "Мастер хочет создать голосовой триггер. "
+                "Попроси его сказать фразу-триггер и что делать при срабатывании. "
+                "Доступные действия: остановить музыку, включить музыку, сказать фразу, "
+                "выключить звук, включить приложение."
+            )
+            _trig_reply = await ask_gemini(
+                _trig_prompt, save_history=False,
+                history_limit=VOICE_HISTORY_LIMIT, chain=VOICE_MODEL_CHAIN,
+            )
+            if _trig_reply and ws_dev:
+                await stream_tts_to_device(_trig_reply, ws_dev, device_id or "laptop", literal=True)
+            return
+
+        if any(w in text.lower() for w in ("триггеры", "список триггеров", "мои триггеры")):
+            await _cancel_voice_prefetch()
+            _trig_list = list_voice_triggers()
+            if ws_dev:
+                await stream_tts_to_device(_trig_list, ws_dev, device_id or "laptop", literal=True)
+            return
+
+        # Чтение активной страницы переехало в реестр (ext.page_content /
+        # ext.page_content_youtube, этап 5 2/2) — ветка снята.
+        # Написать VIP — в conversation/vip_message (этап 5, 3/3).
+        # ── отправка в Telegram по голосу ──
+        if _has_tg_trigger(text_lower):
+            await _cancel_voice_prefetch()
+            payload = _strip_payload_words(text_lower)
+
+            async def _say(phrase):
+                if ws_dev:
+                    await stream_tts_to_device(phrase, ws_dev, device_id or "laptop", literal=True)
+
+            if not payload:
+                await _say("Что прислать в телеграм, Мастер?")
+                return
+
+            aw = data.get("active_window", "")
+            await _voice_to_tg(
+                text, text_lower, payload, aw,
+                ask_gemini, send_safe, search_image, download_bytes,
+                search_and_fetch, needs_search, _translate_en, bot, MASTER_ID,
+            )
+            await _say("Готово, Мастер.")
+            return
+
+        active_win = data.get("active_window", "")
+        # Обновляем контекст игрового хаба
+        try:
+            from modules.game_hub import get_game_context_for_device
+            get_game_context_for_device(active_win)
+        except Exception as e:
+            log.debug(f"[voice] game_hub ctx: {e}")
+        log.info(f"[voice] → ask_gemini_voice ws_dev={ws_dev is not None} device={device_id}")
+        if voice_task is not None:
+            # Классификатор вернул «не команда» (и ветки-команды выше не
+            # сработали): накопленный буфер отдаём в TTS и дожидаемся стрима.
+            voice_gate.open()
+            handed_off = True
+            await voice_task
+        else:
+            await ask_gemini_voice(
+                user_message  = text + ctx_str,
+                websocket     = ws_dev,
+                device_id     = device_id or "laptop",
+                active_window = active_win,
+                received_at   = t_recv,
+            )
+        # ── ПРАНКИ + РЕАКЦИИ САКУРЫ (фоновая задача) ──────
+        async def _maybe_prank_and_react():
+            try:
+                if should_prank(text):
+                    prank = choose_prank()
+                    record_prank()
+                    response = random.choice(prank.get("responses", ["Хаха"]))
+                    log.info(f"[pranks] выполняю: {prank['name']}")
+                    if ws_dev:
+                        await stream_tts_to_device(response, ws_dev, device_id or "laptop", literal=True)
+
+                from sakura_core.reactions import get_mood_reaction, get_sticker_or_gif
+                reaction = get_mood_reaction(text)
+                if reaction:
+                    sticker, gif = get_sticker_or_gif(reaction["emotion"])
+                    if sticker:
+                        log.info(f"[reactions] {reaction['emotion']} → sticker")
+                        try:
+                            await bot.send_sticker(MASTER_ID, sticker)
+                        except Exception as e:
+                            log.debug(f"[ws] reaction sticker: {type(e).__name__}: {e}")
+                    elif gif:
+                        log.info(f"[reactions] {reaction['emotion']} → GIF")
+                        try:
+                            await bot.send_animation(MASTER_ID, gif)
+                        except Exception as e:
+                            log.debug(f"[ws] reaction gif: {type(e).__name__}: {e}")
+            except Exception as e:
+                log.debug(f"[pranks/react] error: {e}")
+        spawn(_maybe_prank_and_react(), name="prank-and-react")
+    finally:
+        if handed_off:
+            # Предконнект TTS: если его не забрала первая стадия (например,
+            # пустой ответ), закрываем сразу — слот семафора не держим зря.
+            try:
+                await tts_release_preconnect()
+            except Exception as _pc_err:
+                log.debug(f"[voice] предконнект: закрытие: {_pc_err}")
+        else:
+            await _cancel_voice_prefetch()

@@ -206,6 +206,156 @@ def _live_config(voice: str | None = None):
         log.debug("[TTS] SDK не поддерживает enable_affective_dialog")
         return types.LiveConnectConfig(**base)
 
+# ── Предконнект Live-сессии (п.3 perf/voice-latency) ──────────────────
+# Между получением голосовой команды и первым токеном LLM есть окно
+# (классификатор роутера + первый токен) — за него успевает пройти
+# TCP/TLS/WS-handshake и setup Live API (1-3с). Поэтому сессию открываем
+# ЗАРАНЕЕ и держим «в предбаннике»: первая стадия синтеза забирает её
+# готовой и платит только за саму генерацию звука.
+# Отдельного таймаута простоя у Live API в документации нет: соединение
+# живёт «around 10 minutes», перед обрывом сервер шлёт GoAway
+# (https://ai.google.dev/gemini-api/docs/live-session; в SDK —
+# types.LiveServerGoAway.time_left, клиентского idle-таймера нет). На
+# форуме разработчиков простаивающее соединение рвётся через ~2-3 мин.
+# Всё это ≫ PRECONNECT_TTL, так что держим 10 с — дольше это уже не наш
+# запрос.
+
+PRECONNECT_TTL     = 10.0  # сколько держать готовую сессию в предбаннике
+PRECONNECT_GRACE   = 0.15  # фора «успел ли» перед своей сессией
+PRECONNECT_TIMEOUT = 8.0   # таймаут самого handshake
+
+_preconnect_task    = None   # задача-держатель коннекта
+_preconnect_ready   = None   # Future: _Preconnected | None
+_preconnect_release = None   # Event: потребитель закончил работу
+_preconnect_lock    = asyncio.Lock()
+
+
+class _Preconnected:
+    """Забранная из предбанника сессия: её жизнью владеет потребитель."""
+
+    __slots__ = ("key", "release", "session", "task")
+
+    def __init__(self, session, key, release, task):
+        self.session = session
+        self.key     = key
+        self.release = release
+        self.task    = task
+
+
+def _clear_if_current(ready) -> None:
+    """Снять имена предбанника, если они всё ещё указывают на этот коннект."""
+    global _preconnect_task, _preconnect_ready, _preconnect_release
+    if _preconnect_ready is ready:
+        _preconnect_task = _preconnect_ready = _preconnect_release = None
+
+
+def preconnect_status() -> str:
+    """Состояние предбанника (логи/тесты): off|connecting|ready|failed|done."""
+    if _preconnect_task is None:
+        return "off"
+    if _preconnect_ready is not None and _preconnect_ready.done():
+        if _preconnect_ready.cancelled() or _preconnect_ready.result() is None:
+            return "failed"
+        return "ready"
+    return "done" if _preconnect_task.done() else "connecting"
+
+
+async def preconnect(ttl: float = PRECONNECT_TTL) -> bool:
+    """Открыть Live-сессию заранее — до первого токена LLM.
+
+    Идемпотентно: если сессия уже греется или готова, ничего не открывает.
+    True — предбанник занят (своей или прежней сессией).
+    """
+    global _preconnect_task, _preconnect_ready, _preconnect_release
+    if not get_active_key():
+        return False
+    async with _preconnect_lock:
+        if _preconnect_task is not None and not _preconnect_task.done():
+            return True
+        _preconnect_ready   = asyncio.get_running_loop().create_future()
+        _preconnect_release = asyncio.Event()
+        _preconnect_task = asyncio.create_task(
+            _preconnect_holder(_preconnect_ready, _preconnect_release, ttl),
+            name="tts-preconnect",
+        )
+        log.info("[TTS] предконнект: старт")
+        return True
+
+
+async def _preconnect_holder(ready, release, ttl: float) -> None:
+    """Держит заранее открытую сессию до claim()/release()/ttl.
+
+    Слот семафора берётся здесь и передаётся потребителю вместе с сессией:
+    предконнект не увеличивает число одновременных Live-сессий.
+    """
+    s0 = time.monotonic()
+    connector = None
+    try:
+        async with _sem:
+            client = await _get_client()
+            if client is None:
+                raise RuntimeError("нет клиента TTS (пустой ключ)")
+            key = get_active_key()
+            connector = client.aio.live.connect(
+                model=TTS_MODEL, config=_live_config()
+            )
+            # Под таймаутом только handshake (как в _live_synthesize):
+            # зависший коннект не должен держать слот семафора.
+            session = await asyncio.wait_for(connector.__aenter__(),
+                                             PRECONNECT_TIMEOUT)
+            try:
+                log.info(f"[TTS] предконнект: готов за {time.monotonic()-s0:.1f}с")
+                if ready.done():
+                    return  # потребителя уже нет — сессия не нужна
+                ready.set_result(_Preconnected(
+                    session, key, release, asyncio.current_task()))
+                try:
+                    await asyncio.wait_for(release.wait(), ttl)
+                except asyncio.TimeoutError:
+                    log.info(f"[TTS] предконнект: не востребован "
+                             f"за {ttl:.0f}с — закрываю")
+                    _clear_if_current(ready)  # следующий preconnect откроет своё
+            finally:
+                await connector.__aexit__(None, None, None)
+    except asyncio.CancelledError:
+        if not ready.done():
+            ready.set_result(None)
+        raise
+    except Exception as e:
+        log.debug(f"[TTS] предконнект не удался: {type(e).__name__}: {e}")
+        if not ready.done():
+            ready.set_result(None)
+
+
+async def release_preconnect() -> None:
+    """Закрыть предконнект: команда/отмена/не успел — слот освобождается.
+
+    Забранную сессию (claim) не трогает: её закрывает потребитель через
+    release-событие.
+    """
+    global _preconnect_task, _preconnect_ready, _preconnect_release
+    task    = _preconnect_task
+    ready   = _preconnect_ready
+    release = _preconnect_release
+    _preconnect_task = _preconnect_ready = _preconnect_release = None
+    if ready is not None and not ready.done():
+        ready.cancel()  # ждать нечего: сессии не будет
+    if task is None:
+        return
+    if release is not None:
+        release.set()
+    if not task.done():
+        task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        if asyncio.current_task().cancelling():
+            raise  # отменили не держателя, а НАС
+    except Exception as e:
+        log.debug(f"[TTS] предконнект: закрытие: {e}")
+
+
+
 
 async def _synthesize(text: str, emotion: str = "спокойная", voice: str | None = None) -> list[bytes]:
     """
@@ -311,6 +461,54 @@ def _make_audio_sender(websocket, device_id: str):
     return send_audio
 
 
+async def _claim_preconnected(grace: float = PRECONNECT_GRACE):
+    """Забрать готовую сессию из предбанника: _Preconnected | None.
+
+    None — предконнект не открылся за grace секунд: вызывающий синтезирует
+    своей сессией, а предбанник снимается (слот освобождается). Забравший
+    ОБЯЗАН выставить release — держатель закроет сессию и вернёт слот.
+    """
+    ready = _preconnect_ready
+    if ready is None:
+        return None
+    if not ready.done():
+        # Первое предложение готово — даём предконнекту крошечную фору.
+        try:
+            await asyncio.wait_for(asyncio.shield(ready), grace)
+        except asyncio.TimeoutError:
+            await release_preconnect()
+            return None
+    if ready.cancelled() or ready.result() is None:
+        await release_preconnect()
+        return None
+    p = ready.result()
+    # Сессия забрана: глобальные имена свободны для следующего предконнекта
+    # (этот держатель доработает в фоне за потребителем).
+    _clear_if_current(ready)
+    return p
+
+
+async def _pump_session(session, text: str, emotion: str, on_packet) -> int:
+    """Отправить текст в Live-сессию и выкачать аудио-пакеты."""
+    sent = 0
+    await session.send_client_content(
+        turns=types.Content(
+            role="user",
+            parts=[types.Part(text=_tts_prefix(emotion) + text)]
+        ),
+        turn_complete=True,
+    )
+    async for response in session.receive():
+        if response.data:
+            await on_packet(response.data)
+            sent += 1
+        if (response.server_content
+                and response.server_content.turn_complete):
+            break
+    return sent
+
+
+
 async def _live_synthesize(text: str, emotion: str, on_packet,
                            label: str = "") -> int:
     """Одна Live-сессия: шлёт текст, каждый аудио-пакет отдаёт в on_packet.
@@ -336,20 +534,7 @@ async def _live_synthesize(text: str, emotion: str, on_packet,
                     model=TTS_MODEL, config=_live_config()
                 ) as session:
                     log.info(f"{tag}коннект за {time.monotonic()-s0:.1f}с | таймаут: {timeout}с")
-                    await session.send_client_content(
-                        turns=types.Content(
-                            role="user",
-                            parts=[types.Part(text=_tts_prefix(emotion) + text)]
-                        ),
-                        turn_complete=True,
-                    )
-                    async for response in session.receive():
-                        if response.data:
-                            await on_packet(response.data)
-                            sent += 1
-                        if (response.server_content
-                                and response.server_content.turn_complete):
-                            break
+                    sent = await _pump_session(session, text, emotion, on_packet)
             mark_key_used(key)
             log.info(f"{tag}синтез за {time.monotonic()-s0:.1f}с | {sent} пакетов")
             return sent
@@ -358,6 +543,64 @@ async def _live_synthesize(text: str, emotion: str, on_packet,
             global _client
             _client = None
             return sent
+
+
+async def _live_synthesize_preferred(text: str, emotion: str, on_packet,
+                                     label: str = "", synth=None) -> int:
+    """Синтез в УЖЕ подключённой сессии из предбанника (п.3), иначе обычный.
+
+    Экономит handshake (1-3с) на первой стадии: сессия открыта заранее,
+    пока роутер классифицировал запрос и шёл первый токен LLM. Слот
+    семафора взят держателем предконнекта и вернётся при release.
+    synth — вызывающий может дать свой синтез-фолбэк (по умолчанию
+    _live_synthesize; так подмена синтеза в тестах сохраняется).
+
+    Сессия из предбанника умерла до первого пакета (обрыв провайдером,
+    таймаут) — синтез повторяется обычным путём; после первого пакета
+    не повторяется: иначе начало фразы прозвучит дважды.
+    """
+    if synth is None:
+        synth = _live_synthesize
+    p = await _claim_preconnected()
+    if p is None:
+        return await synth(text, emotion, on_packet, label=label)
+
+    tag = f"[TTS] {label}: " if label else "[TTS] "
+    sent = 0
+    s0 = time.monotonic()
+    retry = False
+
+    async def _counted(data):
+        nonlocal sent
+        await on_packet(data)
+        sent += 1
+
+    try:
+        log.info(f"{tag}предконнект: синтез на заранее открытой сессии")
+        async with asyncio.timeout(_live_timeout(text)):
+            await _pump_session(p.session, text, emotion, _counted)
+        if p.key:
+            mark_key_used(p.key)
+        log.info(f"{tag}синтез за {time.monotonic()-s0:.1f}с | {sent} пакетов "
+                 f"(без коннекта)")
+    except Exception as e:
+        global _client
+        _client = None
+        if sent == 0:
+            log.warning(f"{tag}предконнект: сессия упала до первого пакета "
+                        f"({e!r}) — фолбэк на обычный синтез")
+            retry = True
+        else:
+            log.error(f"{tag}Ошибка синтеза (предконнект) после {sent} "
+                      f"пакетов: {e!r}")
+    finally:
+        # Держатель закроет сессию и вернёт слот семафора — до фолбэка:
+        # обычный синтез сам берёт слот, иначе ждал бы чужую стадию.
+        p.release.set()
+    if retry:
+        return await synth(text, emotion, on_packet, label=label)
+    return sent
+
 
 
 async def _synthesize_and_stream(text: str, websocket, device_id: str,
@@ -423,7 +666,11 @@ async def _stream_two_stage(first: str, rest: str, websocket, device_id: str,
         """Продюсер стадии: синтез + гарантированный sentinel конца потока."""
         log.info(f"[TTS] стадия {stage}: старт (+{time.monotonic()-t0:.1f}с от начала, {len(text)} симв)")
         try:
-            await _live_synthesize(text, emotion, q.put, label=f"стадия {stage}")
+            # Стадия 1 — из предбанника (п.3): коннект открыт заранее,
+            # первая стадия не платит за handshake.
+            synth = (_live_synthesize_preferred if stage == 1
+                     else _live_synthesize)
+            await synth(text, emotion, q.put, label=f"стадия {stage}")
         finally:
             await q.put(None)
 
