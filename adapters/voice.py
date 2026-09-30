@@ -162,6 +162,8 @@ async def stream_llm_to_tts(
     def _new_stage(text: str) -> None:
         q: asyncio.Queue = asyncio.Queue()
         queues.append(q)
+        log.info(f"[voice] стадия {len(queues)}: старт "
+                 f"+{(time.monotonic()-base)*1000:.0f}мс от приёма, {len(text)} симв")
         producers.append(asyncio.create_task(_produce(text, q, len(queues))))
 
     async def _drain(q: asyncio.Queue) -> bool:
