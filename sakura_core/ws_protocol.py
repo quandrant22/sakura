@@ -54,6 +54,37 @@ _SYSTEM_CONFIRM_PROMPTS = {
 }
 
 
+# ── привязка сокета к устройству ──────────────────────────────────────
+
+# Код закрытия старого сокета, вытесненного новым подключением того же
+# device_id (диапазон 4000-4999 — прикладные коды, как 4401 в ws_auth).
+WS_CLOSE_REPLACED = 4000
+
+
+def bind_device_socket(device_id, websocket) -> None:
+    """Сделать websocket текущим сокетом device_id.
+
+    Был другой сокет (клиент переподключился, не закрыв старый) — он
+    закрывается с кодом 4000 «replaced». Порядок важен: сначала запись
+    нового, потом закрытие старого — finally старого обработчика увидит,
+    что активен другой сокет, и не снимет регистрацию устройства.
+    """
+    old = st.connected_devices.get(device_id)
+    st.connected_devices[device_id] = websocket
+    if old is None or old is websocket:
+        return
+    log.info(f"[ws] замена сокета device_id={device_id}")
+
+    async def _close_old():
+        try:
+            await old.close(code=WS_CLOSE_REPLACED, reason="replaced")
+        except Exception as e:
+            log.debug(f"[ws] закрытие вытесненного сокета {device_id}: {e}")
+
+    # Не ждём close-handshake старого сокета в обработчике нового.
+    spawn(_close_old(), name=f"ws-close-replaced-{device_id}")
+
+
 # ── register ───────────────────────────────────────────────────────────
 
 async def handle_register(websocket, data, ctx) -> None:
@@ -61,7 +92,7 @@ async def handle_register(websocket, data, ctx) -> None:
     bot = ctx["bot"]
 
     device_id = data.get("device_id")
-    st.connected_devices[device_id] = websocket
+    bind_device_socket(device_id, websocket)
     update_device(device_id,
         active_window = data.get("active_window"),
         context       = data.get("context"),
@@ -94,7 +125,7 @@ async def handle_ping(websocket, data, ctx) -> None:
     bot = ctx["bot"]
 
     device_id = data.get("device_id")
-    st.connected_devices[device_id] = websocket
+    bind_device_socket(device_id, websocket)
     update_device(device_id,
         active_window = data.get("active_window"),
         context       = data.get("context"),

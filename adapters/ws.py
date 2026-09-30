@@ -129,6 +129,14 @@ async def speak_now_playing_result(cmd_id: str, ws_dev, device_id: str, bot) -> 
         log.debug(f"[music] now_playing: {type(e).__name__}: {e}")
 
 
+def _peer(websocket) -> str:
+    """host:port клиента для логов (как у [ws_auth] ОТКЛОНЕНО)."""
+    addr = getattr(websocket, "remote_address", None)
+    if isinstance(addr, tuple) and len(addr) >= 2:
+        return f"{addr[0]}:{addr[1]}"
+    return str(addr)
+
+
 async def ws_handler(websocket):
     from adapters.telegram import bot, send_to_master, send_safe
     from modules.ws_auth import check_token, is_master_device, reject
@@ -143,6 +151,7 @@ async def ws_handler(websocket):
     from adapters.voice import _get_active_ws
 
     device_id = None
+    log.info(f"[ws] connection open {_peer(websocket)}")
     try:
         try:
             first_raw = await asyncio.wait_for(
@@ -227,9 +236,18 @@ async def ws_handler(websocket):
     except Exception as e:
         log.debug(f"[ws_handler] {type(e).__name__}: {e}")
     finally:
-        if device_id:
-            set_device_offline(device_id)
+        log.info(f"[ws] закрыт сокет {_peer(websocket)} device_id={device_id} "
+                 f"code={getattr(websocket, 'close_code', None)} "
+                 f"reason={getattr(websocket, 'close_reason', None)!r}")
+        current = connected_devices.get(device_id) if device_id else None
+        if current is not None and current is not websocket:
+            # Клиент уже переподключился: устройство онлайн через новый
+            # сокет — регистрацию и presence не трогаем.
+            log.info(f"[ws] закрыт устаревший сокет device_id={device_id} "
+                     f"(активен другой)")
+        elif device_id:
             connected_devices.pop(device_id, None)
+            set_device_offline(device_id)
             await asyncio.to_thread(ps_offline, device_id)
             log.info(f"Устройство отключено: {device_id}")
 
