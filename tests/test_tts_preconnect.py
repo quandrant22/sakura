@@ -200,6 +200,60 @@ def test_preferred_falls_back_without_preconnect():
     assert got == [b"F"]
 
 
+def _break_session(session, packets_before_error):
+    """Сессия из предбанника рвётся после N пакетов (обрыв провайдером)."""
+    async def _receive():
+        for p in packets_before_error:
+            yield _Resp(p)
+        raise ConnectionError("1011 keepalive ping timeout")
+    session.receive = _receive
+
+
+def _preferred_on_broken_session(live, packets_before_error):
+    """Стадия 1 на сломанной сессии предбанника; фолбэк пишет в calls."""
+    calls, got = [], []
+
+    async def _fallback(text, emotion, on_packet, label=""):
+        calls.append((text, label))
+        await on_packet(b"F")
+        return 1
+
+    async def _go():
+        await tts.preconnect()
+        await asyncio.sleep(T_CONNECT + 0.05)     # сессия готова
+        _break_session(live.sessions[0], packets_before_error)
+        n = await tts._live_synthesize_preferred(
+            "текст", "спокойная", _packets(got), label="стадия 1",
+            synth=_fallback)
+        await asyncio.sleep(0.05)                 # держатель закрывает сессию
+        return n
+
+    return asyncio.run(_go()), calls, got
+
+
+def test_preferred_dead_session_before_first_packet_falls_back(live, caplog):
+    """Сессия предбанника умерла до первого пакета → обычный синтез, звук есть."""
+    with caplog.at_level("WARNING", logger=tts.log.name):
+        n, calls, got = _preferred_on_broken_session(live, [])
+    assert calls == [("текст", "стадия 1")], "фолбэк на обычный синтез не вызван"
+    assert got == [b"F"] and n == 1, "звук должен прийти из фолбэка"
+    assert live.closed == 1, "мёртвая сессия предбанника не закрыта"
+    assert any(r.levelname == "WARNING" and "фолбэк" in r.getMessage()
+               for r in caplog.records)
+
+
+def test_preferred_break_after_first_packet_no_retry(live, caplog):
+    """Обрыв после первого пакета → без повтора (иначе дубль звука), ERROR."""
+    with caplog.at_level("WARNING", logger=tts.log.name):
+        n, calls, got = _preferred_on_broken_session(live, [b"A"])
+    assert calls == [], "повтор синтеза после отправленного пакета — дубль звука"
+    assert got == [b"A"] and n == 1
+    assert live.closed == 1
+    assert any(r.levelname == "ERROR" and "после 1 пакетов" in r.getMessage()
+               for r in caplog.records)
+    assert not any(r.levelname == "WARNING" for r in caplog.records)
+
+
 def test_release_preconnect_closes_session_and_frees_slot(live):
     """Команда/отмена: предконнект закрыт, слот семафора вернулся."""
     async def _go():

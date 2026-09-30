@@ -554,31 +554,51 @@ async def _live_synthesize_preferred(text: str, emotion: str, on_packet,
     семафора взят держателем предконнекта и вернётся при release.
     synth — вызывающий может дать свой синтез-фолбэк (по умолчанию
     _live_synthesize; так подмена синтеза в тестах сохраняется).
+
+    Сессия из предбанника умерла до первого пакета (обрыв провайдером,
+    таймаут) — синтез повторяется обычным путём; после первого пакета
+    не повторяется: иначе начало фразы прозвучит дважды.
     """
+    if synth is None:
+        synth = _live_synthesize
     p = await _claim_preconnected()
     if p is None:
-        if synth is None:
-            synth = _live_synthesize
         return await synth(text, emotion, on_packet, label=label)
 
     tag = f"[TTS] {label}: " if label else "[TTS] "
     sent = 0
     s0 = time.monotonic()
+    retry = False
+
+    async def _counted(data):
+        nonlocal sent
+        await on_packet(data)
+        sent += 1
+
     try:
         log.info(f"{tag}предконнект: синтез на заранее открытой сессии")
         async with asyncio.timeout(_live_timeout(text)):
-            sent = await _pump_session(p.session, text, emotion, on_packet)
+            await _pump_session(p.session, text, emotion, _counted)
         if p.key:
             mark_key_used(p.key)
         log.info(f"{tag}синтез за {time.monotonic()-s0:.1f}с | {sent} пакетов "
                  f"(без коннекта)")
     except Exception as e:
-        log.error(f"{tag}Ошибка синтеза (предконнект): {e!r}")
         global _client
         _client = None
+        if sent == 0:
+            log.warning(f"{tag}предконнект: сессия упала до первого пакета "
+                        f"({e!r}) — фолбэк на обычный синтез")
+            retry = True
+        else:
+            log.error(f"{tag}Ошибка синтеза (предконнект) после {sent} "
+                      f"пакетов: {e!r}")
     finally:
-        # Держатель закроет сессию и вернёт слот семафора.
+        # Держатель закроет сессию и вернёт слот семафора — до фолбэка:
+        # обычный синтез сам берёт слот, иначе ждал бы чужую стадию.
         p.release.set()
+    if retry:
+        return await synth(text, emotion, on_packet, label=label)
     return sent
 
 
