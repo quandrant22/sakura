@@ -97,6 +97,57 @@ async def graceful_shutdown(dispatcher, websocket_server, discord_bot) -> None:
     log.info("[shutdown] spawned tasks stopped")
 
 
+def _thread_where(frame, depth: int = 3) -> str:
+    """Где висит поток: самый внутренний кадр + depth ближайших кадров
+    вне stdlib (иначе видно только threading.wait/ssl.read)."""
+    import sysconfig
+    import traceback
+    stdlib = sysconfig.get_paths()["stdlib"]
+    stack = traceback.extract_stack(frame)
+    own = [f for f in stack[:-1] if not f.filename.startswith(stdlib)]
+    picked = [stack[-1]] + own[-depth:][::-1]
+    return " <- ".join(
+        f"{os.path.basename(f.filename)}:{f.lineno} {f.name}" for f in picked
+    )
+
+
+def log_live_threads(stage: str, loop=None) -> None:
+    """INFO-снимок того, что может держать процесс после shutdown.
+
+    Живые потоки (имя, daemon, где висят) и незавершённая работа default
+    executor-а loop-а (asyncio.to_thread / run_in_executor): очередь и
+    рабочие потоки. asyncio.run при выходе ждёт executor
+    (shutdown_default_executor), интерпретатор — не-daemon потоки.
+    """
+    import sys
+    import threading
+
+    try:
+        frames = sys._current_frames()
+        me = threading.get_ident()
+        threads = threading.enumerate()
+        log.info("[shutdown] %s: живых потоков %d", stage, len(threads))
+        for t in threads:
+            where = ("(этот поток)" if t.ident == me
+                     else _thread_where(frames[t.ident]) if t.ident in frames
+                     else "?")
+            log.info("[shutdown]   поток %r daemon=%s: %s", t.name, t.daemon, where)
+
+        executor = getattr(loop, "_default_executor", None) if loop else None
+        if executor is None:
+            log.info("[shutdown] %s: default executor не создавался", stage)
+            return
+        # Очередь — SimpleQueue: элементы не посмотреть, только размер;
+        # что именно выполняется, видно по стекам потоков asyncio_N выше.
+        workers = [t.name for t in executor._threads if t.is_alive()]
+        log.info("[shutdown] %s: executor — потоков %d (%s), в очереди %d",
+                 stage, len(workers), ", ".join(workers) or "—",
+                 executor._work_queue.qsize())
+    except Exception as e:  # диагностика не должна ломать остановку
+        log.warning("[shutdown] снимок потоков не удался: %s: %s",
+                    type(e).__name__, e)
+
+
 async def run_services_until_stopped(
     polling,
     websocket,
@@ -158,6 +209,7 @@ async def run_services_until_stopped(
         if unfinished:
             log.warning("[shutdown] deadline %.1fs; unfinished tasks: %s",
                         SHUTDOWN_TIMEOUT, ", ".join(unfinished))
+        log_live_threads("конец shutdown", loop)
     finally:
         stop_waiter.cancel()
         if not service_completion.done():
@@ -285,3 +337,6 @@ async def main(*, lifecycle=None, stop_event=None):
 
 if __name__ == "__main__":
     asyncio.run(main())
+    # asyncio.run уже дождался default executor; держать выход теперь
+    # могут только не-daemon потоки (их ждёт threading._shutdown).
+    log_live_threads("после asyncio.run")

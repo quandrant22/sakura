@@ -189,3 +189,51 @@ def test_shutdown_signal_handlers_set_event():
     assert set(loop.handlers) == {signal.SIGTERM, signal.SIGINT}
     loop.handlers[signal.SIGTERM]()
     assert stop_event.is_set()
+
+
+def test_log_live_threads_reports_stuck_threads_and_executor(caplog):
+    """Снимок после shutdown: не-daemon поток (где висит) и работа executor-а."""
+    import threading
+
+    release = threading.Event()
+
+    def _stuck_in_blocking_call():
+        release.wait(5)
+
+    holder = threading.Thread(target=_stuck_in_blocking_call,
+                              name="stuck-holder", daemon=False)
+    holder.start()
+
+    async def scenario():
+        loop = asyncio.get_running_loop()
+        started = threading.Event()
+
+        def _blocking_io():
+            started.set()
+            release.wait(5)
+
+        job = asyncio.create_task(asyncio.to_thread(_blocking_io))
+        await asyncio.to_thread(started.wait, 5)
+        with caplog.at_level(logging.INFO, logger=entrypoint.log.name):
+            entrypoint.log_live_threads("тест", loop)
+        release.set()
+        await job
+
+    try:
+        run(scenario())
+    finally:
+        release.set()
+        holder.join(5)
+
+    text = "\n".join(r.getMessage() for r in caplog.records)
+    assert "поток 'stuck-holder' daemon=False" in text
+    assert "_stuck_in_blocking_call" in text, "не видно, где висит поток"
+    assert "_blocking_io" in text, "не видно, чем занят поток executor-а"
+    assert "executor — потоков" in text
+
+
+def test_log_live_threads_without_executor_does_not_fail(caplog):
+    with caplog.at_level(logging.INFO, logger=entrypoint.log.name):
+        entrypoint.log_live_threads("тест", None)
+    text = "\n".join(r.getMessage() for r in caplog.records)
+    assert "живых потоков" in text and "не создавался" in text
