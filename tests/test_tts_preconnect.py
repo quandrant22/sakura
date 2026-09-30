@@ -380,3 +380,45 @@ def test_ws_command_closes_preconnect(monkeypatch, live):
     assert order.index("preconnect") < order.index("classify")
     assert released == [True], "канал предбанника не закрыт"
     assert live.closed == 1 and synth_calls == []
+
+
+def test_ws_exception_in_command_branch_cancels_prefetch(monkeypatch, live):
+    """Исключение в ветке-команде после старта prefetch (до ручной отмены):
+    finally снимает стрим ответа и закрывает предконнект."""
+    order, synth_calls = [], []
+    ws_dev = _ws_env(monkeypatch, order, synth_calls,
+                     decision=Decision(None, "conversation"))
+    released = _record_release(monkeypatch)
+
+    stream = {"started": False, "cancelled": False}
+
+    async def _slow_stream_tokens(contents, **kwargs):
+        stream["started"] = True
+        try:
+            await asyncio.sleep(5)
+        except asyncio.CancelledError:
+            stream["cancelled"] = True
+            raise
+        yield "не должно прозвучать."
+
+    monkeypatch.setattr(llm, "stream_tokens", _slow_stream_tokens)
+
+    def _boom(text):
+        raise RuntimeError("ветка-команда упала")
+
+    monkeypatch.setattr(wh, "match_voice_trigger", _boom)
+
+    async def _main():
+        with pytest.raises(RuntimeError, match="ветка-команда упала"):
+            await wh.handle_voice_command(None, _data(), _mk_ctx())
+        # Проверка ДО выхода из asyncio.run: иначе остаточные задачи
+        # отменил бы сам цикл при завершении, а не обработчик.
+        return dict(stream)
+
+    seen = asyncio.run(_main())
+
+    assert seen["started"], "prefetch должен был стартовать до ветки"
+    assert seen["cancelled"], "стрим ответа не отменён обработчиком"
+    assert released == [True], "предконнект не закрыт"
+    assert live.closed == 1 and synth_calls == []
+    assert _sent_audio(ws_dev) == []
