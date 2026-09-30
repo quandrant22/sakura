@@ -485,26 +485,6 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                 await ws_dev.send(json.dumps({"type": "command", "action": action}))
         return
 
-    # ── ГОЛОСОВЫЕ ТРИГГЕРЫ (проверяются первыми) ──────
-    _trigger = match_voice_trigger(text)
-    if _trigger and ws_dev:
-        log.info(f"[trigger] сработал: '{_trigger['phrase']}'")
-        for act in _trigger["actions"]:
-            action = act.get("action", "")
-            if action.startswith("say:"):
-                await stream_tts_to_device(action[4:], ws_dev, device_id or "laptop", literal=True)
-            elif action.startswith("volume:"):
-                await ws_dev.send(json.dumps({"type": "command", "action": action}))
-            elif action == "music:play_pause":
-                await ws_dev.send(json.dumps({"type": "command", "action": "music:play_pause"}))
-            elif action == "music:wave":
-                await ws_dev.send(json.dumps({"type": "command", "action": "music:wave"}))
-            elif action.startswith("open_app:"):
-                await ws_dev.send(json.dumps({"type": "command", "action": action}))
-            else:
-                await ws_dev.send(json.dumps({"type": "command", "action": action}))
-        return
-
     # ── ОБУЧЕНИЕ НОВЫМ КОМАНДАМ (раньше всего) ───────────
     if any(w in text.lower() for w in ('покажи команды', 'список команд', 'мои команды')):
         await _cancel_voice_prefetch()
