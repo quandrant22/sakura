@@ -6,6 +6,11 @@ import logging
 import os
 import signal
 from types import SimpleNamespace
+
+import tqdm
+
+tqdm.tqdm.monitor_interval = 0
+
 from sakura_core.tasks import spawn
 
 logging.basicConfig(level=logging.INFO)
