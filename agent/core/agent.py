@@ -194,7 +194,7 @@ class Agent:
         self.state = state
         self.bus.emit("state", value=state)
 
-    def submit_user_text(self, text: str):
+    def submit_user_text(self, text: str, wake_detected_at: float | None = None):
         text = text.strip()
         if not text:
             return
@@ -207,15 +207,18 @@ class Agent:
             "text":          text,
             "active_window": get_active_window(),
             "context":       [],
-        })
+        }, wake_detected_at=wake_detected_at)
 
-    def send_threadsafe(self, obj: dict):
+    def send_threadsafe(self, obj: dict, wake_detected_at: float | None = None):
         if not self._outbox.put(obj):
             return
         kind = obj.get("type", "unknown")
         ws, loop = self._ws, self._loop
         if ws is None or loop is None or not loop.is_running():
             log.warning("[outbox] deferred type=%s: disconnected", kind)
+            if wake_detected_at is not None:
+                log.info("[timeline] wake_to_send_ms=%.1f status=deferred",
+                         (time.monotonic() - wake_detected_at) * 1000)
             return
         coro = self._outbox.flush(ws)
         try:
@@ -224,7 +227,19 @@ class Agent:
             coro.close()
             log.exception("[outbox] scheduling failed type=%s; queued", kind)
             return
-        future.add_done_callback(lambda done: log_send_result(done, kind))
+        def _on_send_done(done):
+            log_send_result(done, kind)
+            if wake_detected_at is not None:
+                try:
+                    done.result()
+                except Exception:
+                    status = "failed"
+                else:
+                    status = "sent"
+                log.info("[timeline] wake_to_send_ms=%.1f status=%s",
+                         (time.monotonic() - wake_detected_at) * 1000, status)
+
+        future.add_done_callback(_on_send_done)
 
     def _payload(self, kind: str) -> dict:
         # Расширенная системная информация (температуры, диск)

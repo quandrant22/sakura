@@ -752,13 +752,13 @@ class Hearing(threading.Thread):
                         _last_warn = time.monotonic()
                         log.warning(f"[hearing] блок обработан за {_dt:.0f}мс при бюджете {_budget_ms:.0f}мс — поток отстаёт")
                     if any(w in partial for w in config.WAKE_WORDS):
-                        self._capture(stream)
+                        self._capture(stream, wake_detected_at=time.monotonic())
                         _drain(stream)
                         wake = _fresh_wake()
         except Exception as e:
             log.error(f"Слух упал: {e}")
 
-    def _capture(self, stream):
+    def _capture(self, stream, wake_detected_at: float | None = None):
         self.agent.set_state("listening")
         self.vad.reset()
         pcm       = bytearray()
@@ -829,7 +829,7 @@ class Hearing(threading.Thread):
         if self._maybe_game_mode(text):
             return
         self._update_dialog(text)
-        self.agent.submit_user_text(text)
+        self.agent.submit_user_text(text, wake_detected_at=wake_detected_at)
 
     def _maybe_game_mode(self, text: str) -> bool:
         import difflib
