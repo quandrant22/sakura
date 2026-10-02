@@ -214,6 +214,7 @@ def test_log_live_threads_reports_stuck_threads_and_executor(caplog):
 
         job = asyncio.create_task(asyncio.to_thread(_blocking_io))
         await asyncio.to_thread(started.wait, 5)
+        await asyncio.to_thread(lambda: None)
         with caplog.at_level(logging.INFO, logger=entrypoint.log.name):
             entrypoint.log_live_threads("тест", loop)
         release.set()
@@ -229,6 +230,8 @@ def test_log_live_threads_reports_stuck_threads_and_executor(caplog):
     assert "поток 'stuck-holder' daemon=False" in text
     assert "_stuck_in_blocking_call" in text, "не видно, где висит поток"
     assert "_blocking_io" in text, "не видно, чем занят поток executor-а"
+    assert "state=busy" in text
+    assert "state=free" in text
     assert "executor — потоков" in text
 
 
@@ -237,3 +240,20 @@ def test_log_live_threads_without_executor_does_not_fail(caplog):
         entrypoint.log_live_threads("тест", None)
     text = "\n".join(r.getMessage() for r in caplog.records)
     assert "живых потоков" in text and "не создавался" in text
+
+
+def test_shutdown_default_executor_logs_timing_marks(caplog):
+    class Loop:
+        async def shutdown_default_executor(self):
+            return "closed"
+
+    loop = Loop()
+    entrypoint._instrument_shutdown_default_executor(loop)
+    entrypoint._instrument_shutdown_default_executor(loop)
+    with caplog.at_level(logging.INFO, logger=entrypoint.log.name):
+        assert asyncio.run(loop.shutdown_default_executor()) == "closed"
+
+    marks = [record.message for record in caplog.records if "mark=" in record.message]
+    assert len(marks) == 2
+    assert "mark=shutdown_default_executor_begin at=" in marks[0]
+    assert "mark=shutdown_default_executor_end at=" in marks[1]
