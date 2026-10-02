@@ -637,6 +637,7 @@ class Hearing(threading.Thread):
         self._follow_until = 0.0
         self._dialog       = False
         self._mute_until   = 0.0
+        self._timeline_sequence = 0
         self.vad           = None
         self.recognizer    = None
         if self.ok:
@@ -752,13 +753,19 @@ class Hearing(threading.Thread):
                         _last_warn = time.monotonic()
                         log.warning(f"[hearing] блок обработан за {_dt:.0f}мс при бюджете {_budget_ms:.0f}мс — поток отстаёт")
                     if any(w in partial for w in config.WAKE_WORDS):
-                        self._capture(stream, wake_detected_at=time.monotonic())
+                        self._timeline_sequence += 1
+                        timeline = {
+                            "id": self._timeline_sequence,
+                            "wake": time.monotonic(),
+                        }
+                        log.info("[timeline] id=%s phase=wake_word", timeline["id"])
+                        self._capture(stream, timeline=timeline)
                         _drain(stream)
                         wake = _fresh_wake()
         except Exception as e:
             log.error(f"Слух упал: {e}")
 
-    def _capture(self, stream, wake_detected_at: float | None = None):
+    def _capture(self, stream, timeline: dict | None = None):
         self.agent.set_state("listening")
         self.vad.reset()
         pcm       = bytearray()
@@ -776,8 +783,15 @@ class Hearing(threading.Thread):
             data    = bytes(stream.read(config.MIC_BLOCK)[0])
             elapsed = time.monotonic() - start
 
-            if self.vad.speech_prob(data) >= config.VAD_THRESHOLD:
+            speech_probability = self.vad.speech_prob(data)
+            frame_checked_at = time.monotonic()
+            if speech_probability >= config.VAD_THRESHOLD:
+                if not speaking and timeline is not None:
+                    timeline["vad_start"] = frame_checked_at
+                    log.info("[timeline] id=%s phase=vad_start", timeline["id"])
                 speaking, silence = True, 0.0
+                if timeline is not None:
+                    timeline["speech_end"] = frame_checked_at
                 pcm.extend(data)
             elif speaking:
                 pcm.extend(data)
@@ -795,6 +809,13 @@ class Hearing(threading.Thread):
             self.agent.set_state("idle")
             return
 
+        if timeline is not None:
+            log.info("[timeline] id=%s phase=last_voice_frame", timeline["id"])
+        recording_ended_at = time.monotonic()
+        if timeline is not None:
+            timeline["recording_end"] = recording_ended_at
+            log.info("[timeline] id=%s phase=recording_end", timeline["id"])
+
         self.agent.set_state("thinking")
         audio = np.frombuffer(bytes(pcm), dtype=np.int16).astype(np.float32) / 32768.0
 
@@ -804,6 +825,11 @@ class Hearing(threading.Thread):
             log.error(f"Распознавание не удалось: {e}")
             self.agent.set_state("idle")
             return
+
+        stt_ready_at = time.monotonic()
+        if timeline is not None:
+            timeline["stt_ready"] = stt_ready_at
+            log.info("[timeline] id=%s phase=stt_ready", timeline["id"])
 
         if not text:
             self.agent.set_state("idle")
@@ -829,7 +855,7 @@ class Hearing(threading.Thread):
         if self._maybe_game_mode(text):
             return
         self._update_dialog(text)
-        self.agent.submit_user_text(text, wake_detected_at=wake_detected_at)
+        self.agent.submit_user_text(text, timeline=timeline)
 
     def _maybe_game_mode(self, text: str) -> bool:
         import difflib

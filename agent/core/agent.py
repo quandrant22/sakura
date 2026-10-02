@@ -194,7 +194,8 @@ class Agent:
         self.state = state
         self.bus.emit("state", value=state)
 
-    def submit_user_text(self, text: str, wake_detected_at: float | None = None):
+    def submit_user_text(self, text: str, wake_detected_at: float | None = None,
+                         timeline: dict | None = None):
         text = text.strip()
         if not text:
             return
@@ -207,18 +208,48 @@ class Agent:
             "text":          text,
             "active_window": get_active_window(),
             "context":       [],
-        }, wake_detected_at=wake_detected_at)
+        }, wake_detected_at=wake_detected_at, timeline=timeline)
 
-    def send_threadsafe(self, obj: dict, wake_detected_at: float | None = None):
+    def send_threadsafe(self, obj: dict, wake_detected_at: float | None = None,
+                        timeline: dict | None = None):
         if not self._outbox.put(obj):
             return
         kind = obj.get("type", "unknown")
+        if timeline is not None and wake_detected_at is None:
+            wake_detected_at = timeline["wake"]
+
+        def _log_timeline(sent_at: float, status: str):
+            if timeline is None:
+                return
+
+            def elapsed(start, end):
+                if start not in timeline or end not in timeline:
+                    return None
+                return (timeline[end] - timeline[start]) * 1000
+
+            metrics = (
+                ("wake_to_vad_start_ms", elapsed("wake", "vad_start")),
+                ("vad_start_to_speech_end_ms", elapsed("vad_start", "speech_end")),
+                ("speech_end_to_recording_end_ms", elapsed("speech_end", "recording_end")),
+                ("recording_end_to_stt_ready_ms", elapsed("recording_end", "stt_ready")),
+                ("stt_ready_to_sent_ms", (sent_at - timeline["stt_ready"]) * 1000
+                 if "stt_ready" in timeline else None),
+                ("speech_end_to_sent_ms", (sent_at - timeline["speech_end"]) * 1000
+                 if "speech_end" in timeline else None),
+                ("wake_to_sent_ms", (sent_at - timeline["wake"]) * 1000),
+            )
+            fields = " ".join(
+                f"{name}={value:.1f}" for name, value in metrics if value is not None
+            )
+            log.info("[timeline] id=%s %s status=%s", timeline["id"], fields, status)
+
         ws, loop = self._ws, self._loop
         if ws is None or loop is None or not loop.is_running():
             log.warning("[outbox] deferred type=%s: disconnected", kind)
             if wake_detected_at is not None:
                 log.info("[timeline] wake_to_send_ms=%.1f status=deferred",
                          (time.monotonic() - wake_detected_at) * 1000)
+                _log_timeline(time.monotonic(), "deferred")
             return
         coro = self._outbox.flush(ws)
         try:
@@ -238,6 +269,7 @@ class Agent:
                     status = "sent"
                 log.info("[timeline] wake_to_send_ms=%.1f status=%s",
                          (time.monotonic() - wake_detected_at) * 1000, status)
+                _log_timeline(time.monotonic(), status)
 
         future.add_done_callback(_on_send_done)
 
