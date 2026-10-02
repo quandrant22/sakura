@@ -1,11 +1,35 @@
 """Sakura entry point — main() and background task orchestration."""
 
+import atexit
 import asyncio
 import inspect
 import logging
 import os
 import signal
+from datetime import datetime
 from types import SimpleNamespace
+
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger(__name__)
+SHUTDOWN_TIMEOUT = 10.0
+
+
+def _log_shutdown_mark(stage: str) -> None:
+    timestamp = datetime.now().astimezone().isoformat(timespec="milliseconds")
+    log.info("[shutdown] mark=%s at=%s", stage, timestamp)
+
+
+def _log_atexit_end() -> None:
+    _log_shutdown_mark("atexit_end")
+
+
+def _log_atexit_start() -> None:
+    _log_shutdown_mark("atexit_start")
+
+
+if __name__ == "__main__":
+    atexit.register(_log_atexit_end)
+
 
 import tqdm
 
@@ -13,9 +37,22 @@ tqdm.tqdm.monitor_interval = 0
 
 from sakura_core.tasks import spawn
 
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger(__name__)
-SHUTDOWN_TIMEOUT = 10.0
+
+def _instrument_shutdown_default_executor(loop) -> None:
+    if getattr(loop, "_sakura_shutdown_timing_installed", False):
+        return
+
+    original_shutdown = loop.shutdown_default_executor
+
+    async def _shutdown_default_executor_with_timing(*args, **kwargs):
+        _log_shutdown_mark("shutdown_default_executor_begin")
+        try:
+            return await original_shutdown(*args, **kwargs)
+        finally:
+            _log_shutdown_mark("shutdown_default_executor_end")
+
+    loop.shutdown_default_executor = _shutdown_default_executor_with_timing
+    loop._sakura_shutdown_timing_installed = True
 
 
 async def supervised(coro, name):
@@ -116,6 +153,20 @@ def _thread_where(frame, depth: int = 3) -> str:
     )
 
 
+def _executor_worker_is_free(frame) -> bool:
+    import linecache
+    import traceback
+
+    for entry in traceback.extract_stack(frame):
+        path = entry.filename.replace("\\", "/")
+        if (path.endswith("/concurrent/futures/thread.py")
+                and entry.name == "_worker"):
+            return "work_queue.get(" in linecache.getline(
+                entry.filename, entry.lineno,
+            )
+    return False
+
+
 def log_live_threads(stage: str, loop=None) -> None:
     """INFO-снимок того, что может держать процесс после shutdown.
 
@@ -142,12 +193,25 @@ def log_live_threads(stage: str, loop=None) -> None:
         if executor is None:
             log.info("[shutdown] %s: default executor не создавался", stage)
             return
-        # Очередь — SimpleQueue: элементы не посмотреть, только размер;
-        # что именно выполняется, видно по стекам потоков asyncio_N выше.
-        workers = [t.name for t in executor._threads if t.is_alive()]
+        workers = [t for t in executor._threads if t.is_alive()]
         log.info("[shutdown] %s: executor — потоков %d (%s), в очереди %d",
-                 stage, len(workers), ", ".join(workers) or "—",
+                 stage, len(workers), ", ".join(t.name for t in workers) or "—",
                  executor._work_queue.qsize())
+        import traceback
+        for worker in workers:
+            frame = frames.get(worker.ident)
+            if frame is None:
+                log.info("[shutdown] executor worker=%r state=unknown (нет кадра)",
+                         worker.name)
+                continue
+            is_free = _executor_worker_is_free(frame)
+            state = "free" if is_free else "busy"
+            log.info("[shutdown] executor worker=%r state=%s",
+                     worker.name, state)
+            if not is_free:
+                stack = "".join(traceback.format_stack(frame)).rstrip()
+                log.info("[shutdown] executor worker=%r full stack:\n%s",
+                         worker.name, stack)
     except Exception as e:  # диагностика не должна ломать остановку
         log.warning("[shutdown] снимок потоков не удался: %s: %s",
                     type(e).__name__, e)
@@ -226,6 +290,7 @@ async def run_services_until_stopped(
 
 async def main(*, lifecycle=None, stop_event=None):
     loop = asyncio.get_running_loop()
+    _instrument_shutdown_default_executor(loop)
     if stop_event is None:
         stop_event = asyncio.Event()
     install_shutdown_handlers(loop, stop_event)
@@ -341,7 +406,11 @@ async def main(*, lifecycle=None, stop_event=None):
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
-    # asyncio.run уже дождался default executor; держать выход теперь
-    # могут только не-daemon потоки (их ждёт threading._shutdown).
-    log_live_threads("после asyncio.run")
+    try:
+        asyncio.run(main())
+    finally:
+        _log_shutdown_mark("asyncio_run_exit")
+        atexit.register(_log_atexit_start)
+        # asyncio.run уже дождался default executor; держать выход теперь
+        # могут только не-daemon потоки (их ждёт threading._shutdown).
+        log_live_threads("после asyncio.run")
