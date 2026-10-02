@@ -689,24 +689,21 @@ entity = "key=value pair"
 
 
 def load_builtin_commands(registry: CommandRegistry):
-    """Load built-in command definitions."""
+    """Load built-in command definitions.
+
+    Parsed directly from the in-memory TOML string instead of writing a temp file.
+    Writing a temp file on Windows can pick up the system ANSI code page, which
+    breaks UTF-8 command text such as Russian phrases.
+    """
     if toml is None:
         log.warning("toml library not installed, skipping built-in commands")
         return
 
-    import tempfile
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
-        f.write(BUILTIN_COMMANDS)
-        tmp_path = f.name
-
-    try:
-        data = toml.load(tmp_path)
-        for cmd_data in data.get("commands", []):
-            cmd = registry._parse_command(cmd_data, Path("."))
-            if cmd:
-                registry._commands.append(cmd)
-                registry._by_id[cmd.id] = cmd
-    finally:
-        os.unlink(tmp_path)
+    data = toml.loads(BUILTIN_COMMANDS)
+    for cmd_data in data.get("commands", []):
+        cmd = registry._parse_command(cmd_data, Path("."))
+        if cmd:
+            registry._commands.append(cmd)
+            registry._by_id[cmd.id] = cmd
 
     log.info(f"Loaded {len(registry._commands)} built-in commands")
