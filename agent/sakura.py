@@ -11,15 +11,6 @@ import threading
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from PyQt6.QtCore import QSharedMemory
-from PyQt6.QtWidgets import QApplication
-
-from core.agent import Agent
-from core.events import EventBus
-from core.music_listener import start as start_music_listener
-from ui.app import UiBridge, build_tray
-from ui.overlay import Overlay
-
 log_dir = Path(__file__).resolve().parent / "logs"
 log_dir.mkdir(parents=True, exist_ok=True)
 log_path = log_dir / "sakura.log"
@@ -45,6 +36,16 @@ logger.addHandler(stream_handler)
 
 log = logging.getLogger("sakura")
 
+from PyQt6.QtCore import QSharedMemory
+from PyQt6.QtWidgets import QApplication
+
+from core.agent import Agent
+from core.events import EventBus
+from core.hands import get_command_registry
+from core.music_listener import start as start_music_listener
+from ui.app import UiBridge, build_tray
+from ui.overlay import Overlay
+
 
 def main():
     app = QApplication(sys.argv)
@@ -55,6 +56,8 @@ def main():
     if not guard.create(1):
         log.warning("Сакура уже запущена.")
         return
+
+    get_command_registry()
 
     bus     = EventBus()
     agent   = Agent(bus)
