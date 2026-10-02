@@ -34,6 +34,26 @@ class _StopLoop(Exception):
     """Сигнал остановки бесконечного цикла из fake-sleep."""
 
 
+def test_load_builtin_commands_parses_string_without_tempfile(monkeypatch):
+    import core.commands as commands
+
+    class DummyToml:
+        calls = []
+
+        @staticmethod
+        def loads(payload):
+            DummyToml.calls.append(payload)
+            return {"commands": []}
+
+    monkeypatch.setattr(commands, "toml", DummyToml)
+    registry = commands.CommandRegistry()
+
+    commands.load_builtin_commands(registry)
+
+    assert DummyToml.calls == [commands.BUILTIN_COMMANDS]
+    assert registry._commands == []
+
+
 def test_backoff_pauses_between_failed_binds():
     """Падение при привязке → пауза 5с до следующей попытки.
 
@@ -87,31 +107,39 @@ def test_backoff_resets_after_stable_run():
     assert sleeps == [5, 5], sleeps  # без сброса было бы [60, 60]
 
 
-def test_start_binds_next_port_when_first_busy(caplog):
-    """Занятый 8766 (VS Code) → сервер поднимается на 8767 и здоровается."""
+def test_start_binds_next_port_when_first_busy(caplog, monkeypatch):
+    """Порт из config.EXTENSION_PORTS может быть занят, следующий свободный — используется."""
     mod = load_ext_server()
 
-    # Если 8766 ещё свободен — занимаем его сами (аналог VS Code).
-    # В среде разработки он бывает занят постоянно — тоже годится.
-    blocker = None
-    try:
-        blocker = socket.socket()
-        blocker.bind(("127.0.0.1", 8766))
-        blocker.listen(1)
-    except OSError:
-        if blocker is not None:
-            blocker.close()
-        blocker = None  # 8766 уже держит кто-то другой — тот же сценарий
+    free_ports = []
+    for _ in range(2):
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        free_ports.append(s.getsockname()[1])
+        s.close()
+
+    first_port = free_ports[0]
+    second_port = free_ports[1]
+    monkeypatch.setattr(mod, "EXTENSION_PORT", None)
+    monkeypatch.setattr(
+        sys.modules.get("config"),
+        "EXTENSION_PORTS",
+        (first_port, second_port),
+        raising=False,
+    )
+
+    blocker = socket.socket()
+    blocker.bind(("127.0.0.1", first_port))
+    blocker.listen(1)
 
     try:
         async def scenario():
             task = asyncio.create_task(mod.start())
-            await asyncio.sleep(1.5)  # дать перебрать порты и привязаться
-            assert mod.EXTENSION_PORT == 8767, mod.EXTENSION_PORT
-            # Проверка рукопожатия: агент первым шлёт sakura_hello
+            await asyncio.sleep(1.5)
+            assert mod.EXTENSION_PORT == second_port, mod.EXTENSION_PORT
             import websockets
             async with websockets.connect(
-                    "ws://127.0.0.1:8767", open_timeout=3,
+                    f"ws://127.0.0.1:{second_port}", open_timeout=3,
                     origin="chrome-extension://test-extension") as ws:
                 hello = json.loads(await asyncio.wait_for(ws.recv(), 3))
                 assert hello["type"] == "sakura_hello"
@@ -126,11 +154,10 @@ def test_start_binds_next_port_when_first_busy(caplog):
             asyncio.run(scenario())
 
         text = caplog.text
-        assert "ws://127.0.0.1:8767" in text  # выбранный порт — в лог
-        assert "8766" in text and "занят" in text.lower()  # причина понятна
+        assert f"ws://127.0.0.1:{second_port}" in text
+        assert str(first_port) in text and "недоступен" in text.lower()
     finally:
-        if blocker is not None:
-            blocker.close()
+        blocker.close()
 
 
 @pytest.mark.parametrize("origin", [None, "", "https://attacker.example"])
