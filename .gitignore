@@ -106,6 +106,7 @@ vosk-model-small-ru-0.22/
 # Логи
 *.log
 logs/
+agent/logs/
 
 # Временные файлы
 *.tmp

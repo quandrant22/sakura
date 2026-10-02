@@ -8,6 +8,8 @@ import asyncio
 import logging
 import sys
 import threading
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from PyQt6.QtCore import QSharedMemory
 from PyQt6.QtWidgets import QApplication
@@ -18,7 +20,29 @@ from core.music_listener import start as start_music_listener
 from ui.app import UiBridge, build_tray
 from ui.overlay import Overlay
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(message)s")
+log_dir = Path(__file__).resolve().parent / "logs"
+log_dir.mkdir(parents=True, exist_ok=True)
+log_path = log_dir / "sakura.log"
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+logger.handlers.clear()
+
+formatter = logging.Formatter("%(asctime)s  %(message)s")
+
+file_handler = RotatingFileHandler(
+    log_path,
+    maxBytes=2 * 1024 * 1024,
+    backupCount=5,
+    encoding="utf-8",
+)
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+
+stream_handler = logging.StreamHandler()
+stream_handler.setFormatter(formatter)
+logger.addHandler(stream_handler)
+
 log = logging.getLogger("sakura")
 
 

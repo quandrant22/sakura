@@ -671,14 +671,11 @@ class Agent:
         _th2.Thread(target=init_index, daemon=True).start()
 
         # ── Основной цикл: подключение к VPS ──────────────────────────
-        import sys as _sys
-        print(f"[agent] Запускаю подключение к VPS: {config.VPS_WS_URL}", flush=True)
-        _sys.stdout.flush()
+        log.info("[agent] Запускаю подключение к VPS: %s", config.VPS_WS_URL)
         _backoff = config.RECONNECT_SEC
         while True:
             try:
-                print(f"[agent] Подключаюсь к {config.VPS_WS_URL}...", flush=True)
-                _sys.stdout.flush()
+                log.info("[agent] Подключаюсь к %s...", config.VPS_WS_URL)
                 async with websockets.connect(
                     config.VPS_WS_URL,
                     ping_interval=20,
@@ -698,12 +695,10 @@ class Agent:
                         }))
                     self.bus.emit("connection", online=True)
                     _backoff = config.RECONNECT_SEC
-                    print(f"[agent] Подключено к VPS! Приложений: {len(apps)}", flush=True)
-                    _sys.stdout.flush()
+                    log.info("[agent] Подключено к VPS! Приложений: %s", len(apps))
                     await self._recv_loop()
             except Exception as e:
-                print(f"[agent] WS ошибка: {e}", flush=True)
-                _sys.stdout.flush()
+                log.exception("[agent] WS ошибка: %s", e)
             self._ws = None
             self.bus.emit("connection", online=False)
             await asyncio.sleep(_backoff)
