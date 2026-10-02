@@ -58,7 +58,7 @@ BLE_TIMEOUT = 15.0
 def _load_key() -> Optional[bytes]:
     try:
         if os.path.exists(KEY_FILE):
-            with open(KEY_FILE, "r") as f:
+            with open(KEY_FILE, "r", encoding="utf-8") as f:
                 return bytes.fromhex(json.load(f)["key"])
     except Exception:
         pass
@@ -67,7 +67,7 @@ def _load_key() -> Optional[bytes]:
 
 def _save_key(key: bytes):
     os.makedirs(os.path.dirname(KEY_FILE) or ".", exist_ok=True)
-    with open(KEY_FILE, "w") as f:
+    with open(KEY_FILE, "w", encoding="utf-8") as f:
         json.dump({"key": key.hex()}, f)
 
 
