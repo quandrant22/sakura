@@ -36,6 +36,10 @@ logger.addHandler(stream_handler)
 
 log = logging.getLogger("sakura")
 
+from core.exception_hooks import install_exception_hooks
+
+install_exception_hooks(log)
+
 from PyQt6.QtCore import QSharedMemory
 from PyQt6.QtWidgets import QApplication
 

@@ -662,6 +662,16 @@ class Hearing(threading.Thread):
         self._follow_until = time.monotonic() + seconds
 
     def run(self):
+        try:
+            self._run()
+        finally:
+            log.error("[hearing] поток слуха остановлен")
+            try:
+                self.agent.bus.emit("hearing_stopped")
+            except Exception:
+                log.exception("[hearing] не удалось отправить событие остановки")
+
+    def _run(self):
         if not self.ok:
             missing = []
             if not sd:               missing.append("sounddevice")
