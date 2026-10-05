@@ -8,6 +8,7 @@ Run: python -m pytest tests/test_executor_confirm.py -q
 """
 
 import asyncio
+import logging
 
 from sakura_core.executor import ExecutionContext, Executor, register_table
 from sakura_core.registry import Declaration
@@ -42,10 +43,12 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-def test_confirm_action_asks_instead_of_executing():
+def test_confirm_action_asks_instead_of_executing(caplog):
     ex, session, calls = _make_executor(True, "test.erase.ask")
+    caplog.set_level(logging.INFO, logger="sakura.executor")
     result = _run(ex.execute("test.erase.ask", _ctx()))
     assert result == ("Стереть данные?", True)
+    assert "[confirm] ожидание: action=test.erase.ask device=tg timeout=60с" in caplog.text
     assert calls == []  # хендлер не звался — исполнение остановлено
     assert session.pending is not None
     assert session.pending.action == "test.erase.ask"
@@ -67,13 +70,14 @@ def test_non_confirm_action_executes_immediately():
     assert session.pending is None
 
 
-def test_coding_confirm_executes_only_after_router_accepts_yes(monkeypatch):
+def test_coding_confirm_executes_only_after_router_accepts_yes(monkeypatch, caplog):
     import capabilities.coding as cap
     import sakura_core.bridge as bridge
     from sakura_core.registry import load
     from sakura_core.router import Router
 
     declarations = load()
+    caplog.set_level(logging.INFO, logger="sakura.bridge")
     calls = []
 
     async def _fake_mimo(prompt):
@@ -97,6 +101,7 @@ def test_coding_confirm_executes_only_after_router_accepts_yes(monkeypatch):
             register_command=None, text=text)
         assert handled is True
         assert result[0] == by_id[action_id].confirm_prompt
+        assert f"[v3] ожидает подтверждения: {action_id} ({requested.source})" in caplog.text
         assert len(calls) == call_count
 
         confirmed = await router.route("да")
@@ -107,6 +112,7 @@ def test_coding_confirm_executes_only_after_router_accepts_yes(monkeypatch):
             register_command=None, text=text)
         assert handled is True
         assert result == ("изменение выполнено", True)
+        assert f"[v3] исполнено: {action_id} (session)" in caplog.text
 
     async def _scenario():
         await _exercise("coding.create_module", "создай модуль тестовый")
@@ -115,3 +121,61 @@ def test_coding_confirm_executes_only_after_router_accepts_yes(monkeypatch):
         assert len(calls) == 2
 
     _run(_scenario())
+
+
+def test_confirm_accepted_logs_phrase(monkeypatch, caplog):
+    import sakura_core.bridge as bridge
+    from sakura_core.router import Router
+
+    router = Router(declarations=[], llm_classify=None)
+    router.session.expect("confirm", action="system.shutdown", device="pc")
+    monkeypatch.setattr(bridge, "_router", router)
+    executed = []
+
+    async def on_execute(action):
+        executed.append(action)
+
+    async def on_cancel():
+        raise AssertionError("accepted confirmation must not cancel")
+
+    caplog.set_level(logging.INFO, logger="sakura.bridge")
+    handled = _run(bridge.handle_v3_confirm(
+        "да", on_execute=on_execute, on_cancel=on_cancel))
+
+    assert handled is True
+    assert executed == ["system.shutdown"]
+    assert "[confirm] принято: action=system.shutdown фраза='да'" in caplog.text
+
+
+def test_confirm_declined_logs_phrase(monkeypatch, caplog):
+    import sakura_core.bridge as bridge
+    from sakura_core.router import Router
+
+    router = Router(declarations=[], llm_classify=None)
+    router.session.expect("confirm", action="system.shutdown", device="pc")
+    monkeypatch.setattr(bridge, "_router", router)
+    cancelled = []
+
+    async def on_execute(action):
+        raise AssertionError("declined confirmation must not execute")
+
+    async def on_cancel():
+        cancelled.append(True)
+
+    caplog.set_level(logging.INFO, logger="sakura.bridge")
+    handled = _run(bridge.handle_v3_confirm(
+        "ну не знаю", on_execute=on_execute, on_cancel=on_cancel))
+
+    assert handled is True
+    assert cancelled == [True]
+    assert "[confirm] отклонено: action=system.shutdown фраза='ну не знаю'" in caplog.text
+
+
+def test_confirm_expiration_logs_action(caplog):
+    session = Session()
+    pending = session.expect("confirm", action="system.shutdown", device="pc")
+    pending.until = 1.0
+
+    caplog.set_level(logging.INFO, logger="sakura.session")
+    assert session.pending is None
+    assert "[confirm] истекло: action=system.shutdown" in caplog.text
