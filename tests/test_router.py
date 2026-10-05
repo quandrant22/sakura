@@ -92,8 +92,8 @@ def test_exact_beats_fuzzy(make_router):
 
 def test_pending_yes_goes_to_session_not_registry_llm(make_router):
     router, calls = make_router()
-    router.session.expect("confirm", action="vps.status")
-    d = _run(router.route("да"))
+    router.session.expect("confirm", action="vps.status", device="pc")
+    d = _run(router.route("да", source="pc"))
     assert d.source == "session"
     assert d.verdict == "confirm"
     assert d.action == "vps.status"
@@ -102,8 +102,8 @@ def test_pending_yes_goes_to_session_not_registry_llm(make_router):
 
 def test_pending_deny(make_router):
     router, _ = make_router()
-    router.session.expect("confirm", action="vps.status")
-    d = _run(router.route("нет, не надо"))
+    router.session.expect("confirm", action="vps.status", device="pc")
+    d = _run(router.route("нет, не надо", source="pc"))
     assert d.source == "session"
     assert d.verdict == "deny"
     assert d.action is None
@@ -111,21 +111,62 @@ def test_pending_deny(make_router):
 
 def test_pending_expired_falls_through(make_router):
     router, calls = make_router()
-    router.session.expect("confirm", action="vps.status", ttl=-1.0)
-    d = _run(router.route("да", "playing:music"))
+    router.session.expect("confirm", action="vps.status", device="pc", ttl=-1.0)
+    d = _run(router.route("да", "playing:music", source="pc"))
     # «да» не матчит триггеров → разговор через LLM-стаб
     assert d.action is None
     assert d.source == "conversation"
     assert calls == ["да"]
 
 
-def test_pending_unrelated_phrase_cancels_confirmation(make_router):
-    router, _ = make_router()
-    router.session.expect("confirm", action="vps.status", ttl=60.0)
-    decision = _run(router.route("какая погода"))
-    assert decision.source == "session"
-    assert decision.verdict == "deny"
+def test_pending_none_phrase_falls_through_to_registry():
+    from sakura_core.registry import Declaration
+
+    declaration = Declaration(
+        id="music.off", desc="Выключить музыку", executor="vps",
+        reversible=True, confirm=False, triggers=("выключи музыку",),
+    )
+    router = Router(declarations=[declaration], llm_classify=None)
+    router.session.expect("confirm", action="system.shutdown", device="pc")
+
+    decision = _run(router.route("выключи музыку", source="phone"))
+
+    assert decision.source == "registry_exact"
+    assert decision.action == "music.off"
     assert router.session.pending is None
+
+
+def test_pending_confirmation_from_other_device_is_not_consumed(make_router):
+    router, calls = make_router()
+    router.session.expect("confirm", action="system.shutdown", device="pc")
+
+    decision = _run(router.route("да", source="phone"))
+
+    assert decision.source == "session"
+    assert decision.verdict == "wrong_source"
+    assert router.session.pending is not None
+    assert router.session.pending.action == "system.shutdown"
+    assert calls == []
+
+
+def test_pending_confirm_expires_after_twenty_seconds(make_router, monkeypatch):
+    from types import SimpleNamespace
+    import sakura_core.session as session_module
+
+    router, calls = make_router()
+    clock = [100.0]
+    monkeypatch.setattr(session_module, "time",
+                        SimpleNamespace(monotonic=lambda: clock[0]))
+    router.session.expect("confirm", action="system.shutdown",
+                          device="pc", ttl=20.0)
+    clock[0] += 21.0
+
+    decision = _run(router.route("да", source="pc"))
+
+    assert decision.source == "conversation"
+    assert decision.verdict is None
+    assert router.session.pending is None
+    assert calls == ["да"]
 
 
 def test_confirmation_priority_of_denial():
@@ -134,6 +175,28 @@ def test_confirmation_priority_of_denial():
     assert check_confirmation("не подтверждаю") == "deny"
     assert check_confirmation("нет, давай") == "deny"  # отрицание приоритетно
     assert check_confirmation("какая погода") is None
+
+
+def test_strict_confirmation_phrases():
+    from sakura_core.session import check_confirmation
+
+    cases = (
+        ("Да.", "confirm"),
+        ("да, пожалуйста", "confirm"),
+        ("да давай", "confirm"),
+        ("выключай", "confirm"),
+        ("выключи музыку", None),
+        ("выключи свет в комнате", None),
+        ("ок, я скоро приду", None),
+        ("точно не знаю", None),
+        ("да, мне нравится эта песня", None),
+        ("конечно, ты права", None),
+        ("Нет, не надо", "deny"),
+        ("погоди, не выключай", "deny"),
+        ("да, но не выключай", "deny"),
+    )
+    for phrase, expected in cases:
+        assert check_confirmation(phrase) == expected, phrase
 
 
 # ── LLM-шаг: последний и валидируемый ─────────────────────────────────────

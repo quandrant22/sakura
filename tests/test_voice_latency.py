@@ -41,7 +41,7 @@ class _FakeRouter:
         self._decision = decision
         self._delay = delay
 
-    async def route(self, text, context=None, *, on_llm=None):
+    async def route(self, text, context=None, *, source=None, on_llm=None):
         if on_llm is not None:
             on_llm()
         await asyncio.sleep(self._delay)
