@@ -118,3 +118,7 @@ agent/logs/
 *.jpeg
 !agent/extension/icon*.png
 memory/rituals.json
+
+# A/B-стенд STT: голос пользователя и отдельный тестовый venv
+agent/stt_samples/
+agent/venv-stt-test/
