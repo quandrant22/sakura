@@ -205,14 +205,18 @@ async def handle_v3_confirm(text, *, on_execute, on_cancel, on_error=None):
     """
     try:
         router = get_router()
-        if router.session.pending is None:
+        pending = router.session.pending
+        if pending is None:
             return False
         dec = await router.route(text, None)
         if dec.source != "session" or dec.verdict is None:
             return False
+        action = pending.action or dec.action or "unknown"
         if dec.verdict == "confirm" and dec.action:
+            log.info(f"[confirm] принято: action={action} фраза={text!r}")
             await on_execute(dec.action)
         else:
+            log.info(f"[confirm] отклонено: action={action} фраза={text!r}")
             await on_cancel()
         return True
     except Exception as e:
