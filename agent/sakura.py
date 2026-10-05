@@ -5,6 +5,7 @@ sakura.py — точка входа агента (Фаза 2).
 """
 
 import asyncio
+import faulthandler
 import logging
 import sys
 import threading
@@ -14,6 +15,8 @@ from pathlib import Path
 log_dir = Path(__file__).resolve().parent / "logs"
 log_dir.mkdir(parents=True, exist_ok=True)
 log_path = log_dir / "sakura.log"
+crash_log_file = open(log_dir / "crash.log", "a", buffering=1)
+faulthandler.enable(file=crash_log_file, all_threads=True)
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
