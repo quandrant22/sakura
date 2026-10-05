@@ -371,7 +371,9 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                                                device_id or "laptop", literal=True)
                 else:
                     await bot.send_message(MASTER_ID, "Хорошо, отменила.")
-            if await handle_v3_confirm(text, on_execute=_v3_ws_execute, on_cancel=_v3_ws_cancel):
+            if await handle_v3_confirm(text, source=device_id,
+                                       on_execute=_v3_ws_execute,
+                                       on_cancel=_v3_ws_cancel):
                 return
     except Exception as _v3_conf_err:
         log.debug(f"[ws] v3 confirm: {type(_v3_conf_err).__name__}: {_v3_conf_err}")
@@ -491,7 +493,7 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                                   register_command=ctx.get("_register_command"),
                                   speak=_v3_speak,
                                   resolve_reply=_ws_resolve_reply,
-                                  on_llm=_prefetch_voice):
+                                  on_llm=_prefetch_voice, source=device_id):
                 await _cancel_voice_prefetch()
                 return
         except Exception as _v3_err:
