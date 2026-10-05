@@ -9,7 +9,6 @@
 from __future__ import annotations
 
 import logging
-import re as _re
 import time
 from dataclasses import dataclass, field
 from typing import Optional
@@ -18,11 +17,12 @@ log = logging.getLogger("sakura.session")
 
 # ── check_confirmation: перенесено как есть из modules/state.py ──────────
 
-_PS_CONFIRM_WORDS = (
-    "да", "давай", "подтверждаю", "подтверждай", "выключай",
-    "выключи", "точно", "конечно", "ага", "угу", "ок", "окей",
-    "валяй", "действуй", "подтвердить",
-)
+_PS_CONFIRM_WORDS = frozenset({
+    "да", "давай", "подтверждаю", "подтверждай", "подтвердить",
+    "конечно", "точно", "ага", "угу", "ок", "окей", "валяй",
+    "действуй", "выключай",
+})
+_PS_CONFIRM_FILLERS = frozenset({"пожалуйста", "ну", "тогда", "уже", "сейчас"})
 
 _PS_DENY_WORDS = (
     "нет", "отмена", "стоп", "не надо", "хватит", "отставить",
@@ -51,22 +51,38 @@ def check_confirmation(text: str) -> str | None:
     if not text:
         return None
 
-    tl = text.lower().strip().rstrip(".!?,")
+    def tokenize(value: str) -> list[str]:
+        tokens: list[str] = []
+        current: list[str] = []
+        for character in value.lower():
+            if character.isalpha():
+                current.append(character)
+            elif current:
+                tokens.append("".join(current))
+                current.clear()
+        if current:
+            tokens.append("".join(current))
+        return tokens
 
-    # 1. Сначала проверяем отрицательные фразы (приоритет!)
-    for phrase in _PS_DENY_PHRASES:
-        if _re.search(rf"(?<!\w){_re.escape(phrase)}(?!\w)", tl):
-            return "deny"
+    tokens = tokenize(text)
 
-    # 2. Проверяем слова отрицания
-    for word in _PS_DENY_WORDS:
-        if _re.search(rf"(?<!\w){_re.escape(word)}(?!\w)", tl):
-            return "deny"
+    def contains_phrase(phrase: str) -> bool:
+        phrase_tokens = tokenize(phrase)
+        width = len(phrase_tokens)
+        return any(tokens[index:index + width] == phrase_tokens
+                   for index in range(len(tokens) - width + 1))
 
-    # 3. Проверяем слова подтверждения
-    for word in _PS_CONFIRM_WORDS:
-        if _re.search(rf"(?<!\w){_re.escape(word)}(?!\w)", tl):
-            return "confirm"
+    # Отрицание всегда имеет приоритет над подтверждающими словами.
+    if any(contains_phrase(phrase) for phrase in _PS_DENY_PHRASES):
+        return "deny"
+    if any(contains_phrase(word) for word in _PS_DENY_WORDS):
+        return "deny"
+
+    allowed = _PS_CONFIRM_WORDS | _PS_CONFIRM_FILLERS
+    if (tokens and len(tokens) <= 4
+            and set(tokens) <= allowed
+            and set(tokens) & _PS_CONFIRM_WORDS):
+        return "confirm"
 
     return None
 
@@ -119,7 +135,7 @@ class Session:
             self._pending = None
 
     # — разрешение короткого ответа —
-    def resolve(self, text: str) -> Optional[tuple[str, str, Pending]]:
+    def resolve(self, text: str, *, source: str | None = None) -> Optional[tuple[str, str, Pending]]:
         """Если ждём ответа, разрешить ожидание.
 
         Для kind="confirm"/"plan": проверяет check_confirmation (да/нет).
@@ -138,6 +154,16 @@ class Session:
             return p.kind, text.strip(), p
 
         verdict = check_confirmation(text)
+        if p.kind == "confirm":
+            if verdict is None:
+                self._pending = None
+                return None
+            if (source != "telegram"
+                    and (source is None or p.device is None or source != p.device)):
+                return p.kind, "wrong_source", p
+            self._pending = None
+            return p.kind, verdict, p
+
         if verdict is None:
             self._pending = None
             return p.kind, "deny", p
