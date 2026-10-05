@@ -8,10 +8,13 @@
 
 from __future__ import annotations
 
+import logging
 import re as _re
 import time
 from dataclasses import dataclass, field
 from typing import Optional
+
+log = logging.getLogger("sakura.session")
 
 # ── check_confirmation: перенесено как есть из modules/state.py ──────────
 
@@ -111,6 +114,8 @@ class Session:
     def _expire(self) -> None:
         p = self._pending
         if p is not None and p.until and time.monotonic() > p.until:
+            if p.kind == "confirm":
+                log.info(f"[confirm] истекло: action={p.action or 'unknown'}")
             self._pending = None
 
     # — разрешение короткого ответа —

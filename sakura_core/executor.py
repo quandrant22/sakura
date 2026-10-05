@@ -19,7 +19,7 @@ from typing import Any, Callable, Optional
 
 import modules.state as st
 from sakura_core.registry import Declaration, load as _load_registry
-from sakura_core.session import Session
+from sakura_core.session import DEFAULT_TTL, Session
 
 log = logging.getLogger("sakura.executor")
 
@@ -114,10 +114,16 @@ class Executor:
         # та же форма, что у vps-хендлеров, мост доставит его как есть.
         if action_id in self._confirm_ids and not ctx.extra.get("confirmed"):
             decl = self._declarations[action_id]
+            pending = None
             if self._session is not None:
-                self._session.expect("confirm", action=action_id,
-                                     device=ctx.device_id or None)
-            log.info(f"[executor] confirm: {action_id} → ожидание «да»")
+                pending = self._session.expect("confirm", action=action_id,
+                                               device=ctx.device_id or None)
+            timeout = (pending.until - _time.monotonic()
+                       if pending is not None else DEFAULT_TTL)
+            log.info(
+                f"[confirm] ожидание: action={action_id} "
+                f"device={ctx.device_id or 'unknown'} timeout={timeout:.0f}с"
+            )
             prompt = decl.confirm_prompt or f"{decl.desc}?"
             return (prompt, True)
 
@@ -155,6 +161,8 @@ async def execute_critical_action(critical_action: str, ws_dev, device_id,
     системные команды исполнялись одинаково независимо от канала.
     """
     st._last_command_ts = _time.monotonic()
+    if critical_action in {"system:shutdown", "system:restart", "system:sleep"}:
+        log.info(f"[ws] → {device_id or 'unknown'}: {critical_action}")
     await ws_dev.send(json.dumps({"type": "command", "action": critical_action}))
     if critical_action.startswith("kettle:"):
         from config import VOICE_HISTORY_LIMIT, VOICE_MODEL_CHAIN
