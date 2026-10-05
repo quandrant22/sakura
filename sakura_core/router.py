@@ -120,7 +120,7 @@ class Router:
                 return tl, d
         return None
 
-    async def route(self, text: str, context=None, *,
+    async def route(self, text: str, context=None, *, source: str | None = None,
                     on_llm: Optional[Callable[[], None]] = None) -> Decision:
         """Разобрать текст: session → registry → механики → LLM → разговор.
 
@@ -132,7 +132,7 @@ class Router:
         cleaned = self._strip_wake(text or "")
 
         # 1. session — ждём ответа?
-        resolved = self.session.resolve(cleaned)
+        resolved = self.session.resolve(cleaned, source=source)
         if resolved is not None:
             kind, verdict, pending = resolved
             if kind == "clarify":

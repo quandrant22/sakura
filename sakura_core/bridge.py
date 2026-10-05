@@ -94,7 +94,7 @@ def resolve_context(active_window: str = "", current_track: dict | None = None):
 
 
 async def execute_decision(decision, *, device_ws, device_id, register_command,
-                           text=""):
+                           text="", source: str | None = None):
     """Исполнить решение, если у его id есть хендлер (этап 5 — все 67).
 
     Возвращает (True, результат_хендлера) — исполнено; (False, None) — нет.
@@ -107,6 +107,7 @@ async def execute_decision(decision, *, device_ws, device_id, register_command,
     ctx = ExecutionContext(device_ws=device_ws, device_id=device_id or "",
                            register_command=register_command,
                            extra={"text": text or "",
+                                  "source": source,
                                   # «да» из диалога подтверждения — исполнять
                                   # без повторного вопроса (executor).
                                   "confirmed": decision.source == "session"})
@@ -123,7 +124,7 @@ async def execute_decision(decision, *, device_ws, device_id, register_command,
 
 async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
                        ack=None, speak=None, resolve_reply=None,
-                       on_llm=None) -> bool:
+                       on_llm=None, source: str | None = None) -> bool:
     """Быстрый путь: реестр (без LLM) → исполнение переехавших доменов.
 
     False — решение не для v3 (разговор или id без хендлера), старый путь
@@ -143,7 +144,9 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
     context = resolve_context(
         (data or {}).get("active_window", ""), _current_track or None
     )
-    decision = await get_router().route(text, context, on_llm=on_llm)
+    route_source = {"source": source} if source is not None else {}
+    decision = await get_router().route(text, context, on_llm=on_llm,
+                                        **route_source)
     if decision.reply is not None:
         if resolve_reply is not None:
             await resolve_reply(decision.reply)
@@ -159,7 +162,7 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
         return True
     executed, result = await execute_decision(
         decision, device_ws=device_ws, device_id=device_id,
-        register_command=register_command, text=text,
+        register_command=register_command, text=text, source=source,
     )
     if not executed:
         return False
@@ -200,7 +203,8 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
     return True
 
 
-async def handle_v3_confirm(text, *, on_execute, on_cancel, on_error=None):
+async def handle_v3_confirm(text, *, source: str | None = None,
+                            on_execute, on_cancel, on_error=None):
     """Handle v3 session confirm/deny dialog.
 
     Returns True if the text was handled by the v3 session, False otherwise.
@@ -213,10 +217,13 @@ async def handle_v3_confirm(text, *, on_execute, on_cancel, on_error=None):
         pending = router.session.pending
         if pending is None:
             return False
-        dec = await router.route(text, None)
+        dec = await router.route(text, None, source=source)
         if dec.source != "session" or dec.verdict is None:
             return False
         action = pending.action or dec.action or "unknown"
+        if dec.verdict == "wrong_source":
+            log.info("[confirm] отклонено: другой источник")
+            return True
         if dec.verdict == "confirm" and dec.action:
             log.info(f"[confirm] принято: action={action} фраза={text!r}")
             await on_execute(dec.action)

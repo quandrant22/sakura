@@ -629,10 +629,11 @@ class TestBlock9_Confirmation(unittest.TestCase):
         self.assertEqual(check_confirmation("подтверждаю"), "confirm")
 
     def test_confirm_with_particles(self):
-        """9.2: «да, подтверждаю» и «подтверждаю выключение» → confirm."""
+        """9.2: короткое подтверждение допускает только разрешённые fillers."""
         from modules.state import check_confirmation
         self.assertEqual(check_confirmation("да, подтверждаю"), "confirm")
-        self.assertEqual(check_confirmation("подтверждаю выключение"), "confirm")
+        self.assertIsNone(check_confirmation("подтверждаю выключение"))
+        self.assertIsNone(check_confirmation("выключи музыку"))
 
     def test_confirm_short_answers(self):
         """9.3: короткие ответы «ага», «ок», «давай» → confirm."""

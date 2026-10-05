@@ -248,7 +248,8 @@ async def handle_message(message: Message):
             await message.answer("Устройство отключилось, не могу выполнить.")
     async def _v3_on_cancel():
         await message.answer("Хорошо, отменила.")
-    if await handle_v3_confirm(text, on_execute=_v3_on_execute, on_cancel=_v3_on_cancel):
+    if await handle_v3_confirm(text, source="telegram",
+                               on_execute=_v3_on_execute, on_cancel=_v3_on_cancel):
         return
 
     if "tg" in _state_mod._pending_system:
@@ -303,7 +304,7 @@ async def handle_message(message: Message):
         if await v3_fast_path(text, data={"active_window": ""},
                               device_ws=_laptop_ws, device_id=_laptop_dev,
                               register_command=None, ack=message.answer,
-                              resolve_reply=_tg_resolve_reply):
+                              resolve_reply=_tg_resolve_reply, source="telegram"):
             return
     except Exception as _v3_err:
         log.debug(f"[v3] быстрый путь: {type(_v3_err).__name__}: {_v3_err}")

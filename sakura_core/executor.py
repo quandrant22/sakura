@@ -19,9 +19,11 @@ from typing import Any, Callable, Optional
 
 import modules.state as st
 from sakura_core.registry import Declaration, load as _load_registry
-from sakura_core.session import DEFAULT_TTL, Session
+from sakura_core.session import Session
 
 log = logging.getLogger("sakura.executor")
+DEVICE_CONFIRM_TTL = 20.0
+TELEGRAM_CONFIRM_TTL = 60.0
 
 
 @dataclass(frozen=True)
@@ -115,11 +117,13 @@ class Executor:
         if action_id in self._confirm_ids and not ctx.extra.get("confirmed"):
             decl = self._declarations[action_id]
             pending = None
+            source = ctx.extra.get("source")
+            timeout = TELEGRAM_CONFIRM_TTL if source == "telegram" else DEVICE_CONFIRM_TTL
             if self._session is not None:
                 pending = self._session.expect("confirm", action=action_id,
-                                               device=ctx.device_id or None)
-            timeout = (pending.until - _time.monotonic()
-                       if pending is not None else DEFAULT_TTL)
+                                               device=ctx.device_id or None,
+                                               ttl=timeout)
+                timeout = pending.until - _time.monotonic()
             log.info(
                 f"[confirm] ожидание: action={action_id} "
                 f"device={ctx.device_id or 'unknown'} timeout={timeout:.0f}с"
