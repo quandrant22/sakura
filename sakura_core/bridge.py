@@ -112,7 +112,12 @@ async def execute_decision(decision, *, device_ws, device_id, register_command,
                                   "confirmed": decision.source == "session"})
     result = await get_executor().execute(decision.action, ctx,
                                           param=decision.param)
-    log.info(f"[v3] исполнено: {decision.action} ({decision.source})")
+    pending = get_router().session.pending
+    if (pending is not None and pending.kind == "confirm"
+            and pending.action == decision.action):
+        log.info(f"[v3] ожидает подтверждения: {decision.action} ({decision.source})")
+    else:
+        log.info(f"[v3] исполнено: {decision.action} ({decision.source})")
     return True, result
 
 
