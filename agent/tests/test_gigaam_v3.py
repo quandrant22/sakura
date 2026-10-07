@@ -1,5 +1,6 @@
 """tests/test_gigaam_v3.py — совместимость с GigaAM v3 / gigaam 0.2.0."""
 
+import threading
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -91,6 +92,30 @@ def test_recognizer_remembers_loaded_model_name(giga_env):
     r = H.SpeechRecognizer()
     assert r.backend == "gigaam"
     assert r._gigaam_name == "v3_e2e_ctc"
+
+
+def test_stt_log_has_model_name_and_audio_seconds(giga_env, caplog, monkeypatch):
+    setup, _ = giga_env
+    setup("v3_e2e_ctc")
+    r = H.SpeechRecognizer()
+    monkeypatch.setattr(r, "_run_gigaam", lambda m, a, n: "Да.")
+    audio = np.zeros(int(H.config.MIC_RATE * 2.5), dtype=np.float32)
+    with caplog.at_level("INFO", logger="sakura.hearing"):
+        assert r.transcribe(audio) == "Да."
+    line = [m for m in caplog.messages if m.startswith("[STT] 'Да.'")][0]
+    assert ", v3_e2e_ctc, аудио 2.5с)" in line
+
+
+def test_stt_log_vosk_backend(caplog, monkeypatch):
+    r = H.SpeechRecognizer.__new__(H.SpeechRecognizer)
+    r._gigaam = None
+    r._model = object()
+    r._lock = threading.Lock()
+    monkeypatch.setattr(r, "_run_vosk", lambda m, a: "Да.")
+    with caplog.at_level("INFO", logger="sakura.hearing"):
+        r.transcribe(np.zeros(16000, dtype=np.float32))
+    assert any(m.startswith("[STT] 'Да.'") and m.endswith(", vosk, аудио 1.0с)")
+               for m in caplog.messages)
 
 
 # ── цепочка загрузки: GIGAAM_MODEL → v2_ctc → Vosk ──────────────────────

@@ -271,6 +271,17 @@ def _giga_load_model(model_name, device="cpu", **kw):
 _GIGAAM_FALLBACK_MODEL = "v2_ctc"
 
 
+def _audio_seconds(audio) -> float:
+    """Длина аудио (float32 моно, MIC_RATE) в секундах — для лога [STT]."""
+    try:
+        n = getattr(audio, "size", None)
+        if n is None:
+            n = len(audio)
+        return n / float(getattr(config, "MIC_RATE", 16000))
+    except Exception:
+        return 0.0
+
+
 def _load_gigaam_one(model_name: str, device: str):
     """Загружает одну модель GigaAM. Исключение — если не вышло."""
     with warnings.catch_warnings():
@@ -391,6 +402,7 @@ class SpeechRecognizer:
 
     def transcribe(self, audio) -> str:
         """Принимает numpy array float32, возвращает строку."""
+        audio_sec = _audio_seconds(audio)
         if self._gigaam is not None:
             with self._lock:
                 try:
@@ -398,7 +410,8 @@ class SpeechRecognizer:
                     text = self._run_gigaam(self._gigaam, audio, self._gigaam_name)
                     dt = time.monotonic() - t0
                     if text:
-                        log.info(f"[STT] {text!r} ({dt:.2f}с)")
+                        log.info(f"[STT] {text!r} ({dt:.2f}с, {self._gigaam_name}, "
+                                 f"аудио {audio_sec:.1f}с)")
                     return text
                 except Exception as e:
                     log.warning(f"GigaAM упал при распознавании ({e}) — фолбэк на Vosk")
@@ -414,7 +427,8 @@ class SpeechRecognizer:
                         return ""
                     dt = time.monotonic() - t0
                     if text:
-                        log.info(f"[STT] {text!r} ({dt:.2f}с, vosk-фолбэк)")
+                        log.info(f"[STT] {text!r} ({dt:.2f}с, vosk-фолбэк, "
+                                 f"аудио {audio_sec:.1f}с)")
                     return text
         model = self._model or self._build()
         self._model = model
@@ -429,7 +443,7 @@ class SpeechRecognizer:
                 return ""
         dt = time.monotonic() - t0
         if text:
-            log.info(f"[STT] {text!r} ({dt:.2f}с)")
+            log.info(f"[STT] {text!r} ({dt:.2f}с, vosk, аудио {audio_sec:.1f}с)")
         return text
 
     def _build(self):
@@ -884,7 +898,7 @@ class Hearing(threading.Thread):
             self.agent.set_state("idle")
             return
 
-        # (лог "[STT] 'текст' (N.NNс)" уже пишет transcribe() с замером времени)
+        # (лог "[STT] 'текст' (N.NNс, модель, аудио N.Nс)" уже пишет transcribe())
 
         # Анализ просодии — мягко влияет на настроение
         prosody = analyze_voice_emotion(bytes(pcm))
