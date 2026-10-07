@@ -235,6 +235,7 @@ def _is_question(text: str) -> bool:
 # первый запуск качает ~444 МБ, из кэша грузится за ~1.4с,
 # «открой дискорд» → 'открой дискорд' за 0.47с (Vosk давал мусор).
 _shared_gigaam_model = None
+_shared_gigaam_name = ""     # имя загруженной модели (v2_ctc, v3_e2e_ctc, …)
 _shared_gigaam_lock = threading.Lock()
 
 
@@ -269,7 +270,7 @@ def _giga_load_model(model_name, device="cpu", **kw):
 
 def _get_gigaam_model():
     """Загружает GigaAM один раз и кеширует. Возвращает None если недоступен."""
-    global _shared_gigaam_model
+    global _shared_gigaam_model, _shared_gigaam_name
     if _shared_gigaam_model is not None:
         return _shared_gigaam_model
     with _shared_gigaam_lock:
@@ -317,6 +318,7 @@ def _get_gigaam_model():
                     torch.load = _orig_torch_load
             model.eval()
             _shared_gigaam_model = model
+            _shared_gigaam_name = model_name
             log.info(f"[STT] Движок: GigaAM {model_name} ({device})")
             return model
         except Exception as e:
@@ -334,6 +336,7 @@ class SpeechRecognizer:
 
     def __init__(self):
         self._gigaam  = None
+        self._gigaam_name = ""
         self._model   = None  # Vosk fallback (ленивый: грузим по требованию)
         self._lock    = threading.Lock()
         self.backend  = "none"
@@ -352,6 +355,7 @@ class SpeechRecognizer:
             reason = "нет torch"
         else:
             self._gigaam = _get_gigaam_model()
+            self._gigaam_name = _shared_gigaam_name
             if self._gigaam is None:
                 reason = "не загрузился"
         if self._gigaam is not None:
@@ -373,7 +377,7 @@ class SpeechRecognizer:
             with self._lock:
                 try:
                     t0 = time.monotonic()
-                    text = self._run_gigaam(self._gigaam, audio)
+                    text = self._run_gigaam(self._gigaam, audio, self._gigaam_name)
                     dt = time.monotonic() - t0
                     if text:
                         log.info(f"[STT] {text!r} ({dt:.2f}с)")
@@ -417,7 +421,7 @@ class SpeechRecognizer:
             log.warning("Vosk STT-фолбэк недоступен: модель не загружена.")
         return model
 
-    def _run_gigaam(self, model, audio) -> str:
+    def _run_gigaam(self, model, audio, model_name: str = "") -> str:
         """Прямой путь из памяти БЕЗ ffmpeg (transcribe() требует ffmpeg,
         которого на машине нет). Проверенный рабочий код."""
         import numpy as _np
@@ -434,6 +438,10 @@ class SpeechRecognizer:
         # gigaam 0.2.0: (текст, id токенов, кадры); 0.1.0: строка
         text = dec[0] if isinstance(dec, tuple) else dec
         text = (text or "").strip()
+        # e2e-модели сами ставят пунктуацию, заглавные и нормализуют
+        # числа — пост-обработка им только вредит.
+        if "e2e" in (model_name or ""):
+            return text
         # Та же пост-обработка, что и для Vosk (капитализация/пунктуация),
         # но _add_smart_punctuation не трогает текст, где пунктуация уже есть.
         text = _post_process(text)
