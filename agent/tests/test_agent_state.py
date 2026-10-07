@@ -1,8 +1,13 @@
 """tests/test_agent_state.py — смена состояния агента и возврат в idle."""
 
+import asyncio
+import json
 import threading
 
+import pytest
+
 from core import agent as agent_module
+from core import tasks as tasks_module
 
 
 class FakeBus:
@@ -90,3 +95,103 @@ def test_public_set_state_goes_through_single_point():
     a.set_state("thinking")           # так зовут hearing.py / presence.py
     assert a.state == "thinking"
     assert a._turn_gen == 1
+
+
+# ── tts_end → idle после опустошения буфера ─────────────────────────────
+
+@pytest.fixture
+def fast_drain(monkeypatch):
+    monkeypatch.setattr(agent_module, "_DRAIN_POLL_SEC", 0.001)
+    monkeypatch.setattr(agent_module, "_DRAIN_TAIL_SEC", 0.001)
+    monkeypatch.setattr(agent_module, "_DRAIN_MAX_SEC", 5.0)
+
+
+class FakeWS:
+    def __init__(self, messages):
+        self._messages = list(messages)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if not self._messages:
+            raise StopAsyncIteration
+        return self._messages.pop(0)
+
+    async def send(self, _):
+        pass
+
+
+async def _drain_spawned():
+    pending = [t for t in tasks_module._tasks if not t.done()]
+    if pending:
+        await asyncio.gather(*pending)
+
+
+def test_tts_end_waits_for_drain_then_idle_then_followup(fast_drain):
+    a = make_agent()
+    seen_while_playing = []
+
+    class Draining(FakePlayer):
+        polls = 0
+
+        def is_drained(self):
+            self.polls += 1
+            if self.polls < 5:
+                seen_while_playing.append(a.state)
+                return False
+            return True
+
+    a.player = Draining()
+
+    async def main():
+        a._ws = FakeWS([
+            b"\x00\x00\x00\x00" + b"\x01\x00" * 8,
+            json.dumps({"type": "tts_end", "listen": 6}),
+        ])
+        await a._recv_loop()
+        assert a.state == "speaking"      # tts_end сам не ставит idle
+        await _drain_spawned()
+
+    asyncio.run(main())
+    assert seen_while_playing == ["speaking"] * 4
+    assert a.state == "idle"
+    assert a.bus.states[-1] == "idle"
+    # окно дослушивания открыто ПОСЛЕ idle
+    assert a.hearing.followups == [(6.0, "idle")]
+
+
+def test_stale_idle_does_not_override_new_turn(fast_drain):
+    a = make_agent()
+    a._set_state("speaking")
+
+    class Draining(FakePlayer):
+        polls = 0
+
+        def is_drained(self):
+            self.polls += 1
+            if self.polls == 2:
+                a._set_state("thinking")   # пользователь начал новую реплику
+            return self.polls >= 4
+
+    a.player = Draining()
+    asyncio.run(a._idle_after_playback(a._turn_gen, listen=5))
+    assert a.state == "thinking"
+    assert a.hearing.followups == []
+
+
+def test_tts_end_without_listen_does_not_open_followup(fast_drain):
+    a = make_agent()
+    a._set_state("speaking")
+    asyncio.run(a._idle_after_playback(a._turn_gen))
+    assert a.state == "idle"
+    assert a.hearing.followups == []
+
+
+def test_drain_wait_is_bounded(monkeypatch, fast_drain):
+    monkeypatch.setattr(agent_module, "_DRAIN_MAX_SEC", 0.02)
+    a = make_agent()
+    a._set_state("speaking")
+    a.player.buf = 100                     # буфер так и не опустел
+    asyncio.run(a._idle_after_playback(a._turn_gen))
+    assert a.state == "idle"

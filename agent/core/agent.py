@@ -39,6 +39,11 @@ from core.outbox import Outbox, log_send_result
 
 log = logging.getLogger("sakura.agent")
 
+# Возврат в idle после tts_end: ждём опустошения буфера плеера
+_DRAIN_POLL_SEC = 0.08   # опрос буфера
+_DRAIN_MAX_SEC  = 15.0   # дольше не ждём
+_DRAIN_TAIL_SEC = 0.15   # хвост в звуковой карте после пустого буфера
+
 
 # ── Музыка (v3, этап 3): канонические имена и явный выбор бэкенда ────────
 # Канонические имена v3 (music.*) принимаются В ДОПОЛНЕНИЕ к старым
@@ -423,14 +428,10 @@ class Agent:
                     self.player.feed(base64.b64decode(data["audio"]))
 
                 elif kind == "tts_end":
+                    # idle — только когда буфер плеера доиграет
                     self.player.flush()
-                    self._set_state("idle")
-                    listen = data.get("listen")
-                    if listen is not None:
-                        try:
-                            self.hearing.open_followup(float(listen))
-                        except (TypeError, ValueError):
-                            log.warning("Некорректное окно прослушивания: %r", listen)
+                    spawn(self._idle_after_playback(self._turn_gen, data.get("listen")),
+                          name="idle-after-playback")
 
                 elif kind == "reply":
                     text = (data.get("text") or "").strip()
@@ -458,6 +459,26 @@ class Agent:
 
             except Exception as e:
                 log.error(f"recv: {e}")
+
+    async def _idle_after_playback(self, gen: int, listen=None):
+        """После tts_end: дождаться опустошения буфера, затем idle.
+
+        Если за время ожидания началась новая реплика (_turn_gen
+        изменился) — ничего не делаем. Окно дослушивания открываем
+        только после idle.
+        """
+        deadline = time.monotonic() + _DRAIN_MAX_SEC
+        while not self.player.is_drained() and time.monotonic() < deadline:
+            await asyncio.sleep(_DRAIN_POLL_SEC)
+        await asyncio.sleep(_DRAIN_TAIL_SEC)
+        if self._turn_gen != gen:
+            return
+        self._set_state("idle")
+        if listen is not None:
+            try:
+                self.hearing.open_followup(float(listen))
+            except (TypeError, ValueError):
+                log.warning("Некорректное окно прослушивания: %r", listen)
 
     async def _run_command(self, action: str, cmd_id: str | None = None,
                            arg: str = ""):
