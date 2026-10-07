@@ -327,8 +327,9 @@ class SphereCore(QWidget):
         for pt in self._petals:
             self._draw_petal(p, pt)
 
-        # тиковое кольцо — используем mood цвет если есть
-        ring_c = getattr(self, '_ring_color', None) or c
+        # тиковое кольцо — в idle настроение красит, в active цвет состояния
+        ring_src = c if active else (getattr(self, '_ring_color', None) or c)
+        ring_c = QColor(ring_src)
         p.save(); p.translate(cx, cy); p.rotate(self._a1)
         tick = QColor(ring_c); tick.setAlpha(150 if active else 90)
         p.setPen(QPen(tick, 1.0))
