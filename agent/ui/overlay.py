@@ -665,27 +665,17 @@ class Overlay(QWidget):
     def _apply_game_theme(self, theme: dict):
         """Меняет цветовую схему панели под жанр игры."""
         try:
-            orb_color   = theme.get("orb", "#9a7fb5")
+            from PyQt6.QtGui import QColor as _QC
+            orb_color = theme.get("orb", "#9a7fb5")
             panel_color = theme.get("color", "#09090e")
-            # Обновляем цвет свечения орба
-            from PyQt6.QtGui import QColor
-            self._glow.setColor(QColor(orb_color))
-            # Обновляем фон панели
+            # Свечение заголовка — цветом орба темы
+            self._glow.setColor(_QC(orb_color))
+            # Фон панели читает paintEvent из self._panel_bg
             r = int(panel_color[1:3], 16)
             g = int(panel_color[3:5], 16)
             b = int(panel_color[5:7], 16)
-            self.findChild(__import__('PyQt6.QtWidgets', fromlist=['QWidget']).QWidget, 'panel')
-            # Применяем через objectName
-            for widget in self.findChildren(
-                __import__('PyQt6.QtWidgets', fromlist=['QWidget']).QWidget
-            ):
-                if widget.objectName() == "panel":
-                    widget.setStyleSheet(
-                        f"#panel {{ background: rgba({r},{g},{b},210); "
-                        f"border: 1px solid rgba(120,200,255,52); "
-                        f"border-radius: 18px; }}"
-                    )
-                    break
+            self._panel_bg = _QC(r, g, b, 210)
+            self.update()
         except Exception:
             pass
 
@@ -753,7 +743,7 @@ class Overlay(QWidget):
             return
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setBrush(_PANEL_BG)
+        p.setBrush(getattr(self, "_panel_bg", _PANEL_BG))
         p.setPen(QPen(_PANEL_BORDER, 1))
         p.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), 18, 18)
         self._paint_branch(p)
