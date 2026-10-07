@@ -116,6 +116,14 @@ class Test2_SourceGate(unittest.TestCase):
 class Test11_WsHandlers(unittest.TestCase):
     """Group 11: WebSocket handler regression guards."""
 
+    @staticmethod
+    def _agent_sends(ws_dev):
+        """Отправленное на устройство, кроме tts_end (его шлёт finally
+        handle_voice_command — закрытие хода, а не команда агенту)."""
+        import json
+        sent = [json.loads(c.args[0]) for c in ws_dev.send.await_args_list]
+        return [m for m in sent if m.get("type") != "tts_end"]
+
     def test_open_app_command_routes_to_agent(self):
         import json
         import adapters.ws as wh
@@ -159,8 +167,9 @@ class Test11_WsHandlers(unittest.TestCase):
                 wh.handle_voice_command(None, data, ctx)
             )
 
-        ws_dev.send.assert_awaited_once()
-        sent = json.loads(ws_dev.send.await_args.args[0])
+        sends = self._agent_sends(ws_dev)
+        self.assertEqual(len(sends), 1)
+        sent = sends[0]
         self.assertEqual(sent["type"], "command")
         self.assertEqual(sent["action"], "open.app")
         self.assertEqual(sent["id"], "cmd123")
@@ -232,7 +241,7 @@ class Test11_WsHandlers(unittest.TestCase):
 
         pending = self._run_voice_command("выключи компьютер", ws_dev)
 
-        ws_dev.send.assert_not_awaited()
+        self.assertEqual(self._agent_sends(ws_dev), [])
         v3_pending = get_router().session.pending
         self.assertIsNotNone(v3_pending)
         self.assertEqual(v3_pending.action, "system.shutdown")
@@ -250,9 +259,9 @@ class Test11_WsHandlers(unittest.TestCase):
         }
         pending = self._run_voice_command("да", ws_dev, pending_system=pending_system)
 
-        ws_dev.send.assert_awaited_once()
-        sent = json.loads(ws_dev.send.await_args.args[0])
-        self.assertEqual(sent["action"], "system:shutdown")
+        sends = self._agent_sends(ws_dev)
+        self.assertEqual(len(sends), 1)
+        self.assertEqual(sends[0]["action"], "system:shutdown")
         self.assertNotIn("laptop", pending)
 
     def test_confirm_no_cancels_without_sending(self):
@@ -265,7 +274,7 @@ class Test11_WsHandlers(unittest.TestCase):
         }
         pending = self._run_voice_command("нет", ws_dev, pending_system=pending_system)
 
-        ws_dev.send.assert_not_awaited()
+        self.assertEqual(self._agent_sends(ws_dev), [])
         self.assertNotIn("laptop", pending)
 
     def test_expired_pending_system_does_not_trigger(self):
@@ -279,7 +288,7 @@ class Test11_WsHandlers(unittest.TestCase):
         }
         pending = self._run_voice_command("да", ws_dev, pending_system=pending_system)
 
-        ws_dev.send.assert_not_awaited()
+        self.assertEqual(self._agent_sends(ws_dev), [])
         self.assertNotIn("laptop", pending)
 
     # ── Тот же _pending_system, но через Telegram-путь (main.py) ────

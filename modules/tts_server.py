@@ -747,14 +747,38 @@ async def _stream_two_stage(first: str, rest: str, websocket, device_id: str,
     return sent
 
 
+# Время (time.monotonic()) последнего ушедшего tts_end по device_id.
+# По нему ensure_turn_end решает, закрыт ли уже ход.
+_last_end: dict[str, float] = {}
+
+
 async def _send_end(websocket, device_id: str, listen: float | None = None):
     try:
         payload = {"type": "tts_end", "device_id": device_id}
         if listen is not None:
             payload["listen"] = listen
         await websocket.send(json.dumps(payload))
+        _last_end[device_id] = time.monotonic()
     except Exception:
         pass
+
+
+async def ensure_turn_end(websocket, device_id: str, since: float) -> None:
+    """Закрыть ход: tts_end, если с момента since он ещё не уходил.
+
+    Клиент возвращает оверлей в idle только по tts_end; потоковый ответ
+    и команды без озвучки его не шлют. Повторно не шлёт: tts_end (в том
+    числе с listen) уже ушёл после since — ничего не делаем."""
+    if _last_end.get(device_id, 0) >= since:
+        return
+    try:
+        await websocket.send(json.dumps(
+            {"type": "tts_end", "device_id": device_id}))
+    except Exception as e:
+        log.debug(f"[tts] tts_end не отправлен: {type(e).__name__}: {e}")
+        return
+    _last_end[device_id] = time.monotonic()
+    log.info(f"[tts] tts_end добавлен: device={device_id}")
 
 
 # Порог отсечки пустоты/мусора. Прежний порог в 20 символов молчал на

@@ -39,14 +39,17 @@ def test_ws_registry_dispatch(monkeypatch, text, expected):
     asyncio.run(ws.handle_voice_command(
         device, {"text": text, "device_id": "test"}, ctx))
     voice.assert_not_awaited()
+    sent = [json.loads(c.args[0]) for c in device.send.await_args_list]
+    # ход закрыт одним tts_end (озвучка замокана — его добирает finally)
+    assert sent[-1] == {"type": "tts_end", "device_id": "test"}
+    sent = [m for m in sent if m.get("type") != "tts_end"]
     if expected == "calendar":
-        device.send.assert_not_awaited()
+        assert sent == []
         assert "Встреча" in speak.await_args.args[0]
     else:
-        device.send.assert_awaited_once()
-        assert json.loads(device.send.await_args.args[0]) == {
+        assert sent == [{
             "type": "command", "action": "open_file:README.md", "id": "cmd",
-        }
+        }]
 
 
 def test_retired_routers_have_no_production_imports():

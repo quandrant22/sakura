@@ -268,6 +268,7 @@ from modules.tts_server import (
     stream_tts_to_device,
     preconnect as tts_preconnect,
     release_preconnect as tts_release_preconnect,
+    ensure_turn_end as tts_ensure_turn_end,
 )
 from modules.user_commands import parse_teaching, add as add_cmd, list_all as list_cmds
 from modules.voice_info import pending_forget_active
@@ -311,6 +312,25 @@ async def _handle_pending(text, text_lower, _mk, ws_dev, device_id, ctx, data) -
 
 
 async def handle_voice_command(websocket, data, ctx) -> None:
+    """Голосовой ход целиком: любой выход (в т.ч. ранние return — стоп
+    озвучки, v3 confirm, pending — и исключения) закрывается tts_end.
+
+    Клиент уходит в idle только по tts_end; потоковый ответ и команды без
+    озвучки его не шлют. Если tts_end (в т.ч. с listen) уже ушёл в этом
+    ходе — второго не будет."""
+    # П.5: точка отсчёта голосовых бюджетов — приём голоса, а не старт
+    # стрима/сборки ответа (классификация идёт параллельно, п.2).
+    t_recv = time.monotonic()
+    device_id = data.get("device_id")
+    ws_dev = st.connected_devices.get(device_id)
+    try:
+        await _handle_voice_command_inner(websocket, data, ctx, t_recv)
+    finally:
+        if ws_dev is not None:
+            await tts_ensure_turn_end(ws_dev, device_id or "laptop", t_recv)
+
+
+async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> None:
     ask_gemini = ctx["ask_gemini"]
     ask_gemini_voice = ctx["ask_gemini_voice"]
     send_safe = ctx["send_safe"]
@@ -329,9 +349,6 @@ async def handle_voice_command(websocket, data, ctx) -> None:
     ws_dev     = st.connected_devices.get(device_id)
     text_lower = text.lower()
     log.info(f"[voice] получено: {text!r}")
-    # П.5: точка отсчёта голосовых бюджетов — приём голоса, а не старт
-    # стрима/сборки ответа (классификация идёт параллельно, п.2).
-    t_recv = time.monotonic()
 
     # Интим-режим: детект на каждое сообщение Мастера
     _im_mark(text)

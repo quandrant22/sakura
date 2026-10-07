@@ -724,9 +724,8 @@ async def ask_gemini_voice(
                 await websocket.send(_json.dumps({
                     "type": "reply", "device_id": device_id, "text": "Все ключи исчерпаны.",
                 }))
-                await websocket.send(_json.dumps({
-                    "type": "tts_end", "device_id": device_id,
-                }))
+                from modules.tts_server import _send_end
+                await _send_end(websocket, device_id)
             except Exception as e:
                 log.debug(f"[llm] ask_gemini_voice: {type(e).__name__}: {e}")
         return ("Все ключи исчерпаны.", "neutral")
@@ -821,10 +820,8 @@ async def ask_gemini_voice(
             log.error(f"[Voice fallback] {e2}")
             if websocket:
                 try:
-                    import json as _json
-                    await websocket.send(_json.dumps({
-                        "type": "tts_end", "device_id": device_id,
-                    }))
+                    from modules.tts_server import _send_end
+                    await _send_end(websocket, device_id)
                 except Exception as e:
                     log.debug(f"[llm] ask_gemini_voice: {type(e).__name__}: {e}")
 
