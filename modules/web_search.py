@@ -104,6 +104,13 @@ _TIME_MARKERS = (
 )
 _TIME_MARKER_SET = set(_TIME_MARKERS)
 _QUESTION_WORD_SET = set(_QUESTION_WORDS)
+# «Ты/вы» + глагол знания/памяти в начале — вопрос без вопросительного
+# слова и без «?» (STT ставит точку): «ты знаешь витубера Юми».
+_KNOW_SUBJECTS = frozenset({"ты", "вы"})
+_KNOW_VERBS = frozenset({
+    "знаешь", "знаете", "слышал", "слышала", "слышали",
+    "помнишь", "помните", "видел", "видела",
+})
 
 
 def _word_in(text: str, phrases: list[str]) -> bool:
@@ -150,7 +157,8 @@ def _has_time_marker(text_lower: str) -> bool:
 
 
 def _is_question(words: list[str]) -> bool:
-    """Фраза является вопросом: '?' в конце ИЛИ вопросительное слово в начале.
+    """Фраза является вопросом: '?' в конце, вопросительное слово в начале
+    ИЛИ «ты/вы» + глагол знания/памяти в начале («ты знаешь…»).
 
     Повествовательные бытовые реплики («сегодня был в парке»,
     «еду домой») НЕ считаются вопросами, даже если в середине есть
@@ -161,6 +169,9 @@ def _is_question(words: list[str]) -> bool:
     first = words[0].strip("«»\"',.?!-…").lower()
     if first in _QUESTION_WORD_SET:
         return True
+    if first in _KNOW_SUBJECTS and len(words) > 1:
+        if words[1].strip("«»\"',.?!-…").lower() in _KNOW_VERBS:
+            return True
     # вопросительный знак — грамматический маркер вопроса без слова
     return any(w.endswith("?") for w in words)
 

@@ -511,5 +511,40 @@ class Test1_ClipAnswer(unittest.TestCase):
         self.assertTrue(out.endswith("…"))
 
 
+class Test1_KnowVerbQuestion(unittest.TestCase):
+    """«Ты/вы» + глагол знания/памяти в начале — вопрос (без «?» от STT)."""
+
+    @staticmethod
+    def _q(text):
+        from modules.web_search import _is_question
+        return _is_question(text.lower().split())
+
+    def test_know_vtuber_proper_case(self):
+        self.assertTrue(self._q("Ты знаешь ИИ-витубера по имени Юми"))
+
+    def test_know_vtuber_stt_lowercase(self):
+        self.assertTrue(self._q("Ты знаешь ииви тубера по имени юми"))
+
+    def test_know_statement_allowed(self):
+        # допустимое ложное срабатывание: гейт пропускает, дальше
+        # needs_search без триггеров всё равно не ищет
+        self.assertTrue(self._q("ты знаешь я устал"))
+
+    def test_command_not_question(self):
+        self.assertFalse(self._q("сделай потише"))
+
+    def test_all_know_verbs(self):
+        for verb in ("знаешь", "знаете", "слышал", "слышала", "слышали",
+                     "помнишь", "помните", "видел", "видела"):
+            for subj in ("ты", "вы"):
+                with self.subTest(phrase=f"{subj} {verb}"):
+                    self.assertTrue(self._q(f"{subj} {verb} этот фильм."))
+
+    def test_know_verb_only_at_start(self):
+        self.assertFalse(self._q("я знаю что ты знаешь"))
+        self.assertFalse(self._q("ты устал"))
+        self.assertFalse(self._q("ты"))
+
+
 if __name__ == "__main__":
     unittest.main()
