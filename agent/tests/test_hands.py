@@ -1,6 +1,7 @@
 import os
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 # Ensure the agent package root is importable for core.hands imports.
@@ -9,6 +10,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from core import hands
+from core import kettle
 
 
 class TestHandsAppCache(unittest.TestCase):
@@ -185,3 +187,17 @@ class TestHandsAppCache(unittest.TestCase):
     def test_get_capabilities_does_not_raise(self):
         caps = hands.get_capabilities()
         self.assertIsInstance(caps, list)
+
+
+def test_runtime_cache_and_memory_writes_use_temp_paths(tmp_path):
+    apps_cache = tmp_path / "apps_cache.json"
+    file_index = tmp_path / "file_index.json"
+    kettle_key = tmp_path / "memory" / "kettle_key.json"
+
+    hands._save_apps_cache({"test": "target"})
+    hands.file_index._save_cache()
+    kettle._save_key(b"12345678")
+
+    assert apps_cache.exists()
+    assert file_index.exists()
+    assert kettle_key.exists()

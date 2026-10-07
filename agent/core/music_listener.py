@@ -98,8 +98,20 @@ def _smooth_bars(new_bars: list[float], attack=0.8, release=0.15) -> list[float]
     return result
 
 
+def _run_loopback():
+    """Использовать pyaudiowpatch, если доступен; иначе sounddevice."""
+    try:
+        import pyaudiowpatch
+    except ImportError:
+        log.debug("[music] pyaudiowpatch недоступен, пробуем sounddevice loopback")
+        _run_sounddevice()
+        return
+
+    _run_pyaudiowpatch()
+
+
 def _run_sounddevice():
-    """Захват через sounddevice WASAPI loopback."""
+    """Fallback: захват через sounddevice WASAPI loopback."""
     try:
         import sounddevice as sd
         import numpy as np
@@ -159,8 +171,7 @@ def _run_sounddevice():
                 time.sleep(0.1)
 
     except Exception as e:
-        log.error(f"[music] sounddevice loopback: {e}")
-        _run_pyaudiowpatch()
+        log.debug(f"[music] sounddevice loopback: {e}")
 
 
 def _run_pyaudiowpatch():
@@ -232,7 +243,7 @@ def start(callback=None):
         return
 
     _running = True
-    _thread  = threading.Thread(target=_run_sounddevice, daemon=True, name="music-listener")
+    _thread  = threading.Thread(target=_run_loopback, daemon=True, name="music-listener")
     _thread.start()
     log.info("[music] Захват системного аудио запущен")
 

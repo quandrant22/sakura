@@ -5,21 +5,53 @@ sakura.py — точка входа агента (Фаза 2).
 """
 
 import asyncio
+import faulthandler
 import logging
 import sys
 import threading
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
+
+log_dir = Path(__file__).resolve().parent / "logs"
+log_dir.mkdir(parents=True, exist_ok=True)
+log_path = log_dir / "sakura.log"
+crash_log_file = open(log_dir / "crash.log", "a", buffering=1)
+faulthandler.enable(file=crash_log_file, all_threads=True)
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+logger.handlers.clear()
+
+formatter = logging.Formatter("%(asctime)s  %(message)s")
+
+file_handler = RotatingFileHandler(
+    log_path,
+    maxBytes=2 * 1024 * 1024,
+    backupCount=5,
+    encoding="utf-8",
+)
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+
+stream_handler = logging.StreamHandler()
+stream_handler.setFormatter(formatter)
+logger.addHandler(stream_handler)
+
+log = logging.getLogger("sakura")
+
+from core.exception_hooks import install_exception_hooks
+
+install_exception_hooks(log)
 
 from PyQt6.QtCore import QSharedMemory
 from PyQt6.QtWidgets import QApplication
 
 from core.agent import Agent
 from core.events import EventBus
+from core.hands import get_command_registry
 from core.music_listener import start as start_music_listener
 from ui.app import UiBridge, build_tray
 from ui.overlay import Overlay
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(message)s")
-log = logging.getLogger("sakura")
 
 
 def main():
@@ -31,6 +63,8 @@ def main():
     if not guard.create(1):
         log.warning("Сакура уже запущена.")
         return
+
+    get_command_registry()
 
     bus     = EventBus()
     agent   = Agent(bus)

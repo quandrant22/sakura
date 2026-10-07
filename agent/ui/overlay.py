@@ -7,10 +7,13 @@
 """
 
 import ctypes
+import logging
 import math
 import os
 import random
 import sys
+import time
+from functools import wraps
 from html import escape
 
 from PyQt6.QtCore import (Qt, QTimer, QPoint, QPointF, QRectF, QSettings,
@@ -24,6 +27,53 @@ from PyQt6.QtWidgets import (QApplication, QGraphicsDropShadowEffect,
                              QVBoxLayout, QWidget)
 
 import config
+
+_log = logging.getLogger("sakura.overlay")
+_PAINT_CPU_WINDOW_SECONDS = 60.0
+_paint_cpu_window_start = time.monotonic()
+_paint_cpu_seconds = 0.0
+_paint_cpu_events = 0
+_paint_cpu_max = 0.0
+
+
+def _record_hud_paint_cpu(cpu_seconds: float):
+    global _paint_cpu_window_start, _paint_cpu_seconds
+    global _paint_cpu_events, _paint_cpu_max
+
+    now = time.monotonic()
+    _paint_cpu_seconds += cpu_seconds
+    _paint_cpu_events += 1
+    _paint_cpu_max = max(_paint_cpu_max, cpu_seconds)
+    elapsed = now - _paint_cpu_window_start
+    if elapsed < _PAINT_CPU_WINDOW_SECONDS:
+        return
+
+    _log.info(
+        "[overlay-cpu] window_s=%.1f hud_paint_cpu_s=%.3f "
+        "hud_paint_cpu_pct=%.2f paints=%d avg_ms=%.3f max_ms=%.3f",
+        elapsed,
+        _paint_cpu_seconds,
+        _paint_cpu_seconds / elapsed * 100 if elapsed else 0.0,
+        _paint_cpu_events,
+        _paint_cpu_seconds / _paint_cpu_events * 1000,
+        _paint_cpu_max * 1000,
+    )
+    _paint_cpu_window_start = now
+    _paint_cpu_seconds = 0.0
+    _paint_cpu_events = 0
+    _paint_cpu_max = 0.0
+
+
+def _measure_hud_paint(fn):
+    @wraps(fn)
+    def measured(self, *args, **kwargs):
+        started = time.thread_time()
+        try:
+            return fn(self, *args, **kwargs)
+        finally:
+            _record_hud_paint_cpu(time.thread_time() - started)
+
+    return measured
 
 def _qt_quiet(mode, ctx, msg):
     if "UpdateLayeredWindowIndirect" in msg or "SetProcessDpiAwareness" in msg:
@@ -259,6 +309,7 @@ class SphereCore(QWidget):
         p.drawEllipse(QPointF(0, -pt.size * 0.2), pt.size * 0.3, pt.size * 0.5)
         p.restore()
 
+    @_measure_hud_paint
     def paintEvent(self, _):
         w, h = self.width(), self.height()
         if not self._petals and w > 10:

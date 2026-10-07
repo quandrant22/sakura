@@ -106,6 +106,7 @@ vosk-model-small-ru-0.22/
 # Логи
 *.log
 logs/
+agent/logs/
 
 # Временные файлы
 *.tmp
@@ -117,3 +118,7 @@ logs/
 *.jpeg
 !agent/extension/icon*.png
 memory/rituals.json
+
+# A/B-стенд STT: голос пользователя и отдельный тестовый venv
+agent/stt_samples/
+agent/venv-stt-test/

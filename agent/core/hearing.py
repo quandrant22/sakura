@@ -211,6 +211,25 @@ def _normalize_question(text: str) -> str:
     return t
 
 
+def _is_question(text: str) -> bool:
+    """Распознаёт вопрос в тексте без знака препинания.
+
+    1) Первое слово/оборот из _Q_FIRST или оборот из _Q_ANY —
+       проверяем через сам _normalize_question, чтобы правило
+       совпадало с логикой «вопросительное слово в начале»;
+    2) частица «ли» («работает ли это»), кроме составного «то ли»
+       («то ли дождь то ли снег» — это не вопрос).
+    """
+    if _normalize_question(text).endswith("?"):
+        return True
+
+    parts = [w.strip(",.!?:;«»…") for w in text.lower().split()]
+    for i, w in enumerate(parts):
+        if w == "ли" and not (i > 0 and parts[i - 1] == "то"):
+            return True
+    return False
+
+
 # ── GigaAM STT (основной; грузится ОДИН раз при старте, device='cpu') ──
 # Проверено вживую: gigaam.load_model('v2_ctc', device='cpu'),
 # первый запуск качает ~444 МБ, из кэша грузится за ~1.4с,
@@ -459,14 +478,6 @@ class SpeechRecognizer:
 
 # ── Пост-обработка текста Vosk ──────────────────────────────────────
 
-# Вопросительные слова
-_Q_WORDS = (
-    "что", "чё", "чо", "как", "какой", "какая", "какое", "какие",
-    "где", "куда", "откуда", "когда", "почему", "зачем", "отчего",
-    "кто", "кого", "кому", "чей", "чья", "чьё", "сколько", "насколько",
-    "можно", "можешь", "разве", "неужели", "правда",
-)
-
 # Стоп-слова для разделения предложений
 _SPLITTERS = (
     "и", "а", "но", "или", "что", "как", "где", "когда", "потому",
@@ -556,10 +567,10 @@ def _add_smart_punctuation(text: str) -> str:
     if len(words) < 2:
         return text + "."
 
-    # Проверяем — есть ли вопросительное слово?
-    has_question = any(w.lower().rstrip(",.") in _Q_WORDS for w in words)
-
-    if has_question:
+    # Вопрос — только если узнаём его по _Q_FIRST/_Q_ANY (первое
+    # слово/оборот) или по частице «ли». Вопросительное слово
+    # в середине фразы («я знаю что делать») — это не вопрос.
+    if _is_question(text):
         return text + "?"
 
     return text + "."
@@ -637,6 +648,7 @@ class Hearing(threading.Thread):
         self._follow_until = 0.0
         self._dialog       = False
         self._mute_until   = 0.0
+        self._timeline_sequence = 0
         self.vad           = None
         self.recognizer    = None
         if self.ok:
@@ -661,6 +673,16 @@ class Hearing(threading.Thread):
         self._follow_until = time.monotonic() + seconds
 
     def run(self):
+        try:
+            self._run()
+        finally:
+            log.error("[hearing] поток слуха остановлен")
+            try:
+                self.agent.bus.emit("hearing_stopped")
+            except Exception:
+                log.exception("[hearing] не удалось отправить событие остановки")
+
+    def _run(self):
         if not self.ok:
             missing = []
             if not sd:               missing.append("sounddevice")
@@ -752,13 +774,19 @@ class Hearing(threading.Thread):
                         _last_warn = time.monotonic()
                         log.warning(f"[hearing] блок обработан за {_dt:.0f}мс при бюджете {_budget_ms:.0f}мс — поток отстаёт")
                     if any(w in partial for w in config.WAKE_WORDS):
-                        self._capture(stream)
+                        self._timeline_sequence += 1
+                        timeline = {
+                            "id": self._timeline_sequence,
+                            "wake": time.monotonic(),
+                        }
+                        log.info("[timeline] id=%s phase=wake_word", timeline["id"])
+                        self._capture(stream, timeline=timeline)
                         _drain(stream)
                         wake = _fresh_wake()
         except Exception as e:
             log.error(f"Слух упал: {e}")
 
-    def _capture(self, stream):
+    def _capture(self, stream, timeline: dict | None = None):
         self.agent.set_state("listening")
         self.vad.reset()
         pcm       = bytearray()
@@ -776,8 +804,15 @@ class Hearing(threading.Thread):
             data    = bytes(stream.read(config.MIC_BLOCK)[0])
             elapsed = time.monotonic() - start
 
-            if self.vad.speech_prob(data) >= config.VAD_THRESHOLD:
+            speech_probability = self.vad.speech_prob(data)
+            frame_checked_at = time.monotonic()
+            if speech_probability >= config.VAD_THRESHOLD:
+                if not speaking and timeline is not None:
+                    timeline["vad_start"] = frame_checked_at
+                    log.info("[timeline] id=%s phase=vad_start", timeline["id"])
                 speaking, silence = True, 0.0
+                if timeline is not None:
+                    timeline["speech_end"] = frame_checked_at
                 pcm.extend(data)
             elif speaking:
                 pcm.extend(data)
@@ -795,6 +830,13 @@ class Hearing(threading.Thread):
             self.agent.set_state("idle")
             return
 
+        if timeline is not None:
+            log.info("[timeline] id=%s phase=last_voice_frame", timeline["id"])
+        recording_ended_at = time.monotonic()
+        if timeline is not None:
+            timeline["recording_end"] = recording_ended_at
+            log.info("[timeline] id=%s phase=recording_end", timeline["id"])
+
         self.agent.set_state("thinking")
         audio = np.frombuffer(bytes(pcm), dtype=np.int16).astype(np.float32) / 32768.0
 
@@ -804,6 +846,11 @@ class Hearing(threading.Thread):
             log.error(f"Распознавание не удалось: {e}")
             self.agent.set_state("idle")
             return
+
+        stt_ready_at = time.monotonic()
+        if timeline is not None:
+            timeline["stt_ready"] = stt_ready_at
+            log.info("[timeline] id=%s phase=stt_ready", timeline["id"])
 
         if not text:
             self.agent.set_state("idle")
@@ -829,7 +876,7 @@ class Hearing(threading.Thread):
         if self._maybe_game_mode(text):
             return
         self._update_dialog(text)
-        self.agent.submit_user_text(text)
+        self.agent.submit_user_text(text, timeline=timeline)
 
     def _maybe_game_mode(self, text: str) -> bool:
         import difflib
