@@ -168,7 +168,7 @@ class SphereCore(QWidget):
         self._col_targets = [0.0] * 20
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
-        self._timer.start(50)
+        # таймер стартует в showEvent — до показа крутиться незачем
 
     def set_eq_speaking(self, active: bool):
         """Анимация эквалайзера когда Сакура говорит."""
@@ -202,7 +202,9 @@ class SphereCore(QWidget):
     def set_state(self, state: str):
         self._state = state
         self.set_eq_speaking(state == "speaking")
-        self._timer.start(33 if state in _ACTIVE else 50)
+        if self.isVisible() and not self.isMinimized():
+            self._timer.start(33 if state in _ACTIVE else 50)
+        # скрытое окно — только сохраняем состояние, showEvent возобновит
         self.update()
 
     def showEvent(self, e):

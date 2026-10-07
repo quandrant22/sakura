@@ -35,3 +35,14 @@ def test_hidden_window_stops_timer_and_ignores_mic():
     assert w._timer.isActive()
     w.set_audio_level([0.9] * 8)
     assert list(w._eq_target) != before
+
+
+def test_set_state_hidden_does_not_start_timer():
+    _get_app()
+    w = SphereCore()
+    w.hide()
+    w.set_state("thinking")
+    assert not w._timer.isActive()
+    w.show()
+    assert w._timer.isActive()
+    assert w._timer.interval() == 33
