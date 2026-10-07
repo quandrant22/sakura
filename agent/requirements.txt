@@ -1,3 +1,5 @@
+# Проверенное сочетание версий для Windows — requirements.lock.txt
+# (torch и torchaudio в нём разных версий, это ожидаемо).
 # Sakura Agent - Python Dependencies
 # Core
 websockets
