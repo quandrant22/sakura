@@ -205,8 +205,33 @@ class SphereCore(QWidget):
         self._timer.start(33 if state in _ACTIVE else 50)
         self.update()
 
+    def showEvent(self, e):
+        """Возобновить таймер при показе (частоты 20/30 fps не меняем)."""
+        super().showEvent(e)
+        self.set_state(self._state)
+
+    def hideEvent(self, e):
+        """Остановить таймер когда окно скрыто."""
+        super().hideEvent(e)
+        self._timer.stop()
+
+    def changeEvent(self, e):
+        """Остановить при сворачивании, возобновить при разворачивании."""
+        super().changeEvent(e)
+        try:
+            from PyQt6.QtCore import QEvent as _QE
+            if e.type() == _QE.Type.WindowStateChange:
+                if self.isMinimized():
+                    self._timer.stop()
+                elif self.isVisible():
+                    self.set_state(self._state)
+        except Exception:
+            pass
+
     def set_audio_level(self, bars):
-        """Принимает список полос или одно число."""
+        """Принимает список полос или одно число. Скрытое окно — игнор."""
+        if not self.isVisible() or self.isMinimized():
+            return
         if isinstance(bars, list):
             self._eq_target = bars[:8] if len(bars) >= 8 else bars + [0.05]*(8-len(bars))
             # Среднее для общего уровня
