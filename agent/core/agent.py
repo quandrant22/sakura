@@ -19,6 +19,7 @@ _EXTENSION_SERVER = _os.path.join(_root, "core", "extension_server.py")
 if _root not in _sys.path:
     _sys.path.insert(0, _root)
 import logging
+import threading
 import time
 
 import websockets
@@ -175,7 +176,10 @@ class Agent:
         except Exception:
             log.exception("[agent] ошибка проверки зависимостей")
         self.bus     = bus
-        self.state   = "idle"
+        self._state       = "idle"
+        self._state_since = time.monotonic()
+        self._turn_gen    = 0
+        self._state_lock  = threading.Lock()
         self.player  = Player(config.TTS_RATE)
         self.hearing = Hearing(self)
         self._ws     = None
@@ -190,9 +194,27 @@ class Agent:
         self._current_track = {}     # кэш текущего трека (обновляет heartbeat)
         self._abort_flag = False     # аварийный тормоз (abort_all)
 
-    def set_state(self, state: str):
-        self.state = state
+    @property
+    def state(self) -> str:
+        return self._state
+
+    def _set_state(self, state: str):
+        """Единая точка смены состояния (вызывается и из потока слуха).
+
+        При смене на thinking/speaking начинается новая реплика —
+        растёт _turn_gen, отложенный idle от прошлой реплики устаревает.
+        """
+        with self._state_lock:
+            if state != self._state:
+                self._state_since = time.monotonic()
+                if state in ("thinking", "speaking"):
+                    self._turn_gen += 1
+            self._state = state
         self.bus.emit("state", value=state)
+
+    def set_state(self, state: str):
+        # Публичное имя для hearing.py / presence.py
+        self._set_state(state)
 
     def submit_user_text(self, text: str, wake_detected_at: float | None = None,
                          timeline: dict | None = None):
@@ -200,7 +222,7 @@ class Agent:
         if not text:
             return
         self.bus.emit("user_text", text=text)
-        self.set_state("thinking")
+        self._set_state("thinking")
         self.send_threadsafe({
             "type":          "voice_command",
             "device_id":     config.DEVICE_ID,
@@ -370,7 +392,7 @@ class Agent:
             try:
                 # ── Бинарный TTS-чанк (новый формат) ──────────────────────
                 if isinstance(raw, bytes):
-                    self.set_state("speaking")
+                    self._set_state("speaking")
                     self.player.feed_binary(raw)
                     continue
 
@@ -395,14 +417,14 @@ class Agent:
 
                 elif kind == "tts_chunk":
                     # При первом чанке нового ответа — сбрасываем буфер
-                    if self.state != "speaking":
+                    if self._state != "speaking":
                         self.player.interrupt()
-                    self.set_state("speaking")
+                    self._set_state("speaking")
                     self.player.feed(base64.b64decode(data["audio"]))
 
                 elif kind == "tts_end":
                     self.player.flush()
-                    self.set_state("idle")
+                    self._set_state("idle")
                     listen = data.get("listen")
                     if listen is not None:
                         try:
