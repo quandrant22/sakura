@@ -1,4 +1,5 @@
 import importlib.util
+import os
 import sys
 from pathlib import Path
 
@@ -10,6 +11,10 @@ _agent_root_str = str(AGENT_ROOT)
 _added_agent_root = _agent_root_str not in sys.path
 if _added_agent_root:
     sys.path.insert(0, _agent_root_str)
+
+# Токен в репозитории не хранится (config: WS_TOKEN только из .env) —
+# тестам хватает заглушки.
+os.environ.setdefault("WS_TOKEN", "test-token")
 
 _config_spec = importlib.util.spec_from_file_location(
     "sakura_agent_test_config", AGENT_ROOT / "config.py",

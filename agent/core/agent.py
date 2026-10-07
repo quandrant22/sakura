@@ -756,6 +756,10 @@ class Agent:
             log.error(f"[kettle] watch send error: {e}")
 
     async def run(self):
+        # Без токена VPS не пустит — не стучимся вовсе (токен только из .env)
+        if not str(getattr(config, "WS_TOKEN", "") or "").strip():
+            log.error("WS_TOKEN не задан в .env")
+            return
         self._loop = asyncio.get_running_loop()
         from core.presence import prime_system_info
         prime_system_info()
