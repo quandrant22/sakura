@@ -343,7 +343,10 @@ class TestWakeWordUntouched(unittest.TestCase):
         src = inspect.getsource(hearing._get_shared_model)
         self.assertIn("VoskModel", src)
         self.assertNotIn("giga", src.lower())
+        # run — обёртка потока (лог остановки), цикл слуха — в _run.
         run_src = inspect.getsource(hearing.Hearing.run)
+        self.assertIn("self._run()", run_src)
+        run_src += inspect.getsource(hearing.Hearing._run)
         self.assertIn("KaldiRecognizer", run_src)
         self.assertIn('_get_shared_model("wake")', run_src)
         self.assertNotIn("_gigaam", run_src)
