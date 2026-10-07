@@ -778,6 +778,7 @@ async def ensure_turn_end(websocket, device_id: str, since: float) -> None:
         log.debug(f"[tts] tts_end не отправлен: {type(e).__name__}: {e}")
         return
     _last_end[device_id] = time.monotonic()
+    log.info(f"[tts] tts_end добавлен: device={device_id}")
 
 
 # Порог отсечки пустоты/мусора. Прежний порог в 20 символов молчал на
