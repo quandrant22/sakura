@@ -430,7 +430,9 @@ class SpeechRecognizer:
         length = torch.tensor([wav.shape[-1]])
         with torch.inference_mode():
             enc, enc_len = model.forward(wav, length)
-            text = model.decoding.decode(model.head, enc, enc_len)[0]
+            dec = model.decoding.decode(model.head, enc, enc_len)[0]
+        # gigaam 0.2.0: (текст, id токенов, кадры); 0.1.0: строка
+        text = dec[0] if isinstance(dec, tuple) else dec
         text = (text or "").strip()
         # Та же пост-обработка, что и для Vosk (капитализация/пунктуация),
         # но _add_smart_punctuation не трогает текст, где пунктуация уже есть.
