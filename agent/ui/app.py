@@ -46,7 +46,7 @@ def _make_icon(color: str = "#9a7fb5") -> QIcon:
     return QIcon(px)
 
 
-def build_tray(app: QApplication, overlay) -> QSystemTrayIcon:
+def build_tray(app: QApplication, overlay, bridge=None) -> QSystemTrayIcon:
     tray = QSystemTrayIcon(_make_icon(), app)
     menu = QMenu()
     menu.addAction("Показать / скрыть", lambda: overlay.setVisible(not overlay.isVisible()))
@@ -56,6 +56,15 @@ def build_tray(app: QApplication, overlay) -> QSystemTrayIcon:
     game_action.setCheckable(True)
     game_action.toggled.connect(overlay.set_game_mode)
     menu.addAction(game_action)
+    if bridge is not None:
+        # Синхронизация галочки с bridge.gameMode без цикла сигналов
+        def _sync_game_mode(on: bool):
+            game_action.blockSignals(True)
+            try:
+                game_action.setChecked(bool(on))
+            finally:
+                game_action.blockSignals(False)
+        bridge.gameMode.connect(_sync_game_mode)
 
     menu.addSeparator()
     menu.addAction("Выход", app.quit)
