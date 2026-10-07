@@ -130,6 +130,17 @@ _BOOKMARK_RE = re.compile(
 _BOOKMARK_KW = ("запомни это", "сохрани это", "заметь это", "в память")
 
 
+def _bookmark_content(text: str) -> str | None:
+    """Текст закладки («Сакура, запомни это: …») или None, если не закладка.
+
+    e2e-модели ставят запятые, двоеточия, «!»/«?» — снимаем их по краям.
+    """
+    if not any(kw in text.lower() for kw in _BOOKMARK_KW):
+        return None
+    content = _BOOKMARK_RE.sub("", text).strip(" ,.:;!?…—")
+    return content if len(content) > 2 else None
+
+
 def _enable_cuda_libs():
     if os.name != "nt":
         return
@@ -907,13 +918,11 @@ class Hearing(threading.Thread):
             self.agent.last_voice_prosody = prosody
 
         # Голосовая закладка (Фаза 5)
-        tl = text.lower()
-        if any(kw in tl for kw in _BOOKMARK_KW):
-            content = _BOOKMARK_RE.sub("", text).strip(" ,.—")
-            if len(content) > 2:
-                self.agent.bus.emit("voice_bookmark", text=content)
-                log.info(f"[bookmark] {content[:60]}")
-                return
+        content = _bookmark_content(text)
+        if content:
+            self.agent.bus.emit("voice_bookmark", text=content)
+            log.info(f"[bookmark] {content[:60]}")
+            return
 
         if self._maybe_game_mode(text):
             return
