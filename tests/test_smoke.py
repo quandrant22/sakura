@@ -274,7 +274,7 @@ class Test11_WsHandlers(unittest.TestCase):
         }
         pending = self._run_voice_command("нет", ws_dev, pending_system=pending_system)
 
-        ws_dev.send.assert_not_awaited()
+        self.assertEqual(self._agent_sends(ws_dev), [])
         self.assertNotIn("laptop", pending)
 
     def test_expired_pending_system_does_not_trigger(self):
