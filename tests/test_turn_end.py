@@ -253,3 +253,73 @@ def test_ensure_turn_end_respects_since(monkeypatch):
     asyncio.run(_go())
 
     assert len(ws.tts_ends()) == 2
+
+
+# ── ранние return до основного try (обёртка handle_voice_command) ──
+
+
+def test_v3_confirm_yes_without_speech_gets_single_tts_end(monkeypatch):
+    """«да» на v3-подтверждение: команда агенту без озвучки → один tts_end."""
+    ws = FakeWS()
+    _setup(monkeypatch, ws, decision=Decision(None, "conversation"))
+
+    router = _FakeRouter(Decision(None, "conversation"))
+    router.session.pending = object()
+    monkeypatch.setattr(br, "get_router", lambda: router)
+
+    import sakura_core.executor as ex
+
+    async def _exec_crit(action, ws_dev, device_id, *a, **k):
+        await ws_dev.send(json.dumps({"type": "command", "action": action}))
+    monkeypatch.setattr(ex, "execute_critical_action", _exec_crit)
+
+    async def _confirm(text, *, source, on_execute, on_cancel):
+        await on_execute("system.shutdown")
+        return True
+    monkeypatch.setattr(br, "handle_v3_confirm", _confirm)
+
+    voice = AsyncMock()
+    asyncio.run(wh.handle_voice_command(None, _data("да"), _mk_ctx(voice)))
+
+    voice.assert_not_awaited()
+    assert ws.sent == [
+        {"type": "command", "action": "system:shutdown"},
+        {"type": "tts_end", "device_id": "laptop"},
+    ]
+
+
+def test_tts_stop_sends_own_tts_end_only(monkeypatch):
+    """Стоп озвучки: «Хорошо, остановилась.» шлёт свой tts_end → без дубля."""
+    ws = FakeWS()
+    _setup(monkeypatch, ws, decision=Decision(None, "conversation"))
+    import modules.state as state
+    stopped = []
+    monkeypatch.setattr(state, "tts_is_reading", lambda key: True)
+    monkeypatch.setattr(state, "tts_request_stop", stopped.append)
+
+    asyncio.run(wh.handle_voice_command(None, _data("стоп"), _mk_ctx(AsyncMock())))
+
+    assert stopped == ["laptop"]
+    assert ws.tts_ends() == [{"type": "tts_end", "device_id": "laptop"}]
+
+
+def test_pending_confirm_gets_single_tts_end(monkeypatch):
+    """«да» на _pending_system: команда агенту, озвучки нет → один tts_end."""
+    ws = FakeWS()
+    _setup(monkeypatch, ws, decision=Decision(None, "conversation"))
+    monkeypatch.setattr(wh.st, "_pending_commands", {})
+    monkeypatch.setattr(wh.st, "_last_executed", {})
+    monkeypatch.setattr(wh.st, "_pending_system", {
+        "laptop": {"action": "system:shutdown", "device": "laptop",
+                   "ts": time.monotonic()},
+    })
+
+    voice = AsyncMock()
+    asyncio.run(wh.handle_voice_command(None, _data("да"), _mk_ctx(voice)))
+
+    voice.assert_not_awaited()
+    assert "laptop" not in wh.st._pending_system
+    commands = [m for m in ws.sent if m.get("type") == "command"]
+    assert [c["action"] for c in commands] == ["system:shutdown"]
+    assert ws.tts_ends() == [{"type": "tts_end", "device_id": "laptop"}]
+    assert ws.sent[-1]["type"] == "tts_end"
