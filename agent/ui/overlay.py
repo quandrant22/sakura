@@ -890,5 +890,3 @@ class Overlay(QWidget):
         else:
             ex &= ~WS_TRANSPARENT
         ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, ex)
-        self.setWindowFlag(Qt.WindowType.WindowTransparentForInput, enabled)
-        self.show()
