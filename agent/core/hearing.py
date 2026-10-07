@@ -268,8 +268,51 @@ def _giga_load_model(model_name, device="cpu", **kw):
     return _real_load(model_name, device=device, **kw)
 
 
+_GIGAAM_FALLBACK_MODEL = "v2_ctc"
+
+
+def _load_gigaam_one(model_name: str, device: str):
+    """Загружает одну модель GigaAM. Исключение — если не вышло."""
+    with warnings.catch_warnings():
+        # Глушим FutureWarning про weights_only (внутри torch.load
+        # в gigaam) — безобиден, но засоряет вывод. Проверено.
+        warnings.filterwarnings(
+            "ignore", message=".*weights_only.*",
+            category=FutureWarning,
+        )
+        # Загрузчик резолвится через _giga_load_model (точка подмены
+        # для тестов) — в проде это настоящий gigaam.load_model.
+        _giga_load = _giga_load_model
+        # Совместимость torch: gigaam вызывает torch.load() без
+        # weights_only, что ломается на torch>=2.6 (UnpicklingError:
+        # дефолт стал True). Чекпоинт — из доверенного кэша gigaam,
+        # поэтому на время загрузки подменяем дефолт на False.
+        # ТОЛЬКО device='cpu'.
+        _orig_torch_load = torch.load
+
+        def _trusted_load(*a, **k):
+            k.setdefault("weights_only", False)
+            return _orig_torch_load(*a, **k)
+
+        torch.load = _trusted_load
+        try:
+            # fp16_encoder=False: на CPU fp16 всё равно не
+            # поддерживается, зато не эмитится WARNING
+            # «fp16 is not supported on CPU».
+            model = _giga_load(
+                model_name, device=device, fp16_encoder=False,
+            )
+        finally:
+            torch.load = _orig_torch_load
+    model.eval()
+    return model
+
+
 def _get_gigaam_model():
-    """Загружает GigaAM один раз и кеширует. Возвращает None если недоступен."""
+    """Загружает GigaAM один раз и кеширует. Возвращает None если недоступен.
+
+    Цепочка: GIGAAM_MODEL → v2_ctc → (None: SpeechRecognizer берёт Vosk).
+    """
     global _shared_gigaam_model, _shared_gigaam_name
     if _shared_gigaam_model is not None:
         return _shared_gigaam_model
@@ -281,49 +324,24 @@ def _get_gigaam_model():
         if torch is None:
             log.warning("GigaAM недоступен: нет torch.")
             return None
-        model_name = getattr(config, "GIGAAM_MODEL", "v2_ctc")
+        wanted = str(getattr(config, "GIGAAM_MODEL", _GIGAAM_FALLBACK_MODEL)
+                     or _GIGAAM_FALLBACK_MODEL).strip()
+        chain = [wanted]
+        if wanted != _GIGAAM_FALLBACK_MODEL:
+            chain.append(_GIGAAM_FALLBACK_MODEL)
         device = _gigaam_device()
-        try:
-            with warnings.catch_warnings():
-                # Глушим FutureWarning про weights_only (внутри torch.load
-                # в gigaam) — безобиден, но засоряет вывод. Проверено.
-                warnings.filterwarnings(
-                    "ignore", message=".*weights_only.*",
-                    category=FutureWarning,
-                )
-                # Загрузчик резолвится через _giga_load_model (точка подмены
-                # для тестов) — в проде это настоящий gigaam.load_model.
-                _giga_load = _giga_load_model
-                # Совместимость torch: gigaam вызывает torch.load() без
-                # weights_only, что ломается на torch>=2.6 (UnpicklingError:
-                # дефолт стал True). Чекпоинт — из доверенного кэша gigaam,
-                # поэтому на время загрузки подменяем дефолт на False.
-                # На целевом torch<=2.5.1 это просто подавляет FutureWarning.
-                # ТОЛЬКО device='cpu'.
-                _orig_torch_load = torch.load
-
-                def _trusted_load(*a, **k):
-                    k.setdefault("weights_only", False)
-                    return _orig_torch_load(*a, **k)
-
-                torch.load = _trusted_load
-                try:
-                    # fp16_encoder=False: на CPU fp16 всё равно не
-                    # поддерживается, зато не эмитится WARNING
-                    # «fp16 is not supported on CPU».
-                    model = _giga_load(
-                        model_name, device=device, fp16_encoder=False,
-                    )
-                finally:
-                    torch.load = _orig_torch_load
-            model.eval()
+        for i, model_name in enumerate(chain):
+            try:
+                model = _load_gigaam_one(model_name, device)
+            except Exception as e:
+                nxt = chain[i + 1] if i + 1 < len(chain) else "Vosk"
+                log.warning(f"[STT] модель {model_name} не загрузилась ({e}), пробую {nxt}")
+                continue
             _shared_gigaam_model = model
             _shared_gigaam_name = model_name
             log.info(f"[STT] Движок: GigaAM {model_name} ({device})")
             return model
-        except Exception as e:
-            log.error(f"[GigaAM] не загрузился ({model_name}): {e}")
-            return None
+        return None
 
 
 class SpeechRecognizer:
