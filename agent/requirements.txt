@@ -1,3 +1,5 @@
+# Проверенное сочетание версий для Windows — requirements.lock.txt
+# (torch и torchaudio в нём разных версий, это ожидаемо).
 # Sakura Agent - Python Dependencies
 # Core
 websockets
@@ -26,15 +28,16 @@ psutil
 pynput
 
 # Аудио / речь
-# ВАЖНО: gigaam требует torch<=2.5.1 — pip сам откатит более новый torch
-# (проверено вживую: Silero VAD на 2.5.1 работает, слух не ломается).
-# Порядок важен: сначала torch<=2.5.1, потом gigaam.
+# torch — CPU-сборка, ставить с индексом PyTorch:
+#   pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+# gigaam (модели GigaAM v3) — из GitHub на закреплённом коммите;
+# extra [torch] тянет torchaudio (gigaam импортирует его при старте).
 sounddevice
 vosk
 numpy
-torch<=2.5.1
+torch>=2.6
 silero-vad
-gigaam
+gigaam[torch] @ git+https://github.com/salute-developers/GigaAM.git@7447938d791c4f3e643386ee22c33777004293a5
 
 # Музыка (API Яндекс Музыки)
 yandex-music>=3.0,<4

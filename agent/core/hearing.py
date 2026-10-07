@@ -130,6 +130,17 @@ _BOOKMARK_RE = re.compile(
 _BOOKMARK_KW = ("запомни это", "сохрани это", "заметь это", "в память")
 
 
+def _bookmark_content(text: str) -> str | None:
+    """Текст закладки («Сакура, запомни это: …») или None, если не закладка.
+
+    e2e-модели ставят запятые, двоеточия, «!»/«?» — снимаем их по краям.
+    """
+    if not any(kw in text.lower() for kw in _BOOKMARK_KW):
+        return None
+    content = _BOOKMARK_RE.sub("", text).strip(" ,.:;!?…—")
+    return content if len(content) > 2 else None
+
+
 def _enable_cuda_libs():
     if os.name != "nt":
         return
@@ -235,6 +246,7 @@ def _is_question(text: str) -> bool:
 # первый запуск качает ~444 МБ, из кэша грузится за ~1.4с,
 # «открой дискорд» → 'открой дискорд' за 0.47с (Vosk давал мусор).
 _shared_gigaam_model = None
+_shared_gigaam_name = ""     # имя загруженной модели (v2_ctc, v3_e2e_ctc, …)
 _shared_gigaam_lock = threading.Lock()
 
 
@@ -267,9 +279,63 @@ def _giga_load_model(model_name, device="cpu", **kw):
     return _real_load(model_name, device=device, **kw)
 
 
+_GIGAAM_FALLBACK_MODEL = "v2_ctc"
+
+
+def _audio_seconds(audio) -> float:
+    """Длина аудио (float32 моно, MIC_RATE) в секундах — для лога [STT]."""
+    try:
+        n = getattr(audio, "size", None)
+        if n is None:
+            n = len(audio)
+        return n / float(getattr(config, "MIC_RATE", 16000))
+    except Exception:
+        return 0.0
+
+
+def _load_gigaam_one(model_name: str, device: str):
+    """Загружает одну модель GigaAM. Исключение — если не вышло."""
+    with warnings.catch_warnings():
+        # Глушим FutureWarning про weights_only (внутри torch.load
+        # в gigaam) — безобиден, но засоряет вывод. Проверено.
+        warnings.filterwarnings(
+            "ignore", message=".*weights_only.*",
+            category=FutureWarning,
+        )
+        # Загрузчик резолвится через _giga_load_model (точка подмены
+        # для тестов) — в проде это настоящий gigaam.load_model.
+        _giga_load = _giga_load_model
+        # Совместимость torch: gigaam вызывает torch.load() без
+        # weights_only, что ломается на torch>=2.6 (UnpicklingError:
+        # дефолт стал True). Чекпоинт — из доверенного кэша gigaam,
+        # поэтому на время загрузки подменяем дефолт на False.
+        # ТОЛЬКО device='cpu'.
+        _orig_torch_load = torch.load
+
+        def _trusted_load(*a, **k):
+            k.setdefault("weights_only", False)
+            return _orig_torch_load(*a, **k)
+
+        torch.load = _trusted_load
+        try:
+            # fp16_encoder=False: на CPU fp16 всё равно не
+            # поддерживается, зато не эмитится WARNING
+            # «fp16 is not supported on CPU».
+            model = _giga_load(
+                model_name, device=device, fp16_encoder=False,
+            )
+        finally:
+            torch.load = _orig_torch_load
+    model.eval()
+    return model
+
+
 def _get_gigaam_model():
-    """Загружает GigaAM один раз и кеширует. Возвращает None если недоступен."""
-    global _shared_gigaam_model
+    """Загружает GigaAM один раз и кеширует. Возвращает None если недоступен.
+
+    Цепочка: GIGAAM_MODEL → v2_ctc → (None: SpeechRecognizer берёт Vosk).
+    """
+    global _shared_gigaam_model, _shared_gigaam_name
     if _shared_gigaam_model is not None:
         return _shared_gigaam_model
     with _shared_gigaam_lock:
@@ -280,48 +346,24 @@ def _get_gigaam_model():
         if torch is None:
             log.warning("GigaAM недоступен: нет torch.")
             return None
-        model_name = getattr(config, "GIGAAM_MODEL", "v2_ctc")
+        wanted = str(getattr(config, "GIGAAM_MODEL", _GIGAAM_FALLBACK_MODEL)
+                     or _GIGAAM_FALLBACK_MODEL).strip()
+        chain = [wanted]
+        if wanted != _GIGAAM_FALLBACK_MODEL:
+            chain.append(_GIGAAM_FALLBACK_MODEL)
         device = _gigaam_device()
-        try:
-            with warnings.catch_warnings():
-                # Глушим FutureWarning про weights_only (внутри torch.load
-                # в gigaam) — безобиден, но засоряет вывод. Проверено.
-                warnings.filterwarnings(
-                    "ignore", message=".*weights_only.*",
-                    category=FutureWarning,
-                )
-                # Загрузчик резолвится через _giga_load_model (точка подмены
-                # для тестов) — в проде это настоящий gigaam.load_model.
-                _giga_load = _giga_load_model
-                # Совместимость torch: gigaam вызывает torch.load() без
-                # weights_only, что ломается на torch>=2.6 (UnpicklingError:
-                # дефолт стал True). Чекпоинт — из доверенного кэша gigaam,
-                # поэтому на время загрузки подменяем дефолт на False.
-                # На целевом torch<=2.5.1 это просто подавляет FutureWarning.
-                # ТОЛЬКО device='cpu'.
-                _orig_torch_load = torch.load
-
-                def _trusted_load(*a, **k):
-                    k.setdefault("weights_only", False)
-                    return _orig_torch_load(*a, **k)
-
-                torch.load = _trusted_load
-                try:
-                    # fp16_encoder=False: на CPU fp16 всё равно не
-                    # поддерживается, зато не эмитится WARNING
-                    # «fp16 is not supported on CPU».
-                    model = _giga_load(
-                        model_name, device=device, fp16_encoder=False,
-                    )
-                finally:
-                    torch.load = _orig_torch_load
-            model.eval()
+        for i, model_name in enumerate(chain):
+            try:
+                model = _load_gigaam_one(model_name, device)
+            except Exception as e:
+                nxt = chain[i + 1] if i + 1 < len(chain) else "Vosk"
+                log.warning(f"[STT] модель {model_name} не загрузилась ({e}), пробую {nxt}")
+                continue
             _shared_gigaam_model = model
+            _shared_gigaam_name = model_name
             log.info(f"[STT] Движок: GigaAM {model_name} ({device})")
             return model
-        except Exception as e:
-            log.error(f"[GigaAM] не загрузился ({model_name}): {e}")
-            return None
+        return None
 
 
 class SpeechRecognizer:
@@ -334,6 +376,7 @@ class SpeechRecognizer:
 
     def __init__(self):
         self._gigaam  = None
+        self._gigaam_name = ""
         self._model   = None  # Vosk fallback (ленивый: грузим по требованию)
         self._lock    = threading.Lock()
         self.backend  = "none"
@@ -352,6 +395,7 @@ class SpeechRecognizer:
             reason = "нет torch"
         else:
             self._gigaam = _get_gigaam_model()
+            self._gigaam_name = _shared_gigaam_name
             if self._gigaam is None:
                 reason = "не загрузился"
         if self._gigaam is not None:
@@ -369,14 +413,16 @@ class SpeechRecognizer:
 
     def transcribe(self, audio) -> str:
         """Принимает numpy array float32, возвращает строку."""
+        audio_sec = _audio_seconds(audio)
         if self._gigaam is not None:
             with self._lock:
                 try:
                     t0 = time.monotonic()
-                    text = self._run_gigaam(self._gigaam, audio)
+                    text = self._run_gigaam(self._gigaam, audio, self._gigaam_name)
                     dt = time.monotonic() - t0
                     if text:
-                        log.info(f"[STT] {text!r} ({dt:.2f}с)")
+                        log.info(f"[STT] {text!r} ({dt:.2f}с, {self._gigaam_name}, "
+                                 f"аудио {audio_sec:.1f}с)")
                     return text
                 except Exception as e:
                     log.warning(f"GigaAM упал при распознавании ({e}) — фолбэк на Vosk")
@@ -392,7 +438,8 @@ class SpeechRecognizer:
                         return ""
                     dt = time.monotonic() - t0
                     if text:
-                        log.info(f"[STT] {text!r} ({dt:.2f}с, vosk-фолбэк)")
+                        log.info(f"[STT] {text!r} ({dt:.2f}с, vosk-фолбэк, "
+                                 f"аудио {audio_sec:.1f}с)")
                     return text
         model = self._model or self._build()
         self._model = model
@@ -407,7 +454,7 @@ class SpeechRecognizer:
                 return ""
         dt = time.monotonic() - t0
         if text:
-            log.info(f"[STT] {text!r} ({dt:.2f}с)")
+            log.info(f"[STT] {text!r} ({dt:.2f}с, vosk, аудио {audio_sec:.1f}с)")
         return text
 
     def _build(self):
@@ -417,7 +464,7 @@ class SpeechRecognizer:
             log.warning("Vosk STT-фолбэк недоступен: модель не загружена.")
         return model
 
-    def _run_gigaam(self, model, audio) -> str:
+    def _run_gigaam(self, model, audio, model_name: str = "") -> str:
         """Прямой путь из памяти БЕЗ ffmpeg (transcribe() требует ffmpeg,
         которого на машине нет). Проверенный рабочий код."""
         import numpy as _np
@@ -430,8 +477,14 @@ class SpeechRecognizer:
         length = torch.tensor([wav.shape[-1]])
         with torch.inference_mode():
             enc, enc_len = model.forward(wav, length)
-            text = model.decoding.decode(model.head, enc, enc_len)[0]
+            dec = model.decoding.decode(model.head, enc, enc_len)[0]
+        # gigaam 0.2.0: (текст, id токенов, кадры); 0.1.0: строка
+        text = dec[0] if isinstance(dec, tuple) else dec
         text = (text or "").strip()
+        # e2e-модели сами ставят пунктуацию, заглавные и нормализуют
+        # числа — пост-обработка им только вредит.
+        if "e2e" in (model_name or ""):
+            return text
         # Та же пост-обработка, что и для Vosk (капитализация/пунктуация),
         # но _add_smart_punctuation не трогает текст, где пунктуация уже есть.
         text = _post_process(text)
@@ -856,7 +909,7 @@ class Hearing(threading.Thread):
             self.agent.set_state("idle")
             return
 
-        # (лог "[STT] 'текст' (N.NNс)" уже пишет transcribe() с замером времени)
+        # (лог "[STT] 'текст' (N.NNс, модель, аудио N.Nс)" уже пишет transcribe())
 
         # Анализ просодии — мягко влияет на настроение
         prosody = analyze_voice_emotion(bytes(pcm))
@@ -865,13 +918,11 @@ class Hearing(threading.Thread):
             self.agent.last_voice_prosody = prosody
 
         # Голосовая закладка (Фаза 5)
-        tl = text.lower()
-        if any(kw in tl for kw in _BOOKMARK_KW):
-            content = _BOOKMARK_RE.sub("", text).strip(" ,.—")
-            if len(content) > 2:
-                self.agent.bus.emit("voice_bookmark", text=content)
-                log.info(f"[bookmark] {content[:60]}")
-                return
+        content = _bookmark_content(text)
+        if content:
+            self.agent.bus.emit("voice_bookmark", text=content)
+            log.info(f"[bookmark] {content[:60]}")
+            return
 
         if self._maybe_game_mode(text):
             return

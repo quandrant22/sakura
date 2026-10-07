@@ -12,7 +12,7 @@ load_dotenv(override=True)
 # ── Подключение к VPS ───────────────────────────────────────────────
 VPS_WS_URL   = os.getenv("VPS_WS_URL",   "ws://31.76.80.5:8765")
 DEVICE_ID    = os.getenv("DEVICE_ID",     "laptop")
-WS_TOKEN     = os.getenv("WS_TOKEN",      "ae89231d100bd2adf5981a079e2c7de8e5ae7c35dbfc58347ad30c97df69fe20")
+WS_TOKEN     = os.getenv("WS_TOKEN",      "")  # только из .env, без значения по умолчанию
 PING_INTERVAL = int(os.getenv("PING_INTERVAL", "25"))
 WINDOW_POLL   = int(os.getenv("WINDOW_POLL", "2"))
 RECONNECT_SEC = int(os.getenv("RECONNECT_SEC", "3"))

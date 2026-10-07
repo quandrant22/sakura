@@ -161,9 +161,6 @@ class SphereCore(QWidget):
         self._eq_target  = [0.05] * 8
         self._game_mode  = False
         self._mood_color = None    # цвет от mood_vector
-        self._mood_pulse = 0.05
-        self._mood_pet_spd = 1.0
-        self._mood_weather = "clear"
         self._breathe_phase = 0.0  # ambient breathing
         self._breathe_amp = 0.0    # текущая амплитуда дыхания
         import random as _rr
@@ -171,7 +168,7 @@ class SphereCore(QWidget):
         self._col_targets = [0.0] * 20
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
-        self._timer.start(50)
+        # таймер стартует в showEvent — до показа крутиться незачем
 
     def set_eq_speaking(self, active: bool):
         """Анимация эквалайзера когда Сакура говорит."""
@@ -191,11 +188,7 @@ class SphereCore(QWidget):
                 self._mood_color = _QC(params["color"])
         except Exception:
             pass
-        self._mood_pulse   = float(params.get("pulse_amp",   getattr(self, "_mood_pulse",   0.05)))
-        self._mood_pet_spd = float(params.get("petal_speed", getattr(self, "_mood_pet_spd", 1.0)))
-        self._mood_weather = str(  params.get("inner_weather",getattr(self, "_mood_weather","clear")))
-
-        # Плавное обновление цвета колец и скобок
+        # Плавное обновление цвета колец и скобок (idle; в active — цвет состояния)
         try:
             from PyQt6.QtGui import QColor as _QC
             if "color" in params:
@@ -208,11 +201,39 @@ class SphereCore(QWidget):
 
     def set_state(self, state: str):
         self._state = state
-        self._timer.start(33 if state in _ACTIVE else 50)
+        self.set_eq_speaking(state == "speaking")
+        if self.isVisible() and not self.isMinimized():
+            self._timer.start(33 if state in _ACTIVE else 50)
+        # скрытое окно — только сохраняем состояние, showEvent возобновит
         self.update()
 
+    def showEvent(self, e):
+        """Возобновить таймер при показе (частоты 20/30 fps не меняем)."""
+        super().showEvent(e)
+        self.set_state(self._state)
+
+    def hideEvent(self, e):
+        """Остановить таймер когда окно скрыто."""
+        super().hideEvent(e)
+        self._timer.stop()
+
+    def changeEvent(self, e):
+        """Остановить при сворачивании, возобновить при разворачивании."""
+        super().changeEvent(e)
+        try:
+            from PyQt6.QtCore import QEvent as _QE
+            if e.type() == _QE.Type.WindowStateChange:
+                if self.isMinimized():
+                    self._timer.stop()
+                elif self.isVisible():
+                    self.set_state(self._state)
+        except Exception:
+            pass
+
     def set_audio_level(self, bars):
-        """Принимает список полос или одно число."""
+        """Принимает список полос или одно число. Скрытое окно — игнор."""
+        if not self.isVisible() or self.isMinimized():
+            return
         if isinstance(bars, list):
             self._eq_target = bars[:8] if len(bars) >= 8 else bars + [0.05]*(8-len(bars))
             # Среднее для общего уровня
@@ -327,8 +348,9 @@ class SphereCore(QWidget):
         for pt in self._petals:
             self._draw_petal(p, pt)
 
-        # тиковое кольцо — используем mood цвет если есть
-        ring_c = getattr(self, '_ring_color', None) or c
+        # тиковое кольцо — в idle настроение красит, в active цвет состояния
+        ring_src = c if active else (getattr(self, '_ring_color', None) or c)
+        ring_c = QColor(ring_src)
         p.save(); p.translate(cx, cy); p.rotate(self._a1)
         tick = QColor(ring_c); tick.setAlpha(150 if active else 90)
         p.setPen(QPen(tick, 1.0))
@@ -506,6 +528,10 @@ class Overlay(QWidget):
         self._game = False
         self._suspend = False
         self._drag_offset = None
+        self._geom_save_timer = QTimer(self)
+        self._geom_save_timer.setSingleShot(True)
+        self._geom_save_timer.setInterval(500)
+        self._geom_save_timer.timeout.connect(self._save_geometry)
         self._build_window()
         self._build_ui()
         self._restore_geometry()
@@ -624,17 +650,24 @@ class Overlay(QWidget):
         self._anchor = anchor
         self._save_geometry()
 
+    def _schedule_geometry_save(self):
+        """Дебаунс записи геометрии: QTimer single-shot 500 мс."""
+        try:
+            self._geom_save_timer.start(500)
+        except Exception:
+            pass
+
     def resizeEvent(self, e):
         super().resizeEvent(e)
         if not self._suspend and not self._game:
             self._anchor = self.geometry().bottomRight()
-            self._save_geometry()
+            self._schedule_geometry_save()
 
     def moveEvent(self, e):
         super().moveEvent(e)
         if not self._suspend and not self._game:
             self._anchor = self.geometry().bottomRight()
-            self._save_geometry()
+            self._schedule_geometry_save()
 
     # ── приём событий ядра ──────────────────────────────────────────
     def set_state(self, state: str):
@@ -650,6 +683,10 @@ class Overlay(QWidget):
     def add_sakura_message(self, text: str):
         self._push("Сакура", text, _STATE["speaking"]["color"])
 
+    def add_system_message(self, text: str):
+        """Служебное сообщение агента (нет токена и т.п.) — та же лента."""
+        self._push("Агент", text, _STATE["idle"]["color"])
+
     def set_mood(self, params: dict):
         """Применяет mood-параметры орба от VPS. Поддерживает game_theme."""
         try:
@@ -664,27 +701,17 @@ class Overlay(QWidget):
     def _apply_game_theme(self, theme: dict):
         """Меняет цветовую схему панели под жанр игры."""
         try:
-            orb_color   = theme.get("orb", "#9a7fb5")
+            from PyQt6.QtGui import QColor as _QC
+            orb_color = theme.get("orb", "#9a7fb5")
             panel_color = theme.get("color", "#09090e")
-            # Обновляем цвет свечения орба
-            from PyQt6.QtGui import QColor
-            self._glow.setColor(QColor(orb_color))
-            # Обновляем фон панели
+            # Свечение заголовка — цветом орба темы
+            self._glow.setColor(_QC(orb_color))
+            # Фон панели читает paintEvent из self._panel_bg
             r = int(panel_color[1:3], 16)
             g = int(panel_color[3:5], 16)
             b = int(panel_color[5:7], 16)
-            self.findChild(__import__('PyQt6.QtWidgets', fromlist=['QWidget']).QWidget, 'panel')
-            # Применяем через objectName
-            for widget in self.findChildren(
-                __import__('PyQt6.QtWidgets', fromlist=['QWidget']).QWidget
-            ):
-                if widget.objectName() == "panel":
-                    widget.setStyleSheet(
-                        f"#panel {{ background: rgba({r},{g},{b},210); "
-                        f"border: 1px solid rgba(120,200,255,52); "
-                        f"border-radius: 18px; }}"
-                    )
-                    break
+            self._panel_bg = _QC(r, g, b, 210)
+            self.update()
         except Exception:
             pass
 
@@ -752,7 +779,7 @@ class Overlay(QWidget):
             return
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setBrush(_PANEL_BG)
+        p.setBrush(getattr(self, "_panel_bg", _PANEL_BG))
         p.setPen(QPen(_PANEL_BORDER, 1))
         p.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), 18, 18)
         self._paint_branch(p)

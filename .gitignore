@@ -122,3 +122,9 @@ memory/rituals.json
 # A/B-стенд STT: голос пользователя и отдельный тестовый venv
 agent/stt_samples/
 agent/venv-stt-test/
+# Временный venv для проверки requirements.txt
+venv-check/
+# Эталонные кадры оверлея (тест test_overlay_render.py) — коммитятся
+!agent/tests/render_baseline/*.png
+# Выходные кадры рендера для ручного просмотра — не коммитить
+agent/tests/render_out/
