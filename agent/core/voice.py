@@ -84,6 +84,7 @@ class Player:
         self._lock   = threading.Lock()
         self._stream = None
         self._stream_lock = threading.Lock()
+        self.last_feed_ts = 0.0   # time.monotonic() последнего feed/feed_binary
         self._open_stream()
         threading.Thread(target=self._watchdog, daemon=True).start()
 
@@ -148,6 +149,7 @@ class Player:
             return
         with self._lock:
             self._buf.extend(pcm)
+            self.last_feed_ts = time.monotonic()
 
     def feed_binary(self, data: bytes):
         """Бинарный чанк: 4 байта заголовок + PCM."""
@@ -173,6 +175,11 @@ class Player:
     def is_playing(self) -> bool:
         with self._lock:
             return len(self._buf) > 0
+
+    def is_drained(self) -> bool:
+        """В буфере нет непроигранного звука."""
+        with self._lock:
+            return len(self._buf) == 0
 
     def get_buffer_ms(self) -> float:
         with self._lock:
