@@ -161,9 +161,6 @@ class SphereCore(QWidget):
         self._eq_target  = [0.05] * 8
         self._game_mode  = False
         self._mood_color = None    # цвет от mood_vector
-        self._mood_pulse = 0.05
-        self._mood_pet_spd = 1.0
-        self._mood_weather = "clear"
         self._breathe_phase = 0.0  # ambient breathing
         self._breathe_amp = 0.0    # текущая амплитуда дыхания
         import random as _rr
@@ -191,11 +188,7 @@ class SphereCore(QWidget):
                 self._mood_color = _QC(params["color"])
         except Exception:
             pass
-        self._mood_pulse   = float(params.get("pulse_amp",   getattr(self, "_mood_pulse",   0.05)))
-        self._mood_pet_spd = float(params.get("petal_speed", getattr(self, "_mood_pet_spd", 1.0)))
-        self._mood_weather = str(  params.get("inner_weather",getattr(self, "_mood_weather","clear")))
-
-        # Плавное обновление цвета колец и скобок
+        # Плавное обновление цвета колец и скобок (idle; в active — цвет состояния)
         try:
             from PyQt6.QtGui import QColor as _QC
             if "color" in params:
