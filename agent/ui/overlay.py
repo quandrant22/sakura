@@ -500,6 +500,10 @@ class Overlay(QWidget):
         self._game = False
         self._suspend = False
         self._drag_offset = None
+        self._geom_save_timer = QTimer(self)
+        self._geom_save_timer.setSingleShot(True)
+        self._geom_save_timer.setInterval(500)
+        self._geom_save_timer.timeout.connect(self._save_geometry)
         self._build_window()
         self._build_ui()
         self._restore_geometry()
@@ -618,17 +622,24 @@ class Overlay(QWidget):
         self._anchor = anchor
         self._save_geometry()
 
+    def _schedule_geometry_save(self):
+        """Дебаунс записи геометрии: QTimer single-shot 500 мс."""
+        try:
+            self._geom_save_timer.start(500)
+        except Exception:
+            pass
+
     def resizeEvent(self, e):
         super().resizeEvent(e)
         if not self._suspend and not self._game:
             self._anchor = self.geometry().bottomRight()
-            self._save_geometry()
+            self._schedule_geometry_save()
 
     def moveEvent(self, e):
         super().moveEvent(e)
         if not self._suspend and not self._game:
             self._anchor = self.geometry().bottomRight()
-            self._save_geometry()
+            self._schedule_geometry_save()
 
     # ── приём событий ядра ──────────────────────────────────────────
     def set_state(self, state: str):
