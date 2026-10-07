@@ -268,6 +268,7 @@ from modules.tts_server import (
     stream_tts_to_device,
     preconnect as tts_preconnect,
     release_preconnect as tts_release_preconnect,
+    ensure_turn_end as tts_ensure_turn_end,
 )
 from modules.user_commands import parse_teaching, add as add_cmd, list_all as list_cmds
 from modules.voice_info import pending_forget_active
@@ -688,12 +689,19 @@ async def handle_voice_command(websocket, data, ctx) -> None:
                 log.debug(f"[pranks/react] error: {e}")
         spawn(_maybe_prank_and_react(), name="prank-and-react")
     finally:
-        if handed_off:
-            # Предконнект TTS: если его не забрала первая стадия (например,
-            # пустой ответ), закрываем сразу — слот семафора не держим зря.
-            try:
-                await tts_release_preconnect()
-            except Exception as _pc_err:
-                log.debug(f"[voice] предконнект: закрытие: {_pc_err}")
-        else:
-            await _cancel_voice_prefetch()
+        try:
+            if handed_off:
+                # Предконнект TTS: если его не забрала первая стадия (например,
+                # пустой ответ), закрываем сразу — слот семафора не держим зря.
+                try:
+                    await tts_release_preconnect()
+                except Exception as _pc_err:
+                    log.debug(f"[voice] предконнект: закрытие: {_pc_err}")
+            else:
+                await _cancel_voice_prefetch()
+        finally:
+            # Клиент уходит в idle только по tts_end: потоковый ответ и
+            # команды без озвучки его не шлют — закрываем ход здесь.
+            # Если tts_end (в т.ч. с listen) уже ушёл — второго не будет.
+            if ws_dev is not None:
+                await tts_ensure_turn_end(ws_dev, device_id or "laptop", t_recv)
