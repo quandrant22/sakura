@@ -201,6 +201,7 @@ class SphereCore(QWidget):
 
     def set_state(self, state: str):
         self._state = state
+        self.set_eq_speaking(state == "speaking")
         self._timer.start(33 if state in _ACTIVE else 50)
         self.update()
 
