@@ -683,6 +683,10 @@ class Overlay(QWidget):
     def add_sakura_message(self, text: str):
         self._push("Сакура", text, _STATE["speaking"]["color"])
 
+    def add_system_message(self, text: str):
+        """Служебное сообщение агента (нет токена и т.п.) — та же лента."""
+        self._push("Агент", text, _STATE["idle"]["color"])
+
     def set_mood(self, params: dict):
         """Применяет mood-параметры орба от VPS. Поддерживает game_theme."""
         try:

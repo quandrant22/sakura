@@ -29,6 +29,9 @@ def test_empty_token_no_connect_and_error(monkeypatch, caplog, token):
     spawn.assert_not_called()
     a.hearing.start.assert_not_called()
     assert "WS_TOKEN не задан в .env" in caplog.text
+    # оверлей получает причину (окно не закрывается — run() просто выходит)
+    a.bus.emit.assert_called_once_with(
+        "agent_alert", text="Не задан WS_TOKEN (.env) — агент не подключается")
 
 
 def test_config_has_no_default_token(monkeypatch):

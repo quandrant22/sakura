@@ -759,6 +759,9 @@ class Agent:
         # Без токена VPS не пустит — не стучимся вовсе (токен только из .env)
         if not str(getattr(config, "WS_TOKEN", "") or "").strip():
             log.error("WS_TOKEN не задан в .env")
+            # Окно не закрываем — показываем причину в оверлее
+            self.bus.emit("agent_alert",
+                          text="Не задан WS_TOKEN (.env) — агент не подключается")
             return
         self._loop = asyncio.get_running_loop()
         from core.presence import prime_system_info

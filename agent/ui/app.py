@@ -15,6 +15,7 @@ class UiBridge(QObject):
     orbArrival        = pyqtSignal()
     orbDeparture      = pyqtSignal()
     micLevel          = pyqtSignal(list)
+    agentAlert        = pyqtSignal(str)
 
     def __init__(self, bus):
         super().__init__()
@@ -36,6 +37,8 @@ class UiBridge(QObject):
                 self.orbArrival.emit()
             elif event == "orb_departure":
                 self.orbDeparture.emit()
+            elif event == "agent_alert":
+                self.agentAlert.emit(data.get("text", ""))
 
         bus.subscribe(_on_event)
 

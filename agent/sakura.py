@@ -78,6 +78,7 @@ def main():
     bridge.moodUpdate.connect(overlay.set_mood)        # ← Фаза 2
     bridge.gameMode.connect(overlay.set_game_mode)
     bridge.micLevel.connect(overlay.hud.set_audio_level)
+    bridge.agentAlert.connect(overlay.add_system_message)
     bridge.orbArrival.connect(overlay.animate_arrival)
     bridge.orbDeparture.connect(overlay.animate_departure)
     overlay.submit.connect(agent.submit_user_text)
