@@ -44,6 +44,11 @@ _DRAIN_POLL_SEC = 0.08   # опрос буфера
 _DRAIN_MAX_SEC  = 15.0   # дольше не ждём
 _DRAIN_TAIL_SEC = 0.15   # хвост в звуковой карте после пустого буфера
 
+# Страховка от зависших состояний (сервер не прислал tts_end / ответ)
+_WATCH_PERIOD_SEC   = 0.5
+_SPEAK_STALL_SEC    = 2.5    # speaking, буфер пуст, звука не было столько
+_THINK_TIMEOUT_SEC  = 25.0   # thinking дольше — ответа не будет
+
 
 # ── Музыка (v3, этап 3): канонические имена и явный выбор бэкенда ────────
 # Канонические имена v3 (music.*) принимаются В ДОПОЛНЕНИЕ к старым
@@ -480,6 +485,28 @@ class Agent:
             except (TypeError, ValueError):
                 log.warning("Некорректное окно прослушивания: %r", listen)
 
+    def _check_state_stall(self, now: float | None = None):
+        """Сбросить в idle зависшие speaking/thinking (с WARNING)."""
+        now = time.monotonic() if now is None else now
+        state = self._state
+        if state == "speaking":
+            if (self.player.is_drained()
+                    and now - self.player.last_feed_ts >= _SPEAK_STALL_SEC):
+                log.warning("[state] speaking без tts_end -> idle")
+                self._set_state("idle")
+        elif state == "thinking":
+            if now - self._state_since >= _THINK_TIMEOUT_SEC:
+                log.warning("[state] thinking без ответа -> idle")
+                self._set_state("idle")
+
+    async def _state_watchdog(self):
+        while True:
+            await asyncio.sleep(_WATCH_PERIOD_SEC)
+            try:
+                self._check_state_stall()
+            except Exception:
+                log.exception("[state] ошибка проверки состояния")
+
     async def _run_command(self, action: str, cmd_id: str | None = None,
                            arg: str = ""):
         if not action:
@@ -753,6 +780,7 @@ class Agent:
             log.warning(f"[extension] Не удалось запустить сервер: {_ext_e}")
 
         spawn(self._heartbeat(), name="agent-heartbeat")
+        spawn(self._state_watchdog(), name="state-watchdog")
         spawn(self._screen_analysis_loop(), name="screen-analysis-loop")
         self.hearing.start()
 

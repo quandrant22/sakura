@@ -188,6 +188,60 @@ def test_tts_end_without_listen_does_not_open_followup(fast_drain):
     assert a.hearing.followups == []
 
 
+
+# ── страховки watchdog ──────────────────────────────────────────────────
+
+def test_speaking_stall_goes_idle(monkeypatch, caplog):
+    a = make_agent()
+    monkeypatch.setattr(agent_module.time, "monotonic", lambda: 100.0)
+    a._set_state("speaking")
+    a.player.last_feed_ts = 100.0
+
+    a._check_state_stall(now=102.0)        # тишина < 2.5 с — ждём
+    assert a.state == "speaking"
+
+    a.player.buf = 10                      # буфер ещё играет — не трогаем
+    a._check_state_stall(now=110.0)
+    assert a.state == "speaking"
+
+    a.player.buf = 0
+    with caplog.at_level("WARNING", logger="sakura.agent"):
+        a._check_state_stall(now=102.5)
+    assert a.state == "idle"
+    assert "[state] speaking без tts_end -> idle" in caplog.text
+
+
+def test_thinking_timeout_goes_idle(monkeypatch, caplog):
+    a = make_agent()
+    monkeypatch.setattr(agent_module.time, "monotonic", lambda: 50.0)
+    a._set_state("thinking")
+
+    a._check_state_stall(now=74.9)
+    assert a.state == "thinking"
+
+    with caplog.at_level("WARNING", logger="sakura.agent"):
+        a._check_state_stall(now=75.0)
+    assert a.state == "idle"
+    assert "[state] thinking без ответа -> idle" in caplog.text
+
+
+def test_watchdog_ignores_idle_and_listening(caplog):
+    a = make_agent()
+    for st in ("idle", "listening"):
+        a._set_state(st)
+        a._check_state_stall(now=10_000.0)
+        assert a.state == st
+    assert "[state]" not in caplog.text
+
+
+def test_watchdog_sees_state_set_by_hearing(monkeypatch):
+    a = make_agent()
+    monkeypatch.setattr(agent_module.time, "monotonic", lambda: 0.0)
+    a.set_state("thinking")                # путь hearing.py
+    a._check_state_stall(now=30.0)
+    assert a.state == "idle"
+
+
 def test_drain_wait_is_bounded(monkeypatch, fast_drain):
     monkeypatch.setattr(agent_module, "_DRAIN_MAX_SEC", 0.02)
     a = make_agent()
