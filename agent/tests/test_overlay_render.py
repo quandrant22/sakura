@@ -60,7 +60,8 @@ def _freeze(widget):
     widget._breathe_phase = 0.5
     widget._breathe_amp = 0.02
     widget._petals = []
-    widget._ring_color = None
+    # _ring_color НЕ трогаем: его выставил set_mood() (как в проде).
+    # Сброс в None стирал бы mood-кольцо и baseline mood-кадров был бы неверным.
 
 
 def render_frame(state, mood):
