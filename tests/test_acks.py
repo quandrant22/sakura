@@ -73,6 +73,18 @@ def test_open_app_phrases():
     assert acks.choose("open.app", "pc", "Steam") in {"Открываю.", "Steam запущен."}
 
 
+@pytest.mark.parametrize("action", ["music.volume_up", "music.volume_down", "music.mute"])
+def test_relative_volume_never_says_number(action):
+    for _ in range(20):
+        phrase = acks.choose(action, "pc", "20")
+        assert "20" not in phrase and "{" not in phrase
+
+
+def test_system_volume_says_number():
+    seen = {acks.choose("system.volume", "pc", "70") for _ in range(20)}
+    assert seen == {"Громкость 70.", "Сделала."}
+
+
 def test_wit_probability(monkeypatch):
     monkeypatch.setattr(config, "ACK_WIT_PROB", 1.0)
     assert acks.choose("browser.back", "pc") in acks.WIT

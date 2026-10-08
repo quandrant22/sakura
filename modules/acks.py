@@ -79,7 +79,11 @@ def choose(action: str, device: str, param: str | None = None,
     rng = rng or random
     values = {}
     if param:
-        values = {"n": param, "app": param}
+        values = {"app": param}
+        # Число — только у абсолютной громкости: у volume_up/down/mute
+        # параметр (если есть) — шаг, «Громкость 20.» соврала бы.
+        if action == "system.volume":
+            values["n"] = param
     if rng.random() < config.ACK_WIT_PROB:
         pool = list(WIT)
     else:
