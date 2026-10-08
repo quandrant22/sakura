@@ -124,7 +124,8 @@ async def execute_decision(decision, *, device_ws, device_id, register_command,
 
 async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
                        ack=None, speak=None, resolve_reply=None,
-                       on_llm=None, source: str | None = None) -> bool:
+                       on_llm=None, on_command=None,
+                       source: str | None = None) -> bool:
     """Быстрый путь: реестр (без LLM) → исполнение переехавших доменов.
 
     False — решение не для v3 (разговор или id без хендлера), старый путь
@@ -138,6 +139,9 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
     Ни один из ответчиков не обязателен.
     on_llm — хук Router.route: вызывается в момент старта LLM-классификатора
     (п.2: голосовой стрим стартует параллельно классификации).
+    on_command — async-хук: вердикт «команда» (у решения есть action);
+    зовётся до исполнения и озвучки — голосовой prefetch снимается сразу,
+    а не после ответа команды (иначе шлюз открылся бы по таймауту).
     """
     from modules.state import _current_track
 
@@ -147,6 +151,8 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
     route_source = {"source": source} if source is not None else {}
     decision = await get_router().route(text, context, on_llm=on_llm,
                                         **route_source)
+    if decision.action and on_command is not None:
+        await on_command()
     if decision.reply is not None:
         if resolve_reply is not None:
             await resolve_reply(decision.reply)

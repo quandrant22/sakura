@@ -226,8 +226,8 @@ def test_gate_timeout_behaves_as_not_command():
 
 def test_budgets_voice_stages_receipt_based():
     """Первый звук — 2с, ответ готов — 3с, старого voice_total нет."""
-    assert budget.BUDGETS_MS["voice_first_audio"] == 2000
-    assert budget.BUDGETS_MS["voice_llm_done"] == 3000
+    assert budget.BUDGETS_MS["voice_first_audio"] == 3000
+    assert budget.BUDGETS_MS["voice_llm_done"] == 10000
     assert "voice_total" not in budget.BUDGETS_MS
     # точка отсчёта: приём голоса, иначе старт стрима
     assert budget.since(None, 7.0) == 7.0

@@ -69,12 +69,13 @@ class VoiceGate:
     буфер в TTS и продолжает стрим без потери токенов.
     """
 
-    # Таймаут классификатора — 5с (bridge.get_router: llm_classify timeout=5.0);
-    # ждём чуть дольше, дальше считаем «не команда» (спека п.2).
-    WAIT_S = 6.0
-
+    # Сколько ждать вердикта, дальше считаем «не команда» (спека п.2):
+    # config.VOICE_GATE_WAIT_S (env), по умолчанию 4с. Вердикт «команда»
+    # отменяет стрим раньше — через on_command в v3_fast_path.
     def __init__(self) -> None:
+        import config
         self._ev = asyncio.Event()
+        self.WAIT_S = config.VOICE_GATE_WAIT_S
 
     def open(self) -> None:
         self._ev.set()

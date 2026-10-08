@@ -510,7 +510,9 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
                                   register_command=ctx.get("_register_command"),
                                   speak=_v3_speak,
                                   resolve_reply=_ws_resolve_reply,
-                                  on_llm=_prefetch_voice, source=device_id):
+                                  on_llm=_prefetch_voice,
+                                  on_command=_cancel_voice_prefetch,
+                                  source=device_id):
                 await _cancel_voice_prefetch()
                 return
         except Exception as _v3_err:

@@ -38,6 +38,9 @@ MASTER_DEVICES = set(
     d.strip() for d in os.getenv("MASTER_DEVICES", "laptop,pc").split(",") if d.strip()
 )
 CONFIRM_LISTEN_SEC = float(os.getenv("CONFIRM_LISTEN_SEC", "10"))
+# Шлюз «классификатор ∥ голосовой стрим»: без вердикта дольше этого —
+# считаем «не команда» (adapters/voice.py VoiceGate).
+VOICE_GATE_WAIT_S = float(os.getenv("VOICE_GATE_WAIT_S", "4.0"))
 
 def _history_limit(name, default):
     try:
