@@ -60,6 +60,19 @@ def test_categories():
     assert acks.choose("browser.back", "pc") in acks.PHRASES["default"]
 
 
+@pytest.mark.parametrize("param,category", [
+    (None, "music"), ("", "music"), ("яндекс музыка", "music"), ("Музыку", "music"),
+    ("steam", "open_app"), ("Telegram", "open_app"),
+])
+def test_open_app_category_by_param(param, category):
+    assert acks.category_for("open.app", param) == category
+
+
+def test_open_app_phrases():
+    assert acks.choose("open.app", "pc", None) in {"Включаю.", "Готово."}
+    assert acks.choose("open.app", "pc", "Steam") in {"Открываю.", "Steam запущен."}
+
+
 def test_wit_probability(monkeypatch):
     monkeypatch.setattr(config, "ACK_WIT_PROB", 1.0)
     assert acks.choose("browser.back", "pc") in acks.WIT

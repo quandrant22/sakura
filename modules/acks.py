@@ -42,7 +42,6 @@ CATEGORY: dict[str, str] = {
     "music.mute": "volume",
     "app.switch": "open_app",
     "app.switch_open": "open_app",
-    "open.app": "music",            # «включи музыку»
     "music.play_pause": "music",
     "music.next": "music",
     "music.prev": "music",
@@ -58,7 +57,12 @@ _REASON_MAX = 60
 _last: dict[str, str] = {}
 
 
-def category_for(action: str) -> str:
+def category_for(action: str, param: str | None = None) -> str:
+    # open.app: «включи музыку» (без параметра или про музыку) — music,
+    # иначе запуск приложения.
+    if action == "open.app":
+        p = (param or "").strip().lower()
+        return "music" if not p or "музык" in p else "open_app"
     return CATEGORY.get(action or "", "default")
 
 
@@ -79,7 +83,7 @@ def choose(action: str, device: str, param: str | None = None,
     if rng.random() < config.ACK_WIT_PROB:
         pool = list(WIT)
     else:
-        pool = [t for t in (_fill(p, values) for p in PHRASES[category_for(action)]) if t]
+        pool = [t for t in (_fill(p, values) for p in PHRASES[category_for(action, param)]) if t]
         if not pool:
             pool = list(PHRASES["default"])
     fresh = [p for p in pool if p != _last.get(device)]
