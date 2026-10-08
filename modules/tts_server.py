@@ -510,9 +510,10 @@ async def _pump_session(session, text: str, emotion: str, on_packet) -> int:
 
 
 async def _live_synthesize(text: str, emotion: str, on_packet,
-                           label: str = "") -> int:
+                           label: str = "", strict: bool = False) -> int:
     """Одна Live-сессия: шлёт текст, каждый аудио-пакет отдаёт в on_packet.
-    Возвращает число пакетов. Ошибки глотает (лог + сброс клиента).
+    Возвращает число пакетов. Ошибки глотает (лог + сброс клиента);
+    strict=True — после лога пробрасывает (кэшу нельзя брать обрывок).
     label — метка в логах для двухстадийного пути («стадия 1»/«стадия 2»)."""
     key = get_active_key()
     if not key:
@@ -542,6 +543,8 @@ async def _live_synthesize(text: str, emotion: str, on_packet,
             log.error(f"{tag}Ошибка синтеза: {e!r}")
             global _client
             _client = None
+            if strict:
+                raise
             return sent
 
 
@@ -930,4 +933,9 @@ def start():
 
 
 async def warmup_cache():
-    pass
+    """Предсинтез фраз подтверждений (modules/acks) в фоне: запуск не ждёт."""
+    import config
+    if not config.ACKS_ENABLED:
+        return
+    from modules import acks, tts_cache
+    await tts_cache.warmup(acks.fixed_phrases())

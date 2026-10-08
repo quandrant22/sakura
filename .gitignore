@@ -128,3 +128,4 @@ venv-check/
 !agent/tests/render_baseline/*.png
 # Выходные кадры рендера для ручного просмотра — не коммитить
 agent/tests/render_out/
+memory/tts_cache/

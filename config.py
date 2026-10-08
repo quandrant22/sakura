@@ -41,6 +41,13 @@ CONFIRM_LISTEN_SEC = float(os.getenv("CONFIRM_LISTEN_SEC", "10"))
 # Шлюз «классификатор ∥ голосовой стрим»: без вердикта дольше этого —
 # считаем «не команда» (adapters/voice.py VoiceGate).
 VOICE_GATE_WAIT_S = float(os.getenv("VOICE_GATE_WAIT_S", "4.0"))
+# Голосовые подтверждения команд агента (modules/acks.py): включены,
+# доля «сухих» реплик, через сколько без command_result сказать «Выполняю.».
+ACKS_ENABLED = os.getenv("ACKS_ENABLED", "1").strip().lower() not in ("0", "false", "no", "")
+ACK_WIT_PROB = float(os.getenv("ACK_WIT_PROB", "0.1"))
+ACK_PENDING_S = float(os.getenv("ACK_PENDING_S", "2.0"))
+# Кэш озвученных фраз (modules/tts_cache.py), вне git.
+TTS_CACHE_DIR = os.getenv("TTS_CACHE_DIR", "memory/tts_cache")
 
 def _history_limit(name, default):
     try:

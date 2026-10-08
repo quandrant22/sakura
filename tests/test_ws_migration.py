@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 import adapters.ws as ws
+import modules.acks as acks
 import modules.calendar_module as calendar
 import sakura_core.bridge as bridge
 from sakura_core.router import Router
@@ -19,6 +20,8 @@ def test_ws_registry_dispatch(monkeypatch, text, expected):
     device = AsyncMock()
     speak = AsyncMock()
     voice = AsyncMock()
+    monkeypatch.setattr(acks, "_pending", {})
+    monkeypatch.setattr(acks, "_armed_at", {})
     monkeypatch.setattr(bridge, "_router", Router())
     monkeypatch.setattr(bridge, "_executor", None)
     monkeypatch.setattr(ws.st, "connected_devices", {"test": device})
@@ -40,16 +43,18 @@ def test_ws_registry_dispatch(monkeypatch, text, expected):
         device, {"text": text, "device_id": "test"}, ctx))
     voice.assert_not_awaited()
     sent = [json.loads(c.args[0]) for c in device.send.await_args_list]
-    # ход закрыт одним tts_end (озвучка замокана — его добирает finally)
-    assert sent[-1] == {"type": "tts_end", "device_id": "test"}
-    sent = [m for m in sent if m.get("type") != "tts_end"]
     if expected == "calendar":
-        assert sent == []
+        # ход закрыт одним tts_end (озвучка замокана — его добирает finally)
+        assert sent[-1] == {"type": "tts_end", "device_id": "test"}
+        assert [m for m in sent if m.get("type") != "tts_end"] == []
         assert "Встреча" in speak.await_args.args[0]
     else:
+        # команда агенту с followup=ack: ход закроет tts_end фразы
+        # подтверждения по command_result (modules/acks), не обработчик
         assert sent == [{
             "type": "command", "action": "open_file:README.md", "id": "cmd",
         }]
+        assert "cmd" in acks._pending
 
 
 def test_retired_routers_have_no_production_imports():

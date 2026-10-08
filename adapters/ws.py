@@ -262,6 +262,7 @@ async def ws_handler(websocket):
 
 
 import modules.state as st
+from modules import acks
 from config import MASTER_ID
 from modules.chains import match_voice_trigger, list_voice_triggers, list_custom_chains
 from modules.tts_server import (
@@ -326,7 +327,9 @@ async def handle_voice_command(websocket, data, ctx) -> None:
     try:
         await _handle_voice_command_inner(websocket, data, ctx, t_recv)
     finally:
-        if ws_dev is not None:
+        # Команда агенту с подтверждением: ход закроет tts_end самой фразы
+        # (по command_result или «Выполняю.»), не обработчик.
+        if ws_dev is not None and not acks.closes_turn(device_id or "laptop", t_recv):
             await tts_ensure_turn_end(ws_dev, device_id or "laptop", t_recv)
 
 
@@ -505,6 +508,9 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
                     await stream_tts_to_device(
                         phrase, ws_dev, device_id or "laptop", literal=True,
                         listen=listen)
+            async def _arm_ack(decision, cmd_id):
+                acks.arm(cmd_id, ws=ws_dev, device_id=device_id or "laptop",
+                         action=decision.action, param=decision.param)
             if await v3_fast_path(text, data=data, device_ws=ws_dev,
                                   device_id=device_id,
                                   register_command=ctx.get("_register_command"),
@@ -512,6 +518,7 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
                                   resolve_reply=_ws_resolve_reply,
                                   on_llm=_prefetch_voice,
                                   on_command=_cancel_voice_prefetch,
+                                  on_agent_command=_arm_ack,
                                   source=device_id):
                 await _cancel_voice_prefetch()
                 return

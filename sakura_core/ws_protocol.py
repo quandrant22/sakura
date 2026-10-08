@@ -305,6 +305,12 @@ async def handle_command_result(websocket, data, ctx) -> None:
             st._pending_commands[_cmd_id_from_agent]["detail"] = _cmd_detail
         else:
             st._pending_commands[_cmd_id_from_agent]["status"] = "executed"
+        # Голосовое подтверждение (modules/acks): в фоне — цикл сокета не ждёт.
+        from modules import acks
+        spawn(acks.on_result(_cmd_id_from_agent,
+                             _cmd_ok and not acks.detail_is_error(_cmd_detail),
+                             _cmd_detail),
+              name=f"ack-{_cmd_id_from_agent}")
     elif result:
         _cmd_detail = str(result)
         _cmd_ok = not any(t in _cmd_detail.lower() for t in

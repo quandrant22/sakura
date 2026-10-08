@@ -124,7 +124,7 @@ async def execute_decision(decision, *, device_ws, device_id, register_command,
 
 async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
                        ack=None, speak=None, resolve_reply=None,
-                       on_llm=None, on_command=None,
+                       on_llm=None, on_command=None, on_agent_command=None,
                        source: str | None = None) -> bool:
     """Быстрый путь: реестр (без LLM) → исполнение переехавших доменов.
 
@@ -143,6 +143,8 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
     готовый ответ разговорного слоя (reply); зовётся до исполнения и
     озвучки — голосовой prefetch снимается сразу, а не после ответа
     (иначе шлюз открылся бы по таймауту и стрим звучал поверх).
+    on_agent_command(decision, cmd_id) — async-хук: команда ушла агенту
+    (результат исполнения — cmd_id); голос «вооружает» подтверждение.
     """
     from modules.state import _current_track
 
@@ -173,6 +175,8 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
     )
     if not executed:
         return False
+    if on_agent_command is not None and isinstance(result, str) and result:
+        await on_agent_command(decision, result)
 
     # «Готово» звучит только тогда, когда после него НЕ последует ответ
     # от модели: followup == ack (реестр). При llm ответ придёт через
