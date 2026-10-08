@@ -323,3 +323,50 @@ def test_pending_confirm_gets_single_tts_end(monkeypatch):
     assert [c["action"] for c in commands] == ["system:shutdown"]
     assert ws.tts_ends() == [{"type": "tts_end", "device_id": "laptop"}]
     assert ws.sent[-1]["type"] == "tts_end"
+
+
+# ── chore/turn-end-trace: решения по tts_end видны в журнале ──────
+
+
+def test_send_end_logs_device_and_listen(monkeypatch, caplog):
+    """_send_end пишет INFO «tts_end → device=… listen=…»."""
+    monkeypatch.setattr(tts, "_last_end", {})
+    ws = FakeWS()
+    with caplog.at_level("INFO", logger=tts.log.name):
+        asyncio.run(tts._send_end(ws, "pc", listen=6.0))
+        asyncio.run(tts._send_end(ws, "pc"))
+    msgs = [r.getMessage() for r in caplog.records]
+    assert "[tts] tts_end → device=pc listen=6.0" in msgs
+    assert "[tts] tts_end → device=pc listen=None" in msgs
+
+
+def test_send_end_closed_socket_no_info(monkeypatch, caplog):
+    """Отправка не удалась — INFO «tts_end →» не пишется."""
+    monkeypatch.setattr(tts, "_last_end", {})
+    with caplog.at_level("INFO", logger=tts.log.name):
+        asyncio.run(tts._send_end(FakeWS(closed=True), "pc"))
+    assert not [r for r in caplog.records if "tts_end →" in r.getMessage()]
+
+
+def test_ensure_turn_end_logs_decision(monkeypatch, caplog):
+    """ensure_turn_end пишет решение: since, last_end и отправлен/пропущен."""
+    monkeypatch.setattr(tts, "_last_end", {})
+    ws = FakeWS()
+
+    async def _go():
+        since = time.monotonic()
+        await tts.ensure_turn_end(ws, "pc", since)   # ход не закрыт
+        await tts.ensure_turn_end(ws, "pc", since)   # уже закрыт
+        return since
+
+    with caplog.at_level("INFO", logger=tts.log.name):
+        since = asyncio.run(_go())
+    msgs = [r.getMessage() for r in caplog.records
+            if "ensure_turn_end" in r.getMessage()]
+    assert len(msgs) == 2
+    assert msgs[0] == (f"[tts] ensure_turn_end device=pc since={since:.3f} "
+                       f"last_end=0.000 -> отправлен")
+    assert msgs[1].startswith(f"[tts] ensure_turn_end device=pc since={since:.3f} "
+                              f"last_end=")
+    assert msgs[1].endswith(" -> пропущен")
+    assert len(ws.tts_ends()) == 1

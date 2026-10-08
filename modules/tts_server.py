@@ -759,8 +759,10 @@ async def _send_end(websocket, device_id: str, listen: float | None = None):
             payload["listen"] = listen
         await websocket.send(json.dumps(payload))
         _last_end[device_id] = time.monotonic()
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"[tts] tts_end не отправлен: {type(e).__name__}: {e}")
+        return
+    log.info(f"[tts] tts_end → device={device_id} listen={listen}")
 
 
 async def ensure_turn_end(websocket, device_id: str, since: float) -> None:
@@ -769,7 +771,11 @@ async def ensure_turn_end(websocket, device_id: str, since: float) -> None:
     Клиент возвращает оверлей в idle только по tts_end; потоковый ответ
     и команды без озвучки его не шлют. Повторно не шлёт: tts_end (в том
     числе с listen) уже ушёл после since — ничего не делаем."""
-    if _last_end.get(device_id, 0) >= since:
+    last_end = _last_end.get(device_id, 0)
+    trace = (f"[tts] ensure_turn_end device={device_id} "
+             f"since={since:.3f} last_end={last_end:.3f}")
+    if last_end >= since:
+        log.info(f"{trace} -> пропущен")
         return
     try:
         await websocket.send(json.dumps(
@@ -778,7 +784,7 @@ async def ensure_turn_end(websocket, device_id: str, since: float) -> None:
         log.debug(f"[tts] tts_end не отправлен: {type(e).__name__}: {e}")
         return
     _last_end[device_id] = time.monotonic()
-    log.info(f"[tts] tts_end добавлен: device={device_id}")
+    log.info(f"{trace} -> отправлен")
 
 
 # Порог отсечки пустоты/мусора. Прежний порог в 20 символов молчал на
