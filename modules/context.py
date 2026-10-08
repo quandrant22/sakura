@@ -81,7 +81,11 @@ def get_location_context(hour: int, minute: int, weekday: int) -> dict:
     return {"location": "home", "status": "free", "desc": "дома, выходной"}
 
 
-def get_time_of_day(hour: int) -> str:
+def get_time_of_day(hour: int, minute: int = 0) -> str:
+    # Около полуночи час не говорит модели главного: 23:58 — ещё не ночь,
+    # 00:10 — уже не вечер. Метка — чтобы не путала «полночь» и «час ночи».
+    if hour == 23 and minute >= 40: return "почти полночь"
+    if hour == 0 and minute <= 20:  return "сразу после полуночи"
     if 6 <= hour < 12:    return "утро"
     if 12 <= hour < 17:   return "день"
     if 17 <= hour < 22:   return "вечер"
@@ -255,7 +259,7 @@ def get_full_context(active_window_override: str | None = None) -> dict:
         "time": {
             "now": now.strftime("%H:%M"), "date": now.strftime("%d.%m.%Y"),
             "weekday": ["пн", "вт", "ср", "чт", "пт", "сб", "вс"][weekday],
-            "time_of_day": get_time_of_day(now.hour), "hour": now.hour,
+            "time_of_day": get_time_of_day(now.hour, now.minute), "hour": now.hour,
         },
         "master": {
             "location": location["location"], "status": location["status"],
@@ -337,7 +341,7 @@ def build_context_block(active_window_override: str | None = None) -> str:
     ctx = get_full_context(active_window_override)
     t, m, d, s, p, body = (ctx["time"], ctx["master"], ctx["devices"],
                            ctx["sakura"], ctx["proactive"], ctx["body"])
-    lines = [f"СЕЙЧАС: {t['now']}, {t['weekday']}, {t['time_of_day']}",
+    lines = [f"СЕЙЧАС: {t['now']} ({t['time_of_day']}), {t['weekday']}",
              f"МАСТЕР: {m['location_desc']}"]
 
     activity_map = {
