@@ -1,7 +1,9 @@
 """Кэш озвученных фраз: PCM в памяти (LRU) и на диске (config.TTS_CACHE_DIR).
 
-Ключ — (модель озвучки, голос, стиль-префикс, текст): смена любого из них
-даёт новый ключ, и фраза синтезируется заново. Отправка на устройство —
+Ключ — (модель озвучки, голос, стиль TTS_STYLE, хеш system_instruction,
+стиль-префикс, текст): смена любого из них даёт новый ключ, и фраза
+синтезируется заново. TTS_STYLE и TTS_SYSTEM_INSTRUCTION появятся в
+tts_server с выбором модели (этап 3); до тех пор — пустые. Отправка на устройство —
 тем же путём, что обычная озвучка: пакеты tts_chunk и в конце tts_end.
 """
 
@@ -30,7 +32,11 @@ _locks: dict[str, asyncio.Lock] = {}
 
 
 def cache_key(text: str) -> str:
-    raw = "\x1f".join((tts.TTS_MODEL, tts.TTS_VOICE, tts._tts_prefix(), text))
+    style = getattr(tts, "TTS_STYLE", "") or ""
+    sysinstr = getattr(tts, "TTS_SYSTEM_INSTRUCTION", "") or ""
+    sysinstr_hash = hashlib.sha1(sysinstr.encode("utf-8")).hexdigest()
+    raw = "\x1f".join((tts.TTS_MODEL, tts.TTS_VOICE, style, sysinstr_hash,
+                        tts._tts_prefix(), text))
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()
 
 

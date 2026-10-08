@@ -141,6 +141,18 @@ def test_cache_key_changes_with_model_or_voice(synth_calls, monkeypatch):
     assert synth_calls == ["Есть.", "Есть.", "Есть."]
 
 
+def test_cache_key_changes_with_style_and_system_instruction(monkeypatch):
+    base = tts_cache.cache_key("Есть.")
+    monkeypatch.setattr(tts, "TTS_STYLE", "S2", raising=False)
+    with_style = tts_cache.cache_key("Есть.")
+    monkeypatch.setattr(tts, "TTS_SYSTEM_INSTRUCTION", "Ты голос Сакуры.", raising=False)
+    with_si = tts_cache.cache_key("Есть.")
+    monkeypatch.setattr(tts, "TTS_SYSTEM_INSTRUCTION", "Ты голос Сакуры!", raising=False)
+    with_si2 = tts_cache.cache_key("Есть.")
+    assert len({base, with_style, with_si, with_si2}) == 4
+    assert tts_cache.cache_key("Есть.") == with_si2          # стабилен
+
+
 def test_failed_synthesis_not_cached(monkeypatch):
     async def _boom(text, emotion, on_packet, label="", strict=False):
         await on_packet(b"\x00\x00" * 10)        # обрывок
