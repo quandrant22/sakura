@@ -143,3 +143,60 @@ def test_env_changes_gate_wait():
 
 def test_gate_wait_default_is_4s():
     assert _wait_in_subprocess(None) == "4.0 4.0"
+
+
+def test_reply_cancels_prefetch_before_long_speak(monkeypatch):
+    """Готовый ответ разговорного слоя (action=None, reply) + озвучка 3с +
+    шлюз 0.2с → prefetch снят до speak, ни одного чанка prefetch в TTS."""
+    from conversation import Reply
+    ws = FakeWS()
+    _setup(monkeypatch, ws, decision=Decision(
+        None, "conversation", reply=Reply(text="Двадцать три градуса.")))
+    monkeypatch.setattr(config, "VOICE_GATE_WAIT_S", 0.2)
+
+    events = []
+    _track_prefetch_audio(monkeypatch, events)
+
+    async def _slow_speak(text, websocket, device_id, emotion="спокойная"):
+        events.append(("speak_start", time.monotonic()))
+        await asyncio.sleep(3.0)
+        return 1
+    monkeypatch.setattr(tts, "_synthesize_and_stream", _slow_speak)
+
+    outcome = {}
+    real_ask = _mk_ask_voice(outcome)
+
+    async def ask_voice(**kw):
+        try:
+            await real_ask(**kw)
+        finally:
+            events.append(("prefetch_done", time.monotonic()))
+
+    asyncio.run(wh.handle_voice_command(None, _data("сколько градусов"), _mk_ctx(ask_voice)))
+
+    kinds = [k for k, _ in events]
+    assert outcome.get("cancelled"), outcome
+    assert "prefetch_chunk" not in kinds, events
+    assert "speak_start" in kinds, events
+    assert kinds.index("prefetch_done") < kinds.index("speak_start"), events
+    assert len(ws.tts_ends()) == 1, ws.sent
+
+
+def test_on_command_called_before_resolve_reply(monkeypatch):
+    from conversation import Reply
+    order = []
+    monkeypatch.setattr(br, "get_router", lambda: _FakeRouter(
+        Decision(None, "conversation", reply=Reply(text="Ок."))))
+
+    async def _on_command():
+        order.append("on_command")
+
+    async def _resolve(reply):
+        order.append("resolve_reply")
+
+    result = asyncio.run(br.v3_fast_path(
+        "текст", data={}, device_ws=None, device_id="laptop",
+        register_command=None, speak=AsyncMock(), resolve_reply=_resolve,
+        on_command=_on_command))
+    assert result is True
+    assert order == ["on_command", "resolve_reply"]
