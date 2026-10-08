@@ -22,6 +22,28 @@ _narrative_cache: str = ""
 _cache_built_at:  float = 0.0
 _CACHE_TTL = 86400  # пересобираем раз в сутки
 
+# Не воспоминания, а служебный след: эпизоды-команды и «где Мастер сейчас»
+# (устаревает за часы, а нарратив живёт сутки).
+_NOISE_PREFIXES = ("Выполнила команду:",)
+_LOCATION_MARKERS = ("находится дома", "находится на работе")
+
+
+def together_phrase(days: int) -> str:
+    """Сколько вместе — словами, без чисел: модель не повторяет счётчик."""
+    if days < 30:
+        return "мы знакомы недавно"
+    if days < 90:
+        return "мы знакомы уже не первый месяц"
+    if days < 200:
+        return "мы давно вместе"
+    return "мы вместе очень давно"
+
+
+def _is_noise(text: str) -> bool:
+    t = (text or "").strip()
+    low = t.lower()
+    return t.startswith(_NOISE_PREFIXES) or any(m in low for m in _LOCATION_MARKERS)
+
 
 async def build_narrative() -> str:
     """Строит нарратив Сакуры из всех источников."""
@@ -48,13 +70,15 @@ async def build_narrative() -> str:
             SELECT text FROM master_memory
             WHERE category = 'facts'
             ORDER BY created_at ASC
-            LIMIT 3
+            LIMIT 20
         """).fetchall()
-        first_facts_text = "; ".join(r["text"][:60] for r in first_facts) if first_facts else ""
+        first_facts = [r["text"] for r in first_facts if not _is_noise(r["text"])][:3]
+        first_facts_text = "; ".join(t[:60] for t in first_facts)
 
-        # Последние эпизоды
-        episodes = get_recent_episodes(limit=3)
-        ep_text  = "; ".join(e["text"][:60] for e in episodes) if episodes else ""
+        # Последние эпизоды — без команд и местонахождения
+        episodes = [e for e in get_recent_episodes(limit=30)
+                    if not _is_noise(e["text"])][:3]
+        ep_text  = "; ".join(e["text"][:60] for e in episodes)
 
         # Интересы которые появились
         interests = get_sakura_interests()
@@ -66,7 +90,7 @@ async def build_narrative() -> str:
 
         narrative = (
             f"МОЯ ИСТОРИЯ: Я появилась {birth_str}. "
-            f"Нам {age_days} дней вместе. "
+            f"{together_phrase(age_days).capitalize()}. "
         )
         if first_facts_text:
             narrative += f"Первое что запомнила о Мастере: {first_facts_text}. "

@@ -371,9 +371,9 @@ def build_context_block(active_window_override: str | None = None) -> str:
     for w in d["warnings"]:
         lines.append(f"⚠ {w}")
 
+    # Без счётчика: число модель повторяла вслух («пишу уже второй раз»).
     if p.get("count_today", 0) > 0:
-        topics = ", ".join(p["topics_today"][-3:]) if p["topics_today"] else ""
-        lines.append(f"СЕГОДНЯ УЖЕ ПИСАЛА: {p['count_today']} раз" + (f" (темы: {topics})" if topics else ""))
+        lines.append("Сегодня уже писала по своей инициативе.")
 
     presence = get_presence(ctx)
     return "\n".join(lines) + f"\n\nПРИСУТСТВИЕ: {presence['directive']}"
