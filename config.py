@@ -170,3 +170,8 @@ def mark_key_exhausted(key: str):
         if k["key"] == key:
             k["exhausted"] = True
     save_keys_state(state)
+
+
+# Эпизоды «Выполнила команду: …» (executor) — служебный след, не память:
+# 199 из 199 эпизодов были такими. 0 — не писать (по умолчанию).
+EPISODES_LOG_COMMANDS = os.getenv("EPISODES_LOG_COMMANDS", "0").strip().lower() in ("1", "true", "yes")

@@ -147,3 +147,32 @@ def test_return_hint_without_hours(monkeypatch, hours):
     assert hint
     assert not COUNTER.search(hint), hint
     assert not re.search(r"\d", hint), hint
+
+
+# ── EPISODES_LOG_COMMANDS ───────────────────────────────────────────
+
+
+@pytest.mark.parametrize("flag,expected", [(False, 0), (True, 1)])
+def test_command_episodes_flag(monkeypatch, flag, expected):
+    from unittest.mock import AsyncMock
+    import config
+    import modules.disposition as disp
+    import modules.episodes as episodes
+    import sakura_core.executor as ex
+    calls = []
+    monkeypatch.setattr(config, "EPISODES_LOG_COMMANDS", flag)
+    monkeypatch.setattr(episodes, "add_episode", lambda **kw: calls.append(kw))
+    monkeypatch.setattr(disp, "current", lambda: {"stance": "calm", "valence": 0, "arousal": 0})
+    ws = AsyncMock()
+    asyncio.run(ex.execute_critical_action("system:lock", ws, "pc", "заблокируй",
+                                           "", AsyncMock()))
+    ws.send.assert_awaited_once()
+    assert len(calls) == expected
+
+
+def test_command_episodes_default_off():
+    import os
+    import config
+    if "EPISODES_LOG_COMMANDS" in os.environ:
+        pytest.skip("задан в окружении")
+    assert config.EPISODES_LOG_COMMANDS is False

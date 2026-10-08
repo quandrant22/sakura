@@ -17,6 +17,7 @@ import time as _time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
+import config
 import modules.state as st
 from sakura_core.registry import Declaration, load as _load_registry
 from sakura_core.session import Session
@@ -178,6 +179,8 @@ async def execute_critical_action(critical_action: str, ws_dev, device_id,
         if _kreply:
             await stream_tts_to_device(_kreply, ws_dev, device_id or "laptop", literal=True)
     try:
+        if not config.EPISODES_LOG_COMMANDS:
+            return
         from modules.disposition import current as _disp_ep
         from modules.episodes import add_episode
         _dep = _disp_ep()
