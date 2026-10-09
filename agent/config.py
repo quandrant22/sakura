@@ -75,6 +75,10 @@ FOLLOWUP_SEC    = 4.0
 VAD_THRESHOLD   = 0.45     # Снижен — ловит тихую речь в тихой комнате
 VAD_END_SILENCE = 1.0      # Возврат к 1.0 — стабильнее для разговора
 VAD_START_TIMEOUT = 2.0
+# Короткая фраза («сделай потише») — конец по укороченной тишине:
+# речь от начала VAD до последнего голосового кадра < VAD_SHORT_UTTER_SEC
+VAD_END_SILENCE_SHORT = float(os.getenv("VAD_END_SILENCE_SHORT", "0.7"))
+VAD_SHORT_UTTER_SEC   = float(os.getenv("VAD_SHORT_UTTER_SEC", "1.5"))
 
 # ── Распознавание речи (备用 — не используется, основное через Vosk) ───
 # WHISPER_MODEL       = os.getenv("WHISPER_MODEL", "small")

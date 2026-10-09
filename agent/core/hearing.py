@@ -54,6 +54,13 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 _TTS_TAIL = 0.4
 
+
+def _end_silence_for(speech_sec: float) -> float:
+    """Сколько тишины ждать до конца фразы: короткая речь — меньше."""
+    if speech_sec < config.VAD_SHORT_UTTER_SEC:
+        return config.VAD_END_SILENCE_SHORT
+    return config.VAD_END_SILENCE
+
 # ── Общие Vosk-модели для wake-word и STT ─────────────────────────
 _shared_vosk_model_wake = None
 _shared_vosk_model_stt  = None
@@ -845,6 +852,7 @@ class Hearing(threading.Thread):
         pcm       = bytearray()
         speaking  = False
         silence   = 0.0
+        speech_t0 = speech_t1 = 0.0   # начало VAD и последний голосовой кадр
         start     = time.monotonic()
         frame_dur = SileroVAD.FRAME / config.MIC_RATE
 
@@ -863,6 +871,9 @@ class Hearing(threading.Thread):
                 if not speaking and timeline is not None:
                     timeline["vad_start"] = frame_checked_at
                     log.info("[timeline] id=%s phase=vad_start", timeline["id"])
+                if not speaking:
+                    speech_t0 = frame_checked_at
+                speech_t1 = frame_checked_at
                 speaking, silence = True, 0.0
                 if timeline is not None:
                     timeline["speech_end"] = frame_checked_at
@@ -870,7 +881,7 @@ class Hearing(threading.Thread):
             elif speaking:
                 pcm.extend(data)
                 silence += frame_dur
-                if silence >= config.VAD_END_SILENCE:
+                if silence >= _end_silence_for(speech_t1 - speech_t0):
                     break
             elif elapsed >= config.VAD_START_TIMEOUT:
                 self.agent.set_state("idle")
