@@ -767,6 +767,9 @@ _MAX_FIRST_CHUNK = 200  # символов; длиннее — режем по �
 # и предложений. Длинный — стадиями ради быстрого первого звука.
 SINGLE_MAX_CHARS = 200
 SINGLE_MAX_SENTENCES = 2
+# Выключатель: 0 — короткие ответы снова стадиями, как до этапа 3
+# (минимальная длина первой стадии при этом остаётся).
+TTS_SHORT_SINGLE = os.getenv("TTS_SHORT_SINGLE", "1").strip().lower() not in ("0", "false", "no")
 # Первая стадия не короче: «Здесь.» (6 симв, 1 пакет) звучала обрывком,
 # а следующая стадия начиналась после паузы.
 MIN_FIRST_CHUNK = 25
@@ -777,7 +780,10 @@ def _sentences(text: str) -> list[str]:
 
 
 def is_short_reply(text: str) -> bool:
-    """Озвучивать одним запросом: ≤ SINGLE_MAX_CHARS и ≤ SINGLE_MAX_SENTENCES."""
+    """Озвучивать одним запросом: ≤ SINGLE_MAX_CHARS и ≤ SINGLE_MAX_SENTENCES
+    (и TTS_SHORT_SINGLE включён)."""
+    if not TTS_SHORT_SINGLE:
+        return False
     t = (text or "").strip()
     return len(t) <= SINGLE_MAX_CHARS and len(_sentences(t)) <= SINGLE_MAX_SENTENCES
 

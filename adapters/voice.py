@@ -33,6 +33,7 @@ from modules.tts_server import (
     _stream_two_stage,
 )
 from modules.state import connected_devices
+import modules.tts_server as _tts
 
 log = logging.getLogger("sakura.voice")
 
@@ -227,7 +228,8 @@ async def stream_llm_to_tts(
                     continue
                 pending.append(sentence)
                 joined = " ".join(pending)
-                if len(joined) <= SINGLE_MAX_CHARS and len(pending) <= SINGLE_MAX_SENTENCES:
+                if (_tts.TTS_SHORT_SINGLE and len(joined) <= SINGLE_MAX_CHARS
+                        and len(pending) <= SINGLE_MAX_SENTENCES):
                     continue
                 first: list[str] = []
                 while pending and (not first or len(" ".join(first)) < MIN_FIRST_CHUNK):

@@ -21,6 +21,7 @@ def _defaults(monkeypatch):
     monkeypatch.setattr(tts, "TTS_TONE", "нейтрально")
     monkeypatch.setattr(tts, "TTS_TONE_FROM_LLM", False)
     monkeypatch.setattr(tts, "_primary_down_until", 0.0)
+    monkeypatch.setattr(tts, "TTS_SHORT_SINGLE", True)
 
 
 def _si(cfg):
@@ -236,6 +237,27 @@ def _voice_stages(monkeypatch, tokens):
 def test_voice_short_answer_one_stage(monkeypatch):
     assert _voice_stages(monkeypatch, ["Здесь. ", "Экран активен, процессы штатные."]) == \
         ["Здесь. Экран активен, процессы штатные."]
+
+
+def test_short_single_switch_off_stream_tts(monkeypatch):
+    monkeypatch.setattr(tts, "TTS_SHORT_SINGLE", False)
+    assert not tts.is_short_reply("Здесь. Экран активен, процессы штатные.")
+    text = "Подтверждаю, всё работает. Экран активен, процессы штатные."
+    single, staged = _run_stream_tts(monkeypatch, text)
+    assert single == [] and staged == [("Подтверждаю, всё работает.", "Экран активен, процессы штатные.")]
+
+
+def test_short_single_switch_off_voice(monkeypatch):
+    monkeypatch.setattr(tts, "TTS_SHORT_SINGLE", False)
+    assert _voice_stages(monkeypatch, ["Подтверждаю, всё работает. ", "Экран активен."]) == \
+        ["Подтверждаю, всё работает.", "Экран активен."]
+
+
+def test_short_single_default_on():
+    import os
+    if "TTS_SHORT_SINGLE" in os.environ:
+        pytest.skip("задан в окружении")
+    assert tts.TTS_SHORT_SINGLE is True
 
 
 def test_voice_long_answer_first_stage_at_least_25(monkeypatch):
