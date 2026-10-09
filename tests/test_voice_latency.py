@@ -92,6 +92,10 @@ def _mk_ask_voice(outcome, tts_calls):
 
 def _setup(monkeypatch, tts_calls, *, decision, executed):
     """Патчи окружения ws + сети LLM/TTS. Возвращает ws_dev."""
+    # Тест про порядок/параллельность стадий, не про планирование:
+    # каждое предложение — своя стадия (как до п.3.3).
+    monkeypatch.setattr(voice_mod, "SINGLE_MAX_SENTENCES", 0)
+    monkeypatch.setattr(voice_mod, "MIN_FIRST_CHUNK", 0)
     ws_dev = MagicMock()
     ws_dev.send = AsyncMock()
 

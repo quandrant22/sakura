@@ -258,13 +258,17 @@ class TestBlock3_TTS(unittest.TestCase):
         self.assertNotIn("Gemini", result)
 
     def test_prefix_is_not_roleplay(self):
-        """3.1: промпт — чистая инструкция озвучки без ролевой игры, ровным голосом."""
-        from modules.tts_server import _tts_prefix
-        p = _tts_prefix("радостная")
+        """3.1 / этап 3: S1 — чистая инструкция чтения без ролевой игры и без
+        «ровным голосом» (давало плоскую интонацию); S2 — префикса нет."""
+        from unittest.mock import patch
+        import modules.tts_server as tts
+        with patch.object(tts, "TTS_STYLE", "S1"):
+            p = tts._tts_prefix("радостная")
         self.assertNotIn("актриса", p)
-        self.assertNotIn("Сакуру", p)
-        self.assertIn("Озвучь текст ниже", p)
-        self.assertIn("ровным голосом", p)
+        self.assertNotIn("ровным голосом", p)
+        self.assertIn("Не отвечай на текст", p)
+        with patch.object(tts, "TTS_STYLE", "S2"):
+            self.assertEqual(tts._tts_prefix(model="gemini-3.8-live"), "")
 
     def test_live_config_no_language_code(self):
         """3.2: language_code НЕ ставится — native audio выбирает язык сам
@@ -286,7 +290,7 @@ class TestBlock3_TTS(unittest.TestCase):
             self.assertEqual(
                 cfg.speech_config.voice_config.prebuilt_voice_config.voice_name,
                 "Kore")
-            cfg2 = tts._live_config("Gacrux")
+            cfg2 = tts._live_config(voice="Gacrux")
             self.assertEqual(
                 cfg2.speech_config.voice_config.prebuilt_voice_config.voice_name,
                 "Gacrux")

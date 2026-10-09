@@ -13,6 +13,7 @@ modules/tts_server.py — TTS с быстрым первым звуком.
 
 import asyncio
 import base64
+import contextlib
 import json
 import logging
 import os
@@ -28,11 +29,32 @@ from sakura_core.llm import generate as _llm_generate, stream_tokens as _llm_str
 
 log = logging.getLogger(__name__)
 
-TTS_MODEL       = "gemini-2.5-flash-native-audio-latest"
+# ── Модель, стиль и тон озвучки (этап 3, выбор владельца: L4) ─────────
+# Модель — gemini-3.8-live: в A/B (этап 1Б, 15 фраз × 8 вариантов) только
+# она прочитала всё дословно и дала первый звук ~0.7с. Откат — одной
+# настройкой: TTS_MODEL=gemini-2.5-flash-native-audio-latest. Не поднялась
+# модель (ошибка коннекта) — WARNING и временный откат на TTS_FALLBACK_MODEL.
+TTS_MODEL          = os.getenv("TTS_MODEL", "gemini-3.8-live").strip()
+TTS_FALLBACK_MODEL = os.getenv("TTS_FALLBACK_MODEL",
+                               "gemini-2.5-flash-native-audio-latest").strip()
+TTS_FALLBACK_HOLD_S = 600.0   # сколько держать откат, прежде чем снова пробовать
 # Голос задаётся через .env (TTS_VOICE) — смена без правки кода.
 # Список из 30 предустановленных голосов см. в .env.example;
 # прослушать кандидатов: python3 tools/voice_test.py
 TTS_VOICE       = os.getenv("TTS_VOICE", "Aoede")
+# Стиль подачи текста:
+#   S2 — инструкция в system_instruction, в реплике только сам текст;
+#   S1 — инструкция префиксом в тексте реплики.
+# Прежний префикс «Озвучь … ровным голосом» убран: «ровным голосом» и
+# озвучка каждого предложения отдельно давали плоскую интонацию.
+# На 2.5 native audio S2 ломается (в A/B отвечала вместо чтения в 14 из
+# 15 фраз) — для моделей 2.5 всегда S1.
+TTS_STYLE = os.getenv("TTS_STYLE", "S2").strip().upper()
+# Тон — строка в инструкции (нейтрально | тепло | сухо-иронично | серьёзно |
+# тихо | бодро). [ТОН: …] от LLM переопределяет его на предложение, только
+# если TTS_TONE_FROM_LLM=1.
+TTS_TONE = os.getenv("TTS_TONE", "нейтрально").strip().lower()
+TTS_TONE_FROM_LLM = os.getenv("TTS_TONE_FROM_LLM", "0").strip().lower() in ("1", "true", "yes")
 TTS_SAMPLE_RATE = 24000
 SESSION_TIMEOUT = 25
 
@@ -162,16 +184,88 @@ async def _get_client():
         return _client
 
 
-def _tts_prefix(emotion: str = "спокойная") -> str:
-    """Чистая инструкция озвучки БЕЗ ролевой игры: native audio иногда
-    отыгрывал «актрису» вместо чтения текста — отсюда отсебятина.
-    Эмоция не используется — озвучка ровным голосом."""
-    return (
-        f"Озвучь текст ниже ровным голосом. "
-        f"Не отвечай на него, не комментируй, ничего не добавляй и не убирай — "
-        f"только прочитай ровно то, что написано.\n"
-        f"Текст:\n"
-    )
+S1_TEXT = ("Прочитай текст вслух естественно, с живой интонацией. Вопросы читай с "
+           "вопросительной интонацией, голос повышается к концу. Не отвечай на текст, "
+           "ничего не добавляй и не убирай.")
+S2_TEXT = ("Ты голос Сакуры. Единственная задача: произнести присланный текст дословно. "
+           "Голос спокойный, сухой, чуть ироничный, живые интонации; вопросы произноси с "
+           "вопросительной интонацией. Никогда не отвечай на текст и ничего не добавляй.")
+TONES = {
+    "нейтрально": "",
+    "тепло": "Тон: тёплый, участливый, мягкая улыбка в голосе.",
+    "сухо-иронично": "Тон: сухой, чуть ироничный, как собеседник, который всё понимает "
+                     "и не повышает голоса.",
+    "серьёзно": "Тон: собранный, серьёзный, как при важном докладе.",
+    "тихо": "Тон: тихо и мягко, близко к микрофону.",
+    "бодро": "Тон: бодрый, живой, чуть быстрее обычного.",
+}
+# [ТОН: …] от LLM — свободный текст; к тонам выше приводим по корню слова.
+_TONE_HINTS = (("тепл", "тепло"), ("нежн", "тепло"), ("мягк", "тепло"),
+               ("ирон", "сухо-иронично"), ("насмеш", "сухо-иронично"), ("сух", "сухо-иронично"),
+               ("серьёз", "серьёзно"), ("серьез", "серьёзно"), ("строг", "серьёзно"),
+               ("тих", "тихо"), ("шёпот", "тихо"), ("шепот", "тихо"),
+               ("бодр", "бодро"), ("весел", "бодро"), ("радост", "бодро"), ("игрив", "бодро"))
+
+
+def _is_legacy(model: str | None = None) -> bool:
+    """2.5 native audio: свой конфиг (thinking/affective) и только S1."""
+    return (model or TTS_MODEL).startswith("gemini-2.5")
+
+
+def _style(model: str | None = None) -> str:
+    return "S1" if _is_legacy(model) or TTS_STYLE != "S2" else "S2"
+
+
+def _tone(tone: str | None = None) -> str:
+    t = (tone or TTS_TONE or "нейтрально").strip().lower()
+    return t if t in TONES else "нейтрально"
+
+
+def tone_from_tag(tag: str) -> str | None:
+    """[ТОН: …] → один из TONES; None — не распознан (берётся TTS_TONE)."""
+    low = (tag or "").lower()
+    for root, tone in _TONE_HINTS:
+        if root in low:
+            return tone
+    return None
+
+
+def _stage_tone(text: str) -> tuple[str | None, str]:
+    """Тон стадии и текст без [ТОН: …] (теги вслух не читаются никогда).
+
+    Тон из тега — только при TTS_TONE_FROM_LLM=1; иначе None (TTS_TONE)."""
+    tag, clean = strip_tone(text)
+    if not tag or not TTS_TONE_FROM_LLM:
+        return None, clean
+    return tone_from_tag(tag), clean
+
+
+def _system_instruction(model: str | None = None, tone: str | None = None) -> str:
+    """Инструкция сессии для S2 (пусто для S1): S2 + строка тона."""
+    if _style(model) != "S2":
+        return ""
+    line = TONES[_tone(tone)]
+    return f"{S2_TEXT} {line}".strip()
+
+
+def _tts_prefix(emotion: str = "спокойная", model: str | None = None,
+                tone: str | None = None) -> str:
+    """Префикс реплики: для S1 — инструкция (+ тон), для S2 — пусто.
+
+    emotion не используется (совместимость сигнатуры)."""
+    if _style(model) != "S1":
+        return ""
+    line = TONES[_tone(tone)]
+    return f"{S1_TEXT} {line}".strip() + "\nТекст:\n"
+
+
+# Стиль и инструкция основной модели — часть ключа кэша фраз (tts_cache).
+TTS_SYSTEM_INSTRUCTION = _system_instruction()
+
+
+def _user_text(text: str, model: str | None = None, tone: str | None = None) -> str:
+    from modules.speech_prep import prepare
+    return _tts_prefix(model=model, tone=tone) + prepare(text)
 
 
 def _speech_config(voice: str | None = None):
@@ -194,17 +288,68 @@ def _speech_config(voice: str | None = None):
     )
 
 
-def _live_config(voice: str | None = None):
-    base = dict(
-        response_modalities=["AUDIO"],
-        thinking_config=types.ThinkingConfig(thinking_budget=0),
-        speech_config=_speech_config(voice),
-    )
+def _live_config(model: str | None = None, voice: str | None = None,
+                 tone: str | None = None):
+    """Конфиг Live-сессии по модели.
+
+    2.5 native audio — как было: thinking_budget=0 и аффективный диалог.
+    3.x Live — без thinking_config и enable_affective_dialog (3.1 на них
+    отвечает 1007 invalid argument), proactive_audio не задаётся. Для S2 —
+    system_instruction с тоном."""
+    model = model or TTS_MODEL
+    base = dict(response_modalities=["AUDIO"], speech_config=_speech_config(voice))
+    si = _system_instruction(model, tone)
+    if si:
+        base["system_instruction"] = types.Content(parts=[types.Part(text=si)])
+    if not _is_legacy(model):
+        return types.LiveConnectConfig(**base)
+    base["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
     try:
         return types.LiveConnectConfig(enable_affective_dialog=True, **base)
     except TypeError:
         log.debug("[TTS] SDK не поддерживает enable_affective_dialog")
         return types.LiveConnectConfig(**base)
+
+
+# Откат модели: время (monotonic), до которого основная считается упавшей.
+_primary_down_until = 0.0
+
+
+def _active_model() -> str:
+    if TTS_MODEL != TTS_FALLBACK_MODEL and time.monotonic() < _primary_down_until:
+        return TTS_FALLBACK_MODEL
+    return TTS_MODEL
+
+
+@contextlib.asynccontextmanager
+async def _open_session(client, voice: str | None = None, tone: str | None = None,
+                        connect_timeout: float | None = None):
+    """Открыть Live-сессию активной модели → (session, model).
+
+    Основная модель не поднялась (ошибка handshake/setup) — WARNING и
+    откат на TTS_FALLBACK_MODEL на TTS_FALLBACK_HOLD_S; ошибки ПОСЛЕ
+    открытия сессии откат не включают."""
+    global _primary_down_until
+    model = _active_model()
+    stack = contextlib.AsyncExitStack()
+    try:
+        cm = client.aio.live.connect(model=model, config=_live_config(model, voice, tone))
+        enter = stack.enter_async_context(cm)
+        session = await (asyncio.wait_for(enter, connect_timeout) if connect_timeout else enter)
+    except Exception as e:
+        await stack.aclose()
+        if model == TTS_FALLBACK_MODEL or isinstance(e, asyncio.TimeoutError):
+            raise
+        _primary_down_until = time.monotonic() + TTS_FALLBACK_HOLD_S
+        log.warning(f"[TTS] модель {model} не поднялась ({type(e).__name__}: {e}) — "
+                    f"откат на {TTS_FALLBACK_MODEL} на {TTS_FALLBACK_HOLD_S:.0f}с")
+        model = TTS_FALLBACK_MODEL
+        stack = contextlib.AsyncExitStack()
+        cm = client.aio.live.connect(model=model, config=_live_config(model, voice, tone))
+        enter = stack.enter_async_context(cm)
+        session = await (asyncio.wait_for(enter, connect_timeout) if connect_timeout else enter)
+    async with stack:
+        yield session, model
 
 # ── Предконнект Live-сессии (п.3 perf/voice-latency) ──────────────────
 # Между получением голосовой команды и первым токеном LLM есть окно
@@ -233,13 +378,14 @@ _preconnect_lock    = asyncio.Lock()
 class _Preconnected:
     """Забранная из предбанника сессия: её жизнью владеет потребитель."""
 
-    __slots__ = ("key", "release", "session", "task")
+    __slots__ = ("key", "model", "release", "session", "task")
 
-    def __init__(self, session, key, release, task):
+    def __init__(self, session, key, release, task, model=None):
         self.session = session
         self.key     = key
         self.release = release
         self.task    = task
+        self.model   = model or TTS_MODEL
 
 
 def _clear_if_current(ready) -> None:
@@ -289,34 +435,26 @@ async def _preconnect_holder(ready, release, ttl: float) -> None:
     предконнект не увеличивает число одновременных Live-сессий.
     """
     s0 = time.monotonic()
-    connector = None
     try:
         async with _sem:
             client = await _get_client()
             if client is None:
                 raise RuntimeError("нет клиента TTS (пустой ключ)")
             key = get_active_key()
-            connector = client.aio.live.connect(
-                model=TTS_MODEL, config=_live_config()
-            )
             # Под таймаутом только handshake (как в _live_synthesize):
             # зависший коннект не должен держать слот семафора.
-            session = await asyncio.wait_for(connector.__aenter__(),
-                                             PRECONNECT_TIMEOUT)
-            try:
-                log.info(f"[TTS] предконнект: готов за {time.monotonic()-s0:.1f}с")
+            async with _open_session(client, connect_timeout=PRECONNECT_TIMEOUT) as (session, model):
+                log.info(f"[TTS] предконнект: готов за {time.monotonic()-s0:.1f}с ({model})")
                 if ready.done():
                     return  # потребителя уже нет — сессия не нужна
                 ready.set_result(_Preconnected(
-                    session, key, release, asyncio.current_task()))
+                    session, key, release, asyncio.current_task(), model))
                 try:
                     await asyncio.wait_for(release.wait(), ttl)
                 except asyncio.TimeoutError:
                     log.info(f"[TTS] предконнект: не востребован "
                              f"за {ttl:.0f}с — закрываю")
                     _clear_if_current(ready)  # следующий preconnect откроет своё
-            finally:
-                await connector.__aexit__(None, None, None)
     except asyncio.CancelledError:
         if not ready.done():
             ready.set_result(None)
@@ -371,11 +509,10 @@ async def _synthesize(text: str, emotion: str = "спокойная", voice: str
         packets = []
         try:
             client = await _get_client()
-            async with client.aio.live.connect(
-                model=TTS_MODEL, config=_live_config(voice)
-            ) as session:
+            tone, text = _stage_tone(text)
+            async with _open_session(client, voice, tone) as (session, model):
                 await session.send_client_content(
-                    turns=types.Content(role="user", parts=[types.Part(text=_tts_prefix(emotion) + text)]),
+                    turns=types.Content(role="user", parts=[types.Part(text=_user_text(text, model, tone))]),
                     turn_complete=True,
                 )
                 async with asyncio.timeout(SESSION_TIMEOUT):
@@ -409,13 +546,12 @@ async def _synthesize_stream(text: str, websocket, device_id: str, t0: float, em
         first = True
         try:
             client = await _get_client()
-            async with client.aio.live.connect(
-                model=TTS_MODEL, config=_live_config()
-            ) as session:
+            tone, text = _stage_tone(text)
+            async with _open_session(client, tone=tone) as (session, model):
                 await session.send_client_content(
                     turns=types.Content(
                         role="user",
-                        parts=[types.Part(text=_tts_prefix(emotion) + text)]
+                        parts=[types.Part(text=_user_text(text, model, tone))]
                     ),
                     turn_complete=True,
                 )
@@ -488,13 +624,17 @@ async def _claim_preconnected(grace: float = PRECONNECT_GRACE):
     return p
 
 
-async def _pump_session(session, text: str, emotion: str, on_packet) -> int:
-    """Отправить текст в Live-сессию и выкачать аудио-пакеты."""
+async def _pump_session(session, text: str, emotion: str, on_packet,
+                        model: str | None = None, tone: str | None = None) -> int:
+    """Отправить текст в Live-сессию и выкачать аудио-пакеты.
+
+    Реплика одна, turn_complete=True один раз: повторная отправка в той же
+    сессии прерывает генерацию (3.8 Live)."""
     sent = 0
     await session.send_client_content(
         turns=types.Content(
             role="user",
-            parts=[types.Part(text=_tts_prefix(emotion) + text)]
+            parts=[types.Part(text=_user_text(text, model, tone))]
         ),
         turn_complete=True,
     )
@@ -530,12 +670,12 @@ async def _live_synthesize(text: str, emotion: str, on_packet,
             # уходил по аварийному таймауту, а финальный await задачи
             # дожидался этого зависшего коннекта (лишние секунды в
             # «Готово за Nс»).
+            tone, text = _stage_tone(text)
             async with asyncio.timeout(timeout):
-                async with client.aio.live.connect(
-                    model=TTS_MODEL, config=_live_config()
-                ) as session:
+                async with _open_session(client, tone=tone) as (session, model):
                     log.info(f"{tag}коннект за {time.monotonic()-s0:.1f}с | таймаут: {timeout}с")
-                    sent = await _pump_session(session, text, emotion, on_packet)
+                    sent = await _pump_session(session, text, emotion, on_packet,
+                                               model=model, tone=tone)
             mark_key_used(key)
             log.info(f"{tag}синтез за {time.monotonic()-s0:.1f}с | {sent} пакетов")
             return sent
@@ -564,9 +704,15 @@ async def _live_synthesize_preferred(text: str, emotion: str, on_packet,
     """
     if synth is None:
         synth = _live_synthesize
+    tone, _ = _stage_tone(text)
+    if tone is not None and _tone(tone) != _tone():
+        # Инструкция сессии задаётся при коннекте: тон стадии отличается
+        # от тона предбанника — своя сессия.
+        return await synth(text, emotion, on_packet, label=label)
     p = await _claim_preconnected()
     if p is None:
         return await synth(text, emotion, on_packet, label=label)
+    _, text = _stage_tone(text)
 
     tag = f"[TTS] {label}: " if label else "[TTS] "
     sent = 0
@@ -581,7 +727,7 @@ async def _live_synthesize_preferred(text: str, emotion: str, on_packet,
     try:
         log.info(f"{tag}предконнект: синтез на заранее открытой сессии")
         async with asyncio.timeout(_live_timeout(text)):
-            await _pump_session(p.session, text, emotion, _counted)
+            await _pump_session(p.session, text, emotion, _counted, model=p.model)
         if p.key:
             mark_key_used(p.key)
         log.info(f"{tag}синтез за {time.monotonic()-s0:.1f}с | {sent} пакетов "
@@ -617,6 +763,31 @@ async def _synthesize_and_stream(text: str, websocket, device_id: str,
 
 _SENT_SPLIT_RE = re.compile(r'(?<=[.!?…])\s+')
 _MAX_FIRST_CHUNK = 200  # символов; длиннее — режем по запятым/пробелам
+# Короткий ответ — одной сессией (единая интонация): до стольких символов
+# и предложений. Длинный — стадиями ради быстрого первого звука.
+SINGLE_MAX_CHARS = 200
+SINGLE_MAX_SENTENCES = 2
+# Первая стадия не короче: «Здесь.» (6 симв, 1 пакет) звучала обрывком,
+# а следующая стадия начиналась после паузы.
+MIN_FIRST_CHUNK = 25
+
+
+def _sentences(text: str) -> list[str]:
+    return [s.strip() for s in _SENT_SPLIT_RE.split(text or "") if s and s.strip()]
+
+
+def is_short_reply(text: str) -> bool:
+    """Озвучивать одним запросом: ≤ SINGLE_MAX_CHARS и ≤ SINGLE_MAX_SENTENCES."""
+    t = (text or "").strip()
+    return len(t) <= SINGLE_MAX_CHARS and len(_sentences(t)) <= SINGLE_MAX_SENTENCES
+
+
+def glue_first(parts: list[str], min_len: int = MIN_FIRST_CHUNK) -> list[str]:
+    """Склеить первый чанк со следующими, пока он короче min_len."""
+    parts = list(parts)
+    while len(parts) > 1 and len(parts[0]) < min_len:
+        parts[0:2] = [f"{parts[0]} {parts[1]}"]
+    return parts
 
 
 def _split_speech(text: str) -> list[str]:
@@ -828,7 +999,7 @@ async def stream_tts_to_device(
         return
 
     t0 = time.monotonic()
-    parts = _split_speech(text)
+    parts = [] if is_short_reply(text) else glue_first(_split_speech(text))
     sent = 0
     if len(parts) <= 1:
         sent = await _synthesize_and_stream(text, websocket, device_id, emotion)
@@ -929,7 +1100,9 @@ def add_emotion_pauses(text: str, emotion: str = "neutral") -> str:
 
 
 def start():
-    log.info(f"[TTS] Запущен. Модель: {TTS_MODEL}, голос: {TTS_VOICE}")
+    log.info(f"[TTS] Запущен. Модель: {TTS_MODEL} (откат: {TTS_FALLBACK_MODEL}), "
+             f"голос: {TTS_VOICE}, стиль: {_style()}, тон: {_tone()}, "
+             f"тон из LLM: {'да' if TTS_TONE_FROM_LLM else 'нет'}")
 
 
 async def warmup_cache():

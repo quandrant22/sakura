@@ -310,6 +310,10 @@ async def _fake_stream_tokens(contents, **kwargs):
 
 def _ws_env(monkeypatch, order, synth_calls, *, decision, executed=False):
     """Мини-окружение ws: устройство, сеть, перехватчики и предконнект."""
+    # Тест про порядок/параллельность стадий, не про планирование:
+    # каждое предложение — своя стадия (как до п.3.3).
+    monkeypatch.setattr(voice_mod, "SINGLE_MAX_SENTENCES", 0)
+    monkeypatch.setattr(voice_mod, "MIN_FIRST_CHUNK", 0)
     ws_dev = MagicMock()
     ws_dev.send = AsyncMock()
     monkeypatch.setattr(wh.st, "connected_devices", {"laptop": ws_dev})

@@ -172,6 +172,10 @@ def test_voice_stream_sends_packets_in_order(monkeypatch):
     monkeypatch.setattr(llm, "stream_tokens", fake_stream_tokens)
     monkeypatch.setattr(av, "_live_synthesize", fake_synthesize)
     monkeypatch.setattr(av, "_make_audio_sender", fake_sender)
+    # Тест про порядок/параллельность стадий, не про планирование:
+    # каждое предложение — своя стадия (как до п.3.3).
+    monkeypatch.setattr(av, "SINGLE_MAX_SENTENCES", 0)
+    monkeypatch.setattr(av, "MIN_FIRST_CHUNK", 0)
 
     full_text, emotion = asyncio.run(
         av.stream_llm_to_tts(

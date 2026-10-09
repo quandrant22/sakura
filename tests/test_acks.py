@@ -134,7 +134,7 @@ def test_cache_second_call_without_synthesis(synth_calls, monkeypatch):
 
 def test_cache_key_changes_with_model_or_voice(synth_calls, monkeypatch):
     asyncio.run(tts_cache.get_pcm("Есть."))
-    monkeypatch.setattr(tts, "TTS_MODEL", "gemini-3.8-live")
+    monkeypatch.setattr(tts, "TTS_MODEL", "gemini-3.1-flash-live-preview")
     asyncio.run(tts_cache.get_pcm("Есть."))
     monkeypatch.setattr(tts, "TTS_VOICE", "Kore")
     asyncio.run(tts_cache.get_pcm("Есть."))
@@ -143,7 +143,7 @@ def test_cache_key_changes_with_model_or_voice(synth_calls, monkeypatch):
 
 def test_cache_key_changes_with_style_and_system_instruction(monkeypatch):
     base = tts_cache.cache_key("Есть.")
-    monkeypatch.setattr(tts, "TTS_STYLE", "S2", raising=False)
+    monkeypatch.setattr(tts, "TTS_STYLE", "S1-тест", raising=False)
     with_style = tts_cache.cache_key("Есть.")
     monkeypatch.setattr(tts, "TTS_SYSTEM_INSTRUCTION", "Ты голос Сакуры.", raising=False)
     with_si = tts_cache.cache_key("Есть.")

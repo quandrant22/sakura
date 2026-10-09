@@ -24,6 +24,9 @@ from typing import AsyncIterator, Optional
 from sakura_core import budget
 from sakura_core import llm as _llm
 from modules.tts_server import (
+    MIN_FIRST_CHUNK,
+    SINGLE_MAX_CHARS,
+    SINGLE_MAX_SENTENCES,
     _make_audio_sender,
     _live_synthesize,
     _live_synthesize_preferred,
@@ -191,6 +194,19 @@ async def stream_llm_to_tts(
                 budget.check("voice_first_audio", _ms)
 
 
+    # Планирование стадий (этап 3, п.3.3/3.3б): пока ответ может оказаться
+    # коротким (≤ SINGLE_MAX_CHARS и ≤ SINGLE_MAX_SENTENCES), предложения
+    # копятся и уходят ОДНОЙ стадией по концу стрима — единая интонация.
+    # Стал длинным — стадия 1 (не короче MIN_FIRST_CHUNK), дальше по одному.
+    pending: list[str] = []
+    started = False
+
+    async def _open_gate() -> None:
+        if gate is not None:
+            # Токены читаются параллельно классификатору, но в TTS
+            # предложение уходит только после вердикта «не команда».
+            await gate.wait_open()
+
     try:
         try:
             tokens = _llm.stream_tokens(
@@ -205,13 +221,31 @@ async def stream_llm_to_tts(
                     emotion = m.group(1)
                     continue
                 parts.append(sentence)
-                if gate is not None:
-                    # Токены читаются параллельно классификатору, но в TTS
-                    # предложение уходит только после вердикта «не команда».
-                    await gate.wait_open()
-                _new_stage(sentence)
+                if started:
+                    await _open_gate()
+                    _new_stage(sentence)
+                    continue
+                pending.append(sentence)
+                joined = " ".join(pending)
+                if len(joined) <= SINGLE_MAX_CHARS and len(pending) <= SINGLE_MAX_SENTENCES:
+                    continue
+                first: list[str] = []
+                while pending and (not first or len(" ".join(first)) < MIN_FIRST_CHUNK):
+                    first.append(pending.pop(0))
+                await _open_gate()
+                _new_stage(" ".join(first))
+                started = True
+                for s in pending:
+                    _new_stage(s)
+                pending = []
         except Exception as e:
             log.error(f"[voice] стрим LLM упал: {e}")
+
+        if pending:
+            # Короткий ответ (или обрыв стрима до роста) — одной стадией.
+            await _open_gate()
+            _new_stage(" ".join(pending))
+            pending = []
 
         # Ни одного предложения — фолбэк: обычная генерация → двухстадийный путь v2
         if not parts:
