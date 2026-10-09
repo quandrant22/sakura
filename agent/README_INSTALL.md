@@ -1,147 +1,67 @@
-# Sakura Agent — PC Agent for Sakura Voice Assistant
+# Установка агента Сакуры (Windows)
 
-Python PC agent: Vosk + Silero VAD (`core/hearing.py`), PyQt6 overlay,
-полное управление Windows (apps, browser, music, kettle, screenshot, dictate).
+## 1. Что нужно
 
-## Architecture
+- Windows 10/11, микрофон, ~6 ГБ свободного места
+- Git: `winget install --id Git.Git -e`
+- Python **3.11** (набор пакетов проверен под него):
+  `winget install --id Python.Python.3.11 -e`
 
-```
-┌─────────────────────────────────────┐
-│  Python Agent (sakura.py)           │
-│  - hearing.py: Vosk STT + Silero VAD│
-│  - agent.py: WS-клиент VPS          │
-│  - hands/browser/music: исполнение  │
-│  - ui/: PyQt6 overlay + tray        │
-└──────────┬──────────────────────────┘
-           │ WebSocket
-┌──────────▼──────────────────────────┐
-│  VPS (Сакура: main.py + ws_handlers)│
-└─────────────────────────────────────┘
+## 2. Код и окружение
+
+```bat
+git clone https://github.com/quandrant22/sakura.git C:\sakura-git
+cd C:\sakura-git\agent
+py -3.11 -m venv venv
+venv\Scripts\python.exe -m pip install -r requirements.lock.txt --extra-index-url https://download.pytorch.org/whl/cpu
+venv\Scripts\python.exe -m pip check
 ```
 
-Экспериментальное ядро на Rust не подключено — см. `docs/experimental/`.
+Установка идёт до 20 минут (torch CPU). Git должен быть в PATH:
+GigaAM ставится из git-репозитория.
 
-## Installation
+## 3. Модель слова «Сакура» (Vosk)
 
-### 1. Install Python dependencies
+Скачай https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip
+и распакуй в `agent\`, чтобы получилась папка
+`agent\vosk-model-small-ru-0.22`. Модель GigaAM скачается сама при
+первом запуске.
 
-```bash
-cd agent
-pip install -r requirements.txt
+## 4. Настройка .env
+
+```bat
+copy .env.example .env
+notepad .env
 ```
 
-### 2. Download Vosk models
+Обязательно: `DEVICE_ID` (имя устройства, добавленное на сервере) и
+`WS_TOKEN`. Остальные переменные описаны в [README.md](README.md) и
+`.env.example`. Файл `.env` не коммитится.
 
-Download from https://alphacephei.com/vosk/models:
-- `vosk-model-small-ru-0.22` (wake word detection)
-- `vosk-model-ru-0.42` (speech recognition)
+## 5. Запуск
 
-Place them in:
-- Windows: `%LOCALAPPDATA%/sakura/`
-- Linux: `~/.local/share/sakura/`
-
-### 3. Configure
-
-Create `.env` file in `agent/` directory:
-
-```
-VPS_WS_URL=ws://your-vps:8765
-DEVICE_ID=pc
-WS_TOKEN=your-token-here
+```bat
+start_sakura.bat
 ```
 
-## Usage
+Лог: `agent\logs\sakura.log`.
 
-Единственная поддерживаемая точка входа — `sakura.py` (QApplication + tray);
-сборка — `build.bat` (см. BUILD.md).
+## 6. Расширение браузера (Chrome, Edge, Opera, Brave)
 
-```bash
-cd agent
-python sakura.py
-```
+1. Открой страницу расширений (`chrome://extensions`, `edge://extensions`,
+   `opera://extensions`) и включи режим разработчика.
+2. «Загрузить распакованное» → папка `agent\extension`.
+3. Скопируй ID расширения и впиши в `.env`: `SAKURA_EXTENSION_ID=<ID>`,
+   перезапусти агента. В логе: `[extension] Готово, версия …`.
 
-## Development
+Firefox не поддерживается.
 
-### Project structure
+## Типичные проблемы
 
-```
-agent/
-├── sakura.py             # Точка входа (QApplication, Agent, Overlay, tray)
-├── core/
-│   ├── agent.py          # Main agent logic + WS-цикл
-│   ├── hearing.py        # Vosk STT + Silero VAD
-│   ├── voice.py          # TTS playback
-│   ├── hands.py          # Command execution
-│   ├── browser.py        # Browser control
-│   ├── music.py          # Music control (SMTC + YM API)
-│   ├── kettle.py         # Smart kettle
-│   └── ...
-├── commands/             # TOML command definitions
-│   ├── browser/
-│   ├── music/
-│   ├── system/
-│   └── ...
-├── extension/            # MV3 browser extension
-├── ui/                   # PyQt6 overlay
-└── requirements.txt
-```
-
-### Adding new commands
-
-1. Create a TOML file in `commands/` directory:
-
-```toml
-[[commands]]
-id = "my_command"
-type = "action"
-action = "my_action"
-args = "{param}"
-priority = 10
-description = "My custom command"
-
-phrases.ru = [
-    "моя команда {param}",
-]
-
-[commands.slots.param]
-entity = "parameter name"
-```
-
-2. The command will be automatically loaded on startup.
-
-### IPC Protocol
-
-Events (agent → VPS):
-- `register` — Agent registered
-- `ping` — Heartbeat
-- `command_result` — Command executed
-- `screen_context` — Periodic screenshot for awareness
-
-Actions (VPS → agent):
-- `command` — Execute command
-- `tts_chunk` / `tts_end` — TTS audio
-- `reply` — Text reply
-
-### Экспериментальное: ядро на Rust
-
-Заготовка VAD/STT-ядра на Rust и старый лаунчер перенесены в
-`docs/experimental/` — не подключены, не собирать. Что нужно для
-подключения: `docs/experimental/README.md`.
-
-## Troubleshooting
-
-### "No input device available"
-
-Check microphone permissions and audio drivers.
-
-### "Vosk model not found"
-
-Download models from https://alphacephei.com/vosk/models and place in the correct directory.
-
-### Audio crackling
-
-Try adjusting `MIC_BLOCK` in `config.py` (default 512 = 32ms).
-
-## License
-
-See LICENSE.txt
+| Симптом | Что делать |
+|---|---|
+| В оверлее «Не задан WS_TOKEN (.env)» | впиши `WS_TOKEN=` в `agent\.env` и перезапусти |
+| В логе код 4401 / отказ по устройству | `DEVICE_ID` не добавлен на сервере или неверный токен |
+| «No input device available», Сакура не слышит | проверь микрофон в «Параметры → Конфиденциальность → Микрофон» и устройство ввода по умолчанию |
+| «Cannot find command 'git'» при pip install | установи Git и открой новое окно консоли |
+| Расширение не подключается | проверь `SAKURA_EXTENSION_ID` и что порты `EXTENSION_PORTS` не заняты |
