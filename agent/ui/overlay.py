@@ -86,15 +86,23 @@ qInstallMessageHandler(_qt_quiet)
 
 # Палитра «Япония × будущее»: cyan-будущее + золото + сакура-розовый.
 _STATE = {
-    "idle":      {"color": "#9a7fb5", "vibe": "standby",   "kana": "待機中"},
-    "listening": {"color": "#e89ad6", "vibe": "listening", "kana": "聴取中"},
-    "thinking":  {"color": "#b98aff", "vibe": "thinking",  "kana": "思考中"},
-    "speaking":  {"color": "#ff86b8", "vibe": "speaking",  "kana": "発話中"},
+    "idle":      {"color": "#b69cff", "vibe": "standby",   "kana": "待機中"},
+    "listening": {"color": "#4fd8ff", "vibe": "listening", "kana": "聴取中"},
+    "thinking":  {"color": "#ffcf6b", "vibe": "thinking",  "kana": "思考中"},
+    "speaking":  {"color": "#ff7eb9", "vibe": "speaking",  "kana": "発話中"},
 }
 _ACTIVE = ("listening", "thinking", "speaking")
 
 _PANEL_BG     = QColor(9, 14, 22, 210)
-_PANEL_BORDER = QColor(120, 200, 255, 52)
+_PANEL_BORDER = QColor(120, 200, 255, 110)
+_GOLD         = QColor("#ffcf6b")
+
+
+def _mix(a: QColor, b: QColor, t: float) -> QColor:
+    """Смесь цветов: t — доля b (0..1)."""
+    return QColor(int(a.red() + (b.red() - a.red()) * t),
+                  int(a.green() + (b.green() - a.green()) * t),
+                  int(a.blue() + (b.blue() - a.blue()) * t))
 _BRANCH       = QColor(90, 58, 68)
 _PETAL        = QColor(255, 143, 200)
 _PETAL_LIGHT  = QColor(255, 217, 234)
@@ -352,7 +360,7 @@ class SphereCore(QWidget):
         ring_src = c if active else (getattr(self, '_ring_color', None) or c)
         ring_c = QColor(ring_src)
         p.save(); p.translate(cx, cy); p.rotate(self._a1)
-        tick = QColor(ring_c); tick.setAlpha(150 if active else 90)
+        tick = QColor(ring_c); tick.setAlpha(175 if active else 150)
         p.setPen(QPen(tick, 1.0))
         for i in range(60):
             a = 2 * math.pi * i / 60
@@ -362,7 +370,7 @@ class SphereCore(QWidget):
 
         # сегментное кольцо
         p.save(); p.translate(cx, cy); p.rotate(self._a2)
-        seg = QColor(ring_c); seg.setAlpha(210 if active else 110)
+        seg = QColor(ring_c); seg.setAlpha(235 if active else 170)
         p.setPen(QPen(seg, max(2.0, R * 0.03))); p.setBrush(Qt.BrushStyle.NoBrush)
         rr = R * 0.78; rect = QRectF(-rr, -rr, 2 * rr, 2 * rr)
         for st, sp in ((0, 55), (120, 40), (200, 70)):
@@ -371,7 +379,7 @@ class SphereCore(QWidget):
 
         # скобки
         br, bl = R * 0.50, R * 0.12
-        bc = QColor(ring_c); bc.setAlpha(170 if active else 90)
+        bc = QColor(_GOLD); bc.setAlpha(190 if active else 150)
         p.setPen(QPen(bc, 1.5))
         for sx, sy in ((-1, -1), (1, -1), (-1, 1), (1, 1)):
             x, y = cx + sx * br, cy + sy * br
@@ -380,7 +388,7 @@ class SphereCore(QWidget):
 
         # катакана сверху / кандзи состояния снизу
         f = QFont(); f.setPointSizeF(max(7.0, R * 0.075)); p.setFont(f)
-        lab = QColor(c); lab.setAlpha(180 if active else 120); p.setPen(lab)
+        lab = QColor(c); lab.setAlpha(220 if active else 190); p.setPen(lab)
         # катакана выводится через QLabel в Overlay
 
         # listening: расходящиеся круги
@@ -436,9 +444,10 @@ class SphereCore(QWidget):
         else:
             grad = QRadialGradient(QPointF(cx - rc * 0.35, cy - rc * 0.4), rc * 1.7)
             grad.setColorAt(0.00, QColor("#eef0ff"))
-            grad.setColorAt(0.18, QColor("#dccaf0"))
-            grad.setColorAt(0.50, QColor("#cba4dd"))
-            grad.setColorAt(0.80, QColor("#a86fc0"))
+            # 25% цвета состояния в средних остановках
+            grad.setColorAt(0.18, _mix(QColor("#dccaf0"), c, 0.25))
+            grad.setColorAt(0.50, _mix(QColor("#cba4dd"), c, 0.25))
+            grad.setColorAt(0.80, _mix(QColor("#a86fc0"), c, 0.25))
             grad.setColorAt(0.95, QColor("#5e3a72"))
             grad.setColorAt(1.00, QColor("#241430"))
         p.setBrush(grad); p.setPen(Qt.PenStyle.NoPen)
