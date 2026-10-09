@@ -19,6 +19,7 @@ except ImportError: np = None
 import config
 
 _BLOCKSIZE = 2048   # ~85мс при 24кГц — стабильнее на Windows
+_PREROLL_MAX_WAIT = 0.6   # сек с первого чанка — дальше предзаполнения не ждём
 
 
 def find_output_device():
@@ -85,6 +86,10 @@ class Player:
         self._stream = None
         self._stream_lock = threading.Lock()
         self.last_feed_ts = 0.0   # time.monotonic() последнего feed/feed_binary
+        # Предзаполнение: старт звука, когда накоплено PLAYER_PREROLL_MS
+        # (или пришёл tts_end, или прошло _PREROLL_MAX_WAIT с первого чанка)
+        self._preroll_bytes = int(getattr(config, "PLAYER_PREROLL_MS", 0) * rate / 1000) * 2
+        self._reset_response()
         self._open_stream()
         threading.Thread(target=self._watchdog, daemon=True).start()
 
@@ -131,15 +136,52 @@ class Player:
             except Exception:
                 pass
 
+    def _reset_response(self):
+        """Счётчики одного ответа (под self._lock или в __init__)."""
+        self._first_chunk_ts = 0.0
+        self._started = False     # звук этого ответа уже пошёл
+        self._ended   = False     # tts_end получен
+        self._ur_count = 0        # разрывов (underrun) за ответ
+        self._ur_total = 0        # байт тишины в разрывах
+        self._ur_max   = 0        # самая длинная пауза, байт
+        self._ur_cur   = 0        # текущая пауза, байт
+
+    def _bytes_ms(self, n: int) -> int:
+        return int(n / 2 / self._rate * 1000)
+
+    def _finish_response(self):
+        """Конец ответа: один INFO о разрывах, сброс счётчиков (под self._lock)."""
+        if self._started and self._ur_count:
+            log.info(f"[voice] underrun: {self._ur_count} раз, всего "
+                     f"{self._bytes_ms(self._ur_total)} мс, макс. пауза "
+                     f"{self._bytes_ms(self._ur_max)} мс")
+        self._reset_response()
+
     def _callback(self, outdata, frames, time_info, status):
         need = frames * 2
         with self._lock:
-            n = min(need, len(self._buf))
-            if n:
-                outdata[:n] = bytes(self._buf[:n])
-                del self._buf[:n]
-            else:
-                n = 0
+            n = 0
+            if not self._started and self._buf:
+                # Ждём предзаполнения (по умолчанию выключено)
+                if (len(self._buf) >= self._preroll_bytes or self._ended
+                        or time.monotonic() - self._first_chunk_ts >= _PREROLL_MAX_WAIT):
+                    self._started = True
+            if self._started:
+                n = min(need, len(self._buf))
+                if n:
+                    outdata[:n] = bytes(self._buf[:n])
+                    del self._buf[:n]
+                if n < need and not self._ended:
+                    # Звук шёл, а данных не хватило — разрыв
+                    if self._ur_cur == 0:
+                        self._ur_count += 1
+                    self._ur_cur += need - n
+                    self._ur_total += need - n
+                    self._ur_max = max(self._ur_max, self._ur_cur)
+                elif n == need:
+                    self._ur_cur = 0
+                if self._ended and not self._buf:
+                    self._finish_response()
         if n < need:
             outdata[n:] = b"\x00" * (need - n)
 
@@ -148,6 +190,11 @@ class Player:
         if not pcm:
             return
         with self._lock:
+            if self._ended:
+                # Новый ответ после tts_end, а старый ещё не доигран
+                self._finish_response()
+            if not self._started and not self._first_chunk_ts:
+                self._first_chunk_ts = time.monotonic()
             self._buf.extend(pcm)
             self.last_feed_ts = time.monotonic()
 
@@ -158,13 +205,21 @@ class Player:
             self.feed(pcm)
 
     def flush(self):
-        """Конец фразы — ничего не делаем, буфер доиграет сам."""
-        pass
+        """Конец фразы (tts_end): буфер доиграет сам, затем итог по разрывам."""
+        with self._lock:
+            self._ended = True
+            if not self._buf:
+                self._finish_response()
 
     def interrupt(self):
         """Баржинг — очищаем буфер."""
         with self._lock:
             self._buf.clear()
+            self._finish_response()
+
+    def buffer_bytes(self) -> int:
+        with self._lock:
+            return len(self._buf)
 
     def switch_device(self, device_id=None):
         if device_id is not None:
