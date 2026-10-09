@@ -223,7 +223,7 @@ async def _handler(websocket):
     # протокол агент↔VPS не тронут.
     try:
         await websocket.send(json.dumps(
-            {"type": "sakura_hello", "version": "3.0.0"}))
+            {"type": "sakura_hello", "version": "3.1.0"}))
     except Exception:
         return
 
