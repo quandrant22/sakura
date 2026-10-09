@@ -20,6 +20,8 @@ RECONNECT_SEC = int(os.getenv("RECONNECT_SEC", "3"))
 # ── Аудио-выход (TTS) ───────────────────────────────────────────────
 TTS_RATE  = int(os.getenv("TTS_RATE", "24000"))
 TTS_SPEED = float(os.getenv("TTS_SPEED", "1.0"))
+# Шаг «громче/тише» для музыки без числа, %
+VOLUME_STEP = int(os.getenv("VOLUME_STEP", "10"))
 
 # Yandex SpeechKit (TTS) — опционально
 YANDEX_API_KEY   = os.getenv("YANDEX_API_KEY", "")
