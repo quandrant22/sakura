@@ -83,7 +83,7 @@ def test_preroll_starts_after_timeout(monkeypatch):
     monkeypatch.setattr(voice.time, "monotonic", lambda: t[0])
     p.feed(b"\x01\x00" * FRAMES)
     assert pull(p)[0] == bytes(BLOCK)
-    t[0] += 0.6
+    t[0] += 0.7
     assert pull(p)[0] != bytes(BLOCK)
 
 

@@ -79,6 +79,13 @@ class Player:
     feed() добавляет PCM в очередь, callback читает синхронно.
     """
 
+    # Значения по умолчанию (экземпляр, созданный без __init__, тоже работает)
+    _preroll_bytes = 0
+    _first_chunk_ts = 0.0
+    _started = False
+    _ended = False
+    _ur_count = _ur_total = _ur_max = _ur_cur = 0
+
     def __init__(self, rate: int):
         self._rate   = rate
         self._buf    = bytearray()
