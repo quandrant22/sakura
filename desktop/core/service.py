@@ -38,10 +38,10 @@ class CoreService:
         self.api = api or LocalApiServer(token_path=default_token_path(),
                                          restrict=self._restrict, snapshot=self.snapshot)
         self.api._snapshot = self.snapshot
-        if agent_factory is None:
-            from desktop.core.agent import Agent
-            agent_factory = Agent
-        self.agent = agent_factory(self.bus, server_link=self.link)
+        # Без фабрики агент создаётся в run() после старта API: конструктор грузит
+        # модели распознавания (~1 мин), интерфейс за это время уже подключается.
+        self._agent_factory = agent_factory
+        self._agent = agent_factory(self.bus, server_link=self.link) if agent_factory else None
         if settings is None:
             from desktop.core.settings import Settings
             settings = Settings(os.path.join(config.DATA_DIR, "ui_settings.json"))
@@ -54,6 +54,12 @@ class CoreService:
         self._register_commands()
 
     # ── вспомогательное ────────────────────────────────────────────
+    @property
+    def agent(self):
+        if self._agent is None:
+            raise ApiError("starting", "ядро ещё запускается")
+        return self._agent
+
     @staticmethod
     def _auth() -> dict:
         return {"device_id": config.DEVICE_ID, "token": config.WS_TOKEN.strip()}
@@ -71,7 +77,9 @@ class CoreService:
         out.update({k: v for k, v in self.settings.items().items() if k in SETTINGS_KEYS})
         out["device_id"] = config.DEVICE_ID
         out["extension_id"] = os.getenv("SAKURA_EXTENSION_ID", "")
-        out["mic_enabled"] = bool(getattr(self.agent.hearing, "mic_enabled", True))
+        hearing = getattr(self._agent, "hearing", None)
+        out["mic_enabled"] = bool(getattr(hearing, "mic_enabled", True))
+        out["core_ready"] = self._agent is not None
         return out
 
     def snapshot(self) -> list[dict]:
@@ -192,4 +200,10 @@ class CoreService:
     # ── запуск ─────────────────────────────────────────────────────
     async def run(self, api_port: int = 0):
         await self.api.start(api_port)
-        await self.agent.run()
+        if self._agent is None:
+            from desktop.core.agent import Agent
+            factory = self._agent_factory or Agent
+            # Конструктор тяжёлый (модели STT) — в потоке, чтобы API отвечал.
+            self._agent = await asyncio.to_thread(factory, self.bus, server_link=self.link)
+            self._emit({"type": "settings", "settings": self.settings_snapshot()})
+        await self._agent.run()

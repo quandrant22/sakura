@@ -145,3 +145,15 @@ def test_server_command_validation(bad):
         with pytest.raises(ApiError):
             await svc.cmd_server(bad)
     run(go())
+
+
+def test_deferred_agent_reports_starting():
+    async def go():
+        svc = CoreService(agent_factory=None, api=LocalApiServer(token="tok"),
+                          settings=FakeSettings(), hands=_hands())
+        assert svc.settings_snapshot()["core_ready"] is False
+        from desktop.core.api.server import ApiError
+        with pytest.raises(ApiError) as e:
+            await svc.cmd_send_text({"text": "x"})
+        assert e.value.code == "starting"
+    run(go())
