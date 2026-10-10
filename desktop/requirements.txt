@@ -1,0 +1,4 @@
+# Зависимости ядра desktop поверх agent/requirements.lock.txt (тот же venv, Python 3.11).
+# Установка: python -m pip install -r agent/requirements.lock.txt -r desktop/requirements.txt
+#   --extra-index-url https://download.pytorch.org/whl/cpu
+mutagen==1.48.1
