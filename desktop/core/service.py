@@ -103,6 +103,8 @@ class CoreService:
             self._emit({"type": "game_mode", "on": bool(data.get("on"))})
         elif event in ("orb_arrival", "orb_departure"):
             self._emit({"type": event})
+        elif event == "mood_update":
+            self._emit({"type": "mood", "params": data.get("params") or {}})
 
     def _on_push(self, msg: dict):
         self._emit(msg)
