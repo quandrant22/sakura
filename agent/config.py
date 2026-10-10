@@ -88,6 +88,12 @@ OVERLAY_WIDTH  = int(os.getenv("OVERLAY_WIDTH", "360"))
 OVERLAY_HEIGHT = int(os.getenv("OVERLAY_HEIGHT", "440"))
 OVERLAY_MARGIN = int(os.getenv("OVERLAY_MARGIN", "24"))
 TRANSCRIPT_MAX = int(os.getenv("TRANSCRIPT_MAX", "12"))
+# «Уход» фокуса на другое устройство: до какой прозрачности гасить окно
+# (1.0 — не затемнять) и сколько секунд без ввода нужно, чтобы гасить вообще.
+OVERLAY_DEPARTURE_OPACITY = float(os.getenv("OVERLAY_DEPARTURE_OPACITY", "0.7"))
+OVERLAY_DEPART_IDLE_S = float(os.getenv("OVERLAY_DEPART_IDLE_S", "120"))
+# Непрозрачность фона панели, 0..255
+OVERLAY_PANEL_ALPHA = int(os.getenv("OVERLAY_PANEL_ALPHA", "235"))
 
 # ── Аудио-устройство вывода ─────────────────────────────────────────
 AUDIO_OUTPUT_DEVICE = os.getenv("AUDIO_OUTPUT_DEVICE", "default")
