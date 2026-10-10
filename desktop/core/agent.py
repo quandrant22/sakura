@@ -152,7 +152,8 @@ def _legacy_action(action: str, arg: str = "") -> str:
     # system.* → system:<verb> (execute_command, verb "system"): опасные
     # системные действия переехали в реестр на этапе 5, подтверждение
     # спрашивает сервер (executor, confirm: true) — агент выключает сразу.
-    if domain == "system" and verb in ("shutdown", "restart", "sleep", "lock"):
+    # shutdown_cancel в старом агенте не переводился и давал «неизвестная команда».
+    if domain == "system" and verb in ("shutdown", "restart", "sleep", "lock", "shutdown_cancel"):
         return f"system:{verb}"
     return action
 

@@ -832,7 +832,8 @@ def execute_command(action: str) -> dict:
         if arg == "tab_prev":    return {"result": browser_tab_prev()}
         if arg == "back":        return {"result": browser_back()}
         if arg == "forward":     return {"result": browser_forward()}
-        if arg == "reload":      return {"result": browser_reload()}
+        # tab_reload — каноническое имя (browser.tab_reload); без расширения тоже работает.
+        if arg in ("reload", "tab_reload"): return {"result": browser_reload()}
         if arg == "scroll_down": return {"result": browser_scroll_down()}
         if arg == "scroll_up":   return {"result": browser_scroll_up()}
         if arg.startswith("url:"):    return {"result": browser_open_url(arg[4:])}

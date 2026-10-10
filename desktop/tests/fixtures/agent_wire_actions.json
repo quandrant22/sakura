@@ -1,0 +1,253 @@
+{
+ "_note": "Провод сервера для агентных действий: снят из sakura_core.executor (capabilities/*.py) скриптом вне репозитория на ветке feat/desktop-rewrite (основа 978684f). Обновлять при изменении серверных таблиц.",
+ "wire": {
+  "browser.back": [
+   "browser.back",
+   ""
+  ],
+  "browser.forward": [
+   "browser.forward",
+   ""
+  ],
+  "browser.scroll_down": [
+   "browser.scroll_down",
+   ""
+  ],
+  "browser.scroll_up": [
+   "browser.scroll_up",
+   ""
+  ],
+  "browser.tab_close": [
+   "browser.tab_close",
+   ""
+  ],
+  "browser.tab_dup": [
+   "browser.tab_dup",
+   ""
+  ],
+  "app.switch": [
+   "switch_to_app",
+   "telegram"
+  ],
+  "app.switch_open": [
+   "switch_to_app",
+   "telegram"
+  ],
+  "browser.tab_new": [
+   "browser.tab_new",
+   ""
+  ],
+  "browser.tab_next": [
+   "browser.tab_next",
+   ""
+  ],
+  "browser.tab_prev": [
+   "browser.tab_prev",
+   ""
+  ],
+  "browser.tab_reload": [
+   "browser.tab_reload",
+   ""
+  ],
+  "close_window.браузер": [
+   "close_window.браузер",
+   ""
+  ],
+  "ext.page_content": [
+   "ext.page_content",
+   ""
+  ],
+  "ext.page_content_youtube": [
+   "ext.page_content_youtube",
+   ""
+  ],
+  "game_mode.off": [
+   "game_mode.off",
+   ""
+  ],
+  "game_mode.on": [
+   "game_mode.on",
+   ""
+  ],
+  "music.dislike": [
+   "music.dislike",
+   ""
+  ],
+  "music.history": [
+   "music.history",
+   ""
+  ],
+  "music.like": [
+   "music.like",
+   ""
+  ],
+  "music.liked_tracks": [
+   "music.liked_tracks",
+   ""
+  ],
+  "music.mute": [
+   "music.mute",
+   ""
+  ],
+  "music.next": [
+   "music.next",
+   ""
+  ],
+  "music.now_playing": [
+   "music.now_playing",
+   ""
+  ],
+  "music.play_pause": [
+   "music.play_pause",
+   ""
+  ],
+  "music.playlists": [
+   "music.playlists",
+   ""
+  ],
+  "music.podcasts": [
+   "music.podcasts",
+   ""
+  ],
+  "music.prev": [
+   "music.prev",
+   ""
+  ],
+  "music.repeat": [
+   "music.repeat",
+   ""
+  ],
+  "music.seek_back": [
+   "music.seek_back",
+   ""
+  ],
+  "music.seek_forward": [
+   "music.seek_forward",
+   ""
+  ],
+  "music.shuffle": [
+   "music.shuffle",
+   ""
+  ],
+  "music.volume_down": [
+   "music.volume_down",
+   ""
+  ],
+  "system.volume": [
+   "volume",
+   "50"
+  ],
+  "music.volume_up": [
+   "music.volume_up",
+   ""
+  ],
+  "music.wave": [
+   "music.wave",
+   ""
+  ],
+  "open.app": [
+   "open.app",
+   "яндекс музыка"
+  ],
+  "screenshot.describe": [
+   "screenshot.describe",
+   ""
+  ],
+  "screenshot.run": [
+   "screenshot.run",
+   ""
+  ],
+  "system.restart": [
+   "system.restart",
+   ""
+  ],
+  "system.shutdown": [
+   "system.shutdown",
+   ""
+  ],
+  "system.shutdown_cancel": [
+   "system.shutdown_cancel",
+   ""
+  ],
+  "system.lock": [
+   "system.lock",
+   ""
+  ],
+  "system.sleep": [
+   "system.sleep",
+   ""
+  ],
+  "youtube.forward": [
+   "youtube.forward",
+   ""
+  ],
+  "youtube.fullscreen": [
+   "youtube.fullscreen",
+   ""
+  ],
+  "youtube.like": [
+   "youtube.like",
+   ""
+  ],
+  "youtube.mini": [
+   "youtube.mini",
+   ""
+  ],
+  "youtube.next": [
+   "youtube.next",
+   ""
+  ],
+  "youtube.pause": [
+   "youtube.pause",
+   ""
+  ],
+  "youtube.rewind": [
+   "youtube.rewind",
+   ""
+  ],
+  "youtube.speed_down": [
+   "youtube.speed_down",
+   ""
+  ],
+  "youtube.speed_up": [
+   "youtube.speed_up",
+   ""
+  ],
+  "youtube.sub_toggle": [
+   "youtube.sub_toggle",
+   ""
+  ],
+  "youtube.theater": [
+   "youtube.theater",
+   ""
+  ],
+  "youtube.trending": [
+   "youtube.trending",
+   ""
+  ],
+  "kettle.boil": [
+   "kettle:boil",
+   ""
+  ],
+  "kettle.off": [
+   "kettle:off",
+   ""
+  ],
+  "kettle.status": [
+   "kettle:status",
+   ""
+  ],
+  "kettle.heat": [
+   "kettle:heat:80",
+   ""
+  ],
+  "kettle.boil_heat": [
+   "kettle:boil_heat:80",
+   ""
+  ],
+  "files.open": [
+   "open_file:отчёт",
+   ""
+  ]
+ }
+}
