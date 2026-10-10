@@ -10,3 +10,5 @@ select = ["E", "F", "W", "B", "I"]
 # (win32gui и т.п.) подменяются в тестах через patch.object.
 "core/{agent,browser,commands,config,dep_check,events,exception_hooks,extension_server,eyes,file_index,hands,hearing,kettle,local_mood,music,music_listener,outbox,presence,protocol,settings,tasks,voice,yamusic_app}.py" = ["E701", "E702", "E402", "E501", "F401", "F841", "I001", "B"]
 "tests/agent_port/*.py" = ["E701", "E702", "E402", "E501", "F401", "F841", "I001", "B"]
+# Встроенная HTML-страница YouTube-плеера — длинные строки разметки.
+"core/media/media_server.py" = ["E501"]
