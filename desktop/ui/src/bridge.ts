@@ -1,4 +1,9 @@
 // Доступ к preload-мосту. В браузере/тестах моста нет — возвращаем безопасные заглушки.
+export interface CoreConnection {
+  port: number;
+  token: string;
+}
+
 export interface SakuraBridge {
   window: {
     minimize(): Promise<void>;
@@ -8,6 +13,13 @@ export interface SakuraBridge {
     onMaximized(cb: (maximized: boolean) => void): () => void;
   };
   version(): Promise<string>;
+  openLogs(): Promise<string>;
+  core: { connection(): Promise<CoreConnection | null> };
+  tray: {
+    onAction(cb: (id: string) => void): () => void;
+    setState(state: { mic?: boolean; game?: boolean }): Promise<void>;
+  };
+  autostart: { get(): Promise<boolean>; set(enabled: boolean): Promise<boolean> };
 }
 
 declare global {
@@ -25,6 +37,10 @@ const fallback: SakuraBridge = {
     onMaximized: () => () => {},
   },
   version: async () => "dev",
+  openLogs: async () => "",
+  core: { connection: async () => null },
+  tray: { onAction: () => () => {}, setState: async () => {} },
+  autostart: { get: async () => false, set: async (v) => v },
 };
 
 export const bridge = (): SakuraBridge => window.sakura ?? fallback;
