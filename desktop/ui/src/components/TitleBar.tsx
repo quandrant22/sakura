@@ -2,6 +2,7 @@ import { Copy, Minus, Square, X } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 
 import { bridge } from "../bridge";
+import { useApp } from "../store";
 import { SakuraLogo } from "./SakuraLogo";
 
 const TABS = ["Главная", "Устройства", "Сценарии", "Настройки"] as const;
@@ -14,6 +15,7 @@ interface Props {
 
 export function TitleBar({ tab, onTab }: Props) {
   const [maximized, setMaximized] = useState(false);
+  const active = useApp((s) => s.link === "open" && s.server.online);
 
   useEffect(() => {
     void bridge().window.isMaximized().then(setMaximized);
@@ -48,8 +50,8 @@ export function TitleBar({ tab, onTab }: Props) {
       </nav>
 
       <div className="ml-auto flex items-center gap-2 text-xs text-ink-dim">
-        <span className="h-2 w-2 rounded-full bg-online shadow-[0_0_8px_#3ddc97]" />
-        Система активна
+        <span className={"h-2 w-2 rounded-full " + (active ? "bg-online shadow-[0_0_8px_#3ddc97]" : "bg-ink-dim")} />
+        {active ? "Система активна" : "Нет связи"}
       </div>
 
       <div className="no-drag flex items-center gap-1">
