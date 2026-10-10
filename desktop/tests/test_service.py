@@ -53,7 +53,7 @@ def run(coro):
 async def _client(svc):
     ws = await websockets.connect(f"ws://127.0.0.1:{svc.api.port}", additional_headers={"Origin": "file://"})
     await ws.send(json.dumps({"type": "hello", "token": "tok", "client": "ui"}))
-    snap = [json.loads(await asyncio.wait_for(ws.recv(), 2)) for _ in range(3)]
+    snap = [json.loads(await asyncio.wait_for(ws.recv(), 2)) for _ in range(4)]
     return ws, snap
 
 
@@ -70,7 +70,7 @@ def test_snapshot_on_connect():
         svc = make_service()
         await svc.api.start()
         ws, snap = await _client(svc)
-        assert [e["type"] for e in snap] == ["connection", "state", "settings"]
+        assert [e["type"] for e in snap] == ["connection", "state", "settings", "media_settings"]
         assert snap[0]["server"] == "offline"
         assert snap[2]["settings"]["quick_prompts"][0] == "Что у меня сегодня?"
         await ws.close()
@@ -122,7 +122,10 @@ def test_bus_events_mapped():
         svc.bus.emit("user_text", text="привет")
         svc.bus.emit("sakura_text", text="и тебе")
         svc.bus.emit("agent_alert", text="внимание")
-        got = [json.loads(await asyncio.wait_for(ws.recv(), 2)) for _ in range(5)]
+        raw = [json.loads(await asyncio.wait_for(ws.recv(), 2)) for _ in range(6)]
+        # listening приглушает встроенные плееры — audio_duck проверяется в test_media_*.
+        assert [g["type"] for g in raw].count("audio_duck") == 1
+        got = [g for g in raw if g["type"] != "audio_duck"]
         assert [g["type"] for g in got] == ["state", "transcript", "chat_message", "chat_message", "notify"]
         assert got[2]["message"]["role"] == "user" and got[3]["message"]["role"] == "assistant"
         await ws.close()

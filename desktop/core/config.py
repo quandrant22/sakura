@@ -142,6 +142,16 @@ OVERLAY_DEPART_IDLE_S = float(os.getenv("OVERLAY_DEPART_IDLE_S", "120"))
 # Непрозрачность фона панели, 0..255
 OVERLAY_PANEL_ALPHA = int(os.getenv("OVERLAY_PANEL_ALPHA", "235"))
 
+# ── Медиа (встроенные плееры, desktop/docs/media.md) ─────────────────
+# Папки по умолчанию (через «;»); в интерфейсе меняются в Настройки → Медиа.
+MUSIC_FOLDERS = [p.strip() for p in os.getenv("MUSIC_FOLDERS", "").split(";") if p.strip()]
+VIDEO_FOLDERS = [p.strip() for p in os.getenv("VIDEO_FOLDERS", "").split(";") if p.strip()]
+CROSSFADE_S = float(os.getenv("CROSSFADE_S", "0"))          # плавный переход между треками, с
+PLAYER_DUCK_PCT = int(os.getenv("PLAYER_DUCK_PCT", "30"))   # громкость плееров, пока Сакура слушает/говорит
+YOUTUBE_MODE = os.getenv("YOUTUBE_MODE", "embedded").strip().lower()  # embedded | remote
+YOUTUBE_PROXY = os.getenv("YOUTUBE_PROXY", "").strip()      # прокси только для плеера YouTube
+MUSIC_YANDEX = os.getenv("MUSIC_YANDEX", "0").strip().lower() in ("1", "true", "yes", "on")
+
 # ── Аудио-устройство вывода ─────────────────────────────────────────
 AUDIO_OUTPUT_DEVICE = os.getenv("AUDIO_OUTPUT_DEVICE", "default")
 

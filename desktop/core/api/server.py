@@ -127,6 +127,9 @@ class LocalApiServer:
             except ApiError as e:
                 reply = {"type": "reply", "request_id": rid, "ok": False,
                          "error": {"code": e.code, "message": e.message}}
+            except (ValueError, KeyError, TypeError) as e:
+                reply = {"type": "reply", "request_id": rid, "ok": False,
+                         "error": {"code": "bad_request", "message": str(e)}}
             except Exception as e:  # noqa: BLE001 — ошибка команды не должна ронять API
                 log.exception("[api] команда %s", msg.get("type"))
                 reply = {"type": "reply", "request_id": rid, "ok": False,

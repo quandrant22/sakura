@@ -31,7 +31,7 @@ FOCUS_SCENARIO_ID = "focus"
 
 class CoreService:
     def __init__(self, agent_factory=None, api: LocalApiServer | None = None,
-                 settings=None, hands=None):
+                 settings=None, hands=None, media=None):
         from desktop.core.events import EventBus
         self.bus = EventBus()
         self.link = ServerLink(auth=self._auth, on_push=self._on_push, on_state=self._emit)
@@ -49,6 +49,13 @@ class CoreService:
         if hands is None:
             from desktop.core import hands
         self.hands = hands
+        # Встроенные плееры (desktop.core.media). media=False — без них (тесты).
+        if media is None:
+            from desktop.core.media.service import MediaService
+            media = MediaService(self._emit, self.settings)
+        self.media = media or None
+        if self._agent is not None:
+            self._agent.media = self.media
         self._state = "idle"
         self.bus.subscribe(self._on_bus)
         self._register_commands()
@@ -83,9 +90,12 @@ class CoreService:
         return out
 
     def snapshot(self) -> list[dict]:
-        return [self.link.state_event(),
+        snap = [self.link.state_event(),
                 {"type": "state", "value": self._state, "level": 0},
                 {"type": "settings", "settings": self.settings_snapshot()}]
+        if self.media is not None:
+            snap.append({"type": "media_settings", "settings": self.media.snapshot()})
+        return snap
 
     # ── шина → API ─────────────────────────────────────────────────
     def _local_chat(self, role: str, text: str):
@@ -99,6 +109,8 @@ class CoreService:
     def _on_bus(self, event: str, data: dict):
         if event == "state" and data.get("value") in STATES:
             self._state = data["value"]
+            if self.media is not None:
+                self.media.on_voice_state(self._state)
             self._emit({"type": "state", "value": self._state, "level": 0})
         elif event == "user_text":
             self._emit({"type": "transcript", "text": data.get("text", ""), "final": True})
@@ -128,6 +140,8 @@ class CoreService:
         c("list_audio_devices", self.cmd_list_audio_devices)
         c("settings_set", self.cmd_settings_set)
         c("game_mode", self.cmd_game_mode)
+        if self.media is not None:
+            self.media.register(c)
         c("server", self.cmd_server)
 
     async def cmd_send_text(self, msg: dict):
@@ -144,8 +158,11 @@ class CoreService:
         return {"mic": hearing.mic_enabled}
 
     async def cmd_stop_speaking(self, msg: dict):
+        # «стоп»: озвучка прерывается, встроенные плееры — на паузу.
         self.agent.player.interrupt()
         self.agent.set_state("idle")
+        if self.media is not None:
+            self.media.audio.stop_all()
 
     async def cmd_quick_action(self, msg: dict):
         kind, arg = msg.get("id"), msg.get("arg")
@@ -207,10 +224,14 @@ class CoreService:
     # ── запуск ─────────────────────────────────────────────────────
     async def run(self, api_port: int = 0):
         await self.api.start(api_port)
+        if self.media is not None:
+            self.media.start()
+            self._emit({"type": "media_settings", "settings": self.media.snapshot()})
         if self._agent is None:
             from desktop.core.agent import Agent
             factory = self._agent_factory or Agent
             # Конструктор тяжёлый (модели STT) — в потоке, чтобы API отвечал.
             self._agent = await asyncio.to_thread(factory, self.bus, server_link=self.link)
+            self._agent.media = self.media
             self._emit({"type": "settings", "settings": self.settings_snapshot()})
         await self._agent.run()

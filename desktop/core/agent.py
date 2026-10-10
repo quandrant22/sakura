@@ -317,8 +317,10 @@ class Agent:
         except Exception:
             sys_info = get_system_info()
 
-        # Текущее окно + время в нём
-        window = get_active_window()
+        # Текущее окно + время в нём. Играет встроенное видео — сервер видит плеер
+        # («… - YouTube — Sakura Player»), чтобы работал контекст window:youtube.
+        media = getattr(self, "media", None)
+        window = (media.active_window_hint() if media is not None else None) or get_active_window()
         now = time.monotonic()
         if window != self._last_window:
             self._last_window = window
@@ -346,6 +348,10 @@ class Agent:
         # Добавляем текущий трек — ТОЛЬКО из кэша heartbeat (не блокируем
         # loop-поток: SMTC-вызовы из loop давали задержки command_result)
         track = self._current_track
+        # Встроенная музыка играет — её трек в том же формате (контекст playing:music).
+        builtin = media.current_track() if media is not None else None
+        if builtin:
+            track = builtin
         if track and track.get("title"):
             payload["current_track"] = track
         return payload
@@ -551,6 +557,15 @@ class Agent:
                 pass
 
         # Игровой режим — переключаем через bus
+        # Встроенные плееры (desktop.core.media): если активен встроенный —
+        # действие music.*/youtube.* исполняет он, иначе — прежний внешний путь ниже.
+        media = getattr(self, "media", None)
+        if media is not None:
+            handled = await media.handle_command(action, arg)
+            if handled is not None:
+                await _send_ack(*handled)
+                return
+
         if action == "game_mode:on":
             self.bus.emit("game_mode", on=True)
             await _send_ack(True, "game_mode:on")
