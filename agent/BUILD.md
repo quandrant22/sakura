@@ -12,26 +12,26 @@ build.bat
 ## Что нужно
 
 - Windows 10/11
-- Python 3.12+
-- ~2GB свободного места (torch + whisper модели)
+- Python 3.11 и окружение из `requirements.lock.txt`
+  (см. [README_INSTALL.md](README_INSTALL.md))
+- ~6 ГБ свободного места (torch CPU, GigaAM, Vosk small)
 
 ## Установка зависимостей
 
 ```batch
-pip install -r requirements.txt
-pip install pyinstaller
+venv\Scripts\python.exe -m pip install -r requirements.lock.txt --extra-index-url https://download.pytorch.org/whl/cpu
+venv\Scripts\python.exe -m pip install pyinstaller
 ```
 
-## Ручная сборка
+## Что внутри сборки
 
-```batch
-pyinstaller --name "Sakura" --onedir --windowed --noconfirm ^
-    --add-data "extension;extension" ^
-    --add-data "vosk-model-small-ru-0.22;vosk-model-small-ru-0.22" ^
-    --hidden-import torch --hidden-import whisper --hidden-import vosk ^
-    --collect-all whisper --collect-all vosk --collect-all silero_vad ^
-    sakura.py
-```
+- распознавание — GigaAM (`v3_e2e_ctc`, запасной `v2_ctc`), модель
+  скачивается при первом запуске;
+- `vosk-model-small-ru-0.22` — только для слова «Сакура»;
+- `extension/` — расширение браузера.
+
+Whisper и Yandex SpeechKit не используются (строки `whisper` в
+`build.bat` — наследие, на работу не влияют).
 
 ## Структура после сборки
 
@@ -39,29 +39,24 @@ pyinstaller --name "Sakura" --onedir --windowed --noconfirm ^
 dist/Sakura/
 ├── Sakura.exe          ← запускать
 ├── extension/          ← расширение браузера
-├── vosk-model-small-ru-0.22/  ← модель распознавания
+├── vosk-model-small-ru-0.22/  ← модель слова «Сакура»
 ├── _internal/          ← библиотеки (не трогать)
 └── ...
 ```
 
 ## Настройка
 
-Все настройки уже внутри `config.py` — `.env` не нужен.
-Для смены устройства: отредактируй `DEVICE_ID` в `config.py` перед сборкой.
+Рядом с `Sakura.exe` положи `.env` (образец — `.env.example`):
+`DEVICE_ID`, `WS_TOKEN`, `VPS_WS_URL` и др. Токен в сборку не зашит.
 
 ## Установка расширения
 
-1. Открой Opera GX → `opera://extensions`
-2. Включи «Режим разработчика»
-3. Нажми «Загрузить распакованное расширение»
-4. Выбери папку `dist\Sakura\extension\`
-
-## Размер
-
-~1.5-2GB (включая torch, whisper, vosk модели)
+1. Открой страницу расширений браузера (Chrome/Edge/Opera/Brave),
+   включи «Режим разработчика».
+2. «Загрузить распакованное» → `dist\Sakura\extension\`.
+3. ID расширения впиши в `.env` как `SAKURA_EXTENSION_ID`.
 
 ## Автозапуск
 
-Чтобы Сакура запускалась при старте Windows:
 1. Win+R → `shell:startup`
-2. Создай ярлык на `Sakura.exe`
+2. Создай ярлык на `Sakura.exe` (или на `start_sakura.bat` при запуске из исходников)
