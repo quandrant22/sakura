@@ -68,7 +68,7 @@ function connect(portIdx = 0) {
       reconnectDelay = 3000;
       console.log("[Sakura] Подключено к агенту:", url,
                   "версия", msg.version || "?");
-      send({ type: "extension_ready", version: "3.0.0" });
+      send({ type: "extension_ready", version: chrome.runtime.getManifest().version });
     });
   };
 
@@ -410,6 +410,44 @@ async function handleCommand(msg) {
     return { ok: true, ...(meta || {}) };
   }
 
+  if (action === "page_content_youtube") {
+    // «Что за видео»: ищем вкладку YouTube — сначала звучащую, затем активную, затем первую
+    const ytTabs = await chrome.tabs.query({ url: [
+      "*://www.youtube.com/watch*",
+      "*://m.youtube.com/watch*",
+      "*://music.youtube.com/watch*",
+    ] });
+    const tab = ytTabs.find(t => t.audible) || ytTabs.find(t => t.active) || ytTabs[0];
+    if (!tab) return { ok: false, error: "нет открытого видео YouTube" };
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => {
+          const q = (s) => document.querySelector(s);
+          const title = (document.title || "").replace(/^\(\d+\)\s*/, "").replace(/ - YouTube( Music)?$/, "");
+          const channel = (q("ytd-channel-name a")?.textContent ||
+                           q('meta[itemprop="author"]')?.content ||
+                           q('link[itemprop="name"]')?.getAttribute("content") || "").trim();
+          const description = (q('meta[name="description"]')?.content || "").slice(0, 1500);
+          const v = q("video");
+          return {
+            title, channel, description,
+            video_id: new URL(location.href).searchParams.get("v") || "",
+            duration: v && isFinite(v.duration) ? v.duration : null,
+            currentTime: v ? v.currentTime : null,
+            paused: v ? v.paused : null,
+            url: location.href,
+          };
+        },
+      });
+      const result = results[0]?.result;
+      if (!result) return { ok: false, error: "не удалось прочитать страницу" };
+      return { ok: true, result };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  }
+
   // ══════════════════════════════════════════════════════════════════
   // СТРАНИЦА — взаимодействие
   // ══════════════════════════════════════════════════════════════════
@@ -496,6 +534,12 @@ async function handleCommand(msg) {
           if (inp.id) { var l = document.querySelector('label[for="'+inp.id+'"]'); if (l) lb = l.textContent.toLowerCase(); }
           if (ph.includes(label.toLowerCase()) || nm.includes(label.toLowerCase()) ||
               id.includes(label.toLowerCase()) || lb.includes(label.toLowerCase())) {
+            // Пароли и платёжные поля не заполняем
+            var ac = (inp.getAttribute('autocomplete') || '').toLowerCase();
+            if ((inp.type || '').toLowerCase() === 'password' || ac.indexOf('cc-') === 0 ||
+                /card|cvv|cvc|iban|pass/.test(nm + ' ' + id + ' ' + ph)) {
+              return { protected: true };
+            }
             if (inp.tagName === 'SELECT') {
               for (var j = 0; j < inp.options.length; j++) {
                 if (inp.options[j].text.toLowerCase().includes(value.toLowerCase())) {
@@ -516,6 +560,7 @@ async function handleCommand(msg) {
         return 'input not found';
       })()
     `);
+    if (result && result.protected) return { ok: false, error: "поле защищено" };
     return { ok: true, result };
   }
 
