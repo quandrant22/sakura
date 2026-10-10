@@ -11,7 +11,7 @@
 
 | Перенесено | В работе | Не перенесено | Всего |
 |---|---|---|---|
-| 103 | 7 | 0 | 110 |
+| 104 | 6 | 0 | 110 |
 
 ## 1. Агентные команды реестра (62)
 
@@ -120,9 +120,9 @@
 | 32 | Приложения | Индекс файлов и поиск/открытие | file_index.py `FileIndex`, hands.py `find_file`, `open_file` | core/file_index.py, core/hands.py | agent_port/test_hands.py; test_command_parity.py (files.open) | перенесено |
 | 33 | Приложения | Локальные голосовые команды (реестр, 36 встроенных + пакеты) | commands.py `CommandRegistry`, hands.py `match_voice_command` | core/commands.py, core/command_packs/ | agent_port/test_protocol_commands.py, test_cp1251.py | перенесено |
 | 34 | Приложения | Примитивы hotkey, type_text, focus_window, powershell | hands.py `hotkey`, `type_text`, `focus_window`, `powershell` | core/hands.py | test_command_parity.py, agent_port/test_hands.py, test_browser_controls.py | перенесено |
-| 35 | Музыка | SMTC: текущий трек и управление | music.py `_smtc_get_info`, `_smtc_control` | core/music.py | — (нужен фейк winsdk) | в работе |
-| 36 | Музыка | Яндекс.Музыка (приложение): волна, плейлисты, лайки через окно | yamusic_app.py | core/yamusic_app.py | — | в работе |
-| 37 | Музыка | Лайки/история/плейлисты через API (YANDEX_MUSIC_TOKEN) | music.py `_ym_*` | core/music.py | — | в работе |
+| 35 | Музыка | SMTC: текущий трек и управление | music.py `_smtc_get_info`, `_smtc_control` | core/music.py | test_music.py (music_command поверх подменённого SMTC); сам winsdk — без теста | в работе |
+| 36 | Музыка | Яндекс.Музыка (приложение): волна, плейлисты, лайки через окно | yamusic_app.py | core/yamusic_app.py | test_music.py::test_yamusic_* | перенесено |
+| 37 | Музыка | Лайки/история/плейлисты через API (YANDEX_MUSIC_TOKEN) | music.py `_ym_*` | core/music.py | test_music.py (лайк/дизлайк); история и плейлисты — без теста | в работе |
 | 38 | Музыка | music_listener — системный звук для эквалайзера | music_listener.py | core/music_listener.py → событие audio_level | agent_port/test_music_listener.py | перенесено |
 | 39 | Прочее | Скриншоты (JPEG 1280, качество 70) | hands.py `take_screenshot`, `_fit_for_vision` | core/hands.py | agent_port/test_screenshot_resize.py | перенесено |
 | 40 | Прочее | Чайник по BLE (ключ, статус, нагрев, наблюдение) | kettle.py `KettleClient`, agent.py `_kettle_watch` | core/kettle.py | test_command_parity.py (kettle.* → kettle_command) | перенесено |
