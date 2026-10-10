@@ -127,6 +127,7 @@ class CoreService:
         c("list_apps", self.cmd_list_apps)
         c("list_audio_devices", self.cmd_list_audio_devices)
         c("settings_set", self.cmd_settings_set)
+        c("game_mode", self.cmd_game_mode)
         c("server", self.cmd_server)
 
     async def cmd_send_text(self, msg: dict):
@@ -190,6 +191,12 @@ class CoreService:
         snap = self.settings_snapshot()
         self._emit({"type": "settings", "settings": snap})
         return {"settings": snap}
+
+    async def cmd_game_mode(self, msg: dict):
+        # Тот же путь, что команда сервера game_mode:on/off — событие шины (оверлей, трей).
+        on = bool(msg.get("on"))
+        self.bus.emit("game_mode", on=on)
+        return {"on": on}
 
     async def cmd_server(self, msg: dict):
         inner = msg.get("message")

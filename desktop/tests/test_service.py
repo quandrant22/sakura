@@ -106,6 +106,8 @@ def test_commands():
         assert r["error"]["code"] == "bad_request"
         r = await _call(ws, {"type": "server", "request_id": "11", "message": {"type": "devices_request"}})
         assert r["error"]["code"] == "offline"
+        r = await _call(ws, {"type": "game_mode", "request_id": "12", "on": True})
+        assert r["result"] == {"on": True}
         await ws.close()
         await svc.api.stop()
     run(go())
