@@ -7,7 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication
 
-from ui.overlay import Overlay, _PANEL_BG
+from ui.overlay import Overlay, _PANEL_BG, _PANEL_ALPHA
 
 _app = None
 
@@ -38,5 +38,5 @@ def test_game_theme_sets_panel_bg():
     o.set_mood({"color": "#ffb36b",
                 "game_theme": {"orb": "#ff0000", "color": "#112233"}})
     bg = o._panel_bg
-    assert (bg.red(), bg.green(), bg.blue(), bg.alpha()) == (0x11, 0x22, 0x33, 210)
+    assert (bg.red(), bg.green(), bg.blue(), bg.alpha()) == (0x11, 0x22, 0x33, _PANEL_ALPHA)
     assert bg != _PANEL_BG
