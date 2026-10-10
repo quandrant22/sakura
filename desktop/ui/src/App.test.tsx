@@ -31,9 +31,10 @@ test("отправка сообщения из поля ввода", async () =>
   await waitFor(() => expect(screen.getByText("Демо: «Привет»")).toBeTruthy());
 });
 
-test("офлайн-баннер", () => {
+test("офлайн: баннер и карточки с «Повторить» вместо скелетонов", () => {
   render(<App client={new DemoClient("offline")} />);
-  expect(screen.getByText("Нет связи с сервером")).toBeTruthy();
+  expect(screen.getByRole("status").textContent).toContain("Нет связи с сервером");
+  expect(screen.getAllByRole("button", { name: /Повторить/ }).length).toBeGreaterThanOrEqual(3);
 });
 
 test("меню и вкладки синхронизированы", () => {

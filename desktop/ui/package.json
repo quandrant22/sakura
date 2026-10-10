@@ -13,7 +13,8 @@
     "start": "electron .",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.electron.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "screens": "node scripts/screens.mjs"
   },
   "dependencies": {
     "lucide-react": "^1.55.0",

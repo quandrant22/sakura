@@ -8,9 +8,9 @@ import { Card, Loadable, modeLabel, toneLabel } from "./ui";
 export function SakuraCard() {
   const status = useApp((s) => s.status);
   return (
-    <section className="relative overflow-hidden rounded-panel border border-line shadow-soft">
+    <section className="relative shrink-0 overflow-hidden rounded-panel border border-line shadow-soft">
       <CharacterArt className="h-44" />
-      <div className="absolute inset-x-0 bottom-0 p-4">
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-panel via-panel/80 to-transparent p-4 pt-8">
         <div className="text-xs text-ink-dim">Сейчас рядом</div>
         <div className="text-base font-semibold text-accent">Sakura</div>
         <p className="mt-1 line-clamp-2 text-xs italic text-ink">
@@ -109,7 +109,7 @@ export function StatusCard() {
 
 export function Mascot() {
   return (
-    <div className="flex items-center gap-3 rounded-panel border border-line bg-panel p-3 shadow-soft">
+    <div className="flex shrink-0 items-center gap-3 rounded-panel border border-line bg-panel p-3 shadow-soft">
       <CharacterArt className="h-14 w-14 shrink-0 rounded-full" fade={false} />
       <p className="text-xs text-ink-dim">
         Я всегда рядом. Даже когда ты просто молчишь <Heart size={11} className="inline text-accent" fill="currentColor" />

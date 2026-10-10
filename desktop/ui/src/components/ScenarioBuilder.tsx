@@ -72,7 +72,7 @@ export function ScenarioBuilder({ onOpen }: { onOpen(): void }) {
     <Card title="Создание сценария" icon={<Workflow size={18} />}
           action={
             <button type="button" onClick={onOpen}
-                    className="flex items-center gap-1 rounded-card bg-accent px-2.5 py-1 text-xs text-white shadow-glow">
+                    className="flex items-center gap-1 whitespace-nowrap rounded-card bg-accent px-2.5 py-1 text-xs text-white shadow-glow">
               <Plus size={14} /> Новый сценарий
             </button>
           }>

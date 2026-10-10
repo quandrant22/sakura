@@ -55,7 +55,7 @@ export function Chat() {
   };
 
   return (
-    <Card title="Чат" icon={<MessageCircle size={18} />} className="h-full"
+    <Card title="Чат" icon={<MessageCircle size={18} />} className="h-full min-h-0 shrink"
           action={coreState !== "idle" && <span className="text-xs text-accent">{STATE_LABEL[coreState]}</span>}>
       <div ref={listRef} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-2" aria-live="polite">
         <Loadable status={chat.status} error={chat.error} onRetry={() => void loadHistory()} lines={5}>

@@ -18,7 +18,7 @@ const MENU: { id: Section; label: string; icon: typeof MessageCircle }[] = [
 
 export function Sidebar({ section, onSection }: { section: Section; onSection(s: Section): void }) {
   const [version, setVersion] = useState(__APP_VERSION__);
-  const online = useApp((s) => s.link === "open");
+  const online = useApp((s) => s.link === "open" && s.server.online);
   useEffect(() => {
     void bridge().version().then((v) => v !== "dev" && setVersion(v));
   }, []);
@@ -27,8 +27,8 @@ export function Sidebar({ section, onSection }: { section: Section; onSection(s:
     <aside className="flex w-[246px] shrink-0 flex-col gap-4">
       <div className="overflow-hidden rounded-panel border border-line bg-panel shadow-soft">
         <CharacterArt className="h-52" />
-        <div className="-mt-10 px-4 pb-4">
-          <div className="relative text-lg font-semibold text-accent">Sakura</div>
+        <div className="relative z-10 -mt-10 px-4 pb-4">
+          <div className="text-lg font-semibold text-accent">Sakura</div>
           <div className="flex items-center gap-2 text-xs text-ink-dim">
             <span className={"h-2 w-2 rounded-full " + (online ? "bg-online" : "bg-ink-dim")} />
             {online ? "Онлайн" : "Нет связи"}

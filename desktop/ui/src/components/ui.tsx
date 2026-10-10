@@ -7,7 +7,7 @@ import type { LoadStatus } from "../store";
 export function Card(props: { title?: ReactNode; icon?: ReactNode; action?: ReactNode; className?: string;
                               children: ReactNode }) {
   return (
-    <section className={"flex min-h-0 flex-col rounded-panel border border-line bg-panel shadow-soft " + (props.className ?? "")}>
+    <section className={"flex shrink-0 flex-col rounded-panel border border-line bg-panel shadow-soft " + (props.className ?? "")}>
       {props.title && (
         <header className="flex items-center gap-2 px-4 pb-2 pt-4">
           {props.icon && <span className="text-accent">{props.icon}</span>}

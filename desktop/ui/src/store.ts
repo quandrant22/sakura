@@ -107,6 +107,15 @@ export function createAppStore(client: CoreClient) {
             void get().loadStatus();
             void get().loadScenarios();
           }
+          // Сервер недоступен: вместо вечных скелетонов — ошибка с кнопкой «Повторить».
+          if (e.server !== "online") {
+            for (const k of ["chat", "devices", "status", "scenarios"] as const) {
+              const sl = get()[k];
+              if (sl.status === "idle" || sl.status === "loading") {
+                set({ [k]: { ...sl, status: "error", error: "Нет связи с сервером" } } as Partial<AppState>);
+              }
+            }
+          }
           if (e.proto === 1) {
             for (const k of ["chat", "devices", "status", "scenarios"] as const) {
               if (k !== "chat") set({ [k]: { ...get()[k], status: "unsupported", error: "Сервер не поддерживает" } } as Partial<AppState>);
