@@ -93,7 +93,8 @@ _STATE = {
 }
 _ACTIVE = ("listening", "thinking", "speaking")
 
-_PANEL_BG     = QColor(9, 14, 22, 210)
+_PANEL_ALPHA  = max(0, min(255, config.OVERLAY_PANEL_ALPHA))
+_PANEL_BG     = QColor(9, 14, 22, _PANEL_ALPHA)
 _PANEL_BORDER = QColor(120, 200, 255, 52)
 _BRANCH       = QColor(90, 58, 68)
 _PETAL        = QColor(255, 143, 200)
@@ -710,7 +711,7 @@ class Overlay(QWidget):
             r = int(panel_color[1:3], 16)
             g = int(panel_color[3:5], 16)
             b = int(panel_color[5:7], 16)
-            self._panel_bg = _QC(r, g, b, 210)
+            self._panel_bg = _QC(r, g, b, _PANEL_ALPHA)
             self.update()
         except Exception:
             pass
