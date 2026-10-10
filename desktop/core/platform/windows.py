@@ -139,6 +139,15 @@ class WindowsPlatform(make_stub("windows")):
                     return p
         return None
 
+    def restrict_to_current_user(self, path: str) -> None:
+        # Убрать наследуемые права и выдать полный доступ только текущему пользователю.
+        user = os.environ.get("USERNAME") or os.getlogin()
+        domain = os.environ.get("USERDOMAIN")
+        who = f"{domain}\\{user}" if domain else user
+        subprocess.run(["icacls", path, "/inheritance:r", "/grant:r", f"{who}:F"],
+                       check=True, capture_output=True,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
 
 KEYEVENTF_KEYUP = 0x0002
 MEDIA_VK = {"play_pause": 0xB3, "next": 0xB0, "prev": 0xB1,

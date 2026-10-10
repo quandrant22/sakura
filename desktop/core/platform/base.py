@@ -74,6 +74,10 @@ class Platform(ABC):
         """lock, sleep, shutdown, restart, shutdown_cancel."""
 
     @abstractmethod
+    def restrict_to_current_user(self, path: str) -> None:
+        """Оставить доступ к файлу только текущему пользователю (токен локального API)."""
+
+    @abstractmethod
     def steam_path(self) -> str | None:
         """Папка установки Steam (для сканирования игр) или None."""
 

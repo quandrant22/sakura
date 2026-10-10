@@ -709,6 +709,9 @@ class Hearing(threading.Thread):
         self._follow_until = 0.0
         self._dialog       = False
         self._mute_until   = 0.0
+        # Микрофон выключен пользователем (локальный API mic_toggle / трей):
+        # поток читает звук, но не слушает слово и не записывает фразы.
+        self.mic_enabled   = True
         self._timeline_sequence = 0
         self.vad           = None
         self.recognizer    = None
@@ -807,6 +810,10 @@ class Hearing(threading.Thread):
                         continue
 
                     if time.monotonic() < self._mute_until:
+                        continue
+
+                    if not self.mic_enabled:
+                        wake = _fresh_wake()
                         continue
 
                     if self._dialog or time.monotonic() < self._follow_until:

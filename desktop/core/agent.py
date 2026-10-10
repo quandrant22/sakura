@@ -176,7 +176,9 @@ def _music_canonical(action: str):
 
 
 class Agent:
-    def __init__(self, bus):
+    def __init__(self, bus, server_link=None):
+        # Запросы протокола v2 (desktop.core.server_link); None — как старый агент.
+        self.server_link = server_link
         # Явная проверка критичных пакетов (winsdk и пр.) при старте:
         # отсутствующее пишется в лог как WARNING, а не падает молча.
         try:
@@ -225,20 +227,23 @@ class Agent:
         self._set_state(state)
 
     def submit_user_text(self, text: str, wake_detected_at: float | None = None,
-                         timeline: dict | None = None):
+                         timeline: dict | None = None, channel: str | None = None):
         text = text.strip()
         if not text:
             return
         self.bus.emit("user_text", text=text)
         self._set_state("thinking")
-        self.send_threadsafe({
+        msg = {
             "type":          "voice_command",
             "device_id":     config.DEVICE_ID,
             "token":         config.WS_TOKEN.strip(),
             "text":          text,
             "active_window": get_active_window(),
             "context":       [],
-        }, wake_detected_at=wake_detected_at, timeline=timeline)
+        }
+        if channel:  # протокол v2: voice | text (по умолчанию сервер считает voice)
+            msg["channel"] = channel
+        self.send_threadsafe(msg, wake_detected_at=wake_detected_at, timeline=timeline)
 
     def send_threadsafe(self, obj: dict, wake_detected_at: float | None = None,
                         timeline: dict | None = None):
@@ -335,6 +340,8 @@ class Agent:
             "focus_seconds": focus_seconds,
             "activity_level": round(self._activity_level, 2),
         }
+        if kind == "register":
+            payload["proto"] = 2
         # Добавляем текущий трек — ТОЛЬКО из кэша heartbeat (не блокируем
         # loop-поток: SMTC-вызовы из loop давали задержки command_result)
         track = self._current_track
@@ -406,6 +413,9 @@ class Agent:
 
                 data = json.loads(raw)
                 kind = data.get("type")
+                link = getattr(self, "server_link", None)
+                if link is not None and link.handle(data):
+                    continue
 
                 if kind == "command":
                     _cmd_id = data.get("id")
@@ -828,6 +838,10 @@ class Agent:
                 ) as ws:
                     await ws.send(json.dumps(self._payload("register")))
                     self._ws = ws
+                    if self.server_link is not None:
+                        async def _send_v2(msg, _ws=ws):
+                            await _ws.send(json.dumps(msg, ensure_ascii=False))
+                        self.server_link.on_connected(_send_v2)
                     await self._outbox.flush(ws)
                     apps = await asyncio.to_thread(scan_apps)
                     if apps:
@@ -844,6 +858,8 @@ class Agent:
             except Exception as e:
                 log.exception("[agent] WS ошибка: %s", e)
             self._ws = None
+            if self.server_link is not None:
+                self.server_link.on_disconnected()
             self.bus.emit("connection", online=False)
             await asyncio.sleep(_backoff)
             _backoff = min(_backoff * 2, 60)
