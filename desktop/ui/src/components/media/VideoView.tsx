@@ -163,6 +163,7 @@ function Sources({ onError }: { onError(msg: string | null): void }) {
   const client = useMediaClient();
   const store = useVideoStore();
   const version = useMediaMeta((s) => s.libraryVersion);
+  const ytMode = useMediaMeta((s) => s.settings?.youtube_mode ?? "embedded");
   const current = useVideo((s) => (s.source?.kind === "local" ? s.source.trackId : null));
   const [items, setItems] = useState<LibraryTrack[] | null>(null);
   const [url, setUrl] = useState("");
@@ -177,7 +178,10 @@ function Sources({ onError }: { onError(msg: string | null): void }) {
     try {
       const r = await client.call<{ kind: string; video_id?: string; player_url?: string; start?: number; url?: string }>(
         "media_open_url", { url });
-      if (r.kind === "youtube") store.getState().open({ kind: "youtube", videoId: r.video_id!, playerUrl: r.player_url!, title: "YouTube", start: r.start ?? 0 });
+      if (r.kind === "youtube" && ytMode === "remote") {
+        // YOUTUBE_MODE=remote — видео открывается во вкладке браузера (команды идут через расширение).
+        await client.call("media_youtube_to_browser", { video_id: r.video_id, time: r.start ?? 0 });
+      } else if (r.kind === "youtube") store.getState().open({ kind: "youtube", videoId: r.video_id!, playerUrl: r.player_url!, title: "YouTube", start: r.start ?? 0 });
       else store.getState().open({ kind: r.kind as "file" | "hls", url: r.url!, title: url, start: 0 });
       onError(null);
     } catch (err) {
