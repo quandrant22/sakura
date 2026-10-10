@@ -280,3 +280,15 @@ def test_agent_routes_to_builtin_and_payload_uses_builtin_track(media, monkeypat
     p = a._payload("ping")
     assert p["current_track"]["title"] == "Song"
     assert p["active_window"].endswith("YouTube — Sakura Player")
+
+
+def test_open_external_only_library_files(media, monkeypatch):
+    ms, _ = media
+    from desktop.core.platform import windows
+    opened = []
+    monkeypatch.setattr(windows.os, "startfile", opened.append, raising=False)
+    tid = ms.library.tracks()[0]["id"]
+    assert run(ms.cmd_open_external({"track_id": tid})) == {"ok": True}
+    assert opened and opened[0].endswith("a.mp3")
+    with pytest.raises(ValueError):
+        run(ms.cmd_open_external({"track_id": 9999}))

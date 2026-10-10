@@ -131,7 +131,7 @@ class MediaService:
     def register(self, api_command):
         for name in ("state", "library", "scan", "urls", "playlist", "history", "position", "open_url",
                      "youtube_from_browser", "youtube_to_browser", "youtube_check", "yandex", "level",
-                     "settings", "external", "clear_covers"):
+                     "settings", "external", "clear_covers", "open_external"):
             api_command(f"media_{name}", getattr(self, f"cmd_{name}"))
 
     async def cmd_state(self, msg):
@@ -150,7 +150,17 @@ class MediaService:
                 pass
         self._emit({"type": "now_playing", "player": player, **fields})
 
+    def _with_covers(self, items: list[dict]) -> list[dict]:
+        # URL обложки с токеном медиасервера — интерфейс показывает её как есть.
+        for it in items:
+            h = it.get("cover_hash")
+            it["cover"] = self.server.url(f"/cover/{h}") if h and self.server.port else None
+        return items
+
     async def cmd_library(self, msg):
+        return await self._library(msg)
+
+    async def _library(self, msg):
         view = msg.get("view", "tracks")
         kind = "video" if msg.get("kind") == "video" else "audio"
         if view == "tracks":
@@ -159,9 +169,9 @@ class MediaService:
             else:
                 items = self.library.tracks(kind, int(msg.get("offset") or 0), int(msg.get("limit") or 500),
                                             album=msg.get("album"), artist=msg.get("artist"))
-            return {"items": items, "total": self.library.count(kind)}
+            return {"items": self._with_covers(items), "total": self.library.count(kind)}
         if view == "albums":
-            return {"items": self.library.albums()}
+            return {"items": self._with_covers(self.library.albums())}
         if view == "artists":
             return {"items": self.library.artists()}
         if view == "playlists":
@@ -193,7 +203,7 @@ class MediaService:
             self.library.playlist_delete(int(msg["id"]))
             return None
         if op == "tracks":
-            return {"items": self.library.playlist_tracks(int(msg["id"]))}
+            return {"items": self._with_covers(self.library.playlist_tracks(int(msg["id"])))}
         if op == "like":
             pid = next((p["id"] for p in self.library.playlists() if p["name"] == "Любимое"), None)
             if pid is None:
@@ -273,6 +283,14 @@ class MediaService:
         if op in ("play_pause", "next", "prev"):
             return {"ok": await remote_smtc.control(op)}
         raise ValueError(f"op {op}")
+
+    async def cmd_open_external(self, msg):
+        """«Открыть во внешнем проигрывателе» — если контейнер/кодек не играется в окне."""
+        t = self.library.get(int(msg["track_id"]))
+        if not t or not self.library.is_allowed(t["path"]):
+            raise ValueError("нет такого файла в медиатеке")
+        from desktop.core.platform import get_platform
+        return {"ok": get_platform().open_path(t["path"])}
 
     async def cmd_clear_covers(self, msg):
         return {"removed": self.library.clear_cover_cache()}

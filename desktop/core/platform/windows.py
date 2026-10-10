@@ -139,6 +139,13 @@ class WindowsPlatform(make_stub("windows")):
                     return p
         return None
 
+    def open_path(self, target: str) -> bool:
+        try:
+            os.startfile(target)  # программа по умолчанию для файла / URL
+            return True
+        except OSError:
+            return False
+
     def restrict_to_current_user(self, path: str) -> None:
         # Убрать наследуемые права и выдать полный доступ только текущему пользователю.
         user = os.environ.get("USERNAME") or os.getlogin()
