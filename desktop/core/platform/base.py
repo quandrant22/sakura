@@ -41,6 +41,14 @@ class Platform(ABC):
         """Закрыть окно по части заголовка или имени процесса."""
 
     @abstractmethod
+    def press_virtual_key(self, vk: int, hold: float = 0.0) -> bool:
+        """Нажать и отпустить виртуальную клавишу (медиаклавиши и т.п.); False — не удалось."""
+
+    @abstractmethod
+    def activate_window_handle(self, hwnd: int) -> bool:
+        """Вывести окно по его хэндлу на передний план; True — окно стало активным."""
+
+    @abstractmethod
     def hotkey(self, combo: str) -> None:
         """Нажать сочетание клавиш, например 'ctrl+shift+t'."""
 
@@ -64,6 +72,10 @@ class Platform(ABC):
     @abstractmethod
     def power(self, action: str) -> None:
         """lock, sleep, shutdown, restart, shutdown_cancel."""
+
+    @abstractmethod
+    def steam_path(self) -> str | None:
+        """Папка установки Steam (для сканирования игр) или None."""
 
     @abstractmethod
     def open_path(self, target: str) -> bool:

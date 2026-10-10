@@ -27,10 +27,11 @@ from difflib import get_close_matches
 from urllib.parse import quote
 
 from desktop.core import config
-from desktop.core.file_index import FileIndex
 from desktop.core.commands import CommandRegistry, load_builtin_commands
+from desktop.core.file_index import FileIndex
+from desktop.core.platform import get_platform
 
-try:    import win32gui, win32con
+try:    import win32gui; import win32con
 except ImportError: win32gui = win32con = None
 try:    import pyperclip
 except ImportError: pyperclip = None
@@ -84,10 +85,16 @@ file_index = FileIndex(
 # агент импортирует её напрямую — одна реализация, не две копии).
 try:
     from modules.translit import (
-        transliterate as _transliterate,
-        phonetic_normalize as _phonetic_normalize,
         normalize_name as _normalize_name_shared,
+    )
+    from modules.translit import (
         normalize_tokens as _normalize_tokens_shared,
+    )
+    from modules.translit import (
+        phonetic_normalize as _phonetic_normalize,
+    )
+    from modules.translit import (
+        transliterate as _transliterate,
     )
     _NORMALIZATION_SOURCE = "modules.translit"
 except ImportError:
@@ -271,15 +278,7 @@ def _scan_start_apps() -> dict:
 
 
 def _steam_path() -> str | None:
-    try:
-        import winreg
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as k:
-            return winreg.QueryValueEx(k, "SteamPath")[0]
-    except Exception:
-        for p in (r"C:\Program Files (x86)\Steam", r"C:\Program Files\Steam"):
-            if os.path.isdir(p):
-                return p
-    return None
+    return get_platform().steam_path()
 
 
 def _scan_steam() -> dict:
@@ -584,7 +583,8 @@ def _volume_iface():
         comtypes.CoInitialize()
     except Exception:
         pass
-    from ctypes import cast, POINTER
+    from ctypes import POINTER, cast
+
     from comtypes import CLSCTX_ALL
     from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
     speakers = AudioUtilities.GetSpeakers()
@@ -613,13 +613,10 @@ def nudge_volume(delta: int) -> str:
 
 # ── медиа ───────────────────────────────────────────────────────────
 def media_key(kind: str) -> str:
-    import ctypes
-    vk = {"play_pause": 0xB3, "next": 0xB0, "prev": 0xB1}.get(kind)
-    if not vk:
+    if kind not in ("play_pause", "next", "prev"):
         return "неизвестная медиа-команда"
     try:
-        ctypes.windll.user32.keybd_event(vk, 0, 0, 0)
-        ctypes.windll.user32.keybd_event(vk, 0, 0x0002, 0)
+        get_platform().media_key(kind)
         return f"медиа: {kind}"
     except Exception as e:
         return f"медиа недоступно: {e}"
@@ -715,13 +712,25 @@ def execute_command(action: str) -> dict:
 
     if verb == "music":
         from desktop.core.browser import (
-            music_play_pause, music_next, music_prev, music_open,
-            music_wave, music_playlist, music_track, music_artist,
-            music_album, music_liked, music_podcasts,
+            music_album,
+            music_artist,
+            music_liked,
+            music_mute,
+            music_next,
+            music_open,
             music_open_and_find,
-            music_shuffle, music_repeat,
-            music_seek_forward, music_seek_back,
-            music_volume_up, music_volume_down, music_mute,
+            music_play_pause,
+            music_playlist,
+            music_podcasts,
+            music_prev,
+            music_repeat,
+            music_seek_back,
+            music_seek_forward,
+            music_shuffle,
+            music_track,
+            music_volume_down,
+            music_volume_up,
+            music_wave,
         )
         if arg == "play_pause":    return {"result": music_play_pause()}
         if arg == "next":          return {"result": music_next()}
@@ -751,7 +760,8 @@ def execute_command(action: str) -> dict:
 
     if verb == "browser":
         # Приоритет — расширение браузера (точнее и надёжнее хоткеев)
-        import sys as _sys, logging as _log2
+        import logging as _log2
+        import sys as _sys
         _ext = _sys.modules.get("desktop.core.extension_server")
         _log2.getLogger("sakura.hands").info(f"[browser] ext={_ext is not None} connected={_ext.is_connected() if _ext else False} arg={arg!r}")
         if _ext and _ext.is_connected():
@@ -802,11 +812,18 @@ def execute_command(action: str) -> dict:
 
         # Fallback — хоткеи через браузер
         from desktop.core.browser import (
-            browser_tab_new, browser_tab_close, browser_tab_dup,
-            browser_tab_next, browser_tab_prev,
-            browser_back, browser_forward, browser_reload,
-            browser_scroll_down, browser_scroll_up,
-            browser_open_url, browser_search,
+            browser_back,
+            browser_forward,
+            browser_open_url,
+            browser_reload,
+            browser_scroll_down,
+            browser_scroll_up,
+            browser_search,
+            browser_tab_close,
+            browser_tab_dup,
+            browser_tab_new,
+            browser_tab_next,
+            browser_tab_prev,
         )
         if arg == "tab_new":     return {"result": browser_tab_new()}
         if arg == "tab_close":   return {"result": browser_tab_close()}
@@ -827,22 +844,15 @@ def execute_command(action: str) -> dict:
 
     # Системные команды
     if verb == "system":
-        import subprocess, ctypes
-        if arg == "lock":
-            ctypes.windll.user32.LockWorkStation()
-            return {"result": "заблокировано"}
-        if arg == "shutdown":
-            # Подтверждение уже получено на сервере (см. _pending_system в
-            # modules/ws_handlers.py) — ждать больше незачем, выключаем сразу.
-            subprocess.Popen(["shutdown", "/s", "/t", "0", "/c", "Команда Сакуры"])
-            return {"result": "выключение"}
-        if arg == "shutdown_cancel":
-            subprocess.Popen(["shutdown", "/a"])
-            return {"result": "выключение отменено"}
-        if arg == "sleep":
-            subprocess.Popen(["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"])
-            return {"result": "уходим в сон"}
-        return {"result": f"неизвестная системная команда: {arg}"}
+        # Подтверждение выключения уже получено на сервере (_pending_system в
+        # modules/ws_handlers.py) — платформа выполняет сразу.
+        done = {"lock": "заблокировано", "shutdown": "выключение",
+                "restart": "перезагрузка", "shutdown_cancel": "выключение отменено",
+                "sleep": "уходим в сон"}
+        if arg not in done:
+            return {"result": f"неизвестная системная команда: {arg}"}
+        get_platform().power(arg)
+        return {"result": done[arg]}
 
     return {"result": f"неизвестная команда: {action}"}
 
@@ -894,54 +904,7 @@ def type_text(text: str) -> dict:
 
 def _activate_hwnd(hwnd) -> bool:
     """Вывести окно вперёд с обходом блокировки переднего плана Windows."""
-    if not win32gui:
-        return False
-    try:
-        import ctypes
-        user32 = ctypes.windll.user32
-        SW_RESTORE = 9
-        VK_MENU = 0x12
-        KEYEVENTF_KEYUP = 0x0002
-        try:
-            if win32gui.IsIconic(hwnd):
-                win32gui.ShowWindow(hwnd, SW_RESTORE)
-        except Exception:
-            pass
-        try:
-            fg = user32.GetForegroundWindow()
-            fg_tid = user32.GetWindowThreadProcessId(fg, None) if fg else 0
-            cur_tid = user32.GetCurrentThreadId()
-            attached = False
-            if fg and fg_tid and fg_tid != cur_tid:
-                try:
-                    attached = bool(user32.AttachThreadInput(cur_tid, fg_tid, True))
-                except Exception:
-                    attached = False
-            try:
-                user32.keybd_event(VK_MENU, 0, 0, 0)
-                user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
-            except Exception:
-                pass
-            try:
-                win32gui.BringWindowToTop(hwnd)
-            except Exception:
-                pass
-            try:
-                win32gui.SetForegroundWindow(hwnd)
-            finally:
-                if attached:
-                    try:
-                        user32.AttachThreadInput(cur_tid, fg_tid, False)
-                    except Exception:
-                        pass
-        except Exception:
-            win32gui.SetForegroundWindow(hwnd)
-        try:
-            return user32.GetForegroundWindow() == hwnd
-        except Exception:
-            return True
-    except Exception:
-        return False
+    return get_platform().activate_window_handle(hwnd)
 
 
 def _hwnds_for_pids(pids: set[int]) -> list[tuple[int, str]]:

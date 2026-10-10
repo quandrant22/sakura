@@ -278,6 +278,7 @@ async def start():
     global _bind_error_logged
     try:
         import websockets
+
         from desktop.core.config import EXTENSION_PORTS
     except ImportError as e:
         raise RuntimeError(f"extension_server: нет зависимостей: {e}") from e

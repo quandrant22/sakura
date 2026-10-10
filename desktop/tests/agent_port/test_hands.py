@@ -9,8 +9,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from desktop.core import hands
-from desktop.core import kettle
+from desktop.core import hands, kettle
+from desktop.core.platform import windows as _win_platform
 
 
 class TestHandsAppCache(unittest.TestCase):
@@ -140,6 +140,7 @@ class TestHandsAppCache(unittest.TestCase):
         fake_proc = types.ModuleType("win32process")
         fake_proc.GetWindowThreadProcessId = lambda h: (0, 111)
         with patch.object(hands, "win32gui", gui), \
+             patch.object(_win_platform, "win32gui", gui), \
              patch.object(hands, "win32con", con), \
              patch.dict(sys.modules, {"win32process": fake_proc}), \
              patch.object(hands, "_resolve_target_with_name",
@@ -164,6 +165,7 @@ class TestHandsAppCache(unittest.TestCase):
         fake_proc = types.ModuleType("win32process")
         fake_proc.GetWindowThreadProcessId = lambda h: (0, 111)
         with patch.object(hands, "win32gui", gui), \
+             patch.object(_win_platform, "win32gui", gui), \
              patch.object(hands, "win32con", con), \
              patch.dict(sys.modules, {"win32process": fake_proc}), \
              patch.object(hands, "_resolve_target_with_name",

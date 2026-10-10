@@ -20,18 +20,20 @@ import time
 import websockets
 
 from desktop.core import config
-from desktop.core.tasks import spawn
-from desktop.core.eyes import get_active_window, get_system_info
-from desktop.core.hands import execute_command, scan_apps, init_index
-from desktop.core.hands import hotkey as _hotkey, type_text as _type_text
-from desktop.core.hands import focus_window as _focus_window, powershell as _powershell
-from desktop.core.hands import switch_to_app as _switch_to_app
-from desktop.core.hands import nudge_volume as _nudge_volume
-from desktop.core.hearing import Hearing
-from desktop.core.voice import Player
-from desktop.core.local_mood import LocalMood
 from desktop.core.dep_check import check_critical_packages
+from desktop.core.eyes import get_active_window, get_system_info
+from desktop.core.hands import execute_command, init_index, scan_apps
+from desktop.core.hands import focus_window as _focus_window
+from desktop.core.hands import hotkey as _hotkey
+from desktop.core.hands import nudge_volume as _nudge_volume
+from desktop.core.hands import powershell as _powershell
+from desktop.core.hands import switch_to_app as _switch_to_app
+from desktop.core.hands import type_text as _type_text
+from desktop.core.hearing import Hearing
+from desktop.core.local_mood import LocalMood
 from desktop.core.outbox import Outbox, log_send_result
+from desktop.core.tasks import spawn
+from desktop.core.voice import Player
 
 log = logging.getLogger("sakura.agent")
 
@@ -784,7 +786,8 @@ class Agent:
         prime_system_info()
         # Запускаем локальный WS сервер для расширения браузера
         try:
-            import importlib.util as _ilu, threading as _th
+            import importlib.util as _ilu
+            import threading as _th
             _spec = _ilu.spec_from_file_location('extension_server', _EXTENSION_SERVER)
             _mod  = _ilu.module_from_spec(_spec)
             _spec.loader.exec_module(_mod)

@@ -9,11 +9,11 @@ core/yamusic_app.py — управление десктопным приложе
 Автовыбор: music_target() определяет канал по активной SMTC-сессии.
 Браузерный путь (browser.py) НЕ удаляется — остаётся как fallback.
 """
-import os
 import asyncio
 import logging
-import time
+import os
 import threading
+import time
 from typing import Optional
 
 log = logging.getLogger("sakura.yamusic_app")
@@ -32,7 +32,9 @@ except ImportError:
     log.warning("[agent] winsdk не установлен — управление музыкой недоступно")
 
 try:
-    import win32gui, win32con, win32api
+    import win32api
+    import win32con
+    import win32gui
     _HAS_WIN32 = True
 except ImportError:
     _HAS_WIN32 = False

@@ -4,8 +4,8 @@ import asyncio
 
 import pytest
 
-from desktop.core import config
 from desktop.core import agent as agent_module
+from desktop.core import config
 
 
 class FakeWS:

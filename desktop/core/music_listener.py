@@ -113,8 +113,8 @@ def _run_loopback():
 def _run_sounddevice():
     """Fallback: захват через sounddevice WASAPI loopback."""
     try:
-        import sounddevice as sd
         import numpy as np
+        import sounddevice as sd
 
         # Ищем WASAPI loopback устройство
         devices    = sd.query_devices()
@@ -177,8 +177,8 @@ def _run_sounddevice():
 def _run_pyaudiowpatch():
     """Fallback: захват через pyaudiowpatch (гарантированный WASAPI loopback)."""
     try:
-        import pyaudiowpatch as pyaudio
         import numpy as np
+        import pyaudiowpatch as pyaudio
 
         pa = pyaudio.PyAudio()
 

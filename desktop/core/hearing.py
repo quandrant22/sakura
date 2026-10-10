@@ -504,8 +504,9 @@ class SpeechRecognizer:
         _Rec = KaldiRecognizer
 
         # Конвертируем float32 → int16 (принимаем и numpy, и list из тестов)
-        import numpy as _np_mod
         import array as _arr_mod
+
+        import numpy as _np_mod
         try:
             _a = _np_mod.ascontiguousarray(audio, dtype=_np_mod.float32).ravel()
             _a = (_a * 32768).astype(_np_mod.int16)
@@ -686,7 +687,7 @@ def apply_voice_emotion(prosody: dict):
     if prosody["label"] == "neutral":
         return
     try:
-        from modules.mood_vector import set_target, get_current
+        from modules.mood_vector import get_current, set_target
         cur = get_current()
         set_target(cur["valence"] + prosody["valence_hint"],
                    cur["arousal"] + prosody["arousal_hint"],

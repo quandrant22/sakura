@@ -1,10 +1,10 @@
 """Bounded, thread-safe reconnect queue; wire messages remain unchanged."""
 import asyncio
-from collections import deque
 import json
 import logging
 import threading
 import time
+from collections import deque
 
 log = logging.getLogger("sakura.agent")
 

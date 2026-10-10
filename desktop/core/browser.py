@@ -28,7 +28,9 @@ YANDEX_UID       = "adebtrern"
 OPERA_EXE        = r"C:\Users\mgrah\AppData\Local\Programs\Opera GX\opera.exe"
 
 try:
-    import win32gui, win32con, win32api
+    import win32api
+    import win32con
+    import win32gui
     HAS_WIN32 = True
 except ImportError:
     HAS_WIN32 = False
@@ -229,14 +231,9 @@ def browser_search(query: str) -> str:
 
 def _media(vk_code: int) -> bool:
     """Отправка медиаклавиши. Возвращает ok (False если платформа не поддерживает)."""
-    import os
-    if os.name != "nt":
-        return False
+    from desktop.core.platform import get_platform
     try:
-        ctypes.windll.user32.keybd_event(vk_code, 0, 0, 0)
-        time.sleep(0.05)
-        ctypes.windll.user32.keybd_event(vk_code, 0, 0x0002, 0)
-        return True
+        return get_platform().press_virtual_key(vk_code, hold=0.05)
     except Exception:
         return False
 

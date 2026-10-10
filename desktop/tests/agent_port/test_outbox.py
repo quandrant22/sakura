@@ -1,7 +1,7 @@
 import asyncio
-from concurrent.futures import Future
 import importlib.util
 import json
+from concurrent.futures import Future
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock

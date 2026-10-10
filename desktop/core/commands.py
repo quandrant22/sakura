@@ -17,14 +17,14 @@ Usage:
 
 from __future__ import annotations
 
-import os
-import re
 import json
 import logging
+import os
+import re
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Callable, Any
+from typing import Any, Callable, Optional
 
 log = logging.getLogger("sakura.commands")
 

@@ -17,11 +17,12 @@ core/presence.py — Присутствие на стороне клиента (
 """
 
 import asyncio
-from desktop.core.tasks import spawn
 import logging
 import threading
 import time
 from datetime import datetime
+
+from desktop.core.tasks import spawn
 
 log = logging.getLogger("sakura.presence")
 
@@ -85,7 +86,7 @@ class ActivityWatcher:
 
     def start(self):
         try:
-            from pynput import mouse, keyboard
+            from pynput import keyboard, mouse
             self._running = True
 
             mouse.Listener(

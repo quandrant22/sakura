@@ -1,8 +1,10 @@
 # --- Tests: GigaAM STT smoke (without real model load) ---
 import warnings
-import pytest
 from unittest.mock import MagicMock, patch
+
 import numpy as np
+import pytest
+
 import desktop.core.hearing as H
 
 
@@ -29,9 +31,10 @@ def test_recognizer_backend_vosk_when_gigaam_missing():
 
 def test_run_gigaam_direct_path():
     """Direct path model.forward + decoding.decode returns text."""
-    import torch
     from unittest.mock import MagicMock
+
     import numpy as np
+    import torch
     model = _DummyModel.__new__(_DummyModel)
     model.__init__()
     audio = np.random.randn(1600).astype(np.float32)
@@ -46,9 +49,10 @@ def test_run_gigaam_direct_path():
 
 def test_run_gigaam_empty_audio_returns_empty():
     """Empty audio signal returns empty string (no crash)."""
-    import torch
     from unittest.mock import MagicMock
+
     import numpy as np
+    import torch
     model = _DummyModel.__new__(_DummyModel)
     model.__init__()
     audio = np.array([], dtype=np.float32)
@@ -60,9 +64,10 @@ def test_run_gigaam_empty_audio_returns_empty():
 
 def test_run_gigaam_noncontiguous_works():
     """Non-contiguous array does not break ascontiguousarray."""
-    import torch
     from unittest.mock import MagicMock
+
     import numpy as np
+    import torch
     model = _DummyModel.__new__(_DummyModel)
     model.__init__()
     audio = np.array([[0.1, 0.2]], dtype=np.float32).T
@@ -103,4 +108,3 @@ class _DummyModel:
 def mock_gigaam_model():
     return _DummyModel()
 
-import warnings

@@ -15,14 +15,14 @@
     opened = idx.open("отчёт")            # открыть верхний результат, вернуть путь
 """
 
-import os
-import sys
 import json
-import time
-import string
 import logging
+import os
+import string
+import sys
 import tempfile
 import threading
+import time
 from difflib import SequenceMatcher
 
 log = logging.getLogger("sakura.file_index")
