@@ -445,6 +445,11 @@ class Agent:
 
                 elif kind == "mood_update":
                     params = data.get("params", {})
+                    if params.get("is_arrival") or params.get("is_departure"):
+                        from core.idle import idle_seconds
+                        log.info("[overlay] получен %s (ввод %.0f с назад)",
+                                 "is_arrival" if params.get("is_arrival") else "is_departure",
+                                 idle_seconds())
                     if params.get("is_arrival"):
                         self.bus.emit("orb_arrival")
                     elif params.get("is_departure"):
