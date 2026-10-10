@@ -31,6 +31,7 @@ from core.hands import execute_command, scan_apps, init_index
 from core.hands import hotkey as _hotkey, type_text as _type_text
 from core.hands import focus_window as _focus_window, powershell as _powershell
 from core.hands import switch_to_app as _switch_to_app
+from core.hands import nudge_volume as _nudge_volume
 from core.hearing import Hearing
 from core.voice import Player
 from core.local_mood import LocalMood
@@ -575,6 +576,15 @@ class Agent:
         # Один блок вместо трёх (SMTC / браузер / yamusic_app): бэкенд
         # выбирается по каноническому действию. Канонические имена v3
         # (music.*) принимаются в дополнение к старым — до этапа 8.
+        # Громкость музыки — системным микшером на N% (медиаклавиша даёт лишь 2%)
+        if action in ("music.volume_up", "music.volume_down",
+                      "music:volume_up", "music:volume_down"):
+            n = int(arg) if arg.isdigit() and 1 <= int(arg) <= 100 else config.VOLUME_STEP
+            up = action.endswith("up")
+            await asyncio.to_thread(_nudge_volume, n if up else -n)
+            await _send_ack(True, f"{'громче' if up else 'тише'} на {n}%")
+            return
+
         _music = _music_canonical(action)
         if _music:
             _mbackend, _mcanon, _mlegacy = _music
@@ -699,7 +709,9 @@ class Agent:
 
         # ── Фолбэк: execute_command (hands.py) ──────────────────────
         try:
-            out = await asyncio.to_thread(execute_command, action)
+            # arg приходит отдельно («volume» + «70») — склеиваем в «volume:70»
+            full = f"{action}:{arg}" if arg and ":" not in action else action
+            out = await asyncio.to_thread(execute_command, full)
             if out.get("screenshot"):
                 await self._ws.send(json.dumps({
                     "type": "command_result", "id": cmd_id,
