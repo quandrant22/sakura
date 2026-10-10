@@ -10,6 +10,14 @@ export default tseslint.config(
     files: ["**/*.{ts,tsx,cts}"],
     languageOptions: { ecmaVersion: 2022, globals: { ...globals.browser, ...globals.node } },
     plugins: { "react-hooks": reactHooks },
-    rules: { ...reactHooks.configs.recommended.rules },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
+    },
+  },
+  {
+    // В тестах `!` после поиска элемента — нормальная практика.
+    files: ["**/*.test.{ts,tsx}"],
+    rules: { "@typescript-eslint/no-non-null-assertion": "off" },
   },
 );
