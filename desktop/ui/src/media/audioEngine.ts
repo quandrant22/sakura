@@ -74,7 +74,7 @@ export class HtmlAudioEngine implements AudioEngine {
       g.connect(this.master!);
       this.gains.push(g);
     });
-    this.gains[1 - this.active]!.gain.value = 0;
+    this.gains[1 - this.active]!.gain.value = 0; // второй плеер молчит до перехода
     this.master.connect(this.duck);
     this.duck.connect(this.analyser);
     this.analyser.connect(ctx.destination);
@@ -103,8 +103,12 @@ export class HtmlAudioEngine implements AudioEngine {
     else this.els.forEach((el) => { el.volume = this.volume; el.muted = this.muted; });
   }
 
-  private get el() {
-    return this.els[this.active];
+  private elAt(i: number): HTMLAudioElement {
+    return i === 0 ? this.els[0] : this.els[1];
+  }
+
+  private get el(): HTMLAudioElement {
+    return this.elAt(this.active);
   }
 
   async load(src: string, startAt = 0) {
@@ -117,7 +121,7 @@ export class HtmlAudioEngine implements AudioEngine {
   }
 
   preload(src: string | null) {
-    const other = this.els[1 - this.active];
+    const other = this.elAt(1 - this.active);
     if (!src) return;
     if (other.src !== src) {
       other.src = src;
@@ -129,7 +133,7 @@ export class HtmlAudioEngine implements AudioEngine {
     this.graph();
     const from = this.active;
     const to = 1 - from;
-    const next = this.els[to];
+    const next = this.elAt(to);
     if (next.src !== src) next.src = src;
     next.currentTime = 0;
     this.active = to;
@@ -144,11 +148,11 @@ export class HtmlAudioEngine implements AudioEngine {
       gTo.linearRampToValueAtTime(1, t + seconds);
       gFrom.setValueAtTime(gFrom.value, t);
       gFrom.linearRampToValueAtTime(0, t + seconds);
-      setTimeout(() => this.els[from].pause(), seconds * 1000 + 50);
+      setTimeout(() => this.elAt(from).pause(), seconds * 1000 + 50);
     } else {
       gTo.setValueAtTime(1, t);
       gFrom.setValueAtTime(0, t);
-      this.els[from].pause();
+      this.elAt(from).pause();
     }
     await next.play();
   }

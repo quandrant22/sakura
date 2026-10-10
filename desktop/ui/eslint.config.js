@@ -13,11 +13,9 @@ export default tseslint.config(
     rules: {
       ...reactHooks.configs.recommended.rules,
       "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
+      // noUncheckedIndexedAccess делает `arr[i]` типом T | undefined даже после проверки
+      // границ; `!` в таких местах — осознанное утверждение, а не обход типов.
+      "@typescript-eslint/no-non-null-assertion": "off",
     },
-  },
-  {
-    // В тестах `!` после поиска элемента — нормальная практика.
-    files: ["**/*.test.{ts,tsx}"],
-    rules: { "@typescript-eslint/no-non-null-assertion": "off" },
   },
 );

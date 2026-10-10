@@ -9,7 +9,7 @@ const TABS = ["Главная", "Устройства", "Сценарии", "Н�
 export type Tab = (typeof TABS)[number];
 
 interface Props {
-  tab: Tab;
+  tab: Tab | null;
   onTab(tab: Tab): void;
 }
 

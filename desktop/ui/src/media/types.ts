@@ -32,6 +32,7 @@ export interface LibraryTrack {
   year: number | null;
   duration: number | null;
   cover_hash: string | null;
+  cover?: string | null;
 }
 
 export interface MediaSettings {
@@ -48,7 +49,7 @@ export interface MediaSettings {
 
 export const fromLibrary = (t: LibraryTrack): Track => ({
   id: t.id, source: "local", title: t.title, artist: t.artist, album: t.album,
-  duration: t.duration, cover_hash: t.cover_hash, track_no: t.track_no,
+  duration: t.duration, cover_hash: t.cover_hash, cover: t.cover ?? null, track_no: t.track_no,
 });
 
 export function fmtTime(s: number | null | undefined): string {

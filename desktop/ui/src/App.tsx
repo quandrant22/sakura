@@ -6,7 +6,11 @@ import { DemoClient, type DemoMode } from "./api/demo";
 import { bridge } from "./bridge";
 import { type Section, Sidebar } from "./components/Sidebar";
 import { type Tab, TitleBar } from "./components/TitleBar";
+import { PlayerBar } from "./components/media/PlayerBar";
+import { MediaProvider } from "./media/MediaContext";
 import { Home } from "./screens/Home";
+import { Media } from "./screens/Media";
+import { Settings } from "./screens/Settings";
 import { createAppStore, StoreContext, useApp } from "./store";
 
 const DEMO_MODES: DemoMode[] = ["normal", "empty", "offline", "unsupported"];
@@ -19,7 +23,7 @@ export function makeClient(search: string): CoreClient {
 }
 
 const SECTION_TAB: Partial<Record<Section, Tab>> = { chat: "Главная", devices: "Устройства", scenarios: "Сценарии" };
-const TAB_SECTION: Partial<Record<Tab, Section>> = { Главная: "chat", Устройства: "devices", Сценарии: "scenarios" };
+const TAB_SECTION: Record<Tab, Section> = { Главная: "chat", Устройства: "devices", Сценарии: "scenarios", Настройки: "settings" };
 
 function OfflineBanner() {
   const link = useApp((s) => s.link);
@@ -63,9 +67,20 @@ function Placeholder({ title, phase }: { title: string; phase: number }) {
   );
 }
 
+// ?screen=media|video|settings — стартовый экран (снимки экранов, отладка).
+function initialScreen(): { section: Section; video: boolean } {
+  const s = new URLSearchParams(window.location.search).get("screen");
+  if (s === "media" || s === "video") return { section: "media", video: s === "video" };
+  if (s === "settings") return { section: "settings", video: false };
+  return { section: "chat", video: false };
+}
+
 function Shell() {
-  const [tab, setTab] = useState<Tab>("Главная");
-  const [section, setSection] = useState<Section>("chat");
+  const [init] = useState(initialScreen);
+  // Раздел — единственный источник истины; подсвеченная вкладка заголовка выводится из него
+  // (у «Медиа», «Памяти», «Профиля» своей вкладки нет — подсветки нет).
+  const [section, setSection] = useState<Section>(init.section);
+  const tab: Tab | null = section === "settings" ? "Настройки" : SECTION_TAB[section] ?? null;
   const toggleMic = useApp((s) => s.toggleMic);
   const mic = useApp((s) => s.settings?.mic_enabled ?? true);
   const game = useApp((s) => s.gameMode);
@@ -79,24 +94,17 @@ function Shell() {
     void bridge().tray.setState({ mic, game });
   }, [mic, game]);
 
-  const go = (s: Section) => {
-    setSection(s);
-    const t = SECTION_TAB[s];
-    if (t) setTab(t);
-  };
-  const goTab = (t: Tab) => {
-    setTab(t);
-    const s = TAB_SECTION[t];
-    if (s) setSection(s);
-  };
+  const go = (s: Section) => setSection(s);
+  const goTab = (t: Tab) => setSection(TAB_SECTION[t]);
 
   let screen;
   if (section === "memory") screen = <Placeholder title="Память" phase={5} />;
   else if (section === "profile") screen = <Placeholder title="Профиль" phase={3} />;
-  else if (tab === "Главная") screen = <Home goDevices={() => go("devices")} goScenarios={() => go("scenarios")} />;
-  else if (tab === "Устройства") screen = <Placeholder title="Устройства" phase={3} />;
-  else if (tab === "Сценарии") screen = <Placeholder title="Сценарии" phase={4} />;
-  else screen = <Placeholder title="Настройки" phase={3} />;
+  else if (section === "media") screen = <Media initial={init.video ? "video" : "music"} />;
+  else if (section === "settings") screen = <Settings />;
+  else if (section === "devices") screen = <Placeholder title="Устройства" phase={3} />;
+  else if (section === "scenarios") screen = <Placeholder title="Сценарии" phase={4} />;
+  else screen = <Home goDevices={() => go("devices")} goScenarios={() => go("scenarios")} goMedia={() => go("media")} />;
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-win border border-line bg-bg shadow-soft">
@@ -106,17 +114,21 @@ function Shell() {
         <Sidebar section={section} onSection={go} />
         {screen}
       </div>
+      <PlayerBar />
       <Toast />
     </div>
   );
 }
 
 export default function App({ client }: { client?: CoreClient }) {
-  const store = useMemo(() => createAppStore(client ?? makeClient(window.location.search)), [client]);
+  const core = useMemo(() => client ?? makeClient(window.location.search), [client]);
+  const store = useMemo(() => createAppStore(core), [core]);
   useEffect(() => store.getState().init(), [store]);
   return (
     <StoreContext.Provider value={store}>
-      <Shell />
+      <MediaProvider client={core}>
+        <Shell />
+      </MediaProvider>
     </StoreContext.Provider>
   );
 }

@@ -46,6 +46,24 @@ export class DemoClient implements CoreClient {
                 proto: this.mode === "unsupported" ? 1 : serverOnline ? 2 : null });
     this.emit({ type: "state", value: "idle", level: 0 });
     this.emit({ type: "settings", settings: SETTINGS });
+    this.emit({ type: "media_settings", settings: {
+      music_folders: this.mode === "empty" ? [] : ["C:\\Users\\me\\Music"], video_folders: [],
+      crossfade_s: 0, player_duck_pct: 30, youtube_mode: "embedded", youtube_proxy: "", music_yandex: false,
+      yandex_note: "неофициальный доступ" } });
+  }
+
+  private mediaLibrary(p: Record<string, unknown>) {
+    if (this.mode === "empty") return { items: [], total: 0 };
+    const albums = [["Nujabes", "Modal Soul", 2005], ["Ichiko Aoba", "Windswept Adan", 2020], ["Joe Hisaishi", "Spirited Away OST", 2001]] as const;
+    const tracks = albums.flatMap(([artist, album, year], ai) => Array.from({ length: 6 }, (_, i) => ({
+      id: ai * 100 + i + 1, path: "", kind: p.kind === "video" ? "video" : "audio", title: p.kind === "video" ? `Видео ${ai * 6 + i + 1}` : `${album} — трек ${i + 1}`,
+      artist, album, album_artist: artist, track_no: i + 1, year, duration: 180 + i * 17, cover_hash: null, cover: null })));
+    if (p.view === "albums") return { items: albums.map(([artist, album, year]) => ({ album, album_artist: artist, tracks: 6, year, cover: null })) };
+    if (p.view === "artists") return { items: albums.map(([artist]) => ({ artist, tracks: 6, albums: 1 })) };
+    if (p.view === "playlists") return { items: [{ id: 1, name: "Любимое", tracks: 4 }, { id: 2, name: "Утро", tracks: 9 }] };
+    const q = String(p.q ?? "").toLowerCase();
+    const items = tracks.filter((t) => !q || `${t.title} ${t.artist}`.toLowerCase().includes(q));
+    return { items, total: items.length };
   }
 
   stop(): void {}
@@ -87,6 +105,14 @@ export class DemoClient implements CoreClient {
         return { settings: { ...SETTINGS, [String(payload.key)]: payload.value } } as T;
       case "server":
         return this.server(payload.message as Record<string, unknown> & { type: string });
+      case "media_library":
+        return this.mediaLibrary(payload) as T;
+      case "media_urls":
+        return { src: "", cover: null, subtitles: [], position: 0, siblings: [] } as T;
+      case "media_youtube_check":
+        return { "youtube.com": { ok: true, status: 204 }, "i.ytimg.com": { ok: true, status: 204 } } as T;
+      case "media_external":
+        return { track: this.mode === "normal" ? { title: "Lofi Morning", artist: "Chill Radio", status: "играет" } : null } as T;
       default:
         return undefined as T;
     }

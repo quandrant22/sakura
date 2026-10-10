@@ -1,4 +1,4 @@
-import { Brain, Cpu, MessageCircle, User, Workflow } from "lucide-react";
+import { Brain, Clapperboard, Cpu, MessageCircle, User, Workflow } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { bridge } from "../bridge";
@@ -6,10 +6,11 @@ import { useApp } from "../store";
 import { CharacterArt } from "./CharacterArt";
 import { SakuraLogo } from "./SakuraLogo";
 
-export type Section = "chat" | "devices" | "scenarios" | "memory" | "profile";
+export type Section = "chat" | "media" | "devices" | "scenarios" | "memory" | "profile" | "settings";
 
 const MENU: { id: Section; label: string; icon: typeof MessageCircle }[] = [
   { id: "chat", label: "Чат", icon: MessageCircle },
+  { id: "media", label: "Медиа", icon: Clapperboard },
   { id: "devices", label: "Устройства", icon: Cpu },
   { id: "scenarios", label: "Сценарии", icon: Workflow },
   { id: "memory", label: "Память", icon: Brain },

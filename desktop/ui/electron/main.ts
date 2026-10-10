@@ -1,11 +1,13 @@
 // Главный процесс Electron: одно окно без системной рамки, трей, безопасные настройки.
 // С ядром (Python) общается только окно — по локальному API; main лишь читает
 // файл с портом и токеном (ui.token) и отдаёт его окну через preload-мост.
-import { BrowserWindow, Menu, Tray, app, ipcMain, nativeImage, screen, shell } from "electron";
+import { BrowserWindow, Menu, Tray, app, dialog, ipcMain, nativeImage, screen, session, shell } from "electron";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { pacFor } from "./pac.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const devUrl = process.env.SAKURA_DEV_URL;
@@ -13,6 +15,7 @@ const dataDir = path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), "A
 const tokenFile = process.env.SAKURA_UI_TOKEN ?? path.join(dataDir, "ui.token");
 
 let win: BrowserWindow | null = null;
+let miniWin: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let quitting = false;
 const trayState = { mic: true, game: false };
@@ -140,6 +143,45 @@ ipcMain.handle("autostart:set", (_e, enabled: boolean) => {
   return app.getLoginItemSettings({ args: loginArgs }).openAtLogin;
 });
 
+// ── Медиа: мини-окно YouTube и прокси только для плеера ──────────────
+const LOCAL_PLAYER = /^http:\/\/127\.0\.0\.1:\d+\/youtube\/player\.html\?/;
+ipcMain.handle("media:mini-open", (_e, url: string) => {
+  if (typeof url !== "string" || !LOCAL_PLAYER.test(url)) return; // только страница нашего плеера
+  if (!miniWin) {
+    miniWin = new BrowserWindow({
+      width: 480, height: 270, minWidth: 320, minHeight: 180, alwaysOnTop: true, title: "Sakura · видео",
+      backgroundColor: "#000000", autoHideMenuBar: true,
+      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+    });
+    miniWin.setAlwaysOnTop(true, "floating");
+    miniWin.webContents.setWindowOpenHandler(({ url: u }) => {
+      if (/^https?:\/\//.test(u)) void shell.openExternal(u);
+      return { action: "deny" };
+    });
+    miniWin.webContents.on("will-navigate", (e) => e.preventDefault());
+    miniWin.on("closed", () => {
+      miniWin = null;
+      win?.webContents.send("media:mini-closed");
+    });
+  }
+  void miniWin.loadURL(url);
+  miniWin.showInactive();
+});
+ipcMain.handle("media:mini-close", () => miniWin?.close());
+ipcMain.handle("media:choose-folder", async () => {
+  if (!win) return null;
+  const r = await dialog.showOpenDialog(win, { properties: ["openDirectory"], title: "Папка медиатеки" });
+  return r.canceled ? null : r.filePaths[0] ?? null;
+});
+
+// YOUTUBE_PROXY: PAC-скрипт — через прокси только домены YouTube (electron/pac.ts).
+ipcMain.handle("media:proxy", async (_e, proxy: string) => {
+  const pac = typeof proxy === "string" ? pacFor(proxy) : "";
+  await session.defaultSession.setProxy(pac
+    ? { pacScript: `data:application/x-ns-proxy-autoconfig;base64,${Buffer.from(pac).toString("base64")}` }
+    : { mode: "direct" });
+});
+
 // ── Снимки экранов (desktop/ui/scripts/screens): SAKURA_SCREENSHOT_SPECS ──
 interface ShotSpec {
   name: string;
@@ -154,7 +196,7 @@ async function takeScreenshots(specs: ShotSpec[], outDir: string): Promise<void>
   w.setMinimumSize(800, 600);
   for (const spec of specs) {
     w.setContentSize(spec.width, spec.height);
-    await loadPage(w, `?demo=${encodeURIComponent(spec.demo)}`);
+    await loadPage(w, `?demo=${spec.demo}`); // demo уже содержит &screen=…
     w.showInactive();
     await new Promise((r) => setTimeout(r, 1500));
     const img = await w.webContents.capturePage();

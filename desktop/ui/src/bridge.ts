@@ -20,6 +20,13 @@ export interface SakuraBridge {
     setState(state: { mic?: boolean; game?: boolean }): Promise<void>;
   };
   autostart: { get(): Promise<boolean>; set(enabled: boolean): Promise<boolean> };
+  media: {
+    openMini(url: string): Promise<void>;
+    closeMini(): Promise<void>;
+    onMiniClosed(cb: () => void): () => void;
+    setProxy(proxy: string): Promise<void>;
+    chooseFolder(): Promise<string | null>;
+  };
 }
 
 declare global {
@@ -41,6 +48,7 @@ const fallback: SakuraBridge = {
   core: { connection: async () => null },
   tray: { onAction: () => () => {}, setState: async () => {} },
   autostart: { get: async () => false, set: async (v) => v },
+  media: { openMini: async () => {}, closeMini: async () => {}, onMiniClosed: () => () => {}, setProxy: async () => {}, chooseFolder: async () => null },
 };
 
 export const bridge = (): SakuraBridge => window.sakura ?? fallback;

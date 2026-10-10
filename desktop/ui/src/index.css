@@ -31,3 +31,9 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Тёмные полосы прокрутки под тему. */
+* {
+  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+  scrollbar-width: thin;
+}

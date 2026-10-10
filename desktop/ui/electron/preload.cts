@@ -30,6 +30,17 @@ const api = {
     get: (): Promise<boolean> => ipcRenderer.invoke("autostart:get"),
     set: (enabled: boolean): Promise<boolean> => ipcRenderer.invoke("autostart:set", enabled),
   },
+  media: {
+    openMini: (url: string): Promise<void> => ipcRenderer.invoke("media:mini-open", url),
+    closeMini: (): Promise<void> => ipcRenderer.invoke("media:mini-close"),
+    onMiniClosed: (cb: () => void): (() => void) => {
+      const h = () => cb();
+      ipcRenderer.on("media:mini-closed", h);
+      return () => ipcRenderer.removeListener("media:mini-closed", h);
+    },
+    setProxy: (proxy: string): Promise<void> => ipcRenderer.invoke("media:proxy", proxy),
+    chooseFolder: (): Promise<string | null> => ipcRenderer.invoke("media:choose-folder"),
+  },
 };
 
 contextBridge.exposeInMainWorld("sakura", api);
