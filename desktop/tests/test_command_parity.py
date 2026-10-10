@@ -55,7 +55,7 @@ def rec(monkeypatch):
         monkeypatch.setattr(agent_module, n, sync(n))
     monkeypatch.setattr(agent_module, "_nudge_volume", sync("_nudge_volume", "ok"))
     monkeypatch.setattr(music, "music_command", asyn("music.music_command"))
-    monkeypatch.setattr(browser, "music_action", sync("browser.music_action", "ok"))
+    monkeypatch.setattr(browser, "music_action", sync("browser.music_action", {"ok": True, "detail": "ok"}))
     monkeypatch.setattr(browser, "youtube_player_cmd", sync("browser.youtube_player_cmd", "ok"))
     monkeypatch.setattr(yamusic_app, "open_wave", sync("yamusic_app.open_wave", True))
     monkeypatch.setattr(yamusic_app, "play_pause", sync("yamusic_app.play_pause", True))
@@ -90,6 +90,8 @@ def test_action_reaches_executor(cid, rec):
     assert rec, f"{cid}: ни один исполнитель не вызван"
     results = [m for m in a._ws.sent if m.get("type") == "command_result"]
     assert results and results[-1]["id"] == "c1", f"{cid}: нет command_result"
+    last = results[-1]
+    assert last.get("ok", True) is not False and "error" not in str(last.get("detail", "")),         f"{cid}: ошибка исполнения {last}"
 
 
 def test_system_restart_dispatches_restart(rec):
