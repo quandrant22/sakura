@@ -1,0 +1,1139 @@
+"""core/hands.py — руки: приложения, громкость, медиа, диктовка, скриншот, ссылки.
+
+Скан приложений из четырёх источников:
+  - меню «Пуск» (.lnk)
+  - Get-StartApps (Microsoft Store / UWP + установленные) → shell:AppsFolder
+  - Steam (по манифестам) → steam://rungameid/<appid>
+  - папки с играми-пиратками (.exe) из config.GAME_DIRS
+Ручные «запомни» (apps.json) имеют наивысший приоритет.
+
+Открытие — единая цепочка resolve_and_open: что бы ни пришло (готовый таргет от
+VPS или сырое разговорное имя), агент доводит сам: приложение (точно/подстрока/
+фаззи по полному скану) → файл из индекса по всему диску → отдать ОС как есть.
+
+v2.0: Integrates with command registry for declarative command definitions.
+"""
+
+import base64
+import io
+import json
+import logging
+import os
+import re
+import subprocess
+import time
+import webbrowser
+from difflib import get_close_matches
+from urllib.parse import quote
+
+from desktop.core import config
+from desktop.core.file_index import FileIndex
+from desktop.core.commands import CommandRegistry, load_builtin_commands
+
+try:    import win32gui, win32con
+except ImportError: win32gui = win32con = None
+try:    import pyperclip
+except ImportError: pyperclip = None
+try:    import pyautogui; pyautogui.FAILSAFE = False
+except ImportError: pyautogui = None
+try:    from PIL import Image, ImageGrab
+except ImportError: Image = ImageGrab = None
+try:    import sounddevice as sd
+except ImportError: sd = None
+
+log = logging.getLogger("sakura.hands")
+
+# Command registry for declarative command matching
+_command_registry: CommandRegistry | None = None
+
+
+def get_command_registry() -> CommandRegistry:
+    """Get or initialize the command registry."""
+    global _command_registry
+    if _command_registry is None:
+        _command_registry = CommandRegistry()
+        # Load built-in commands
+        load_builtin_commands(_command_registry)
+        # Load custom commands from commands directory
+        commands_dir = os.path.join(config.BASE_DIR, "command_packs")
+        if os.path.isdir(commands_dir):
+            _command_registry.load_from_dir(commands_dir)
+        log.info(f"Command registry initialized: {_command_registry.hash[:8]}")
+    return _command_registry
+
+# Служебные .exe, которые не являются играми
+_SKIP_EXE = ("unins", "setup", "redist", "vcredist", "dxsetup", "directx",
+             "crashpad", "crashreport", "launcher_helper", "dotnet", "support",
+             "config", "editor", "benchmark", "cleanup", "activation", "report")
+
+# Полный результат последнего скана — для фаззи-резолва приложений на месте.
+_app_cache: dict = {}
+
+# Путь к кэшу приложений на диск (с TTL ~6 часов)
+_APPS_CACHE_FILE = os.path.join(os.path.dirname(config.APPS_FILE) or ".", "apps_cache.json")
+_APPS_CACHE_TTL = 6 * 3600  # 6 часов в секундах
+
+# Индекс файлов по всему диску. Запуск — init_index() из агента при старте.
+file_index = FileIndex(
+    cache_path=os.path.join(os.path.dirname(config.APPS_FILE) or ".", "file_index.json")
+)
+
+
+# ── Транслитерация и нормализация ────────────────────────────────────
+# ЕДИНАЯ реализация живёт в modules/translit.py (тот же репозиторий;
+# агент импортирует её напрямую — одна реализация, не две копии).
+try:
+    from modules.translit import (
+        transliterate as _transliterate,
+        phonetic_normalize as _phonetic_normalize,
+        normalize_name as _normalize_name_shared,
+        normalize_tokens as _normalize_tokens_shared,
+    )
+    _NORMALIZATION_SOURCE = "modules.translit"
+except ImportError:
+    # Автономная сборка агента (PyInstaller, без modules/): ЭТО КОПИЯ
+    # modules/translit.py. НЕ править здесь независимо — править общий
+    # модуль и переносить. Паритет проверяет
+    # tests/test_translit.py::TestHandsNormalizationParity.
+    _NORMALIZATION_SOURCE = "local-copy"
+
+    _TRANSLITERATION_MAP = {
+        # Сочетания (проверяются ДО одиночных букв)
+        'дж': 'j', 'дз': 'dz', 'кс': 'x',
+        # Гласные
+        'а': 'a', 'е': 'e', 'ё': 'yo', 'и': 'i', 'о': 'o', 'у': 'u',
+        'ы': 'y', 'э': 'e', 'я': 'ya', 'ю': 'yu',
+        # Согласные
+        'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'ж': 'zh', 'з': 'z',
+        'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm', 'н': 'n', 'п': 'p',
+        'р': 'r', 'с': 's', 'т': 't', 'ф': 'f', 'х': 'kh', 'ц': 'ts',
+        'ч': 'ch', 'ш': 'sh', 'щ': 'sch', 'ъ': '', 'ь': '',
+    }
+
+    def _transliterate(text: str) -> str:
+        """Кириллица → латиница, включая частые сочетания (дж/кс/...)."""
+        text = (text or "").lower()
+        result = []
+        i = 0
+        while i < len(text):
+            pair = text[i:i + 2]
+            if pair in _TRANSLITERATION_MAP:
+                result.append(_TRANSLITERATION_MAP[pair])
+                i += 2
+                continue
+            result.append(_TRANSLITERATION_MAP.get(text[i], text[i]))
+            i += 1
+        return "".join(result)
+
+    def _phonetic_normalize(text: str) -> str:
+        """Фонетическая нормализация: ph→f, ck→k, oo→u, ee→i, w↔v, o↔a,
+        схлопывание удвоенных согласных."""
+        text = (text or "").lower()
+        text = re.sub(r'ph', 'f', text)
+        text = re.sub(r'ck', 'k', text)
+        text = re.sub(r'oo', 'u', text)
+        text = re.sub(r'ee', 'i', text)
+        text = text.replace('w', 'v')
+        text = re.sub(r'(.)\1+', r'\1', text)
+        text = re.sub(r'[oa]', 'a', text)
+        return text
+
+    _SEP_RE = r'[\s\-_:;,.()\[\]\'"!+&/]'
+
+    def _normalize_name_shared(name: str) -> str:
+        name = _transliterate(name)
+        name = _phonetic_normalize(name)
+        name = re.sub(_SEP_RE, '', name)
+        return name.strip()
+
+    def _normalize_tokens_shared(name: str) -> list:
+        name = _transliterate(name)
+        name = _phonetic_normalize(name)
+        name = re.sub(_SEP_RE, ' ', name)
+        return [t for t in name.split() if t]
+
+
+def _normalize_app_name(name: str) -> str:
+    """Нормализовать имя приложения: транслит, фонетика, удалить спец. символы."""
+    return _normalize_name_shared(name)
+
+
+def _normalize_app_name_tokens(name: str) -> list[str]:
+    """Разбить имя приложения на нормализованные токены для поиска по словам."""
+    return _normalize_tokens_shared(name)
+
+
+def _load_apps_cache() -> dict | None:
+    """Загрузить кэш приложений с диска, если он свежий (TTL ~6 часов)."""
+    try:
+        if not os.path.exists(_APPS_CACHE_FILE):
+            return None
+        # Проверить возраст файла
+        age = time.time() - os.path.getmtime(_APPS_CACHE_FILE)
+        if age > _APPS_CACHE_TTL:
+            return None  # Кэш устарел
+        with open(_APPS_CACHE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        log.debug(f"load apps cache: {e}")
+        return None
+
+
+def _save_apps_cache(apps: dict):
+    """Сохранить кэш приложений на диск."""
+    try:
+        with open(_APPS_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(apps, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        log.debug(f"save apps cache: {e}")
+
+
+def _ensure_app_cache():
+    global _app_cache
+    if _app_cache:
+        return
+    cached = _load_apps_cache()
+    if cached is not None:
+        _app_cache = cached
+        log.info(f"Загружен apps_cache.json: {len(_app_cache)} приложений")
+
+
+# Попробовать подгрузить свежий кэш сразу при импорте.
+_ensure_app_cache()
+
+
+def init_index():
+    """Запустить фоновую сборку/обновление файлового индекса. Звать раз при старте."""
+    file_index.start()
+
+
+# ── реестр приложений ───────────────────────────────────────────────
+def _load_apps() -> dict:
+    try:
+        if os.path.exists(config.APPS_FILE):
+            with open(config.APPS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
+
+
+def _save_apps(apps: dict):
+    try:
+        with open(config.APPS_FILE, "w", encoding="utf-8") as f:
+            json.dump(apps, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        log.error(f"save apps: {e}")
+
+
+def _scan_start_menu() -> dict:
+    apps = {}
+    roots = [
+        os.path.join(os.environ.get("ProgramData", ""), r"Microsoft\Windows\Start Menu\Programs"),
+        os.path.join(os.environ.get("APPDATA", ""),     r"Microsoft\Windows\Start Menu\Programs"),
+    ]
+    for root in roots:
+        if not root or not os.path.isdir(root):
+            continue
+        for dirpath, _, files in os.walk(root):
+            for fn in files:
+                if fn.lower().endswith(".lnk"):
+                    apps[os.path.splitext(fn)[0].lower()] = os.path.join(dirpath, fn)
+    return apps
+
+
+def _scan_start_apps() -> dict:
+    """Get-StartApps: Store/UWP + установленные. Запуск через shell:AppsFolder\\<AppID>."""
+    apps = {}
+    ps = ("[Console]::OutputEncoding=[Text.Encoding]::UTF8; "
+          "Get-StartApps | ConvertTo-Json -Compress")
+    try:
+        # читаем БАЙТАМИ и декодируем сами — иначе поток subprocess падает
+        # на кириллице (PowerShell отдаёт не UTF-8 по умолчанию)
+        out  = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps],
+            capture_output=True, timeout=30,
+        )
+        text = out.stdout.decode("utf-8", "replace").strip()
+        if not text:
+            return apps
+        data = json.loads(text)
+        if isinstance(data, dict):
+            data = [data]
+        for entry in data:
+            name  = (entry.get("Name") or "").strip()
+            appid = (entry.get("AppID") or "").strip()
+            if name and appid:
+                apps[name.lower()] = f"shell:AppsFolder\\{appid}"
+    except Exception as e:
+        log.error(f"Get-StartApps: {e}")
+    return apps
+
+
+def _steam_path() -> str | None:
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as k:
+            return winreg.QueryValueEx(k, "SteamPath")[0]
+    except Exception:
+        for p in (r"C:\Program Files (x86)\Steam", r"C:\Program Files\Steam"):
+            if os.path.isdir(p):
+                return p
+    return None
+
+
+def _scan_steam() -> dict:
+    """Игры Steam по манифестам всех библиотек. Запуск через steam://rungameid/<appid>."""
+    apps = {}
+    base = _steam_path()
+    if not base:
+        return apps
+    libs = [os.path.join(base, "steamapps")]
+    vdf  = os.path.join(base, "steamapps", "libraryfolders.vdf")
+    try:
+        if os.path.exists(vdf):
+            txt = open(vdf, encoding="utf-8", errors="ignore").read()
+            for m in re.finditer(r'"path"\s*"([^"]+)"', txt):
+                libs.append(os.path.join(m.group(1).replace("\\\\", "\\"), "steamapps"))
+    except Exception:
+        pass
+    seen = set()
+    for lib in libs:
+        if not os.path.isdir(lib):
+            continue
+        for fn in os.listdir(lib):
+            if not (fn.startswith("appmanifest_") and fn.endswith(".acf")):
+                continue
+            try:
+                txt   = open(os.path.join(lib, fn), encoding="utf-8", errors="ignore").read()
+                appid = re.search(r'"appid"\s*"(\d+)"', txt)
+                name  = re.search(r'"name"\s*"([^"]+)"', txt)
+                if appid and name and appid.group(1) not in seen:
+                    seen.add(appid.group(1))
+                    apps[name.group(1).strip().lower()] = f"steam://rungameid/{appid.group(1)}"
+            except Exception:
+                pass
+    return apps
+
+
+def _scan_game_dirs() -> dict:
+    """Пиратки: .exe в config.GAME_DIRS. Имя папки → самый крупный .exe (обычно сама игра)."""
+    apps = {}
+    for root in config.GAME_DIRS:
+        if not os.path.isdir(root):
+            continue
+        for dirpath, _, files in os.walk(root):
+            exes = [f for f in files if f.lower().endswith(".exe")
+                    and not any(s in f.lower() for s in _SKIP_EXE)]
+            if not exes:
+                continue
+            try:
+                best = max(exes, key=lambda f: os.path.getsize(os.path.join(dirpath, f)))
+            except OSError:
+                best = exes[0]
+            apps.setdefault(os.path.basename(dirpath).lower(), os.path.join(dirpath, best))
+            for e in exes:
+                apps.setdefault(os.path.splitext(e)[0].lower(), os.path.join(dirpath, e))
+    return apps
+
+
+def scan_apps(force: bool = False) -> dict:
+    """Собирает все источники. Более «играбельные» переопределяют общие, ручные — поверх всех.
+    При force=False сначала пытается загрузить свежий кэш с диска (TTL ~6 часов).
+    """
+    global _app_cache
+    if not force:
+        cached = _load_apps_cache()
+        if cached is not None:
+            _app_cache = cached
+            log.info(f"Загружен apps_cache.json: {len(cached)} приложений")
+            return cached
+
+    apps = {}
+    for source in (_scan_start_menu, _scan_start_apps, _scan_steam, _scan_game_dirs):
+        try:
+            apps.update(source())
+        except Exception as e:
+            log.error(f"scan {source.__name__}: {e}")
+    apps.update(_load_apps())
+    _app_cache = apps                      # запомнить для фаззи-резолва на месте
+    _save_apps_cache(apps)                 # сохранить кэш на диск (TTL ~6ч)
+    log.info(f"Найдено приложений и игр: {len(apps)}")
+    return apps
+
+
+# ── открытие: единая цепочка ────────────────────────────────────────
+def _is_target(s: str) -> bool:
+    """Уже готовая для запуска строка (таргет от VPS), а не разговорное имя."""
+    low = s.lower()
+    return (low.startswith(("shell:", "steam:", "http://", "https://"))
+            or os.path.exists(s)
+            or (len(s) > 2 and s[1] == ":"))           # путь вида C:\...
+
+
+def _launch(target: str) -> bool:
+    try:
+        if target.startswith("shell:"):
+            subprocess.Popen(["explorer.exe", target])
+        else:
+            os.startfile(target)                       # путь, .lnk, steam://, http
+        return True
+    except Exception:
+        try:
+            subprocess.Popen(["cmd", "/c", "start", "", target], shell=False)
+            return True
+        except Exception:
+            return False
+
+
+def _resolve_target_with_name(name: str) -> tuple[str, str] | None:
+    """Разговорное имя → (реальное_имя, таргет).
+
+    Ручные → полный скан: точно, по словам, фаззи.
+    Трансфитерирует кириллицу и нормализует и запрос, и ключи кэша.
+    Матч: точное совпадение → вхождение по словам → fuzzy.
+    Возвращает кортеж (ключ_из_кэша, таргет) или None.
+    """
+    _ensure_app_cache()
+    norm_name = _normalize_app_name(name)
+    query_tokens = _normalize_app_name_tokens(name)
+
+    # 1. Проверить ручные приложения (с нормализацией)
+    manual = _load_apps()
+    for manual_key, manual_value in manual.items():
+        if _normalize_app_name(manual_key) == norm_name:
+            return (manual_key, manual_value)
+
+    # 2. Точное совпадение по нормализованному кэшу
+    for cache_key, cache_value in _app_cache.items():
+        if _normalize_app_name(cache_key) == norm_name:
+            return (cache_key, cache_value)
+
+    # 3. Вхождение по словам
+    for cache_key, cache_value in _app_cache.items():
+        cache_tokens = _normalize_app_name_tokens(cache_key)
+        if query_tokens and set(query_tokens).issubset(set(cache_tokens)):
+            return (cache_key, cache_value)
+        if query_tokens and any(token == norm_name for token in cache_tokens):
+            return (cache_key, cache_value)
+
+    # 4. Фаззи-матч по нормализованным ключам
+    normalized_keys = {_normalize_app_name(k): (k, v) for k, v in _app_cache.items()}
+    hit = get_close_matches(norm_name, list(normalized_keys.keys()), n=1, cutoff=0.6)
+    if hit:
+        real_key, value = normalized_keys[hit[0]]
+        return (real_key, value)
+
+    return None
+
+
+def _resolve_target(name: str) -> str | None:
+    """Разговорное имя → таргет. Тонкая обёртка над _resolve_target_with_name."""
+    result = _resolve_target_with_name(name)
+    return result[1] if result else None
+
+
+def _pretty_app_name(name: str) -> str:
+    """Имя приложения в читаемом виде: с заглавной буквы каждого слова."""
+    return ' '.join(word.capitalize() for word in name.split())
+
+
+def open_app(name: str) -> str:
+    """Открывает приложение ИЛИ файл по имени. Что бы ни пришло — доводит до конца.
+
+    Защита: если кэш пуст, сначала пробует загрузить диск‑кэш, затем scan_apps().
+    Честный отказ вместо fallback'a в ОС для неизвестных имён приложений.
+    """
+    name = name.strip()
+
+    if _is_target(name):
+        return f"открыл {name}" if _launch(name) else f"app_not_found:{name}"
+
+    _ensure_app_cache()
+    global _app_cache
+    if not _app_cache:
+        log.info("app_cache пуст, выполняю ленивую инициализацию...")
+        scan_apps()
+
+    resolved = _resolve_target_with_name(name)
+    if resolved and _launch(resolved[1]):
+        real_name = _pretty_app_name(resolved[0])
+        return f"открыл {real_name}"
+
+    opened = file_index.open(name)
+    if opened:
+        return f"открыл файл {os.path.basename(opened)}"
+
+    return f"не нашла приложение '{name}'"
+
+
+def open_file(name: str) -> str:
+    """Явное открытие файла по имени из индекса по всему диску."""
+    opened = file_index.open(name.strip())
+    return f"открыл файл {os.path.basename(opened)}" if opened else f"file_not_found:{name}"
+
+
+def find_file(name: str, limit: int = 5) -> list[str]:
+    """Список путей-кандидатов (например, чтобы переспросить «какой именно»)."""
+    return file_index.search(name.strip(), limit=limit)
+
+
+def close_window(query: str) -> str:
+    """Закрыть окно приложения по имени (транслитерация, нормализация).
+    Закрывает только ОДНО окно (самое верхнее из совпадений).
+    Для коротких запросов (<4 символов) — только точное совпадение слова.
+    При слабом совпадении (fuzzy) — просит уточнение, а не закрывает вслепую."""
+    if not win32gui:
+        return "нет доступа к окнам"
+
+    query = query.strip()
+    if not query:
+        return "не указано имя окна"
+
+    query_lower = query.lower()
+    query_norm = _normalize_name_shared(query_lower)
+    query_tokens = set(_normalize_tokens_shared(query_lower))
+    is_short_query = len(query) < 4
+
+    # Собираем все видимые окна с метаданных: hwnd, title
+    candidates = []  # (hwnd, title, match_quality, norm_title, title_tokens)
+
+    def _collect(hwnd, _):
+        if win32gui.IsWindowVisible(hwnd):
+            title = win32gui.GetWindowText(hwnd)
+            if title:
+                title_lower = title.lower()
+                title_norm = _normalize_name_shared(title_lower)
+                title_tokens = set(_normalize_tokens_shared(title_lower))
+
+                # 1. Точное совпадение запроса как подстрока (только для не-коротких)
+                if not is_short_query and query_lower in title_lower:
+                    candidates.append((hwnd, title, 1, title_norm, title_tokens))
+                    return
+
+                # 2. Точное совпадение по нормализованному имени
+                if query_norm and title_norm == query_norm:
+                    candidates.append((hwnd, title, 2, title_norm, title_tokens))
+                    return
+
+                # 3. Вхождение по словам (query_tokens ⊆ title_tokens)
+                if query_tokens and query_tokens.issubset(title_tokens):
+                    candidates.append((hwnd, title, 3, title_norm, title_tokens))
+                    return
+
+                # 4. Фаззи-матч (только для не-коротких)
+                if not is_short_query and query_norm and title_norm:
+                    from difflib import SequenceMatcher
+                    ratio = SequenceMatcher(None, query_norm, title_norm).ratio()
+                    if ratio >= 0.6:
+                        candidates.append((hwnd, title, 4, title_norm, title_tokens))
+                        return
+
+    try:
+        win32gui.EnumWindows(_collect, None)
+    except Exception as e:
+        return f"ошибка: {e}"
+
+    if not candidates:
+        return f"окно «{query}» не найдено"
+
+    # Сортируем по качеству совпадения (1=лучше всего)
+    candidates.sort(key=lambda x: x[2])
+    best_quality = candidates[0][2]
+
+    # Берём только кандидатов с лучшим качеством
+    best_matches = [c for c in candidates if c[2] == best_quality]
+
+    # Если fuzzy-совпадение и несколько кандидатов — просим уточнить
+    if best_quality == 4 and len(best_matches) > 1:
+        titles = [c[1] for c in best_matches[:5]]
+        return f"не уточняю: несколько окон подходит ({', '.join(titles)}). Скажи точнее."
+
+    # Если fuzzy-совпадение с одним кандидатом — тоже уточняем
+    if best_quality == 4:
+        return f"нашла «{best_matches[0][1]}» — закрыть? Подтверди."
+
+    # Берём первое окно (EnumWindows обходит в порядке Z-order, первое = верхнее)
+    target_hwnd, target_title = best_matches[0][0], best_matches[0][1]
+    total_found = len(candidates)
+
+    try:
+        win32gui.PostMessage(target_hwnd, win32con.WM_CLOSE, 0, 0)
+    except Exception as e:
+        return f"ошибка закрытия: {e}"
+
+    if total_found > 1:
+        return f"Нашла {total_found} окон «{target_title}», закрыла активное"
+    return f"Закрыла {target_title}"
+
+
+def remember_app(pair: str) -> str:
+    if "=" not in pair:
+        return "формат remember_app:имя=путь"
+    name, path = pair.split("=", 1)
+    apps = _load_apps()
+    apps[name.strip().lower()] = path.strip()
+    _save_apps(apps)
+    return f"запомнил {name.strip()}"
+
+
+# ── громкость ───────────────────────────────────────────────────────
+def _volume_iface():
+    import comtypes
+    try:
+        comtypes.CoInitialize()
+    except Exception:
+        pass
+    from ctypes import cast, POINTER
+    from comtypes import CLSCTX_ALL
+    from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+    speakers = AudioUtilities.GetSpeakers()
+    dev      = getattr(speakers, "_dev", speakers)   # новые pycaw оборачивают IMMDevice
+    iface    = dev.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+    return cast(iface, POINTER(IAudioEndpointVolume))
+
+
+def set_volume(percent: int) -> str:
+    try:
+        _volume_iface().SetMasterVolumeLevelScalar(max(0, min(100, percent)) / 100.0, None)
+        return f"громкость {percent}%"
+    except Exception as e:
+        return f"громкость недоступна: {e}"
+
+
+def nudge_volume(delta: int) -> str:
+    try:
+        vol = _volume_iface()
+        new = max(0, min(100, int(vol.GetMasterVolumeLevelScalar() * 100) + delta))
+        vol.SetMasterVolumeLevelScalar(new / 100.0, None)
+        return f"громкость {new}%"
+    except Exception as e:
+        return f"громкость недоступна: {e}"
+
+
+# ── медиа ───────────────────────────────────────────────────────────
+def media_key(kind: str) -> str:
+    import ctypes
+    vk = {"play_pause": 0xB3, "next": 0xB0, "prev": 0xB1}.get(kind)
+    if not vk:
+        return "неизвестная медиа-команда"
+    try:
+        ctypes.windll.user32.keybd_event(vk, 0, 0, 0)
+        ctypes.windll.user32.keybd_event(vk, 0, 0x0002, 0)
+        return f"медиа: {kind}"
+    except Exception as e:
+        return f"медиа недоступно: {e}"
+
+
+# ── диктовка / скриншот / youtube ───────────────────────────────────
+def dictate(text: str) -> str:
+    if not (pyperclip and pyautogui):
+        return "диктовка недоступна"
+    try:
+        pyperclip.copy(text)
+        time.sleep(0.05)
+        pyautogui.hotkey("ctrl", "v")
+        return "вставила текст"
+    except Exception as e:
+        return f"диктовка недоступна: {e}"
+
+
+def _fit_for_vision(img):
+    """Ужимает скриншот по длинной стороне до config.SCREENSHOT_MAX_SIDE.
+
+    Кадр читает Gemini Vision, а не человек: промпты просят общее описание
+    (что на экране, игра или нет, чем занят человек), а название активного
+    окна передаётся текстом рядом с картинкой. Поэтому мелкий текст не нужен,
+    а вес кадра нужен: 2К в полном разрешении — до ~2.6 МБ base64 в одном
+    WS-кадре, и пока он не дописан, голосовые команды ждут в очереди.
+
+    Увеличивать не умеем: экран меньше лимита возвращаем как есть.
+    """
+    long_side = max(img.width, img.height)
+    if long_side <= config.SCREENSHOT_MAX_SIDE:
+        return img
+    scale = config.SCREENSHOT_MAX_SIDE / long_side
+    size  = (max(1, round(img.width * scale)), max(1, round(img.height * scale)))
+    # Image.LANCZOS — не Image.Resampling.LANCZOS: pillow в requirements.txt
+    # без версии, а Image.Resampling появился только в 9.1.
+    return img.resize(size, Image.LANCZOS)
+
+
+def take_screenshot() -> str | None:
+    if not ImageGrab:
+        return None
+    try:
+        img = ImageGrab.grab().convert("RGB")
+        view = _fit_for_vision(img)
+        buf = io.BytesIO()
+        view.save(buf, format="JPEG", quality=config.SCREENSHOT_QUALITY)
+        raw = buf.getvalue()
+        log.info(
+            f"screenshot: {img.width}x{img.height} -> {view.width}x{view.height}, "
+            f"JPEG {len(raw) / 1024:.0f} КиБ, base64 {len(raw) * 4 / 3 / 1024:.0f} КиБ"
+        )
+        return base64.b64encode(raw).decode()
+    except Exception as e:
+        log.error(f"screenshot: {e}")
+        return None
+
+
+def open_youtube(query: str) -> str:
+    from desktop.core.browser import open_youtube_active
+    url = f"https://www.youtube.com/results?search_query={quote(query)}"
+    return open_youtube_active(url)
+
+
+# ── маршрутизация команд ────────────────────────────────────────────
+def execute_command(action: str) -> dict:
+    verb, _, arg = action.partition(":")
+    verb = verb.strip()
+    if verb == "open_app":      return {"result": open_app(arg)}
+    if verb == "switch_to_app":
+        r = switch_to_app(arg)
+        return {"result": r.get("detail", "")}
+    if verb == "rescan_apps":
+        scan_apps(force=True)
+        return {"result": "пересканировала приложения"}
+    if verb == "open_file":     return {"result": open_file(arg)}
+    if verb == "close_window":  return {"result": close_window(arg)}
+    if verb == "remember_app":  return {"result": remember_app(arg)}
+    if verb == "open_url":
+        webbrowser.open(arg); return {"result": f"открыл {arg}"}
+    if verb == "open_youtube_url":
+        from desktop.core.browser import open_youtube_active
+        return {"result": open_youtube_active(arg)}
+    if verb in ("open_youtube", "youtube", "youtube_playlist"):
+        return {"result": open_youtube(arg)}
+    if verb == "volume":        return {"result": set_volume(int(arg or 50))}
+    if verb == "volume_up":     return {"result": nudge_volume(int(arg or 20))}
+    if verb == "volume_down":   return {"result": nudge_volume(-int(arg or 20))}
+    # YouTube хоткеи плеера
+    if verb and verb.startswith("youtube_") and verb not in ("youtube_search", "youtube_channel", "youtube_playlist"):
+        from desktop.core.browser import youtube_player_cmd
+        return {"result": youtube_player_cmd(verb)}
+
+    if verb == "music":
+        from desktop.core.browser import (
+            music_play_pause, music_next, music_prev, music_open,
+            music_wave, music_playlist, music_track, music_artist,
+            music_album, music_liked, music_podcasts,
+            music_open_and_find,
+            music_shuffle, music_repeat,
+            music_seek_forward, music_seek_back,
+            music_volume_up, music_volume_down, music_mute,
+        )
+        if arg == "play_pause":    return {"result": music_play_pause()}
+        if arg == "next":          return {"result": music_next()}
+        if arg == "prev":          return {"result": music_prev()}
+        if arg == "open":          return {"result": music_open()}
+        if arg == "wave":          return {"result": music_wave()}
+        if arg == "like":
+            from desktop.core.music import like_current
+            return {"result": like_current()}
+        if arg == "dislike":
+            from desktop.core.music import dislike_current
+            return {"result": dislike_current()}
+        if arg == "shuffle":       return {"result": music_shuffle()}
+        if arg == "repeat":        return {"result": music_repeat()}
+        if arg == "seek_forward":  return {"result": music_seek_forward()}
+        if arg == "seek_back":     return {"result": music_seek_back()}
+        if arg == "volume_up":     return {"result": music_volume_up()}
+        if arg == "volume_down":   return {"result": music_volume_down()}
+        if arg == "mute":          return {"result": music_mute()}
+        if arg == "liked":         return {"result": music_liked()}
+        if arg == "podcasts":      return {"result": music_podcasts()}
+        if arg.startswith("track:"):    return {"result": music_open_and_find(arg[6:])}
+        if arg.startswith("artist:"):   return {"result": music_artist(arg[7:])}
+        if arg.startswith("album:"):    return {"result": music_album(arg[6:])}
+        if arg.startswith("playlist:"): return {"result": music_playlist(arg[9:])}
+        return {"result": f"неизвестная музыкальная команда: {arg}"}
+
+    if verb == "browser":
+        # Приоритет — расширение браузера (точнее и надёжнее хоткеев)
+        import sys as _sys, logging as _log2
+        _ext = _sys.modules.get("desktop.core.extension_server")
+        _log2.getLogger("sakura.hands").info(f"[browser] ext={_ext is not None} connected={_ext.is_connected() if _ext else False} arg={arg!r}")
+        if _ext and _ext.is_connected():
+            import asyncio as _aio
+            # Маппинг browser:arg → ext action
+            _ext_map = {
+                "tab_new":    ("tab_new",    ""),
+                "tab_close":  ("tab_close",  ""),
+                "tab_dup":    ("tab_dup",    ""),
+                "tab_next":   ("tab_next",   ""),
+                "tab_prev":   ("tab_prev",   ""),
+                "back":       ("go_back",    ""),
+                "forward":    ("go_forward", ""),
+                "reload":     ("tab_reload", ""),
+                "tab_reload": ("tab_reload", ""),
+                "scroll_down":("page_scroll","down"),
+                "scroll_up":  ("page_scroll","up"),
+            }
+            if arg in _ext_map:
+                ext_action, ext_arg = _ext_map[arg]
+            elif arg.startswith("url:"):
+                ext_action, ext_arg = "navigate", arg[4:]
+            elif arg.startswith("search:"):
+                ext_action, ext_arg = "search_google", arg[7:]
+            elif arg.startswith("switch:"):
+                ext_action, ext_arg = "tab_switch", arg[7:]
+            elif arg.startswith("zoom:"):
+                z = arg[5:]
+                ext_action = "zoom_in" if z == "in" else ("zoom_out" if z == "out" else "zoom_reset")
+                ext_arg = ""
+            elif arg.startswith("click:"):
+                ext_action, ext_arg = "page_click", arg[6:]
+            else:
+                ext_action, ext_arg = None, None
+
+            if ext_action:
+                try:
+                    agent_loop = getattr(_ext, '_agent_loop', None)
+                    _log2.getLogger("sakura.hands").info(f"[browser] agent_loop={agent_loop}")
+                    if agent_loop is None:
+                        raise RuntimeError("agent loop не установлен")
+                    fut    = _aio.run_coroutine_threadsafe(_ext.send_command(ext_action, ext_arg), agent_loop)
+                    result = fut.result(timeout=5.0)
+                    _log2.getLogger("sakura.hands").info(f"[browser] ext result: {result}")
+                    return {"result": result.get("result", "ok")}
+                except Exception as _e:
+                    _log2.getLogger("sakura.hands").error(f"[browser] ext error: {_e}")
+
+        # Fallback — хоткеи через браузер
+        from desktop.core.browser import (
+            browser_tab_new, browser_tab_close, browser_tab_dup,
+            browser_tab_next, browser_tab_prev,
+            browser_back, browser_forward, browser_reload,
+            browser_scroll_down, browser_scroll_up,
+            browser_open_url, browser_search,
+        )
+        if arg == "tab_new":     return {"result": browser_tab_new()}
+        if arg == "tab_close":   return {"result": browser_tab_close()}
+        if arg == "tab_dup":     return {"result": browser_tab_dup()}
+        if arg == "tab_next":    return {"result": browser_tab_next()}
+        if arg == "tab_prev":    return {"result": browser_tab_prev()}
+        if arg == "back":        return {"result": browser_back()}
+        if arg == "forward":     return {"result": browser_forward()}
+        if arg == "reload":      return {"result": browser_reload()}
+        if arg == "scroll_down": return {"result": browser_scroll_down()}
+        if arg == "scroll_up":   return {"result": browser_scroll_up()}
+        if arg.startswith("url:"):    return {"result": browser_open_url(arg[4:])}
+        if arg.startswith("search:"): return {"result": browser_search(arg[7:])}
+        return {"result": f"неизвестная команда браузера: {arg}"}
+
+    if verb == "screenshot":    return {"screenshot": take_screenshot()}
+    if verb == "dictate":       return {"result": dictate(arg)}
+
+    # Системные команды
+    if verb == "system":
+        import subprocess, ctypes
+        if arg == "lock":
+            ctypes.windll.user32.LockWorkStation()
+            return {"result": "заблокировано"}
+        if arg == "shutdown":
+            # Подтверждение уже получено на сервере (см. _pending_system в
+            # modules/ws_handlers.py) — ждать больше незачем, выключаем сразу.
+            subprocess.Popen(["shutdown", "/s", "/t", "0", "/c", "Команда Сакуры"])
+            return {"result": "выключение"}
+        if arg == "shutdown_cancel":
+            subprocess.Popen(["shutdown", "/a"])
+            return {"result": "выключение отменено"}
+        if arg == "sleep":
+            subprocess.Popen(["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"])
+            return {"result": "уходим в сон"}
+        return {"result": f"неизвестная системная команда: {arg}"}
+
+    return {"result": f"неизвестная команда: {action}"}
+
+
+# ── Новые примитивы (этап 4) ──────────────────────────────────────────
+
+_ALLOWED_KEYS = frozenset({
+    "ctrl", "alt", "shift", "win", "windows", "enter", "esc", "escape",
+    "tab", "space", "backspace", "delete", "insert", "home", "end",
+    "pageup", "pagedown", "up", "down", "left", "right",
+    *(f"f{i}" for i in range(1, 25)),
+    *"abcdefghijklmnopqrstuvwxyz0123456789",
+})
+
+def hotkey(combo: str) -> dict:
+    """Нажать комбинацию клавиш (ctrl+shift+esc и т.д.)."""
+    if not pyautogui:
+        return {"ok": False, "detail": "pyautogui недоступен"}
+    keys = [k.strip().lower() for k in combo.split("+")]
+    if not keys:
+        return {"ok": False, "detail": "пустая комбинация"}
+    for k in keys:
+        if k not in _ALLOWED_KEYS:
+            return {"ok": False, "detail": f"неизвестная клавиша: {k}"}
+    try:
+        pyautogui.hotkey(*keys)
+        return {"ok": True, "detail": f"нажала {combo}"}
+    except Exception as e:
+        return {"ok": False, "detail": f"ошибка хоткея: {e}"}
+
+
+_TYPE_TEXT_MAX = 2000
+
+
+def type_text(text: str) -> dict:
+    """Напечатать текст в активное окно через буфер обмена + Ctrl+V."""
+    if not (pyperclip and pyautogui):
+        return {"ok": False, "detail": "pyperclip/pyautogui недоступны"}
+    if len(text) > _TYPE_TEXT_MAX:
+        return {"ok": False, "detail": f"текст слишком длинный ({len(text)} > {_TYPE_TEXT_MAX})"}
+    try:
+        pyperclip.copy(text)
+        time.sleep(0.05)
+        pyautogui.hotkey("ctrl", "v")
+        return {"ok": True, "detail": f"напечатала {len(text)} символов"}
+    except Exception as e:
+        return {"ok": False, "detail": f"ошибка вставки: {e}"}
+
+
+def _activate_hwnd(hwnd) -> bool:
+    """Вывести окно вперёд с обходом блокировки переднего плана Windows."""
+    if not win32gui:
+        return False
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        SW_RESTORE = 9
+        VK_MENU = 0x12
+        KEYEVENTF_KEYUP = 0x0002
+        try:
+            if win32gui.IsIconic(hwnd):
+                win32gui.ShowWindow(hwnd, SW_RESTORE)
+        except Exception:
+            pass
+        try:
+            fg = user32.GetForegroundWindow()
+            fg_tid = user32.GetWindowThreadProcessId(fg, None) if fg else 0
+            cur_tid = user32.GetCurrentThreadId()
+            attached = False
+            if fg and fg_tid and fg_tid != cur_tid:
+                try:
+                    attached = bool(user32.AttachThreadInput(cur_tid, fg_tid, True))
+                except Exception:
+                    attached = False
+            try:
+                user32.keybd_event(VK_MENU, 0, 0, 0)
+                user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
+            except Exception:
+                pass
+            try:
+                win32gui.BringWindowToTop(hwnd)
+            except Exception:
+                pass
+            try:
+                win32gui.SetForegroundWindow(hwnd)
+            finally:
+                if attached:
+                    try:
+                        user32.AttachThreadInput(cur_tid, fg_tid, False)
+                    except Exception:
+                        pass
+        except Exception:
+            win32gui.SetForegroundWindow(hwnd)
+        try:
+            return user32.GetForegroundWindow() == hwnd
+        except Exception:
+            return True
+    except Exception:
+        return False
+
+
+def _hwnds_for_pids(pids: set[int]) -> list[tuple[int, str]]:
+    """Видимые главные окна для заданных PID (не всплывающие)."""
+    if not win32gui or not pids:
+        return []
+    import win32process
+    found: list[tuple[int, str]] = []
+
+    def _cb(hwnd, _):
+        try:
+            if not win32gui.IsWindowVisible(hwnd):
+                return
+            try:
+                _, pid = win32process.GetWindowThreadProcessId(hwnd)
+            except Exception:
+                return
+            if pid not in pids:
+                return
+            title = win32gui.GetWindowText(hwnd)
+            if not title:
+                return
+            try:
+                import win32con as _wc
+                style = win32gui.GetWindowLong(hwnd, _wc.GWL_STYLE)
+                if (style & _wc.WS_POPUP) and not (style & _wc.WS_CAPTION):
+                    return
+                if win32gui.GetParent(hwnd):
+                    return
+            except Exception:
+                pass
+            found.append((hwnd, title))
+        except Exception:
+            pass
+
+    try:
+        win32gui.EnumWindows(_cb, None)
+    except Exception:
+        pass
+    return found
+
+
+def _resolve_exe_names(name: str) -> tuple[str, str, set[str]]:
+    """Разговорное имя → (real_key, target, кандидаты .exe).
+
+    Использует тот же _resolve_target_with_name, что и open_app:
+    русские имена («дискорд») резолвятся в латинские записи кэша
+    («discord»), заголовки окон с меняющимся текстом (браузер)
+    вообще не участвуют в поиске.
+    """
+    resolved = _resolve_target_with_name(name)
+    if resolved is None:
+        return ("", "", set())
+    real_key, target = resolved
+    names: set[str] = set()
+    base = (real_key or "").strip().lower()
+    if base:
+        names.add(base)
+        names.add(base + ".exe")
+    low = (target or "").lower()
+    if not low.startswith(("shell:", "steam:", "http://", "https://")):
+        try:
+            stem = os.path.splitext(os.path.basename(target.strip().strip('"')))[0].lower()
+            if stem:
+                names.add(stem)
+                names.add(stem + ".exe")
+        except Exception:
+            pass
+    return (real_key, target, {n for n in names if n})
+
+
+def _pids_by_exe_names(exe_names: set[str]) -> set[int]:
+    """PID процессов, чьи исполняемые файлы совпадают с exe_names (tasklist)."""
+    pids: set[int] = set()
+    if not exe_names:
+        return pids
+    wanted = {n.lower() for n in exe_names}
+    try:
+        import csv as _csv
+        import io as _io
+        out = subprocess.run(
+            ["tasklist", "/FO", "CSV", "/NH"],
+            capture_output=True, timeout=10, check=False,
+        )
+        text = (out.stdout or b"").decode("utf-8", "replace")
+        for row in _csv.reader(_io.StringIO(text)):
+            if len(row) < 2:
+                continue
+            img, pid_s = row[0].strip().lower(), row[1].strip()
+            if img in wanted:
+                try:
+                    pids.add(int(pid_s))
+                except ValueError:
+                    pass
+    except Exception as e:
+        log.debug(f"tasklist: {e}")
+    return pids
+
+
+def switch_to_app(name: str) -> dict:
+    """Открыть или переключиться: запущен -> окно вперёд, нет -> запуск."""
+    query = name.strip()
+    if not query:
+        return {"ok": False, "detail": "пустое имя приложения"}
+    _ensure_app_cache()
+    real_key, target, exe_names = _resolve_exe_names(query)
+    if not real_key:
+        return {"ok": False, "detail": f"не нашла приложение '{query}'"}
+    pretty = _pretty_app_name(real_key)
+    pids = _pids_by_exe_names(exe_names)
+    if pids and win32gui:
+        wins = _hwnds_for_pids(pids)
+        if wins:
+            hwnd, title = wins[0]
+            if _activate_hwnd(hwnd):
+                return {"ok": True, "detail": f"переключилась: {title}"}
+            return {"ok": False,
+                    "detail": f"окно найдено ({title}), не удалось вывести вперёд"}
+    if _launch(target):
+        return {"ok": True, "detail": f"открыла {pretty}"}
+    return {"ok": False, "detail": f"не удалось запустить {pretty}"}
+
+
+def focus_window(name: str) -> dict:
+    """Для обратной совместимости: открыть или переключиться (см. switch_to_app)."""
+    return switch_to_app(name)
+
+
+_POWERSHELL_BLOCKLIST = (
+    "remove-item -recurse", "remove-item -r",
+    "format-", "rd /s", "rd /s /q",
+    "del /f /s /q", "del /s /q",
+    "stop-computer", "restart-computer",
+    "set-executionpolicy", "invoke-webrequest", "iwr ",
+    "curl ", "invoke-expression", "iex ",
+    "new-service", "schtasks", "reg add", "reg delete",
+)
+
+
+def powershell(cmd: str) -> dict:
+    """Выполнить команду в PowerShell с проверкой стоп-листа."""
+    cmd_stripped = cmd.strip().lower()
+    for blocked in _POWERSHELL_BLOCKLIST:
+        if blocked in cmd_stripped:
+            return {"ok": False, "detail": f"заблокировано стоп-листом: содержит «{blocked.strip()}»"}
+    try:
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", cmd],
+            capture_output=True, timeout=15,
+        )
+        output = (r.stdout or b"").decode("utf-8", "replace") + (r.stderr or b"").decode("utf-8", "replace")
+        detail = output[-300:] if len(output) > 300 else output
+        ok = r.returncode == 0
+        return {"ok": ok, "detail": detail.strip() or ("выполнено" if ok else "ошибка")}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "detail": "таймаут 15 секунд"}
+    except Exception as e:
+        return {"ok": False, "detail": f"ошибка: {e}"}
+
+
+# ── Command Registry Integration ──────────────────────────────────────
+
+def match_voice_command(text: str, lang: str = "ru") -> dict | None:
+    """Match a voice command against the command registry.
+
+    Returns {"action": str, "args": str, "confidence": float} or None.
+    This can be used by the VPS to pre-process commands before sending.
+    """
+    registry = get_command_registry()
+    result = registry.match(text, lang)
+    if result:
+        return {
+            "action": result.action,
+            "args": result.args,
+            "confidence": result.confidence,
+            "command_id": result.command.id,
+            "slots": result.slots,
+        }
+    return None
+
+
+def get_capabilities() -> list[str]:
+    """Return list of capabilities this agent supports."""
+    caps = []
+    if sd:
+        caps.append("voice")
+    if sd:
+        caps.append("tts")
+    if ImageGrab:
+        caps.append("screenshot")
+    if win32gui:
+        caps.extend(["apps", "browser", "music", "system"])
+    if pyperclip and pyautogui:
+        caps.append("dictate")
+    return caps

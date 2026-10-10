@@ -1,0 +1,62 @@
+[[commands]]
+id = "system_lock"
+type = "action"
+action = "system"
+args = "lock"
+priority = 30
+description = "Lock workstation"
+
+phrases.ru = [
+    "заблокируй",
+    "заблокируй комп",
+    "заблокируй экран",
+    "блокировка",
+]
+phrases.en = [
+    "lock",
+    "lock screen",
+]
+
+[[commands]]
+id = "system_shutdown"
+type = "action"
+action = "system"
+args = "shutdown"
+priority = 30
+description = "Shutdown computer"
+
+phrases.ru = [
+    "выключи комп",
+    "выключи ноут",
+    "выключи пк",
+    "выключи компьютер",
+    "shutdown",
+]
+
+[[commands]]
+id = "system_shutdown_cancel"
+type = "action"
+action = "system"
+args = "shutdown_cancel"
+priority = 35
+description = "Cancel scheduled shutdown"
+
+phrases.ru = [
+    "отмени выключение",
+    "не выключай",
+]
+
+[[commands]]
+id = "system_sleep"
+type = "action"
+action = "system"
+args = "sleep"
+priority = 30
+description = "Sleep mode"
+
+phrases.ru = [
+    "спящий режим",
+    "в сон",
+    "засыпай",
+    "уложи спать",
+]
