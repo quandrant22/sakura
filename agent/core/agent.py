@@ -435,6 +435,7 @@ class Agent:
 
                 elif kind == "tts_end":
                     # idle — только когда буфер плеера доиграет
+                    log.info(f"[state] tts_end получен (буфер {self.player.buffer_bytes()} байт)")
                     self.player.flush()
                     spawn(self._idle_after_playback(self._turn_gen, data.get("listen")),
                           name="idle-after-playback")
@@ -493,7 +494,10 @@ class Agent:
         if state == "speaking":
             if (self.player.is_drained()
                     and now - self.player.last_feed_ts >= _SPEAK_STALL_SEC):
-                log.warning("[state] speaking без tts_end -> idle")
+                log.warning("[state] speaking без tts_end -> idle "
+                            f"(последний чанк {now - self.player.last_feed_ts:.1f} с назад, "
+                            f"буфер {self.player.buffer_bytes()} байт)")
+                self.player.flush()
                 self._set_state("idle")
         elif state == "thinking":
             if now - self._state_since >= _THINK_TIMEOUT_SEC:

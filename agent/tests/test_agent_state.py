@@ -27,6 +27,9 @@ class FakePlayer:
     def is_drained(self):
         return self.buf == 0
 
+    def buffer_bytes(self):
+        return self.buf
+
     def feed(self, pcm):
         self.buf += len(pcm)
 
