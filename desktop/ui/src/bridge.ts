@@ -28,6 +28,8 @@ export interface SakuraBridge {
   media: {
     openMini(url: string): Promise<void>;
     closeMini(): Promise<void>;
+    /** Размер мини-окна видео: S 320×180, M 480×270, L 640×360. */
+    miniPreset(preset: "S" | "M" | "L"): Promise<void>;
     onMiniClosed(cb: () => void): () => void;
     setProxy(proxy: string): Promise<void>;
     chooseFolder(): Promise<string | null>;
@@ -63,7 +65,7 @@ const fallback: SakuraBridge = {
   core: { connection: async () => null },
   tray: { onAction: () => () => {}, setState: async () => {} },
   autostart: { get: async () => false, set: async (v) => v },
-  media: { openMini: async () => {}, closeMini: async () => {}, onMiniClosed: () => () => {}, setProxy: async () => {}, chooseFolder: async () => null },
+  media: { openMini: async () => {}, closeMini: async () => {}, miniPreset: async () => {}, onMiniClosed: () => () => {}, setProxy: async () => {}, chooseFolder: async () => null },
 };
 
 export const bridge = (): SakuraBridge => window.sakura ?? fallback;

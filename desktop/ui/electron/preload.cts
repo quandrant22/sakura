@@ -37,6 +37,7 @@ const api = {
   media: {
     openMini: (url: string): Promise<void> => ipcRenderer.invoke("media:mini-open", url),
     closeMini: (): Promise<void> => ipcRenderer.invoke("media:mini-close"),
+    miniPreset: (preset: "S" | "M" | "L"): Promise<void> => ipcRenderer.invoke("media:mini-preset", preset),
     onMiniClosed: (cb: () => void): (() => void) => {
       const h = () => cb();
       ipcRenderer.on("media:mini-closed", h);

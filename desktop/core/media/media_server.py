@@ -63,9 +63,9 @@ PLAYER_HTML = """<!doctype html>
 <html lang="ru"><head><meta charset="utf-8">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>Sakura · YouTube</title>
-<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}#p{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
+<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}#p{position:absolute;inset:0;width:100%;height:100%;border:0}__BAR_CSS__</style>
 </head><body>
-<iframe id="p" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen
+__BAR__<iframe id="p" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen
   referrerpolicy="strict-origin-when-cross-origin"
   src="https://www.youtube.com/embed/__VIDEO__?enablejsapi=1&autoplay=1&start=__START__&origin=__ORIGIN__&widget_referrer=__ORIGIN__"></iframe>
 <script>
@@ -244,7 +244,14 @@ class MediaServer:
                     return self._deny(400, "video id")
                 start = (qs.get("start") or ["0"])[0]
                 start = start if start.isdigit() else "0"
+                # chrome=1 — безрамочное мини-окно: полоса перетаскивания НАД плеером (iframe сдвинут
+                # вниз), а не поверх него — поверх плеера YouTube ничего не рисуем.
+                chrome = (qs.get("chrome") or ["0"])[0] == "1"
+                bar_css = ("#bar{position:absolute;left:0;right:0;top:0;height:16px;background:#111;"
+                           "-webkit-app-region:drag;cursor:move}#p{top:16px;height:calc(100% - 16px)}") if chrome else ""
+                bar = '<div id="bar" title="Перетащить окно"></div>' if chrome else ""
                 body = (PLAYER_HTML.replace("__VIDEO__", vid).replace("__START__", start)
+                        .replace("__BAR_CSS__", bar_css).replace("__BAR__", bar)
                         .replace("__ORIGIN__", html.escape(server.origin))).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")

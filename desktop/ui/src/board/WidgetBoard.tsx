@@ -4,7 +4,7 @@ import "react-grid-layout/css/styles.css";
 import { AppWindow, Cpu, Film } from "lucide-react";
 import { type ReactNode, useMemo } from "react";
 import GridLayout, { getCompactor, type Layout, useContainerWidth } from "react-grid-layout";
-import { createScaledStrategy } from "react-grid-layout/core";
+import { absoluteStrategy, createScaledStrategy } from "react-grid-layout/core";
 
 import { boardScale, GRID, type LayoutItem, layoutHeight, sanitizeLayout, type WidgetId, WIDGETS } from "../layout/board";
 import { usePrefs } from "../layout/prefs";
@@ -43,7 +43,8 @@ export function WidgetBoard() {
   // Уже кадра наброска доска рисуется в 690 px и уменьшается целиком (см. DECISIONS.md).
   const scale = boardScale(width);
   const gridWidth = scale < 1 ? GRID.designWidth : width;
-  const strategy = useMemo(() => (scale < 1 ? createScaledStrategy(scale) : undefined), [scale]);
+  // top/left вместо transform: иначе position: fixed («Кинотеатр» видео) привязывался бы к виджету.
+  const strategy = useMemo(() => (scale < 1 ? createScaledStrategy(scale) : absoluteStrategy), [scale]);
   const gridLayout = useMemo<Layout>(
     () => layout.map((it) => ({ ...it, minW: WIDGETS[it.i].minW, minH: WIDGETS[it.i].minH })),
     [layout],

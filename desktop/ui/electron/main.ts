@@ -9,6 +9,9 @@ import { fileURLToPath } from "node:url";
 
 import { CoreSupervisor, coreAutostartEnabled } from "./coreProcess.js";
 import { readLayout, writeLayout } from "./layoutFile.js";
+import {
+  clampToArea, minSize, type Preset, presetSize, readBounds, snapToCorner, VIDEO_ASPECT, writeBounds,
+} from "./miniWindow.js";
 import { pacFor } from "./pac.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -16,6 +19,7 @@ const devUrl = process.env.SAKURA_DEV_URL;
 const dataDir = path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), "AppData", "Local"), "Sakura");
 const tokenFile = process.env.SAKURA_UI_TOKEN ?? path.join(dataDir, "ui.token");
 const layoutFile = process.env.SAKURA_LAYOUT_FILE ?? path.join(dataDir, "layout.json");
+const miniBoundsFile = path.join(dataDir, "mini_windows.json");
 // Корень репозитория (здесь лежит пакет desktop): dist-electron → ui → desktop → корень.
 const repoDir = process.env.SAKURA_REPO_DIR ?? path.join(here, "..", "..", "..");
 let core: CoreSupervisor | null = null;
@@ -153,15 +157,41 @@ ipcMain.handle("autostart:set", (_e, enabled: boolean) => {
 
 // ── Медиа: мини-окно YouTube и прокси только для плеера ──────────────
 const LOCAL_PLAYER = /^http:\/\/127\.0\.0\.1:\d+\/youtube\/player\.html\?/;
+// «Окно поверх всех»: безрамочное, пропорции 16:9 (+16 px полосы перетаскивания над плеером),
+// минимум 240×135, пресеты S/M/L, привязка к углам, позиция и размер запоминаются, Esc закрывает.
+const MINI_BAR = 16;
+function saveMiniBounds() {
+  if (!miniWin) return;
+  const b = miniWin.getBounds();
+  writeBounds(miniBoundsFile, "video", { ...b, height: b.height - MINI_BAR });
+}
 ipcMain.handle("media:mini-open", (_e, url: string) => {
   if (typeof url !== "string" || !LOCAL_PLAYER.test(url)) return; // только страница нашего плеера
   if (!miniWin) {
+    const area = screen.getPrimaryDisplay().workArea;
+    const saved = readBounds(miniBoundsFile, "video");
+    const size = presetSize("M");
+    const b = clampToArea(saved ?? { ...size, x: area.x + area.width - size.width - 24, y: area.y + area.height - size.height - 24 },
+                          area);
+    const min = minSize();
     miniWin = new BrowserWindow({
-      width: 480, height: 270, minWidth: 320, minHeight: 180, alwaysOnTop: true, title: "Sakura · видео",
-      backgroundColor: "#000000", autoHideMenuBar: true,
+      ...b, height: b.height + MINI_BAR, minWidth: min.width, minHeight: min.height + MINI_BAR,
+      frame: false, alwaysOnTop: true, title: "Sakura · видео", backgroundColor: "#000000", autoHideMenuBar: true,
       webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
     });
+    miniWin.setAspectRatio(VIDEO_ASPECT, { width: 0, height: MINI_BAR });
     miniWin.setAlwaysOnTop(true, "floating");
+    miniWin.on("moved", () => {
+      if (!miniWin) return;
+      const cur = miniWin.getBounds();
+      const snapped = snapToCorner(cur, screen.getDisplayMatching(cur).workArea);
+      if (snapped.x !== cur.x || snapped.y !== cur.y) miniWin.setBounds(snapped);
+      saveMiniBounds();
+    });
+    miniWin.on("resized", saveMiniBounds);
+    miniWin.webContents.on("before-input-event", (ev, input) => {
+      if (input.type === "keyDown" && input.key === "Escape") { ev.preventDefault(); miniWin?.close(); }
+    });
     miniWin.webContents.setWindowOpenHandler(({ url: u }) => {
       if (/^https?:\/\//.test(u)) void shell.openExternal(u);
       return { action: "deny" };
@@ -172,10 +202,17 @@ ipcMain.handle("media:mini-open", (_e, url: string) => {
       win?.webContents.send("media:mini-closed");
     });
   }
-  void miniWin.loadURL(url);
+  void miniWin.loadURL(url.includes("chrome=1") ? url : `${url}&chrome=1`);
   miniWin.showInactive();
 });
 ipcMain.handle("media:mini-close", () => miniWin?.close());
+ipcMain.handle("media:mini-preset", (_e, preset: Preset) => {
+  if (!miniWin || !["S", "M", "L"].includes(preset)) return;
+  const b = miniWin.getBounds();
+  const size = presetSize(preset);
+  miniWin.setBounds({ ...b, width: size.width, height: size.height + MINI_BAR });
+  saveMiniBounds();
+});
 ipcMain.handle("media:choose-folder", async () => {
   if (!win) return null;
   const r = await dialog.showOpenDialog(win, { properties: ["openDirectory"], title: "Папка медиатеки" });

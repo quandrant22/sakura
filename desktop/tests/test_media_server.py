@@ -123,6 +123,17 @@ def test_youtube_player_page(server):
     assert "https://www.youtube.com/iframe_api" in text
     r, _ = get(srv, "/youtube/player.html?v=<script>&t=tok")
     assert r.status == 400
+    # без chrome — никакой полосы; с chrome=1 — полоса над плеером, iframe сдвинут вниз (не поверх)
+    assert 'id="bar"' not in text and "__BAR" not in text
+
+
+def test_youtube_player_page_chrome_bar_above_not_over(server):
+    srv, _, _ = server
+    _, body = get(srv, "/youtube/player.html?v=dQw4w9WgXcQ&start=0&chrome=1&t=tok")
+    text = body.decode("utf-8")
+    assert '<div id="bar"' in text and "-webkit-app-region:drag" in text
+    assert "#p{top:16px;height:calc(100% - 16px)}" in text
+    assert text.index('<div id="bar"') < text.index('<iframe id="p"')
 
 
 def test_urls(server):

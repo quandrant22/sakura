@@ -1,21 +1,25 @@
 // Экран «Медиа → Видео»: локальные файлы (плейлист папки, позиция, субтитры), ссылки
 // (.mp4/.webm/.m3u8 через hls.js), YouTube embedded (страница IFrame API с media_server).
 // Поверх плеера YouTube ничего не рисуем, во фрейм youtube.com ничего не внедряем.
-import { ExternalLink, Film, Globe, Maximize, MonitorUp, PictureInPicture2, Rows3, SkipBack, SkipForward,
-         Subtitles, Undo2, Wifi } from "lucide-react";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { Expand, ExternalLink, Film, Globe, Maximize, MonitorUp, PictureInPicture2, Rows3, Shrink, SkipBack,
+         SkipForward, Subtitles, Undo2, Wifi } from "lucide-react";
+import { type FormEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { bridge } from "../../bridge";
+import { usePrefs } from "../../layout/prefs";
 import { errorText } from "../../store";
 import { useMediaClient, useMediaMeta, useVideo, useVideoStore } from "../../media/MediaContext";
 import { fmtTime, type LibraryTrack } from "../../media/types";
+import { ASPECT_16_9, fitRect, type VideoFit } from "../../media/videoFit";
 import { openLocalVideo, RATES } from "../../media/videoStore";
 import { EmptyState, ErrorState, Skeleton } from "../ui";
 
 type Check = Record<string, { ok: boolean; status?: number; error?: string }>;
+/** Ниже этой высоты блока видео панель управления скрывается до наведения. */
+const SMALL_VIDEO_PX = 260;
 const btn = "flex items-center gap-1.5 rounded-card border border-line px-2.5 py-1.5 text-xs text-ink-dim hover:border-accent hover:text-ink disabled:opacity-40";
 
-function NativeVideo() {
+function NativeVideo({ fit, onAspect }: { fit: VideoFit; onAspect(a: number): void }) {
   const store = useVideoStore();
   const source = useVideo((s) => s.source);
   const subtitle = useVideo((s) => s.subtitle);
@@ -80,7 +84,12 @@ function NativeVideo() {
 
   const s = store.getState();
   return (
-    <video ref={ref} controls className="h-full w-full bg-black" aria-label="Видео"
+    <video ref={ref} controls aria-label="Видео"
+           className={"h-full w-full bg-black " + (fit === "fill" ? "object-cover" : "object-contain")}
+           onLoadedMetadata={(e) => {
+             const { videoWidth: w, videoHeight: h } = e.currentTarget;
+             if (w > 0 && h > 0) onAspect(w / h);
+           }}
            onPlay={() => s.onPlayer({ status: "playing" })} onPause={() => s.onPlayer({ status: "paused" })}
            onEnded={() => { s.onPlayer({ status: "stopped" }); void s.openNeighbour(1); }}
            onTimeUpdate={(e) => s.onPlayer({ position: e.currentTarget.currentTime, duration: e.currentTarget.duration })}
@@ -233,6 +242,51 @@ function Sources({ onError, className = "w-[280px]" }: { onError(msg: string | n
   );
 }
 
+/** Сцена плеера: видео вписывается (или заполняет) тело виджета явными width/height без transform.
+ *  «Кинотеатр» — тот же DOM-узел (iframe не переносится и не перезагружается), только position: fixed
+ *  поверх доски виджетов; Esc возвращает. */
+function VideoStage({ aspect, fit, theater, onExitTheater, children }: {
+  aspect: number; fit: VideoFit; theater: boolean; onExitTheater(): void; children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState({ w: 0, h: 0 });
+  const [over, setOver] = useState<DOMRect | null>(null);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(([e]) => setBox({ w: e?.contentRect.width ?? 0, h: e?.contentRect.height ?? 0 }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!theater) return;
+    const board = document.querySelector('[aria-label="Доска виджетов"]') ?? document.body;
+    const update = () => setOver(board.getBoundingClientRect());
+    const t = setTimeout(update, 0);
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape") onExitTheater(); };
+    window.addEventListener("resize", update);
+    window.addEventListener("keydown", key);
+    return () => { clearTimeout(t); window.removeEventListener("resize", update); window.removeEventListener("keydown", key); };
+  }, [theater, onExitTheater]);
+
+  const r = fitRect(box.w, box.h, aspect, fit);
+  const fixed = theater && over
+    ? { position: "fixed" as const, left: over.left, top: over.top, width: over.width, height: over.height, zIndex: 40 }
+    : undefined;
+  return (
+    <div ref={ref} style={fixed} aria-label={theater ? "Кинотеатр" : undefined}
+         className={"relative min-h-0 flex-1 overflow-hidden bg-black " + (theater ? "rounded-card shadow-soft" : "rounded-card")}>
+      {box.w > 0 && (
+        <div className="absolute" style={fit === "fill" ? { inset: 0 } : { left: r.left, top: r.top, width: r.width, height: r.height }}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ConnectionCheck() {
   const client = useMediaClient();
   const [check, setCheck] = useState<Check | null>(null);
@@ -265,6 +319,19 @@ export function VideoView({ compact = false }: { compact?: boolean }) {
   const error = useVideo((s) => s.error);
   const embedBlocked = useVideo((s) => s.embedBlocked);
   const [srcError, setSrcError] = useState<string | null>(null);
+  const [aspect, setAspect] = useState(ASPECT_16_9);
+  // Маленький виджет: панель управления появляется при наведении, чтобы не съедать видео.
+  const sectionRef = useRef<HTMLElement>(null);
+  const [small, setSmall] = useState(false);
+  useLayoutEffect(() => {
+    const el = sectionRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(([e]) => setSmall((e?.contentRect.height ?? 999) < SMALL_VIDEO_PX));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [source]);
+  const fit = usePrefs((p) => p.videoFit);
+  const setPref = usePrefs((p) => p.set);
   // Компактный вид: список источников открыт для конкретного видео; выбрали другое — снова плеер.
   const [pickFor, setPickFor] = useState<typeof source>(null);
   const pickSource = pickFor !== null && pickFor === source;
@@ -275,19 +342,20 @@ export function VideoView({ compact = false }: { compact?: boolean }) {
   return (
     <div className="flex min-h-0 flex-1 gap-4">
       {compact ? (pickSource || !source) && <Sources onError={setSrcError} className="min-w-0 flex-1" />
-               : !theater && <Sources onError={setSrcError} />}
+               : <Sources onError={setSrcError} />}
       {(!compact || (source && !pickSource)) && (
-      <section className={"flex min-h-0 flex-1 flex-col " + (compact ? "" : "rounded-panel border border-line bg-panel p-3 shadow-soft")}>
+      <section ref={sectionRef} className={"group/video flex min-h-0 flex-1 flex-col " + (compact ? "" : "rounded-panel border border-line bg-panel p-3 shadow-soft")}>
         <div className="mb-2 flex items-center gap-2">
-          <h2 className="truncate text-sm font-semibold text-ink">{source?.title || "Видео"}</h2>
+          <h2 className="min-w-0 truncate text-sm font-semibold text-ink" title={source?.title}>{source?.title || "Видео"}</h2>
           <span className="ml-auto"><ConnectionCheck /></span>
           {compact && <button type="button" className={btn} onClick={() => setPickFor(source)}><Film size={13} /> Источники</button>}
         </div>
-        <div className="relative min-h-0 flex-1 overflow-hidden rounded-card bg-black">
+        <VideoStage aspect={yt ? ASPECT_16_9 : aspect} fit={local || source?.kind !== "youtube" ? fit : "fit"}
+                    theater={theater} onExitTheater={() => void v.command("theater")}>
           {!source ? (
             <EmptyState text="Выберите видео из папок, вставьте ссылку или возьмите видео из браузера" />
-          ) : yt ? <YoutubeFrame /> : <NativeVideo />}
-        </div>
+          ) : yt ? <YoutubeFrame /> : <NativeVideo fit={fit} onAspect={setAspect} />}
+        </VideoStage>
         {(error || srcError) && (
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <ErrorState text={(error ?? srcError)!} />
@@ -304,7 +372,25 @@ export function VideoView({ compact = false }: { compact?: boolean }) {
           </div>
         )}
         {source && (
-          <div className="mt-3 flex flex-wrap items-center gap-2" aria-label="Управление видео">
+          <div aria-label="Управление видео"
+               className={"mt-2 flex-wrap items-center gap-1.5 " + (small ? "hidden group-hover/video:flex" : "flex")}>
+            <div className="flex flex-wrap items-center gap-1.5" aria-label="Размер видео">
+              <button type="button" className={btn} aria-pressed={fit === "fit"} onClick={() => setPref("videoFit", "fit")}
+                      title="Вписать: весь кадр, полосы по краям"><Shrink size={13} /> Вписать</button>
+              {!yt && (
+                <button type="button" className={btn} aria-pressed={fit === "fill"} onClick={() => setPref("videoFit", "fill")}
+                        title="Заполнить: без полос, края обрезаются"><Expand size={13} /> Заполнить</button>
+              )}
+              <button type="button" className={btn} aria-pressed={theater} onClick={() => void v.command("theater")}
+                      title="Кинотеатр: на всю доску поверх виджетов, Esc — обратно"><Rows3 size={13} /> Кинотеатр</button>
+              <button type="button" className={btn} aria-pressed={mini} onClick={() => v.setMini(!mini)}
+                      title="Окно поверх всех окон"><PictureInPicture2 size={13} /> Поверх всех</button>
+              {mini && yt && (["S", "M", "L"] as const).map((p) => (
+                <button key={p} type="button" className={btn} onClick={() => void bridge().media.miniPreset(p)}
+                        aria-label={`Размер мини-окна ${p}`}>{p}</button>
+              ))}
+              <button type="button" className={btn} onClick={() => void v.command("fullscreen")}><Maximize size={13} /> Полный экран</button>
+            </div>
             <button type="button" className={btn} disabled={!local} onClick={() => void v.openNeighbour(-1)} aria-label="Предыдущий файл"><SkipBack size={13} /></button>
             <button type="button" className={btn} disabled={!local} onClick={() => void v.openNeighbour(1)} aria-label="Следующий файл"><SkipForward size={13} /></button>
             <span className="text-xs tabular-nums text-ink-dim">{fmtTime(position)} / {fmtTime(duration)} · {status === "playing" ? "играет" : status === "paused" ? "пауза" : "стоп"}</span>
@@ -323,16 +409,11 @@ export function VideoView({ compact = false }: { compact?: boolean }) {
                 </select>
               </label>
             )}
-            <div className="ml-auto flex items-center gap-2">
-              {yt && (
-                <button type="button" className={btn} onClick={() => { v.command("pause"); void client.call("media_youtube_to_browser", { video_id: yt.videoId, time: position }); }}>
-                  <Undo2 size={13} /> Вернуть в браузер
-                </button>
-              )}
-              <button type="button" className={btn} aria-pressed={theater} onClick={() => void v.command("theater")}><Rows3 size={13} /> Широкий</button>
-              <button type="button" className={btn} aria-pressed={mini} onClick={() => v.setMini(!mini)}><PictureInPicture2 size={13} /> Мини-окно</button>
-              <button type="button" className={btn} onClick={() => void v.command("fullscreen")}><Maximize size={13} /> Полный экран</button>
-            </div>
+            {yt && (
+              <button type="button" className={btn} onClick={() => { v.command("pause"); void client.call("media_youtube_to_browser", { video_id: yt.videoId, time: position }); }}>
+                <Undo2 size={13} /> Вернуть в браузер
+              </button>
+            )}
           </div>
         )}
       </section>

@@ -25,6 +25,8 @@ interface Persisted {
   musicSource: MusicSource;
   /** Стиль панели: как в Яндекс.Музыке или в цветах Сакуры. */
   musicBarStyle: MusicBarStyle;
+  /** Видео: вписать целиком (полосы) или заполнить с обрезкой (только локальное видео). */
+  videoFit: "fit" | "fill";
 }
 
 export type MusicSource = "yandex" | "sakura";
@@ -58,6 +60,7 @@ const DEFAULTS = (): Persisted => ({
   showCommandResults: true,
   musicSource: "yandex",
   musicBarStyle: "yandex",
+  videoFit: "fit",
 });
 
 const pick = <T extends string>(v: unknown, allowed: Record<T, unknown>, d: T): T =>
@@ -79,13 +82,14 @@ export function parsePersisted(raw: Record<string, unknown> | null): Persisted {
     showCommandResults: raw.showCommandResults !== false,
     musicSource: pick(raw.musicSource, MUSIC_SOURCES, d.musicSource),
     musicBarStyle: pick(raw.musicBarStyle, BAR_STYLES, d.musicBarStyle),
+    videoFit: raw.videoFit === "fill" ? "fill" : "fit",
   };
 }
 
 const persisted = (s: PrefsState): Persisted => ({
   theme: s.theme, layout: s.layout, chatWidth: s.chatWidth, chatCollapsed: s.chatCollapsed,
   locked: s.locked, mobility: s.mobility, preset: s.preset, showCommandResults: s.showCommandResults,
-  musicSource: s.musicSource, musicBarStyle: s.musicBarStyle,
+  musicSource: s.musicSource, musicBarStyle: s.musicBarStyle, videoFit: s.videoFit,
 });
 
 export function createPrefsStore(api: () => SakuraBridge["layout"], saveDelayMs = 400) {
