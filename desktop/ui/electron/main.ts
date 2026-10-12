@@ -364,7 +364,8 @@ async function takeScreenshots(specs: ShotSpec[], outDir: string): Promise<void>
   app.quit();
 }
 
-if (!app.requestSingleInstanceLock()) {
+// SAKURA_E2E — сквозные тесты Playwright рядом с рабочим окном: без запрета второго экземпляра.
+if (!process.env.SAKURA_E2E && !app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on("second-instance", showWindow);

@@ -113,6 +113,14 @@ export class DemoClient implements CoreClient {
         return { "youtube.com": { ok: true, status: 204 }, "i.ytimg.com": { ok: true, status: 204 } } as T;
       case "media_external":
         return { track: this.mode === "normal" ? { title: "Lofi Morning", artist: "Chill Radio", status: "играет" } : null } as T;
+      case "media_ymremote": {
+        // Демо-панель Яндекс.Музыки (снимки экранов): трек играет, без токена.
+        if (payload.op !== "state") return { ok: true, status: "done", detail: "демо" } as T;
+        if (this.mode !== "normal") return { status: this.mode === "offline" ? "no_smtc" : "not_running" } as T;
+        return { status: "ok", title: "Весна", artist: "Сакура", album: "Демо", playing: true, position_s: 74,
+                 duration_s: 212, updated_age_s: 0, shuffle: false, repeat: "none", volume: 60, cover: null,
+                 can_like: false, like_hint: "нужен YANDEX_MUSIC_TOKEN", can_lyrics: false } as T;
+      }
       default:
         return undefined as T;
     }

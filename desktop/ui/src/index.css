@@ -48,43 +48,43 @@ body {
 
 /* Доска: плейсхолдер — цвет акцента, плавность 150 мс; ручки размера по краям и углам (12 px),
    видны при наведении на виджет. */
-.react-grid-item {
+body .react-grid-item {
   transition: transform 150ms ease, width 150ms ease, height 150ms ease, top 150ms ease, left 150ms ease;
 }
-.react-grid-item.react-draggable-dragging,
-.react-grid-item.resizing {
+body .react-grid-item.react-draggable-dragging,
+body .react-grid-item.resizing {
   transition: none;
   z-index: 20;
 }
-.react-grid-item.react-grid-placeholder {
+body .react-grid-item.react-grid-placeholder {
   background: rgb(var(--accent));
   opacity: 0.18;
   border-radius: 20px;
 }
-.react-grid-item > .react-resizable-handle {
+body .react-grid-item > .react-resizable-handle {
   opacity: 0;
   transition: opacity 150ms ease;
   background-image: none;
 }
-.react-grid-item:hover > .react-resizable-handle {
+body .react-grid-item:hover > .react-resizable-handle {
   opacity: 1;
 }
-.react-grid-item > .react-resizable-handle-se,
-.react-grid-item > .react-resizable-handle-sw,
-.react-grid-item > .react-resizable-handle-ne,
-.react-grid-item > .react-resizable-handle-nw {
+body .react-grid-item > .react-resizable-handle-se,
+body .react-grid-item > .react-resizable-handle-sw,
+body .react-grid-item > .react-resizable-handle-ne,
+body .react-grid-item > .react-resizable-handle-nw {
   width: 12px;
   height: 12px;
 }
-.react-grid-item > .react-resizable-handle-se::after {
+body .react-grid-item > .react-resizable-handle-se::after {
   border-color: rgb(var(--accent));
 }
-.react-grid-item > .react-resizable-handle-e,
-.react-grid-item > .react-resizable-handle-w {
+body .react-grid-item > .react-resizable-handle-e,
+body .react-grid-item > .react-resizable-handle-w {
   width: 12px;
 }
-.react-grid-item > .react-resizable-handle-n,
-.react-grid-item > .react-resizable-handle-s {
+body .react-grid-item > .react-resizable-handle-n,
+body .react-grid-item > .react-resizable-handle-s {
   height: 12px;
 }
 
@@ -121,3 +121,36 @@ body.is-interacting canvas {
   scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
   scrollbar-width: thin;
 }
+
+/* Ручки размера — внутри виджета и без поворота из стилей библиотеки: выступающие за край
+   давали доске лишние 4 px и полосу прокрутки (виджеты сужались на 5–10 px). */
+body .react-grid-item > .react-resizable-handle {
+  transform: none;
+  margin: 0;
+  background-image: none;
+}
+body .react-grid-item > .react-resizable-handle::after {
+  display: none;
+}
+body .react-grid-item > .react-resizable-handle.react-resizable-handle-n,
+body .react-grid-item > .react-resizable-handle.react-resizable-handle-s {
+  left: 12px;
+  width: calc(100% - 24px);
+  height: 12px;
+  transform: none;
+}
+body .react-grid-item > .react-resizable-handle.react-resizable-handle-n { top: 0; }
+body .react-grid-item > .react-resizable-handle.react-resizable-handle-s { bottom: 0; }
+body .react-grid-item > .react-resizable-handle.react-resizable-handle-e,
+body .react-grid-item > .react-resizable-handle.react-resizable-handle-w {
+  top: 12px;
+  height: calc(100% - 24px);
+  width: 12px;
+  transform: none;
+}
+body .react-grid-item > .react-resizable-handle.react-resizable-handle-e { right: 0; }
+body .react-grid-item > .react-resizable-handle.react-resizable-handle-w { left: 0; }
+body .react-grid-item > .react-resizable-handle.react-resizable-handle-se { right: 0; bottom: 0; transform: none; }
+body .react-grid-item > .react-resizable-handle.react-resizable-handle-sw { left: 0; bottom: 0; transform: none; }
+body .react-grid-item > .react-resizable-handle.react-resizable-handle-ne { right: 0; top: 0; transform: none; }
+body .react-grid-item > .react-resizable-handle.react-resizable-handle-nw { left: 0; top: 0; transform: none; }

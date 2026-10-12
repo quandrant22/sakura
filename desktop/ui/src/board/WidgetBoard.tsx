@@ -110,6 +110,9 @@ export function WidgetBoard({ galleryOpen, onCloseGallery }: { galleryOpen: bool
             dropConfig={{ enabled: !!drop, defaultItem: dropSize ?? { w: 6, h: 6 } }}
             compactor={mode === "free" ? freeCompactor : packCompactor}
             positionStrategy={absoluteStrategy}
+            // Высота сетки у react-grid-layout включает отступ под последним рядом (+20 px) — без
+            // компенсации раскладка наброска (890 px) давала полосу прокрутки и сужала доску.
+            style={{ marginBottom: -MARGIN[1] }}
             onLayoutChange={onLayoutChange}
             onDragStart={interacting(true)} onDragStop={interacting(false)}
             onResizeStart={interacting(true)} onResizeStop={interacting(false)}

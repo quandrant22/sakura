@@ -122,7 +122,7 @@ export function MusicWidget() {
   return (
     <div ref={ref} className="relative flex h-full flex-col">
       {source === "yandex" ? (
-        <div className="h-[100px] shrink-0"><YandexBar onMenu={toggle} /></div>
+        <div className="h-full min-h-0"><YandexBar onMenu={toggle} /></div>
       ) : (
         <>
           <LocalBar onMenu={toggle} />
