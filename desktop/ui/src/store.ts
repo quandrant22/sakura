@@ -38,6 +38,8 @@ export interface AppState {
   toast: { text: string; level: "info" | "warn" | "error" } | null;
   /** Запланировано выключение/перезагрузка: до какого момента (мс) — для тоста с отсчётом и «Отмена». */
   power: { action: "shutdown" | "restart"; until: number } | null;
+  /** Сакура выполняет действие с компьютером — индикатор в трее. */
+  pcAction: boolean;
   /** «Отмена» в тосте выключения. */
   cancelPower(): Promise<void>;
   /** Последние уведомления (виджет «Уведомления»); в файл не пишутся. */
@@ -215,6 +217,9 @@ export function createAppStore(client: CoreClient) {
         case "power_cancelled":
           set({ power: null });
           break;
+        case "pc_action":
+          set({ pcAction: Boolean((ev as { active?: boolean }).active) });
+          break;
         case "notify": {
           const n = ev as { text: string; level: "info" | "warn" | "error" };
           // Лента уведомлений (виджет) — только в памяти, последние 50.
@@ -240,6 +245,7 @@ export function createAppStore(client: CoreClient) {
       toast: null,
       notifications: [],
       power: null,
+      pcAction: false,
 
       async cancelPower() {
         try {

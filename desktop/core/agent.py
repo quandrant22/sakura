@@ -457,7 +457,9 @@ class Agent:
                         continue
                     self._abort_flag = False
                     _arg = data.get("arg", "")
-                    spawn(self._run_command(_action, _cmd_id, _arg), name="command-execution")
+                    # confirmed — сервер уже спросил подтверждение (действия с confirm в control).
+                    spawn(self._run_command(_action, _cmd_id, _arg, confirmed=data.get("confirmed") is True),
+                          name="command-execution")
 
                 elif kind == "tts_chunk":
                     # При первом чанке нового ответа — сбрасываем буфер
@@ -566,7 +568,7 @@ class Agent:
                 log.exception("[state] ошибка проверки состояния")
 
     async def _run_command(self, action: str, cmd_id: str | None = None,
-                           arg: str = ""):
+                           arg: str = "", confirmed: bool = False):
         if not action:
             # Пустое действие — не «готово»: сервер должен узнать, что ничего не сделано.
             if cmd_id:
@@ -591,6 +593,20 @@ class Agent:
                 ok, detail = handled
                 await _send_ack(R.from_legacy({"ok": ok, "result": detail}))
                 return
+
+        # Управление ПК (п. 2.3): окна, питание, процессы, буфер, экран и звук, сеть, клавиши, файлы.
+        from desktop.core import control
+        if action in control.ACTIONS:
+            bus = getattr(self, "bus", None)
+            if bus is not None:
+                bus.emit("pc_action", active=True)
+            try:
+                res = await asyncio.to_thread(control.execute, action, arg, confirmed)
+            finally:
+                if bus is not None:
+                    bus.emit("pc_action", active=False)
+            await _send_ack(res)
+            return
 
         if action == "game_mode:on":
             self.bus.emit("game_mode", on=True)

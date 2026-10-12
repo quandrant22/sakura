@@ -33,7 +33,7 @@ const api = {
       ipcRenderer.on("tray:action", h);
       return () => ipcRenderer.removeListener("tray:action", h);
     },
-    setState: (state: { mic?: boolean; game?: boolean }): Promise<void> => ipcRenderer.invoke("tray:state", state),
+    setState: (state: { mic?: boolean; game?: boolean; busy?: boolean }): Promise<void> => ipcRenderer.invoke("tray:state", state),
   },
   autostart: {
     get: (): Promise<boolean> => ipcRenderer.invoke("autostart:get"),

@@ -72,6 +72,56 @@ class Platform(ABC):
     def idle_seconds(self) -> float:
         """Секунды без ввода; при ошибке — большое число."""
 
+    # ── окна (п. 2.3) ──────────────────────────────────────────────
+    @abstractmethod
+    def windows(self) -> list[dict]:
+        """Видимые окна верхнего уровня, верхнее первым: [{'hwnd', 'title', 'process'}]."""
+
+    @abstractmethod
+    def foreground_window(self) -> dict | None:
+        """Активное окно {'hwnd', 'title', 'process'} или None."""
+
+    @abstractmethod
+    def window_show(self, hwnd: int, state: str) -> bool:
+        """state: minimize | maximize | restore."""
+
+    @abstractmethod
+    def window_snap(self, hwnd: int, side: str) -> bool:
+        """Прижать окно к половине (left/right) или во весь экран сверху (top) его монитора."""
+
+    @abstractmethod
+    def window_to_monitor(self, hwnd: int, target: str) -> bool:
+        """Перенести окно на монитор: next или номер с 1."""
+
+    # ── экран, звук, сеть, файлы (п. 2.3) ──────────────────────────
+    @abstractmethod
+    def display_off(self) -> None:
+        """Погасить экран (без блокировки и сна)."""
+
+    @abstractmethod
+    def set_brightness(self, percent: int) -> bool:
+        """Яркость встроенного экрана 0..100; False — монитор не поддерживает (внешний без DDC)."""
+
+    @abstractmethod
+    def mic_mute(self, mute: bool | None) -> bool | None:
+        """Системный микрофон: True — выключить, False — включить, None — переключить. Итог (muted) или None."""
+
+    @abstractmethod
+    def radio(self, kind: str, on: bool) -> bool:
+        """Wi-Fi или Bluetooth (kind: wifi | bluetooth) вкл/выкл без прав администратора."""
+
+    @abstractmethod
+    def recycle(self, path: str) -> bool:
+        """Удалить файл или папку только в корзину (с возможностью вернуть)."""
+
+    @abstractmethod
+    def reveal(self, path: str) -> bool:
+        """Показать файл в проводнике (выделить)."""
+
+    @abstractmethod
+    def focused_is_password(self) -> bool:
+        """Фокус ввода — поле пароля (UI Automation IsPassword); при сомнении — True."""
+
     # ── система ────────────────────────────────────────────────────
     @abstractmethod
     def autostart_get(self) -> bool:

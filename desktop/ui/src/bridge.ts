@@ -28,7 +28,7 @@ export interface SakuraBridge {
   core: { connection(): Promise<CoreConnection | null> };
   tray: {
     onAction(cb: (id: string) => void): () => void;
-    setState(state: { mic?: boolean; game?: boolean }): Promise<void>;
+    setState(state: { mic?: boolean; game?: boolean; busy?: boolean }): Promise<void>;
   };
   autostart: { get(): Promise<boolean>; set(enabled: boolean): Promise<boolean> };
   /** Захват окна — только по явному выбору; кадры не пишутся на диск. */

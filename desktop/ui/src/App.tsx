@@ -204,9 +204,10 @@ function Shell() {
     if (id === "mic_toggle") void toggleMic();
     if (id === "game_mode") void setGameMode(!game);
   }), [toggleMic, setGameMode, game]);
+  const busy = useApp((s) => s.pcAction);
   useEffect(() => {
-    void bridge().tray.setState({ mic, game });
-  }, [mic, game]);
+    void bridge().tray.setState({ mic, game, busy });
+  }, [mic, game, busy]);
 
   const go = (s: Section) => {
     if (s !== "home") { setEditing(false); setGallery(false); }

@@ -149,6 +149,9 @@ class CoreService:
                             kind="proactive")
         elif event == "power_cancelled":
             self._emit({"type": "power_cancelled"})
+        elif event == "pc_action":
+            # Индикатор в трее на время действия с компьютером.
+            self._emit({"type": "pc_action", "active": bool(data.get("active"))})
         elif event == "agent_alert":
             self._emit({"type": "notify", "text": data.get("text", ""), "level": "warn"})
         elif event == "game_mode":

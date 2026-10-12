@@ -152,6 +152,162 @@ class WindowsPlatform(make_stub("windows")):
         win32gui.PostMessage(hwnd, WM_CLOSE, 0, 0)
         return title
 
+    # ── окна (п. 2.3) ──────────────────────────────────────────────
+    def windows(self) -> list[dict]:
+        if not win32gui:
+            return []
+        return [{"hwnd": h, "title": t, "process": exe} for h, t, exe, _cls in self._top_level_windows() if t]
+
+    def foreground_window(self) -> dict | None:
+        if not win32gui:
+            return None
+        h = win32gui.GetForegroundWindow()
+        if not h:
+            return None
+        exe = ""
+        try:
+            import psutil
+            _, pid = win32process.GetWindowThreadProcessId(h)
+            exe = psutil.Process(pid).name()
+        except Exception:
+            pass
+        return {"hwnd": h, "title": win32gui.GetWindowText(h), "process": exe}
+
+    def window_show(self, hwnd: int, state: str) -> bool:
+        cmd = {"minimize": 6, "maximize": 3, "restore": 9}.get(state)  # SW_MINIMIZE, SW_MAXIMIZE, SW_RESTORE
+        if cmd is None or not win32gui:
+            return False
+        win32gui.ShowWindow(hwnd, cmd)
+        return True
+
+    @staticmethod
+    def _monitors() -> list[tuple[int, int, int, int]]:
+        import win32api
+        out = []
+        for hmon, _hdc, _rect in win32api.EnumDisplayMonitors():
+            out.append(tuple(win32api.GetMonitorInfo(hmon)["Work"]))
+        return out
+
+    def window_snap(self, hwnd: int, side: str) -> bool:
+        import win32api
+        if not win32gui or side not in ("left", "right", "top"):
+            return False
+        info = win32api.GetMonitorInfo(win32api.MonitorFromWindow(hwnd, 2))
+        x0, y0, x1, y1 = info["Work"]
+        if side == "top":
+            win32gui.ShowWindow(hwnd, 3)
+            return True
+        win32gui.ShowWindow(hwnd, 9)
+        half = (x1 - x0) // 2
+        x = x0 if side == "left" else x0 + half
+        win32gui.MoveWindow(hwnd, x, y0, half, y1 - y0, True)
+        return True
+
+    def window_to_monitor(self, hwnd: int, target: str) -> bool:
+        import win32api
+        if not win32gui:
+            return False
+        mons = self._monitors()
+        if len(mons) < 2:
+            return False
+        cur = tuple(win32api.GetMonitorInfo(win32api.MonitorFromWindow(hwnd, 2))["Work"])
+        idx = mons.index(cur) if cur in mons else 0
+        if target == "next":
+            dst = mons[(idx + 1) % len(mons)]
+        elif target.isdigit() and 1 <= int(target) <= len(mons):
+            dst = mons[int(target) - 1]
+        else:
+            return False
+        left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+        w, h = min(right - left, dst[2] - dst[0]), min(bottom - top, dst[3] - dst[1])
+        # То же смещение от угла рабочей области, но окно целиком на новом мониторе.
+        x = dst[0] + max(0, min(left - cur[0], dst[2] - dst[0] - w))
+        y = dst[1] + max(0, min(top - cur[1], dst[3] - dst[1] - h))
+        win32gui.ShowWindow(hwnd, 9)
+        win32gui.MoveWindow(hwnd, x, y, w, h, True)
+        return True
+
+    # ── экран, звук, сеть, файлы (п. 2.3) ──────────────────────────
+    def display_off(self) -> None:
+        HWND_BROADCAST, WM_SYSCOMMAND, SC_MONITORPOWER = 0xFFFF, 0x0112, 0xF170
+        ctypes.windll.user32.PostMessageW(HWND_BROADCAST, WM_SYSCOMMAND, SC_MONITORPOWER, 2)
+
+    def set_brightness(self, percent: int) -> bool:
+        # WMI: работает для встроенного экрана ноутбука; внешний монитор без DDC/CI — False.
+        level = max(0, min(100, int(percent)))
+        cmd = ("(Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods -ErrorAction Stop)"
+               f" | Invoke-CimMethod -MethodName WmiSetBrightness -Arguments @{{Timeout=1; Brightness={level}}}")
+        r = subprocess.run(["powershell", "-NoProfile", "-Command", cmd], capture_output=True,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=10)
+        return r.returncode == 0
+
+    def mic_mute(self, mute: bool | None) -> bool | None:
+        try:
+            import comtypes
+            try:
+                comtypes.CoInitialize()
+            except Exception:
+                pass
+            from ctypes import POINTER, cast
+
+            from comtypes import CLSCTX_ALL
+            from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+            mic = AudioUtilities.GetMicrophone()
+            if mic is None:
+                return None
+            vol = cast(mic.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None), POINTER(IAudioEndpointVolume))
+            target = (not vol.GetMute()) if mute is None else bool(mute)
+            vol.SetMute(int(target), None)
+            return bool(vol.GetMute())
+        except Exception:
+            return None
+
+    def radio(self, kind: str, on: bool) -> bool:
+        # Windows.Devices.Radios — как переключатель в Центре уведомлений, без прав администратора.
+        import asyncio as _aio
+
+        from winsdk.windows.devices.radios import Radio, RadioKind, RadioState
+        want = {"wifi": RadioKind.WI_FI, "bluetooth": RadioKind.BLUETOOTH}.get(kind)
+        if want is None:
+            return False
+
+        async def go():
+            await Radio.request_access_async()
+            radios = [r for r in await Radio.get_radios_async() if r.kind == want]
+            if not radios:
+                return False
+            for r in radios:
+                await r.set_state_async(RadioState.ON if on else RadioState.OFF)
+            return True
+        return bool(_aio.run(go()))
+
+    def recycle(self, path: str) -> bool:
+        # SHFileOperationW + FOF_ALLOWUNDO — только в корзину, без окна подтверждения Windows.
+        from ctypes import wintypes
+
+        class SHFILEOPSTRUCTW(ctypes.Structure):
+            _fields_ = [("hwnd", wintypes.HWND), ("wFunc", wintypes.UINT), ("pFrom", wintypes.LPCWSTR),
+                        ("pTo", wintypes.LPCWSTR), ("fFlags", ctypes.c_uint16),
+                        ("fAnyOperationsAborted", wintypes.BOOL),
+                        ("hNameMappings", ctypes.c_void_p), ("lpszProgressTitle", wintypes.LPCWSTR)]
+        FO_DELETE, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_SILENT, FOF_NOERRORUI = 3, 0x40, 0x10, 0x4, 0x400
+        op = SHFILEOPSTRUCTW(None, FO_DELETE, os.path.abspath(path) + "\0", None,
+                             FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI, False, None, None)
+        return ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op)) == 0 and not op.fAnyOperationsAborted
+
+    def reveal(self, path: str) -> bool:
+        if not os.path.exists(path):
+            return False
+        subprocess.Popen(["explorer", "/select,", os.path.abspath(path)])
+        return True
+
+    def focused_is_password(self) -> bool:
+        try:
+            from desktop.core.platform import uia
+            return uia.focused_is_password()
+        except Exception:
+            return True  # не удалось проверить — считаем полем пароля и не печатаем
+
     def activate_window_handle(self, hwnd: int) -> bool:
         """Вывести окно вперёд с обходом блокировки переднего плана Windows."""
         if not win32gui:

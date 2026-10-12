@@ -250,7 +250,9 @@ ipcMain.handle("capture:mini-select", (e) => {
   }
 });
 
-ipcMain.handle("tray:state", (_e, state: { mic?: boolean; game?: boolean }) => {
+ipcMain.handle("tray:state", (_e, state: { mic?: boolean; game?: boolean; busy?: boolean }) => {
+  // Индикатор в трее на время действия с компьютером (окна, клавиши, файлы…).
+  if (typeof state.busy === "boolean") tray?.setToolTip(state.busy ? "Sakura — выполняю действие с компьютером…" : "Sakura");
   if (typeof state.mic === "boolean") trayState.mic = state.mic;
   if (typeof state.game === "boolean") {
     trayState.game = state.game;
