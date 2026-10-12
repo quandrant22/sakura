@@ -176,6 +176,7 @@
 | `send_text` | `text` | отправка `voice_command` с `channel: text` |
 | `mic_toggle` | `on` (необяз.) | `{mic: bool}` |
 | `stop_speaking` | — | остановка озвучки (как «стоп») |
+| `listen_now` | — | «говорить сейчас» без слова «Сакура»: прерывает озвучку, открывает окно дослушивания; `mic_off`, если микрофон выключен |
 | `quick_action` | `id: screenshot\|open_app\|focus_mode\|run_scenario`, `arg` | результат действия |
 | `list_apps` | — | `{apps: [{name}]}` |
 | `list_audio_devices` | — | `{inputs: [...], outputs: [...]}` |

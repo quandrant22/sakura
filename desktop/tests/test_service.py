@@ -24,7 +24,8 @@ class FakeSettings:
 class FakeAgent:
     def __init__(self, bus, server_link=None):
         self.bus, self.server_link = bus, server_link
-        self.hearing = SimpleNamespace(mic_enabled=True)
+        self.hearing = SimpleNamespace(mic_enabled=True, followups=0)
+        self.hearing.open_followup = lambda: setattr(self.hearing, "followups", self.hearing.followups + 1)
         self.player = SimpleNamespace(interrupted=0)
         self.player.interrupt = lambda: setattr(self.player, "interrupted", self.player.interrupted + 1)
         self.sent, self.states = [], []
@@ -63,6 +64,22 @@ async def _call(ws, msg):
         r = json.loads(await asyncio.wait_for(ws.recv(), 2))
         if r.get("type") == "reply" and r.get("request_id") == msg["request_id"]:
             return r
+
+
+def test_listen_now():
+    async def go():
+        svc = make_service()
+        await svc.api.start()
+        ws, _ = await _client(svc)
+        r = await _call(ws, {"type": "listen_now", "request_id": "1"})
+        assert r["ok"] and svc.agent.hearing.followups == 1
+        assert svc.agent.player.interrupted == 1 and svc.agent.states == ["listening"]
+        svc.agent.hearing.mic_enabled = False
+        r = await _call(ws, {"type": "listen_now", "request_id": "2"})
+        assert r["error"]["code"] == "mic_off" and svc.agent.hearing.followups == 1
+        await ws.close()
+        await svc.api.stop()
+    run(go())
 
 
 def test_snapshot_on_connect():

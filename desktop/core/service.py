@@ -135,6 +135,7 @@ class CoreService:
         c("send_text", self.cmd_send_text)
         c("mic_toggle", self.cmd_mic_toggle)
         c("stop_speaking", self.cmd_stop_speaking)
+        c("listen_now", self.cmd_listen_now)
         c("quick_action", self.cmd_quick_action)
         c("list_apps", self.cmd_list_apps)
         c("list_audio_devices", self.cmd_list_audio_devices)
@@ -163,6 +164,16 @@ class CoreService:
         self.agent.set_state("idle")
         if self.media is not None:
             self.media.audio.stop_all()
+
+    async def cmd_listen_now(self, msg: dict):
+        # «Говорить сейчас» (короткий клик по ядру): без слова «Сакура» — открываем окно
+        # дослушивания; если Сакура говорит, озвучка прерывается.
+        hearing = self.agent.hearing
+        if not hearing.mic_enabled:
+            raise ApiError("mic_off", "микрофон выключен")
+        self.agent.player.interrupt()
+        hearing.open_followup()
+        self.agent.set_state("listening")
 
     async def cmd_quick_action(self, msg: dict):
         kind, arg = msg.get("id"), msg.get("arg")
