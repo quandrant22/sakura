@@ -66,8 +66,12 @@ class ServerLink:
         timer.start()
 
     def _grace_expired(self, stamp: float) -> None:
-        if self._connected_at == stamp:  # за это время не было переподключения
-            self._effective_proto()
+        # Таймер Windows может сработать на миллисекунды раньше срока — время повторно не
+        # сравниваем (иначе proto оставался null навсегда). Важно лишь, что это то же подключение.
+        if self._connected_at == stamp and self.online and self.proto is None:
+            self.proto = 1
+            log.info("[server] нет ответа registered — сервер без proto 2")
+            self._on_state(self.state_event())
 
     def on_disconnected(self) -> None:
         self._send = None

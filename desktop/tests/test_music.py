@@ -83,8 +83,7 @@ def test_music_info_nothing_playing(monkeypatch):
     assert run(music.music_command("music_info")) == {"ok": False, "result": "Ничего не играет"}
 
 
-@pytest.mark.parametrize("action,label", [("music_play_pause", "play/pause"), ("music_next", "следующий"),
-                                          ("music_prev", "предыдущий")])
+@pytest.mark.parametrize("action,label", [("music_play_pause", "play/pause"), ("music_next", "следующий")])
 def test_smtc_controls(monkeypatch, action, label):
     _smtc(monkeypatch, None, control_ok=True)
     assert run(music.music_command(action)) == {"ok": True, "result": label}
@@ -109,3 +108,64 @@ def test_yamusic_deep_link_failure(monkeypatch):
         raise OSError("нет приложения")
     monkeypatch.setattr(yamusic_app.os, "startfile", boom, raising=False)
     assert yamusic_app.open_playlist("p1") is False
+
+
+# ── п. 7: «предыдущий трек» (умный двойной шаг) и «трек сначала» на фейковом SMTC ──
+
+def _fake_smtc(position, ok=True):
+    presses, sleeps = [], []
+
+    async def get_position():
+        return position
+
+    async def press_prev():
+        presses.append(1)
+        return ok
+
+    async def sleep(s):
+        sleeps.append(s)
+    return get_position, press_prev, sleep, presses, sleeps
+
+
+@pytest.mark.parametrize("position,presses", [(10.0, 2), (1.0, 1), (3.0, 1), (None, 2)])
+def test_smart_prev(position, presses):
+    gp, pp, sl, pressed, slept = _fake_smtc(position)
+    r = run(music.smart_prev(gp, pp, sl, threshold_s=3.0, gap_ms=250))
+    assert r["ok"] is True and r["status"] == "done"
+    assert len(pressed) == presses
+    assert slept == ([0.25] if presses == 2 else [])
+
+
+def test_smart_prev_no_player():
+    gp, pp, sl, pressed, _ = _fake_smtc(10.0, ok=False)
+    r = run(music.smart_prev(gp, pp, sl, threshold_s=3.0, gap_ms=250))
+    assert r["status"] == "noop" and len(pressed) == 1
+
+
+def test_restart_prefers_position_zero_then_single_press():
+    calls = []
+
+    async def set_pos(s):
+        calls.append(("pos", s))
+        return True
+
+    async def press():
+        calls.append("press")
+        return True
+    assert run(music.restart_track(set_pos, press))["ok"] is True
+    assert calls == [("pos", 0)]
+
+    async def no_pos(s):
+        calls.append(("pos", s))
+        return False
+    calls.clear()
+    assert run(music.restart_track(no_pos, press))["ok"] is True
+    assert calls == [("pos", 0), "press"]  # ровно одно нажатие
+
+
+def test_extrapolate_position():
+    info = {"position_s": 10.0, "duration_s": 200.0, "playing": True, "updated_age_s": 2.5}
+    assert music.extrapolate_position(info) == 12.5
+    assert music.extrapolate_position({**info, "playing": False}) == 10.0
+    assert music.extrapolate_position({**info, "updated_age_s": 500}) == 200.0
+    assert music.extrapolate_position(None) is None

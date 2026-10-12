@@ -47,6 +47,11 @@ TTS_SPEED = float(os.getenv("TTS_SPEED", "1.0"))
 # Шаг «громче/тише» для музыки без числа, %
 VOLUME_STEP = int(os.getenv("VOLUME_STEP", "10"))
 
+# «Предыдущий трек» в приложении: до этой позиции — одно нажатие «назад», дальше — два
+# (первое приложение тратит на перемотку в начало) с паузой между ними.
+PREV_RESTART_THRESHOLD_S = float(os.getenv("PREV_RESTART_THRESHOLD_S", "3.0"))
+PREV_DOUBLE_GAP_MS = int(os.getenv("PREV_DOUBLE_GAP_MS", "250"))
+
 # Предзаполнение плеера, мс звука до старта (0 — выключено)
 PLAYER_PREROLL_MS = int(os.getenv("PLAYER_PREROLL_MS", "0"))
 

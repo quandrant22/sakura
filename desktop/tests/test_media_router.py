@@ -21,7 +21,7 @@ MEDIA_IDS = [c["id"] for c in CAPS if c.get("executor") == "agent" and c["id"].s
 # Ожидаемая встроенная команда для каждого действия (None — всегда внешний путь).
 EXPECTED = {
     "music.play_pause": ("music", "toggle", None), "music.next": ("music", "next", None),
-    "music.prev": ("music", "prev", None), "music.seek_back": ("music", "seekBy", -10),
+    "music.prev": ("music", "prevTrack", None), "music.seek_back": ("music", "seekBy", -10),
     "music.seek_forward": ("music", "seekBy", 10), "music.shuffle": ("music", "shuffle", None),
     "music.repeat": ("music", "repeat", None), "music.mute": ("music", "mute", None),
     "music.volume_up": ("music", "volumeBy", 10), "music.volume_down": ("music", "volumeBy", -10),
@@ -49,7 +49,9 @@ class Clock:
 def test_registry_has_30_media_actions_all_known():
     assert len(MEDIA_IDS) == 30
     assert sorted(MEDIA_IDS) == sorted(EXPECTED)
-    assert len(MUSIC_ACTIONS) == 18 and len(YOUTUBE_ACTIONS) == 12
+    # 18 из реестра + music.restart («трек сначала», п. 7) — триггеры добавит серверный агент.
+    assert len(MUSIC_ACTIONS) == 19 and len(YOUTUBE_ACTIONS) == 12
+    assert set(MUSIC_ACTIONS) - {"restart"} == {c.split(".")[1] for c in MEDIA_IDS if c.startswith("music.")}
 
 
 @pytest.mark.parametrize("cid", sorted(EXPECTED))

@@ -183,7 +183,10 @@ def test_v1_announced_without_requests():
         async def send(msg):
             pass
         link.on_connected(send)
-        await asyncio.sleep(0.2)
+        for _ in range(40):  # таймер в отдельном потоке: ждём до 2 с, а не фиксированные 0.2
+            if len(events) > 1:
+                break
+            await asyncio.sleep(0.05)
         return events
     events = run(go())
     assert [(e["server"], e["proto"]) for e in events] == [("online", None), ("online", 1)]

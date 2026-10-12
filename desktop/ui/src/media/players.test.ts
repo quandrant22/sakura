@@ -76,6 +76,27 @@ describe("музыкальный плеер", () => {
     await vi.waitFor(() => expect(eng.log.slice(-2)).toEqual(["seek 0", "play"]));
   });
 
+  test("п. 7: prev — в начало после 3 с, prevTrack — всегда предыдущий, команды prevTrack/seek", async () => {
+    const eng = new FakeEngine();
+    const m = createMusicStore(new FakeCore(), eng);
+    await m.getState().playTracks([tr(1), tr(2), tr(3)], 1);
+    eng.time(10, 100);
+    await m.getState().prev();
+    expect(m.getState().current()?.id).toBe(2);           // 10 с — перемотка в начало
+    expect(eng.log.at(-1)).toBe("seek 0");
+    eng.time(1, 100);
+    await m.getState().prev();
+    expect(m.getState().current()?.id).toBe(1);           // 1 с — предыдущий
+    await m.getState().playAt(2);
+    eng.time(50, 100);
+    await m.getState().command("prevTrack");
+    expect(m.getState().current()?.id).toBe(2);           // голосом «предыдущий трек» — сразу предыдущий
+    eng.time(40, 100);
+    await m.getState().command("seek", 0);                 // «трек сначала»
+    expect(m.getState().current()?.id).toBe(2);
+    expect(eng.log.at(-1)).toBe("seek 0");
+  });
+
   test("плавный переход стартует за crossfade секунд до конца", async () => {
     const core = new FakeCore();
     const eng = new FakeEngine();

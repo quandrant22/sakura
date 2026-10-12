@@ -17,15 +17,17 @@ SEEK_STEP_S = 10
 SPEED_STEP = 0.25
 
 MUSIC_ACTIONS = ("dislike", "history", "like", "liked_tracks", "mute", "next", "now_playing", "play_pause",
-                 "playlists", "podcasts", "prev", "repeat", "seek_back", "seek_forward", "shuffle",
-                 "volume_down", "volume_up", "wave")
+                 "playlists", "podcasts", "prev", "repeat", "restart", "seek_back", "seek_forward",
+                 "shuffle", "volume_down", "volume_up", "wave")
 YOUTUBE_ACTIONS = ("forward", "fullscreen", "like", "mini", "next", "pause", "rewind", "speed_down",
                    "speed_up", "sub_toggle", "theater", "trending")
 
 # Встроенная реализация: действие → (команда плеера, аргумент по умолчанию).
 # None — у встроенного плеера нет аналога, всегда внешний путь.
 MUSIC_BUILTIN: dict[str, tuple[str, object] | None] = {
-    "play_pause": ("toggle", None), "next": ("next", None), "prev": ("prev", None),
+    # prev — всегда предыдущий трек (не перемотка в начало), restart — в начало текущего.
+    "play_pause": ("toggle", None), "next": ("next", None), "prev": ("prevTrack", None),
+    "restart": ("seek", 0),
     "seek_back": ("seekBy", -SEEK_STEP_S), "seek_forward": ("seekBy", SEEK_STEP_S),
     "shuffle": ("shuffle", None), "repeat": ("repeat", None), "mute": ("mute", None),
     "volume_up": ("volumeBy", None), "volume_down": ("volumeBy", None),

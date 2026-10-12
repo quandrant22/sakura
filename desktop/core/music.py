@@ -116,6 +116,10 @@ async def _smtc_get_info() -> Optional[dict]:
             "position": cur,
             "duration": dur,
             "progress": pct,
+            "position_s": float(pos_s),
+            "duration_s": float(end_s),
+            "playing": playback.playback_status == PlaybackStatus.PLAYING,
+            "updated_age_s": _age_seconds(timeline),
         }
     except Exception as e:
         log.debug(f"[music] SMTC: {e}")
@@ -156,6 +160,81 @@ def get_current_track(timeout: float = 2.5) -> dict:
     _track_cache["info"] = info
     _track_cache["ts"] = now
     return info
+
+
+def _age_seconds(timeline) -> float | None:
+    """Сколько секунд назад SMTC обновил позицию (для экстраполяции), None — неизвестно."""
+    try:
+        from datetime import datetime, timezone
+        last = timeline.last_updated_time
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        return max(0.0, (datetime.now(timezone.utc) - last).total_seconds())
+    except Exception:
+        return None
+
+
+def extrapolate_position(info: dict | None) -> float | None:
+    """Текущая позиция: последняя из SMTC + время с её обновления, если играет."""
+    if not info or "position_s" not in info:
+        return None
+    pos = float(info["position_s"])
+    if info.get("playing") and info.get("updated_age_s") is not None:
+        pos += float(info["updated_age_s"])
+    dur = float(info.get("duration_s") or 0)
+    return min(pos, dur) if dur > 0 else pos
+
+
+async def smtc_position() -> float | None:
+    return extrapolate_position(await _smtc_get_info())
+
+
+async def _smtc_set_position(seconds: float) -> bool:
+    """TryChangePlaybackPositionAsync (тики по 100 нс); False — приложение не поддерживает."""
+    try:
+        from winsdk.windows.media.control import (
+            GlobalSystemMediaTransportControlsSessionManager as MediaManager,
+        )
+        sessions = await MediaManager.request_async()
+        session = _pick_yamusic_session(sessions) or sessions.get_current_session()
+        if not session:
+            return False
+        return bool(await session.try_change_playback_position_async(int(seconds * 10_000_000)))
+    except Exception as e:
+        log.debug(f"[music] SMTC position: {e}")
+        return False
+
+
+async def smart_prev(get_position=None, press_prev=None, sleep=asyncio.sleep,
+                     threshold_s: float | None = None, gap_ms: int | None = None) -> dict:
+    """«Предыдущий трек» в приложении: одно нажатие «назад» при позиции ≤ PREV_RESTART_THRESHOLD_S,
+    иначе два (первое приложение тратит на перемотку в начало); позиция неизвестна — два."""
+    from desktop.core import config
+    from desktop.core import results as R
+    get_position = get_position or smtc_position
+    press_prev = press_prev or (lambda: _smtc_control("prev"))
+    threshold_s = config.PREV_RESTART_THRESHOLD_S if threshold_s is None else threshold_s
+    gap_ms = config.PREV_DOUBLE_GAP_MS if gap_ms is None else gap_ms
+    pos = await get_position()
+    presses = 1 if pos is not None and pos <= threshold_s else 2
+    for i in range(presses):
+        if i:
+            await sleep(gap_ms / 1000)
+        if not await press_prev():
+            return R.noop("Нет активного плеера") if i == 0 else R.done("предыдущий трек")
+    return R.done("предыдущий трек", presses=presses)
+
+
+async def restart_track(set_position=None, press_prev=None) -> dict:
+    """«Трек сначала»: позиция 0 через SMTC; если приложение не умеет — ровно одно нажатие «назад»."""
+    from desktop.core import results as R
+    set_position = set_position or _smtc_set_position
+    press_prev = press_prev or (lambda: _smtc_control("prev"))
+    if await set_position(0):
+        return R.done("трек сначала")
+    if await press_prev():
+        return R.done("трек сначала")
+    return R.noop("Нет активного плеера")
 
 
 async def _smtc_control(action: str) -> bool:
@@ -503,7 +582,13 @@ async def music_command(action: str) -> dict:
             result += f" [{info.get('position', '?:??')} / {info['duration']}]"
         return {"ok": True, "result": result, "info": info}
 
-    if action in ("music_play_pause", "music_next", "music_prev"):
+    if action == "music_prev":
+        return await smart_prev()
+
+    if action == "music_restart":
+        return await restart_track()
+
+    if action in ("music_play_pause", "music_next"):
         ctrl = action.replace("music_", "")
         ok   = await _smtc_control(ctrl)
         labels = {"play_pause": "play/pause", "next": "следующий", "prev": "предыдущий"}

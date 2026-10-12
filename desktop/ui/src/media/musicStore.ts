@@ -24,7 +24,10 @@ export interface MusicState {
   playAt(index: number): Promise<void>;
   toggle(): Promise<void>;
   next(auto?: boolean): Promise<void>;
+  /** «Назад» как в обычных плеерах: дальше 3 с — в начало трека, иначе предыдущий. */
   prev(): Promise<void>;
+  /** Всегда предыдущий трек (голосом «предыдущий трек», двойной клик). */
+  prevTrack(): Promise<void>;
   seek(t: number): void;
   seekBy(d: number): void;
   setVolume(v: number): void;
@@ -186,8 +189,13 @@ export function createMusicStore(client: CoreClient, engine: AudioEngine) {
 
       async prev() {
         if (get().position > 3) return get().seek(0);
+        return get().prevTrack();
+      },
+
+      async prevTrack() {
         const p = Q.prevIndex(get().queue);
         if (p >= 0) await start(p);
+        else get().seek(0);
       },
 
       seek(t) {
@@ -259,6 +267,8 @@ export function createMusicStore(client: CoreClient, engine: AudioEngine) {
           case "pause": if (s.status === "playing") return s.toggle(); return;
           case "next": return s.next();
           case "prev": return s.prev();
+          case "prevTrack": return s.prevTrack();
+          case "seek": return s.seek(Number(arg) || 0);
           case "seekBy": return s.seekBy(Number(arg) || 0);
           case "shuffle": return s.toggleShuffle();
           case "repeat": return s.cycleRepeat();
