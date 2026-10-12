@@ -59,11 +59,11 @@ export function readBounds(file: string, key: string): Rect | null {
 }
 
 export function writeBounds(file: string, key: string, r: Rect): void {
-  let all: Record<string, Rect> = {};
+  let all: Record<string, Rect>;
   try {
     all = JSON.parse(fs.readFileSync(file, "utf-8")) as Record<string, Rect>;
   } catch {
-    all = {};
+    all = {}; // нет файла или он повреждён — начинаем заново
   }
   all[key] = { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) };
   fs.mkdirSync(path.dirname(file), { recursive: true });
