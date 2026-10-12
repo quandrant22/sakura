@@ -1,4 +1,4 @@
-# PROGRESS
+﻿# PROGRESS
 
 ## До перестройки (по ранней версии задачи)
 - Ядро перенесено из agent/core. Есть платформенный слой, локальный API (токен, Origin), ServerLink proto 2, режим --headless и адаптер оверлея.
@@ -11,5 +11,7 @@
 - Созданы DECISIONS.md и PROGRESS.md.
 - Добавлены зависимости react-grid-layout, react-resizable-panels, lucide-react.
 
-## Фаза 1 — SakuraCore
-_в работе_
+## Фаза 1 — SakuraCore (2026-10-12) — ждёт ПРОВЕРКИ ВЛАДЕЛЬЦЕМ
+- coreFrame.ts (чистая функция кадра) + 4 теста vitest: нет NaN, габариты в viewBox, силуэт ≈155x149, кольца по уровню, офлайн.
+- SakuraCore.tsx: gooey-фильтр, градиент с бликом, 5 состояний, пауза при скрытом окне, reducedMotion.
+- preview-core.html: 5 состояний, ползунок уровня, пресеты soft/tight/liquid. Снимки: C:\sakura-tmp\screens\preview-core-*.png.
