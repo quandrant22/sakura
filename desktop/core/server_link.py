@@ -7,11 +7,13 @@ Agent держит соединение с VPS (как раньше); ServerLink
 - пуши сервера (chat_message, device_update, status, scenario_event) → on_push.
 
 Сервер v1 не присылает registered: если за V1_GRACE секунд после подключения
-ответа нет, считаем proto = 1 и на запросы сразу отвечаем unsupported.
+ответа нет, считаем proto = 1 (сообщаем интерфейсу событием connection, даже без
+запросов) и на запросы сразу отвечаем unsupported.
 """
 import asyncio
 import itertools
 import logging
+import threading
 import time
 from collections.abc import Awaitable, Callable
 
@@ -54,10 +56,18 @@ class ServerLink:
 
     def on_connected(self, send: Callable[[dict], Awaitable[None]]) -> None:
         self._send = send
-        self._connected_at = time.monotonic()
+        self._connected_at = stamp = time.monotonic()
         self.proto = None
         self.master = None
         self._on_state(self.state_event())
+        # Интерфейс должен узнать про v1 сам, а не при первом запросе: иначе proto навсегда null.
+        timer = threading.Timer(self.v1_grace, self._grace_expired, args=(stamp,))
+        timer.daemon = True
+        timer.start()
+
+    def _grace_expired(self, stamp: float) -> None:
+        if self._connected_at == stamp:  # за это время не было переподключения
+            self._effective_proto()
 
     def on_disconnected(self) -> None:
         self._send = None

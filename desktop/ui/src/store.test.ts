@@ -33,6 +33,24 @@ class ScriptClient implements CoreClient {
 }
 
 describe("store", () => {
+  test("сервер v1: чат живой без истории, остальное — «сервер не поддерживает»", () => {
+    const c = new ScriptClient();
+    const store = createAppStore(c);
+    store.getState().init();
+    c.emit({ type: "connection", server: "online", proto: 1 });
+    const s = store.getState();
+    expect(s.chat.status).toBe("ready");
+    expect(s.historyUnsupported).toBe(true);
+    for (const k of ["devices", "status", "scenarios"] as const) expect(s[k].status).toBe("unsupported");
+    c.emit({ type: "chat_message", message: { id: "local-1", ts: 1, role: "user", text: "Сакура, как дела?", channel: "voice", device: "pc" } });
+    expect(store.getState().chat.data.map((m) => m.text)).toEqual(["Сакура, как дела?"]);
+    // разрыв и возврат — снова v1, чат остаётся живым
+    c.emit({ type: "connection", server: "offline", proto: null });
+    c.emit({ type: "connection", server: "online", proto: 1 });
+    expect(store.getState().chat.status).toBe("ready");
+    expect(store.getState().server.online).toBe(true);
+  });
+
   test("уровни звука: state.level — для ядра, audio_level — отдельно, без перерисовки", () => {
     const c = new ScriptClient();
     const store = createAppStore(c);
@@ -100,7 +118,7 @@ describe("store", () => {
     const store = createAppStore(c);
     store.getState().init();
     await store.getState().sendText("  Погода ");
-    expect(c.calls).toEqual([{ type: "send_text", payload: { text: "Погода" } }]);
+    expect(c.calls).toEqual([{ type: "send_text", payload: { text: "Погода", source: "ui" } }]);
     expect(store.getState().chat.data).toMatchObject([{ text: "Погода", pending: true }]);
     c.emit({ type: "chat_message", message: { id: "m9", ts: 1, role: "user", text: "Погода", channel: "text", device: "x" } });
     c.emit({ type: "chat_message", message: { id: "m10", ts: 2, role: "assistant", text: "Солнечно", channel: "text", device: "x" } });

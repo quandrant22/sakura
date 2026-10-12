@@ -29,6 +29,10 @@ SETTINGS_KEYS = frozenset(DEFAULT_SETTINGS) | {"autostart", "game_processes", "w
 FOCUS_SCENARIO_ID = "focus"
 
 
+# Допустимые источники send_text (метка сообщения в чате).
+TEXT_SOURCES = ("ui", "e2e", "api")
+
+
 class CoreService:
     def __init__(self, agent_factory=None, api: LocalApiServer | None = None,
                  settings=None, hands=None, media=None):
@@ -98,25 +102,29 @@ class CoreService:
         return snap
 
     # ── шина → API ─────────────────────────────────────────────────
-    def _local_chat(self, role: str, text: str):
+    def _local_chat(self, role: str, text: str, source: str):
         # Сервер v1 не шлёт chat_message — собираем сообщение из событий агента.
         if self.link.proto == 2:
             return
         self._emit({"type": "chat_message", "message": {
-            "id": f"local-{time.time_ns()}", "ts": time.time(), "role": role,
-            "text": text, "channel": "voice", "device": config.DEVICE_ID}})
+            "id": f"local-{time.time_ns()}", "ts": time.time(), "role": role, "text": text,
+            "channel": "voice" if source == "mic" else "text", "device": config.DEVICE_ID, "source": source}})
 
     def _on_bus(self, event: str, data: dict):
         if event == "state" and data.get("value") in STATES:
+            # Агент повторяет «speaking» на каждый аудио-чанк — интерфейсу нужна только смена.
+            if data["value"] == self._state:
+                return
             self._state = data["value"]
             if self.media is not None:
                 self.media.on_voice_state(self._state)
             self._emit({"type": "state", "value": self._state, "level": 0})
         elif event == "user_text":
-            self._emit({"type": "transcript", "text": data.get("text", ""), "final": True})
-            self._local_chat("user", data.get("text", ""))
+            source = data.get("source", "mic")
+            self._emit({"type": "transcript", "text": data.get("text", ""), "final": True, "source": source})
+            self._local_chat("user", data.get("text", ""), source)
         elif event == "sakura_text":
-            self._local_chat("assistant", data.get("text", ""))
+            self._local_chat("assistant", data.get("text", ""), "server")
         elif event == "agent_alert":
             self._emit({"type": "notify", "text": data.get("text", ""), "level": "warn"})
         elif event == "game_mode":
@@ -149,7 +157,9 @@ class CoreService:
         text = str(msg.get("text") or "").strip()
         if not text:
             raise ApiError("bad_request", "пустое сообщение")
-        self.agent.submit_user_text(text, channel="text")
+        # Источник виден в чате: окно (ui), проверка (e2e) или другой клиент API.
+        source = msg.get("source") if msg.get("source") in TEXT_SOURCES else "api"
+        self.agent.submit_user_text(text, channel="text", source=source)
 
     async def cmd_mic_toggle(self, msg: dict):
         hearing = self.agent.hearing

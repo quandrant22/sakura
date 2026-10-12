@@ -190,6 +190,7 @@ class Agent:
         self._state       = "idle"
         self._state_since = time.monotonic()
         self._turn_gen    = 0
+        self._seen_kinds: set = set()  # типы сообщений сервера, уже записанные в лог
         self._state_lock  = threading.Lock()
         self.player  = Player(config.TTS_RATE)
         self.hearing = Hearing(self)
@@ -228,11 +229,13 @@ class Agent:
         self._set_state(state)
 
     def submit_user_text(self, text: str, wake_detected_at: float | None = None,
-                         timeline: dict | None = None, channel: str | None = None):
+                         timeline: dict | None = None, channel: str | None = None,
+                         source: str = "mic"):
+        """source — откуда фраза: mic (голос), ui (окно чата), e2e (проверка), api (прочие клиенты)."""
         text = text.strip()
         if not text:
             return
-        self.bus.emit("user_text", text=text)
+        self.bus.emit("user_text", text=text, source=source)
         self._set_state("thinking")
         msg = {
             "type":          "voice_command",
@@ -420,6 +423,11 @@ class Agent:
 
                 data = json.loads(raw)
                 kind = data.get("type")
+                # Диагностика протокола: тип и имена полей (без значений) — один раз на тип.
+                seen = self.__dict__.setdefault("_seen_kinds", set())
+                if kind not in seen:
+                    seen.add(kind)
+                    log.info("[server] сообщение type=%s поля=%s", kind, sorted(data))
                 link = getattr(self, "server_link", None)
                 if link is not None and link.handle(data):
                     continue
@@ -445,7 +453,7 @@ class Agent:
                     if self._state != "speaking":
                         self.player.interrupt()
                     self._set_state("speaking")
-                    self.player.feed(base64.b64decode(data["audio"]))
+                    self.player.feed(base64.b64decode(data["audio"]), data.get("sample_rate"), fmt="tts_chunk")
 
                 elif kind == "tts_end":
                     # idle — только когда буфер плеера доиграет
@@ -456,6 +464,7 @@ class Agent:
 
                 elif kind == "reply":
                     text = (data.get("text") or "").strip()
+                    log.info("[server] reply: %d симв.", len(text))
                     if text:
                         self.bus.emit("sakura_text", text=text)
 
@@ -486,6 +495,14 @@ class Agent:
             except Exception as e:
                 log.error(f"recv: {e}")
 
+    def _media_playing(self) -> bool:
+        """Играют встроенные плееры Сакуры (музыка, видео)."""
+        media = getattr(self, "media", None)
+        try:
+            return bool(media and any(media.audio.playing.values()))
+        except Exception:
+            return False
+
     async def _idle_after_playback(self, gen: int, listen=None):
         """После tts_end: дождаться опустошения буфера, затем idle.
 
@@ -500,7 +517,9 @@ class Agent:
         if self._turn_gen != gen:
             return
         self._set_state("idle")
-        if listen is not None:
+        if listen is not None and self._media_playing():
+            log.info("[voice] окно дослушивания не открываю: играет музыка или видео")
+        elif listen is not None:
             try:
                 self.hearing.open_followup(float(listen))
             except (TypeError, ValueError):

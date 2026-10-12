@@ -29,6 +29,8 @@ export interface AppState {
   settings: Settings | null;
   gameMode: boolean;
   chat: Slice<Message[]>;
+  /** Сервер v1: истории чата нет, видны только сообщения этого сеанса. */
+  historyUnsupported: boolean;
   devices: Slice<Device[]>;
   status: Slice<Status | null>;
   scenarios: Slice<Scenario[]>;
@@ -129,9 +131,13 @@ export function createAppStore(client: CoreClient) {
             }
           }
           if (e.proto === 1) {
-            for (const k of ["chat", "devices", "status", "scenarios"] as const) {
-              if (k !== "chat") set({ [k]: { ...get()[k], status: "unsupported", error: "Сервер не поддерживает" } } as Partial<AppState>);
+            for (const k of ["devices", "status", "scenarios"] as const) {
+              set({ [k]: { ...get()[k], status: "unsupported", error: "Сервер не поддерживает" } } as Partial<AppState>);
             }
+            // v1: истории нет, но живой чат работает — ядро собирает сообщения из расшифровки и ответов.
+            if (e.server === "online") set({ chat: { ...get().chat, status: "ready", error: undefined }, historyUnsupported: true });
+          } else if (e.proto === 2) {
+            set({ historyUnsupported: false });
           }
           break;
         }
@@ -194,6 +200,7 @@ export function createAppStore(client: CoreClient) {
       settings: null,
       gameMode: false,
       chat: empty<Message[]>([]),
+      historyUnsupported: false,
       devices: empty<Device[]>([]),
       status: empty<Status | null>(null),
       scenarios: empty<Scenario[]>([]),
@@ -231,11 +238,11 @@ export function createAppStore(client: CoreClient) {
         const t = text.trim();
         if (!t) return;
         const local: Message = { id: `local-${Date.now()}`, ts: Date.now() / 1000, role: "user", text: t,
-                                 channel: "text", device: get().settings?.device_id ?? "", pending: true };
+                                 channel: "text", device: get().settings?.device_id ?? "", pending: true, source: "ui" };
         set({ chat: { ...get().chat, data: [...get().chat.data, local],
                       status: get().chat.status === "idle" ? "ready" : get().chat.status } });
         try {
-          await client.call("send_text", { text: t });
+          await client.call("send_text", { text: t, source: "ui" });
         } catch (e) {
           set({ toast: { text: errorText(e), level: "error" },
                 chat: { ...get().chat, data: get().chat.data.filter((m) => m.id !== local.id) } });

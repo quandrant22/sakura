@@ -52,7 +52,9 @@ log = logging.getLogger("sakura.hearing")
 
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-_TTS_TAIL = 0.4
+# Микрофон и слово «Сакура» глушатся, пока Сакура говорит, и ещё столько секунд после —
+# чтобы хвост озвучки из колонок не распознался как команда.
+_TTS_TAIL = 0.7
 
 
 def _end_silence_for(speech_sec: float) -> float:
@@ -733,6 +735,18 @@ class Hearing(threading.Thread):
                 log.error(f"SpeechRecognizer не создался: {e}")
                 self.recognizer = None
 
+    def _tts_active(self) -> bool:
+        """Озвучка идёт: в буфере плеера есть звук ИЛИ агент в speaking (пауза между чанками)."""
+        return self.agent.player.is_playing() or getattr(self.agent, "_state", "") == "speaking"
+
+    def tts_muted(self, now: float | None = None) -> bool:
+        """Глушить ли микрофон сейчас; продлевает хвост, пока озвучка идёт."""
+        now = time.monotonic() if now is None else now
+        if self._tts_active():
+            self._mute_until = now + _TTS_TAIL
+            return True
+        return now < self._mute_until
+
     def open_followup(self, seconds: float = config.FOLLOWUP_SEC):
         self._follow_until = time.monotonic() + seconds
 
@@ -804,12 +818,8 @@ class Hearing(threading.Thread):
                 while True:
                     data = bytes(stream.read(config.WAKE_BLOCK)[0])
 
-                    if self.agent.player.is_playing():
+                    if self.tts_muted():
                         wake = _fresh_wake()
-                        self._mute_until = time.monotonic() + _TTS_TAIL
-                        continue
-
-                    if time.monotonic() < self._mute_until:
                         continue
 
                     if not self.mic_enabled:
@@ -865,9 +875,11 @@ class Hearing(threading.Thread):
         frame_dur = SileroVAD.FRAME / config.MIC_RATE
 
         while True:
-            if self.agent.player.is_playing():
+            if self._tts_active():
                 self._mute_until = time.monotonic() + _TTS_TAIL
-                self.agent.set_state("idle")
+                # Ответ уже звучит (агент в speaking) — его состояние не перебиваем.
+                if getattr(self.agent, "_state", "") != "speaking":
+                    self.agent.set_state("idle")
                 return
 
             data    = bytes(stream.read(config.MIC_BLOCK)[0])

@@ -67,6 +67,17 @@ def list_output_devices() -> str:
         return f"ошибка: {e}"
 
 
+def resample_pcm16(pcm: bytes, src: int, dst: int) -> bytes:
+    """Пересчёт PCM 16 бит моно из src Гц в dst Гц (линейная интерполяция)."""
+    import numpy as np
+    x = np.frombuffer(pcm[: len(pcm) // 2 * 2], dtype="<i2").astype(np.float32)
+    if not len(x) or src <= 0 or src == dst:
+        return pcm
+    n = max(1, round(len(x) * dst / src))
+    y = np.interp(np.linspace(0, len(x) - 1, n), np.arange(len(x)), x)
+    return np.clip(np.round(y), -32768, 32767).astype("<i2").tobytes()
+
+
 def decode_binary_chunk(data: bytes):
     if len(data) < 4:
         return b"", 24000
@@ -84,6 +95,7 @@ class Player:
     _first_chunk_ts = 0.0
     _started = False
     _ended = False
+    _format_logged = False
     _ur_count = _ur_total = _ur_max = _ur_cur = 0
 
     def __init__(self, rate: int):
@@ -145,6 +157,7 @@ class Player:
 
     def _reset_response(self):
         """Счётчики одного ответа (под self._lock или в __init__)."""
+        self._format_logged = False  # формат и частота ответа — один раз в лог
         self._first_chunk_ts = 0.0
         self._started = False     # звук этого ответа уже пошёл
         self._ended   = False     # tts_end получен
@@ -192,11 +205,19 @@ class Player:
         if n < need:
             outdata[n:] = b"\x00" * (need - n)
 
-    def feed(self, pcm: bytes):
-        """Добавляет PCM в буфер воспроизведения."""
+    def feed(self, pcm: bytes, rate: int | None = None, fmt: str = "json"):
+        """Добавляет PCM (16 бит, моно) в буфер. rate — частота чанка: если она не совпадает
+        с частотой выхода, звук пересчитывается, иначе голос звучит выше или ниже («другой голос»)."""
         if not pcm:
             return
+        rate = int(rate) if rate else self._rate
+        if rate != self._rate:
+            pcm = resample_pcm16(pcm, rate, self._rate)
         with self._lock:
+            if not self._format_logged:
+                self._format_logged = True
+                log.info("[voice] ответ: %s, %d Гц%s", fmt, rate,
+                         "" if rate == self._rate else f" → пересчёт в {self._rate} Гц")
             if self._ended:
                 # Новый ответ после tts_end, а старый ещё не доигран
                 self._finish_response()
@@ -206,10 +227,10 @@ class Player:
             self.last_feed_ts = time.monotonic()
 
     def feed_binary(self, data: bytes):
-        """Бинарный чанк: 4 байта заголовок + PCM."""
-        pcm, _ = decode_binary_chunk(data)
+        """Бинарный чанк: 4 байта заголовок (частота, little-endian) + PCM."""
+        pcm, rate = decode_binary_chunk(data)
         if pcm:
-            self.feed(pcm)
+            self.feed(pcm, rate, fmt="binary")
 
     def flush(self):
         """Конец фразы (tts_end): буфер доиграет сам, затем итог по разрывам."""

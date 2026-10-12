@@ -28,10 +28,11 @@ class FakeAgent:
         self.hearing.open_followup = lambda: setattr(self.hearing, "followups", self.hearing.followups + 1)
         self.player = SimpleNamespace(interrupted=0)
         self.player.interrupt = lambda: setattr(self.player, "interrupted", self.player.interrupted + 1)
-        self.sent, self.states = [], []
+        self.sent, self.states, self.sources = [], [], []
 
-    def submit_user_text(self, text, channel=None):
+    def submit_user_text(self, text, channel=None, source="mic"):
         self.sent.append((text, channel))
+        self.sources.append(source)
 
     def set_state(self, s):
         self.states.append(s)
@@ -148,6 +149,43 @@ def test_bus_events_mapped():
         await ws.close()
         await svc.api.stop()
     run(go())
+
+
+def test_message_source_marked():
+    # Источник сообщения виден в чате: голос — mic, окно — ui, проверка — e2e, прочее — api.
+    async def go():
+        svc = make_service()
+        await svc.api.start()
+        ws, _ = await _client(svc)
+        for i, src in enumerate(["ui", "e2e", None, "hacker"]):
+            msg = {"type": "send_text", "request_id": f"s{i}", "text": "привет"}
+            if src:
+                msg["source"] = src
+            assert (await _call(ws, msg))["ok"]
+        await ws.close()
+        await svc.api.stop()
+        return svc.agent.sources
+    assert run(go()) == ["ui", "e2e", "api", "api"]
+
+    svc = make_service()
+    sent = []
+    svc._emit = sent.append
+    svc.bus.emit("user_text", text="Сакура, как дела?")          # голос — без source
+    svc.bus.emit("user_text", text="Погода", source="ui")
+    svc.bus.emit("sakura_text", text="Хорошо")
+    chat = [e["message"] for e in sent if e["type"] == "chat_message"]
+    assert [(m["role"], m["source"], m["channel"]) for m in chat] == [
+        ("user", "mic", "voice"), ("user", "ui", "text"), ("assistant", "server", "text")]
+
+
+def test_repeated_state_not_resent():
+    # Агент повторяет speaking на каждый аудио-чанк — в интерфейс уходит только смена состояния.
+    svc = make_service()
+    sent = []
+    svc._emit = sent.append
+    for v in ["thinking", "speaking", "speaking", "speaking", "idle", "idle"]:
+        svc.bus.emit("state", value=v)
+    assert [e["value"] for e in sent if e["type"] == "state"] == ["thinking", "speaking", "idle"]
 
 
 def test_no_local_chat_when_server_proto2():

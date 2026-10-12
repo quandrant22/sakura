@@ -11,13 +11,26 @@ export const DEFAULT_PROMPTS = ["Что у меня сегодня?", "Пого�
 
 const STATE_LABEL = { idle: "", listening: "слушаю…", thinking: "думаю…", speaking: "говорю…" } as const;
 
+const SOURCE_LABEL: Record<NonNullable<Message["source"]>, string> = {
+  mic: "микрофон", ui: "окно", e2e: "проверка", api: "API", server: "",
+};
+
+/** Метка источника: сразу видно, сказано ли голосом, набрано в окне или отправлено проверкой. */
+export function sourceLabel(m: Message): string {
+  if (m.role === "system") return "система";
+  if (m.source) return SOURCE_LABEL[m.source];
+  return m.role === "user" && m.channel === "voice" ? "микрофон" : "";
+}
+
 function Bubble({ m }: { m: Message }) {
+  const label = sourceLabel(m);
   if (m.role === "user") {
     return (
       <div className="flex justify-end">
         <div className="max-w-[85%] rounded-card rounded-br-md bg-panel2 px-4 py-2.5 text-sm text-ink">
           <p className="whitespace-pre-wrap break-words">{m.text}</p>
           <div className="mt-1 flex items-center justify-end gap-1 text-[11px] text-ink-dim">
+            {label && <span className={m.source === "e2e" ? "text-accent" : ""} aria-label={`источник: ${label}`}>{label} ·</span>}
             {timeHM(m.ts)}
             {m.pending ? <Clock3 size={12} aria-label="отправляется" /> : <CheckCheck size={14} className="text-accent" aria-label="доставлено" />}
           </div>
@@ -31,7 +44,7 @@ function Bubble({ m }: { m: Message }) {
       <div className="max-w-[85%] rounded-card rounded-bl-md border border-line px-4 py-2.5 text-sm text-ink">
         <div className="mb-0.5 text-xs font-semibold text-accent">{m.role === "system" ? "Система" : "Sakura"}</div>
         <p className="whitespace-pre-wrap break-words">{m.text}</p>
-        <div className="mt-1 text-right text-[11px] text-ink-dim">{timeHM(m.ts)}</div>
+        <div className="mt-1 text-right text-[11px] text-ink-dim">{label && `${label} · `}{timeHM(m.ts)}</div>
       </div>
     </div>
   );
@@ -43,6 +56,7 @@ export function Chat({ onCollapse }: { onCollapse(): void }) {
   const prompts = saved?.length ? saved : DEFAULT_PROMPTS;
   const sendText = useApp((s) => s.sendText);
   const loadHistory = useApp((s) => s.loadHistory);
+  const noHistory = useApp((s) => s.historyUnsupported);
   const coreState = useApp((s) => s.coreState);
   const mic = useApp((s) => s.settings?.mic_enabled ?? true);
   const listenNow = useApp((s) => s.listenNow);
@@ -73,6 +87,11 @@ export function Chat({ onCollapse }: { onCollapse(): void }) {
         </button>
       </header>
 
+      {noHistory && (
+        <div className="mx-4 mb-1 rounded-btn bg-panel2 px-3 py-1.5 text-xs text-ink-dim">
+          История переписки: сервер не поддерживает — видны сообщения с момента запуска
+        </div>
+      )}
       <div ref={listRef} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-2" aria-live="polite">
         <Loadable status={chat.status} error={chat.error} onRetry={() => void loadHistory()} lines={5}>
           {chat.data.length === 0 ? (

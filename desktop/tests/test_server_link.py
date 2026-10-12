@@ -174,6 +174,40 @@ def test_v1_server_without_registered_after_grace():
     run(go())
 
 
+def test_v1_announced_without_requests():
+    # Интерфейс узнаёт о сервере v1 сам — без единого запроса (иначе чат ждёт историю вечно).
+    async def go():
+        events = []
+        link = ServerLink(on_state=events.append, v1_grace=0.05)
+
+        async def send(msg):
+            pass
+        link.on_connected(send)
+        await asyncio.sleep(0.2)
+        return events
+    events = run(go())
+    assert [(e["server"], e["proto"]) for e in events] == [("online", None), ("online", 1)]
+
+
+def test_grace_timer_ignores_old_connection():
+    async def go():
+        events = []
+        link = ServerLink(on_state=events.append, v1_grace=0.1)
+
+        async def send(msg):
+            pass
+        link.on_connected(send)
+        await asyncio.sleep(0.05)
+        link.on_disconnected()
+        link.on_connected(send)  # переподключились — старый таймер не должен сработать раньше времени
+        link.handle({"type": "registered", "proto": 2, "master": True})
+        await asyncio.sleep(0.2)
+        return events, link.proto
+    events, proto = run(go())
+    assert proto == 2
+    assert ("online", 1) not in [(e["server"], e["proto"]) for e in events]
+
+
 def test_pushes_forwarded():
     async def go():
         srv, server, url = await _mock()

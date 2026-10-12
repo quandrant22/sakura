@@ -12,6 +12,8 @@ export interface Message {
   device: string;
   /** только локально: сообщение отправлено и ждёт эха от сервера */
   pending?: boolean;
+  /** Откуда сообщение: mic — голос, ui — окно чата, e2e — автоматическая проверка, api — другой клиент, server — ответ. */
+  source?: "mic" | "ui" | "e2e" | "api" | "server";
 }
 
 export interface DeviceStats {
