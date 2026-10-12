@@ -319,12 +319,20 @@
 
 - id: music.prev
   legacy: [music:prev, music_prev]
-  desc: 'Предыдущий трек/песня'
+  desc: 'Предыдущий трек/песня (двойной шаг назад: одиночный «назад» в плеере лишь начинает текущий трек сначала)'
   executor: agent
   reversible: true
   confirm: false
   followup: ack
-  triggers: ['назад трек', 'предыдущий', 'предыдущий трек', 'прошлый трек']
+  triggers: ['назад трек', 'предыдущий', 'предыдущий трек', 'прошлый трек', 'предыдущая песня', 'верни прошлый трек', 'включи предыдущую']
+
+- id: music.restart
+  desc: 'Текущий трек сначала, перезапустить трек (не предыдущий трек)'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['трек сначала', 'включи сначала', 'с начала', 'заново', 'перезапусти трек', 'начни трек заново']
 
 - id: music.repeat
   legacy: [music:repeat]
