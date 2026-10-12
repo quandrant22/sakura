@@ -17,13 +17,15 @@ class Ctx:
     kill: Callable | None = None        # (pid) → bool
     files: object = None        # hands: open_file(name) / find_file(name) / recent()
     fs: object = None           # copy(src, dst) / move(src, dst)
+    ui: object = None           # UI Automation: click / type_into / scroll / read (platform.uia)
     extra: dict = field(default_factory=dict)
 
     @classmethod
     def default(cls) -> "Ctx":
         from desktop.core.platform import get_platform
         return cls(platform=get_platform(), keyboard=_Keyboard(), clipboard=_Clipboard(),
-                   processes=_process_list, kill=_process_kill, files=_Files(), fs=_Fs())
+                   processes=_process_list, kill=_process_kill, files=_Files(), fs=_Fs(),
+                   ui=_ui_module())
 
 
 @dataclass
@@ -36,6 +38,13 @@ class Action:
 
 
 # ── реальные реализации (тонкие обёртки над библиотеками) ─────────────
+def _ui_module():
+    if os.name != "nt":
+        return None
+    from desktop.core.platform import uia
+    return uia
+
+
 class _Keyboard:
     def __getattr__(self, name):
         import pyautogui
@@ -334,6 +343,53 @@ def files_delete(arg, ctx):
     return R.done("удалила в корзину") if ctx.platform.recycle(src) else R.failed("не удалось удалить в корзину")
 
 
+# ── UI Automation (п. 3.3): только активное окно, не в чёрном списке ──
+def _need_ui(ctx):
+    if ctx.ui is None:
+        raise NotImplementedError
+
+
+def ui_click(arg, ctx):
+    _need_ui(ctx)
+    name = (arg or "").strip()
+    if not name:
+        return R.failed("какой элемент нажать?")
+    res = ctx.ui.click(name)
+    if res is None:
+        return R.failed(f"не нашла «{name}» в активном окне")
+    return R.done(f"нажала «{name}»") if res else R.failed("элемент не нажимается")
+
+
+def ui_type(arg, ctx):
+    _need_ui(ctx)
+    name, sep, text = (arg or "").partition("|")
+    if not sep:
+        name, text = "", arg or ""
+    if not text:
+        return R.failed("нечего вводить")
+    res = ctx.ui.type_into(name.strip(), text)
+    return {"done": R.done("ввела текст"),
+            "not_found": R.failed(f"не нашла поле «{name.strip()}»"),
+            "password": R.unsupported("поле пароля — не ввожу"),
+            "readonly": R.failed("поле только для чтения")}.get(res, R.failed("не удалось ввести"))
+
+
+def ui_scroll(arg, ctx):
+    _need_ui(ctx)
+    direction, _, n = (arg or "down").strip().lower().partition(":")
+    direction = {"вниз": "down", "вверх": "up", "влево": "left", "вправо": "right"}.get(direction, direction)
+    if direction not in ("down", "up", "left", "right"):
+        return R.failed("направление: down, up, left, right")
+    pages = max(1, min(int(n), 10)) if n.isdigit() else 1
+    return R.done("прокрутила") if ctx.ui.scroll(direction, pages) else R.failed("нечего прокручивать")
+
+
+def ui_read(arg, ctx):
+    _need_ui(ctx)
+    text = ctx.ui.read((arg or "").strip())
+    return R.done(text, text=text) if text else R.failed("текста не нашла")
+
+
 ACTIONS: dict[str, Action] = {
     "window.minimize": Action(_window_state("minimize"), True, False),
     "window.maximize": Action(_window_state("maximize"), True, False),
@@ -358,6 +414,10 @@ ACTIONS: dict[str, Action] = {
     "keys.type": Action(keys_type, False, False, guard_window=True),
     "keys.hotkey": Action(keys_hotkey, False, False, guard_window=True),
     "keys.media": Action(keys_media, True, False),
+    "ui.click": Action(ui_click, False, False, guard_window=True),
+    "ui.type": Action(ui_type, False, False, guard_window=True),
+    "ui.scroll": Action(ui_scroll, True, False, guard_window=True),
+    "ui.read": Action(ui_read, True, False, guard_window=True),
     "files.open": Action(files_open, True, False),
     "files.reveal": Action(files_reveal, True, False),
     "files.recent": Action(files_recent, True, False),

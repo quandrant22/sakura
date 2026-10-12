@@ -245,3 +245,65 @@ def test_agent_runs_control_action_and_reports(monkeypatch):
     results = [m for m in sent if m["type"] == "command_result"]
     assert [(r["id"], r["ok"], r["status"]) for r in results] == [("c1", True, "done"), ("c2", False, "unsupported")]
     assert ("pc_action", {"active": True}) in events and ("pc_action", {"active": False}) in events
+
+
+# ── UI Automation (п. 3.3) ─────────────────────────────────────────────
+class FakeUI:
+    def __init__(self):
+        self.calls = []
+        self.fields = {"Поиск": "edit", "Пароль": "password", "Адрес": "readonly"}
+
+    def click(self, name):
+        self.calls.append(("click", name))
+        return True if name == "OK" else None
+
+    def type_into(self, name, text):
+        self.calls.append(("type", name))
+        kind = self.fields.get(name, "")
+        fallback = "not_found" if name else "done"
+        return {"edit": "done", "password": "password", "readonly": "readonly"}.get(kind, fallback)
+
+    def scroll(self, direction, pages):
+        self.calls.append(("scroll", direction, pages))
+        return True
+
+    def read(self, name):
+        return "Привет, мир" if not name else ""
+
+
+def uictx(**kw):
+    c = ctx(**kw)
+    c.ui = FakeUI()
+    return c
+
+
+def test_ui_click_type_scroll_read():
+    c = uictx()
+    assert run("ui.click", "OK", c=c)["ok"] is True
+    assert run("ui.click", "Нет такой", c=c)["status"] == "failed"
+    assert run("ui.click", "", c=c)["status"] == "failed"
+    assert run("ui.type", "Поиск|котики", c=c)["ok"] is True
+    assert run("ui.type", "просто текст", c=c)["ok"] is True and c.ui.calls[-1] == ("type", "")
+    assert run("ui.type", "Пароль|123", c=c)["detail"] == "поле пароля — не ввожу"
+    assert run("ui.type", "Адрес|x", c=c)["status"] == "failed"
+    assert run("ui.scroll", "вниз:3", c=c)["ok"] is True and c.ui.calls[-1] == ("scroll", "down", 3)
+    assert run("ui.scroll", "up:99", c=c)["ok"] is True and c.ui.calls[-1] == ("scroll", "up", 10)
+    assert run("ui.scroll", "по диагонали", c=c)["status"] == "failed"
+    out = run("ui.read", c=c)
+    assert out["text"] == "Привет, мир"
+    assert run("ui.read", "кнопка", c=c)["status"] == "failed"
+
+
+def test_ui_blocked_window_and_unavailable():
+    c = uictx(platform=FakePlatform(fg={"hwnd": 9, "title": "Bitwarden", "process": "bitwarden.exe"}))
+    for action, arg in (("ui.click", "OK"), ("ui.type", "Поиск|x"), ("ui.scroll", "down"), ("ui.read", "")):
+        assert run(action, arg, c=c)["status"] == "unsupported"
+    assert c.ui.calls == []
+    c = ctx()  # без UI Automation (не Windows)
+    assert run("ui.read", c=c)["detail"] == "недоступно на этой системе"
+
+
+def test_ui_read_text_not_in_journal(caplog):
+    caplog.set_level(logging.INFO, logger="sakura.actions")
+    run("ui.read", c=uictx())
+    assert "Привет" not in " ".join(r.getMessage() for r in caplog.records)
