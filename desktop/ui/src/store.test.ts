@@ -33,6 +33,32 @@ class ScriptClient implements CoreClient {
 }
 
 describe("store", () => {
+  test("уровни звука: state.level — для ядра, audio_level — отдельно, без перерисовки", () => {
+    const c = new ScriptClient();
+    const store = createAppStore(c);
+    store.getState().init();
+    const renders = vi.fn();
+    store.subscribe(renders);
+    c.emit({ type: "state", value: "speaking", level: 0.7 });
+    expect(store.getState().getLevel()).toBe(0.7);
+    c.emit({ type: "audio_level", bars: [1, 0, 0.5] });
+    expect(store.getState().getMusicLevel()).toBeCloseTo(0.5);
+    expect(store.getState().getLevel()).toBe(0.7);
+    expect(renders).toHaveBeenCalledTimes(1); // только смена coreState
+    c.emit({ type: "state", value: "idle" });
+    expect(store.getState().getLevel()).toBe(0);
+  });
+
+  test("listenNow вызывает listen_now; ошибка — понятный тост", async () => {
+    const c = new ScriptClient();
+    const store = createAppStore(c);
+    await store.getState().listenNow();
+    expect(c.calls.at(-1)?.type).toBe("listen_now");
+    c.call = async () => { throw new CoreError("mic_off", "x"); };
+    await store.getState().listenNow();
+    expect(store.getState().toast?.text).toBe("Микрофон выключен");
+  });
+
   test("подключение сервера с proto 2 загружает все экраны (демо)", async () => {
     const store = createAppStore(new DemoClient("normal"));
     store.getState().init();

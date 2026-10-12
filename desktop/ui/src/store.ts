@@ -45,6 +45,12 @@ export interface AppState {
   listApps(): Promise<string[]>;
   previewScenario(text: string): Promise<void>;
   toggleMic(): Promise<void>;
+  /** «Говорить сейчас» без слова «Сакура» (короткий клик по ядру). */
+  listenNow(): Promise<void>;
+  /** Уровень микрофона/озвучки 0..1 — для ядра-графики; читается каждый кадр, без перерисовки React. */
+  getLevel(): number;
+  /** Уровень системного звука (музыки) 0..1 — для эквалайзера. */
+  getMusicLevel(): number;
   setGameMode(on: boolean): Promise<void>;
   dismissToast(): void;
 }
@@ -67,6 +73,8 @@ export function errorText(e: unknown): string {
         return "Ядро ещё запускается";
       case "not_master":
         return "Доступно только на основных устройствах";
+      case "mic_off":
+        return "Микрофон выключен";
       default:
         return e.message || "Что-то пошло не так";
     }
@@ -79,6 +87,10 @@ const failStatus = (e: unknown): LoadStatus =>
 
 export function createAppStore(client: CoreClient) {
   return createStore<AppState>()((set, get) => {
+    // Уровни звука меняются десятки раз в секунду — держим их вне состояния Zustand.
+    const level = { value: 0 };
+    const musicLevel = { value: 0 };
+
     // Загрузка «слайса» с сервера: loading → ready | error | unsupported.
     async function load<K extends "chat" | "devices" | "status" | "scenarios">(
       key: K,
@@ -123,9 +135,18 @@ export function createAppStore(client: CoreClient) {
           }
           break;
         }
-        case "state":
-          set({ coreState: (ev as { value: CoreState }).value });
+        case "state": {
+          const e = ev as { value: CoreState; level?: number };
+          if (typeof e.level === "number") level.value = e.level;
+          else if (e.value === "idle") level.value = 0;
+          set({ coreState: e.value });
           break;
+        }
+        case "audio_level": {
+          const bars = (ev as { bars: number[] }).bars;
+          if (Array.isArray(bars) && bars.length) musicLevel.value = bars.reduce((a, b) => a + b, 0) / bars.length;
+          break;
+        }
         case "settings":
           set({ settings: (ev as { settings: Settings }).settings });
           break;
@@ -256,6 +277,17 @@ export function createAppStore(client: CoreClient) {
           set({ toast: { text: errorText(e), level: "error" } });
         }
       },
+
+      async listenNow() {
+        try {
+          await client.call("listen_now");
+        } catch (e) {
+          set({ toast: { text: errorText(e), level: "error" } });
+        }
+      },
+
+      getLevel: () => level.value,
+      getMusicLevel: () => musicLevel.value,
 
       async setGameMode(on) {
         try {

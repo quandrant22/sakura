@@ -13,6 +13,11 @@ export interface SakuraBridge {
     onMaximized(cb: (maximized: boolean) => void): () => void;
   };
   version(): Promise<string>;
+  /** layout.json: раскладка, тема и ширина чата по device_id. */
+  layout: {
+    get(deviceId: string): Promise<Record<string, unknown> | null>;
+    set(deviceId: string, entry: Record<string, unknown>): Promise<boolean>;
+  };
   openLogs(): Promise<string>;
   core: { connection(): Promise<CoreConnection | null> };
   tray: {
@@ -35,6 +40,15 @@ declare global {
   }
 }
 
+// Без Electron (браузер, тесты) раскладка живёт в памяти до перезагрузки страницы.
+function memoryLayout(): SakuraBridge["layout"] {
+  const mem = new Map<string, Record<string, unknown>>();
+  return {
+    get: async (id) => mem.get(id) ?? null,
+    set: async (id, entry) => { mem.set(id, entry); return true; },
+  };
+}
+
 const fallback: SakuraBridge = {
   window: {
     minimize: async () => {},
@@ -44,6 +58,7 @@ const fallback: SakuraBridge = {
     onMaximized: () => () => {},
   },
   version: async () => "dev",
+  layout: memoryLayout(),
   openLogs: async () => "",
   core: { connection: async () => null },
   tray: { onAction: () => () => {}, setState: async () => {} },

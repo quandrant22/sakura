@@ -8,7 +8,7 @@ import { errorText } from "../../store";
 import { useMediaClient, useMediaMeta, useMusic } from "../../media/MediaContext";
 import { fmtTime, fromLibrary, type LibraryTrack, type Track } from "../../media/types";
 import { EmptyState, ErrorState, Skeleton } from "../ui";
-import { Cover } from "./PlayerBar";
+import { Cover } from "./Cover";
 
 type View = "tracks" | "albums" | "artists" | "playlists" | "yandex";
 type Filter = { album?: string; artist?: string; playlist?: number; title?: string } | null;

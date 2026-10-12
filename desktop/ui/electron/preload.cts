@@ -14,6 +14,10 @@ const api = {
     },
   },
   version: (): Promise<string> => ipcRenderer.invoke("app:version"),
+  layout: {
+    get: (deviceId: string): Promise<Record<string, unknown> | null> => ipcRenderer.invoke("layout:get", deviceId),
+    set: (deviceId: string, entry: Record<string, unknown>): Promise<boolean> => ipcRenderer.invoke("layout:set", deviceId, entry),
+  },
   openLogs: (): Promise<string> => ipcRenderer.invoke("app:open-logs"),
   core: {
     connection: (): Promise<{ port: number; token: string } | null> => ipcRenderer.invoke("core:connection"),

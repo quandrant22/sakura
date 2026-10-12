@@ -1,21 +1,12 @@
+// Верхняя панель 84 px по наброску: логотип 300x45 слева, три кнопки 45x45 справа, в центре — перетаскивание окна.
 import { Copy, Minus, Square, X } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 
 import { bridge } from "../bridge";
-import { useApp } from "../store";
 import { SakuraLogo } from "./SakuraLogo";
 
-const TABS = ["Главная", "Устройства", "Сценарии", "Настройки"] as const;
-export type Tab = (typeof TABS)[number];
-
-interface Props {
-  tab: Tab | null;
-  onTab(tab: Tab): void;
-}
-
-export function TitleBar({ tab, onTab }: Props) {
+export function TitleBar() {
   const [maximized, setMaximized] = useState(false);
-  const active = useApp((s) => s.link === "open" && s.server.online);
 
   useEffect(() => {
     void bridge().window.isMaximized().then(setMaximized);
@@ -23,49 +14,25 @@ export function TitleBar({ tab, onTab }: Props) {
   }, []);
 
   return (
-    <header className="drag flex h-16 items-center gap-6 border-b border-line px-5">
-      <div className="flex items-center gap-3">
+    <header className="drag flex h-[84px] shrink-0 items-center gap-gap bg-bar px-edge">
+      <div className="flex h-[45px] w-[300px] shrink-0 items-center gap-3 rounded-btn bg-panel px-4">
         <SakuraLogo size={30} />
-        <div className="leading-tight">
-          <div className="text-sm font-semibold tracking-logo text-ink">SAKURA</div>
-          <div className="text-[11px] text-ink-dim">Your AI companion</div>
-        </div>
+        <span className="text-sm font-semibold tracking-logo text-ink">SAKURA</span>
       </div>
 
-      <nav className="no-drag ml-8 flex gap-1" aria-label="Разделы">
-        {TABS.map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => onTab(t)}
-            aria-current={t === tab ? "page" : undefined}
-            className={
-              "rounded-card px-4 py-2 text-sm transition-colors " +
-              (t === tab ? "bg-accent-soft text-accent shadow-glow" : "text-ink-dim hover:text-ink")
-            }
-          >
-            {t}
-          </button>
-        ))}
-      </nav>
+      {/* Пустой центр — за него окно перетаскивается. */}
+      <div className="h-full flex-1" />
 
-      <div className="ml-auto flex items-center gap-2 text-xs text-ink-dim">
-        <span className={"h-2 w-2 rounded-full " + (active ? "bg-online shadow-[0_0_8px_#3ddc97]" : "bg-ink-dim")} />
-        {active ? "Система активна" : "Нет связи"}
-      </div>
-
-      <div className="no-drag flex items-center gap-1">
+      <div className="no-drag flex items-center gap-gap">
         <WinButton label="Свернуть" onClick={() => void bridge().window.minimize()}>
-          <Minus size={16} />
+          <Minus size={18} />
         </WinButton>
-        <WinButton
-          label={maximized ? "Восстановить" : "Развернуть"}
-          onClick={() => void bridge().window.toggleMaximize().then(setMaximized)}
-        >
-          {maximized ? <Copy size={14} /> : <Square size={14} />}
+        <WinButton label={maximized ? "Восстановить" : "Развернуть"}
+                   onClick={() => void bridge().window.toggleMaximize().then(setMaximized)}>
+          {maximized ? <Copy size={16} /> : <Square size={16} />}
         </WinButton>
         <WinButton label="Закрыть" danger onClick={() => void bridge().window.close()}>
-          <X size={16} />
+          <X size={18} />
         </WinButton>
       </div>
     </header>
@@ -74,16 +41,9 @@ export function TitleBar({ tab, onTab }: Props) {
 
 function WinButton(props: { label: string; danger?: boolean; onClick(): void; children: ReactNode }) {
   return (
-    <button
-      type="button"
-      aria-label={props.label}
-      title={props.label}
-      onClick={props.onClick}
-      className={
-        "grid h-8 w-10 place-items-center rounded-lg text-ink-dim transition-colors " +
-        (props.danger ? "hover:bg-accent hover:text-white" : "hover:bg-white/5 hover:text-ink")
-      }
-    >
+    <button type="button" aria-label={props.label} title={props.label} onClick={props.onClick}
+            className={"grid h-[45px] w-[45px] place-items-center rounded-btn bg-panel text-ink-dim transition-colors " +
+              (props.danger ? "hover:bg-accent-grad hover:text-white" : "hover:bg-panel2 hover:text-ink")}>
       {props.children}
     </button>
   );

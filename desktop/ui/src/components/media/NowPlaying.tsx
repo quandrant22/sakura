@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 import { useMediaClient, useMusic, useVideo } from "../../media/MediaContext";
 import { Card } from "../ui";
-import { Cover } from "./PlayerBar";
+import { Cover } from "./Cover";
 
 interface External { title: string; artist: string; status: string }
 

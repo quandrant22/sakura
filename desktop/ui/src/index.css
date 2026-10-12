@@ -2,6 +2,33 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Темы: значения токенов tailwind.config.js (каналы RGB для модификаторов прозрачности). */
+:root {
+  --bg: 10 6 16; /* #0a0610 */
+  --bar: 10 6 16;
+  --panel: 20 16 28; /* #14101c */
+  --panel2: 29 22 40;
+  --line: rgba(255, 255, 255, 0.07);
+  --ink: 241 233 245; /* #f1e9f5 */
+  --ink-dim: 155 143 168;
+  --accent: 255 106 227; /* #FF6AE3 */
+  --accent-deep: 62 0 116; /* #3E0074 */
+  --accent-soft: rgba(255, 106, 227, 0.16);
+  --online: 61 220 151;
+  color-scheme: dark;
+}
+
+/* «Как в наброске»: белый фон, чёрные карточки и верхняя панель. */
+:root[data-theme="sketch"] {
+  --bg: 255 255 255;
+  --bar: 0 0 0;
+  --panel: 0 0 0;
+  --panel2: 28 28 30;
+  --line: rgba(255, 255, 255, 0.12);
+  --ink: 245 245 245;
+  --ink-dim: 165 165 170;
+}
+
 html,
 body,
 #root {
@@ -11,7 +38,7 @@ body,
 }
 
 body {
-  @apply font-sans text-ink antialiased;
+  @apply bg-bg font-sans text-ink antialiased;
   user-select: none;
 }
 

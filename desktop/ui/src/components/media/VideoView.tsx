@@ -159,7 +159,7 @@ function YoutubeFrame() {
   );
 }
 
-function Sources({ onError }: { onError(msg: string | null): void }) {
+function Sources({ onError, className = "w-[280px]" }: { onError(msg: string | null): void; className?: string }) {
   const client = useMediaClient();
   const store = useVideoStore();
   const version = useMediaMeta((s) => s.libraryVersion);
@@ -200,7 +200,7 @@ function Sources({ onError }: { onError(msg: string | null): void }) {
   };
 
   return (
-    <aside className="flex w-[280px] shrink-0 flex-col gap-3">
+    <aside className={"flex shrink-0 flex-col gap-3 " + className}>
       <form onSubmit={openUrl} className="rounded-panel border border-line bg-panel p-3">
         <div className="mb-2 flex items-center gap-1.5 text-xs text-ink-dim"><Globe size={13} /> Ссылка: YouTube, .mp4, .webm, .m3u8</div>
         <div className="flex gap-1.5">
@@ -250,7 +250,8 @@ function ConnectionCheck() {
   );
 }
 
-export function VideoView() {
+/** compact — виджет доски: источники и плеер не рядом, а по очереди (кнопка «Источники»). */
+export function VideoView({ compact = false }: { compact?: boolean }) {
   const client = useMediaClient();
   const store = useVideoStore();
   const source = useVideo((s) => s.source);
@@ -264,17 +265,23 @@ export function VideoView() {
   const error = useVideo((s) => s.error);
   const embedBlocked = useVideo((s) => s.embedBlocked);
   const [srcError, setSrcError] = useState<string | null>(null);
+  // Компактный вид: список источников открыт для конкретного видео; выбрали другое — снова плеер.
+  const [pickFor, setPickFor] = useState<typeof source>(null);
+  const pickSource = pickFor !== null && pickFor === source;
   const v = store.getState();
   const local = source?.kind === "local" ? source : null;
   const yt = source?.kind === "youtube" ? source : null;
 
   return (
     <div className="flex min-h-0 flex-1 gap-4">
-      {!theater && <Sources onError={setSrcError} />}
-      <section className="flex min-h-0 flex-1 flex-col rounded-panel border border-line bg-panel p-3 shadow-soft">
+      {compact ? (pickSource || !source) && <Sources onError={setSrcError} className="min-w-0 flex-1" />
+               : !theater && <Sources onError={setSrcError} />}
+      {(!compact || (source && !pickSource)) && (
+      <section className={"flex min-h-0 flex-1 flex-col " + (compact ? "" : "rounded-panel border border-line bg-panel p-3 shadow-soft")}>
         <div className="mb-2 flex items-center gap-2">
           <h2 className="truncate text-sm font-semibold text-ink">{source?.title || "Видео"}</h2>
           <span className="ml-auto"><ConnectionCheck /></span>
+          {compact && <button type="button" className={btn} onClick={() => setPickFor(source)}><Film size={13} /> Источники</button>}
         </div>
         <div className="relative min-h-0 flex-1 overflow-hidden rounded-card bg-black">
           {!source ? (
@@ -329,6 +336,7 @@ export function VideoView() {
           </div>
         )}
       </section>
+      )}
     </div>
   );
 }

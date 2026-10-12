@@ -7,12 +7,14 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { readLayout, writeLayout } from "./layoutFile.js";
 import { pacFor } from "./pac.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const devUrl = process.env.SAKURA_DEV_URL;
 const dataDir = path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), "AppData", "Local"), "Sakura");
 const tokenFile = process.env.SAKURA_UI_TOKEN ?? path.join(dataDir, "ui.token");
+const layoutFile = process.env.SAKURA_LAYOUT_FILE ?? path.join(dataDir, "layout.json");
 
 let win: BrowserWindow | null = null;
 let miniWin: BrowserWindow | null = null;
@@ -26,10 +28,10 @@ function loadPage(target: BrowserWindow, query = ""): Promise<void> {
 }
 
 function createWindow(): BrowserWindow {
-  // Базовый размер 1536x1024, но не больше рабочей области экрана (1080p с панелью задач).
+  // Базовый размер 1440x1024 (кадр наброска), но не больше рабочей области экрана.
   const area = screen.getPrimaryDisplay().workAreaSize;
   const w = new BrowserWindow({
-    width: Math.max(1180, Math.min(1536, area.width)),
+    width: Math.max(1180, Math.min(1440, area.width)),
     height: Math.max(760, Math.min(1024, area.height)),
     minWidth: 1180,
     minHeight: 760,
@@ -118,6 +120,8 @@ ipcMain.handle("window:toggle-maximize", () => {
 ipcMain.handle("window:close", () => win?.close());
 ipcMain.handle("window:is-maximized", () => win?.isMaximized() ?? false);
 ipcMain.handle("app:version", () => app.getVersion());
+ipcMain.handle("layout:get", (_e, deviceId: unknown) => readLayout(layoutFile, deviceId));
+ipcMain.handle("layout:set", (_e, deviceId: unknown, entry: unknown) => writeLayout(layoutFile, deviceId, entry));
 ipcMain.handle("app:open-logs", () => shell.openPath(path.join(dataDir, "logs")));
 ipcMain.handle("core:connection", () => {
   try {

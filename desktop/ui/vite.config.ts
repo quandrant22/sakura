@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+﻿import { readFileSync } from "node:fs";
 
 import react from "@vitejs/plugin-react";
 import type { Plugin } from "vite";
@@ -25,5 +25,5 @@ export default defineConfig({
   // Демо-данные берутся из фикстур мок-сервера (desktop/tools/fixtures) — вне папки ui.
   server: { port: 5173, strictPort: true, fs: { allow: [".."] } },
   build: { outDir: "dist", emptyOutDir: true },
-  test: { environment: "jsdom", pool: "threads" },
+  test: { environment: "jsdom", pool: "threads", setupFiles: ["./src/test-setup.ts"] },
 });

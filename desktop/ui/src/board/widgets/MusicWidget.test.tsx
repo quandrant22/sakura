@@ -6,7 +6,7 @@ import { DemoClient } from "../../api/demo";
 import type { CoreEvent } from "../../api/types";
 import { MediaProvider, useMediaMeta, useMusicStore } from "../../media/MediaContext";
 import type { Track } from "../../media/types";
-import { PlayerBar } from "./PlayerBar";
+import { MusicWidget } from "./MusicWidget";
 
 afterEach(cleanup);
 
@@ -17,9 +17,10 @@ function Harness() {
   return <button type="button" onClick={() => void m.getState().playTracks(tracks)}>старт</button>;
 }
 
-test("мини-плеер скрыт без очереди и управляет воспроизведением", async () => {
-  render(<MediaProvider client={new DemoClient("normal")}><Harness /><PlayerBar /></MediaProvider>);
-  expect(screen.queryByLabelText("Мини-плеер")).toBeNull();
+test("без очереди — «Ничего не играет», кнопки неактивны; с очередью управляет воспроизведением", async () => {
+  render(<MediaProvider client={new DemoClient("normal")}><Harness /><MusicWidget /></MediaProvider>);
+  expect(screen.getByText("Ничего не играет")).toBeTruthy();
+  expect((screen.getByLabelText("Играть") as HTMLButtonElement).disabled).toBe(true);
   await act(async () => { fireEvent.click(screen.getByText("старт")); });
   expect(screen.getByText("Песня 1")).toBeTruthy();
   expect(screen.getByLabelText("Пауза")).toBeTruthy();
@@ -49,7 +50,7 @@ function Duck() {
 
 test("команды ядра media_command и приглушение audio_duck", async () => {
   const c = new EventClient("normal");
-  render(<MediaProvider client={c as CoreClient}><Harness /><PlayerBar /><Duck /></MediaProvider>);
+  render(<MediaProvider client={c as CoreClient}><Harness /><MusicWidget /><Duck /></MediaProvider>);
   await act(async () => { fireEvent.click(screen.getByText("старт")); });
   await act(async () => { c.push({ type: "media_command", player: "music", cmd: "next" }); });
   expect(screen.getByText("Песня 2")).toBeTruthy();

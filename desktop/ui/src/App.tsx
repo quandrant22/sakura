@@ -1,15 +1,16 @@
-import { WifiOff, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { Group, Panel, Separator, usePanelRef } from "react-resizable-panels";
 
 import { type CoreClient, WsCoreClient } from "./api/client";
 import { DemoClient, type DemoMode } from "./api/demo";
+import { WidgetBoard } from "./board/WidgetBoard";
 import { bridge } from "./bridge";
-import { type Section, Sidebar } from "./components/Sidebar";
-import { type Tab, TitleBar } from "./components/TitleBar";
-import { PlayerBar } from "./components/media/PlayerBar";
+import { Chat, ChatStrip } from "./components/Chat";
+import { CoreCard, MenuCard, type Section } from "./components/LeftColumn";
+import { TitleBar } from "./components/TitleBar";
+import { CHAT, prefsStore, usePrefs } from "./layout/prefs";
 import { MediaProvider } from "./media/MediaContext";
-import { Home } from "./screens/Home";
-import { Media } from "./screens/Media";
 import { Settings } from "./screens/Settings";
 import { createAppStore, StoreContext, useApp } from "./store";
 
@@ -22,24 +23,9 @@ export function makeClient(search: string): CoreClient {
   return new WsCoreClient(() => bridge().core.connection());
 }
 
-const SECTION_TAB: Partial<Record<Section, Tab>> = { chat: "Главная", devices: "Устройства", scenarios: "Сценарии" };
-const TAB_SECTION: Record<Tab, Section> = { Главная: "chat", Устройства: "devices", Сценарии: "scenarios", Настройки: "settings" };
-
-function OfflineBanner() {
-  const link = useApp((s) => s.link);
-  const server = useApp((s) => s.server);
-  const coreReady = useApp((s) => s.settings?.core_ready ?? true);
-  let text = "";
-  if (link !== "open") text = "Нет связи с ядром Сакуры — переподключаюсь…";
-  else if (!coreReady) text = "Ядро запускается: загружаю распознавание речи…";
-  else if (!server.online) text = "Нет связи с сервером";
-  if (!text) return null;
-  return (
-    <div role="status" className="mx-5 mt-3 flex items-center gap-2 rounded-card border border-accent/30 bg-accent-soft px-4 py-2 text-sm text-ink">
-      <WifiOff size={16} className="text-accent" /> {text}
-    </div>
-  );
-}
+/** Если ядро не сообщило device_id, раскладка берётся под этим именем. */
+const FALLBACK_DEVICE = "local";
+const FALLBACK_AFTER_MS = 1500;
 
 function Toast() {
   const toast = useApp((s) => s.toast);
@@ -51,8 +37,8 @@ function Toast() {
   }, [toast, dismiss]);
   if (!toast) return null;
   return (
-    <div role="alert" className={"fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-card border px-4 py-2 text-sm shadow-soft " +
-      (toast.level === "error" ? "border-accent bg-panel2 text-ink" : "border-line bg-panel2 text-ink")}>
+    <div role="alert" className={"fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-card border bg-panel2 px-4 py-2 text-sm text-ink shadow-soft " +
+      (toast.level === "error" ? "border-accent" : "border-line")}>
       {toast.text}
       <button type="button" aria-label="Закрыть уведомление" onClick={dismiss} className="text-ink-dim hover:text-ink"><X size={14} /></button>
     </div>
@@ -61,30 +47,109 @@ function Toast() {
 
 function Placeholder({ title, phase }: { title: string; phase: number }) {
   return (
-    <div className="grid flex-1 place-items-center rounded-panel border border-line bg-panel text-sm text-ink-dim">
+    <div className="grid h-full place-items-center rounded-card bg-panel text-sm text-ink-dim">
       {title}: экран появится в фазе {phase}
     </div>
   );
 }
 
-// ?screen=media|video|settings — стартовый экран (снимки экранов, отладка).
-function initialScreen(): { section: Section; video: boolean } {
-  const s = new URLSearchParams(window.location.search).get("screen");
-  if (s === "media" || s === "video") return { section: "media", video: s === "video" };
-  if (s === "settings") return { section: "settings", video: false };
-  return { section: "chat", video: false };
+const SECTIONS: Section[] = ["home", "devices", "scenarios", "memory", "settings"];
+
+// ?screen=devices|scenarios|memory|settings — стартовый экран (снимки экранов, отладка).
+function initialSection(): Section {
+  const s = new URLSearchParams(window.location.search).get("screen") as Section | null;
+  return s && SECTIONS.includes(s) ? s : "home";
+}
+
+function useWindowWidth() {
+  const [w, setW] = useState(window.innerWidth);
+  useEffect(() => {
+    const on = () => setW(window.innerWidth);
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+  }, []);
+  return w;
+}
+
+/** Раскладка этого устройства: грузим по device_id, без него — под FALLBACK_DEVICE. */
+function usePrefsLoader() {
+  const deviceId = useApp((s) => s.settings?.device_id);
+  const theme = usePrefs((s) => s.theme);
+  useEffect(() => {
+    const p = prefsStore.getState();
+    // ?theme=sketch — тема для снимков экранов (scripts/screens.mjs пишет во временный layout.json).
+    const forced = new URLSearchParams(window.location.search).get("theme");
+    const applyForced = () => { if (forced === "night" || forced === "sketch") prefsStore.getState().set("theme", forced); };
+    if (deviceId && p.deviceId !== deviceId) void p.load(deviceId).then(applyForced);
+    if (deviceId) return;
+    const t = setTimeout(() => {
+      if (!prefsStore.getState().loaded) void prefsStore.getState().load(FALLBACK_DEVICE).then(applyForced);
+    }, FALLBACK_AFTER_MS);
+    return () => clearTimeout(t);
+  }, [deviceId]);
+  useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
+}
+
+function Workspace({ section }: { section: Section }) {
+  const winW = useWindowWidth();
+  const chatRef = usePanelRef();
+  const chatWidth = usePrefs((s) => s.chatWidth);
+  const collapsed = usePrefs((s) => s.chatCollapsed);
+  const setPref = usePrefs((s) => s.set);
+
+  let screen;
+  if (section === "settings") screen = <Settings />;
+  else if (section === "devices") screen = <Placeholder title="Устройства" phase={3} />;
+  else if (section === "scenarios") screen = <Placeholder title="Сценарии" phase={5} />;
+  else if (section === "memory") screen = <Placeholder title="Память" phase={5} />;
+  else screen = <WidgetBoard />;
+
+  const expand = () => {
+    const p = chatRef.current;
+    if (!p) return;
+    p.expand();
+    p.resize(Math.max(CHAT.min, chatWidth));
+  };
+  // Двойной клик по разделителю — ширина по умолчанию (350 px).
+  const reset = () => {
+    const p = chatRef.current;
+    if (!p) return;
+    if (p.isCollapsed()) p.expand();
+    p.resize(CHAT.default);
+  };
+
+  return (
+    <Group orientation="horizontal" className="min-w-0 flex-1">
+      <Panel id="main" minSize={300} className="min-w-0">
+        {screen}
+      </Panel>
+      <Separator disableDoubleClick onDoubleClick={reset} aria-label="Ширина чата" title="Потяните, чтобы изменить ширину чата; двойной клик — по умолчанию"
+                 className="group flex w-[20px] items-stretch justify-center outline-none">
+        <span className="my-6 w-[2px] rounded-full bg-transparent transition-colors group-hover:bg-accent/60 group-focus-visible:bg-accent group-data-[separator=active]:bg-accent" />
+      </Separator>
+      <Panel id="chat" panelRef={chatRef} defaultSize={collapsed ? CHAT.collapsed : chatWidth}
+             minSize={CHAT.min} maxSize={Math.round(winW * CHAT.maxFraction)}
+             collapsible collapsedSize={CHAT.collapsed} groupResizeBehavior="preserve-pixel-size"
+             onResize={(size) => {
+               const isCollapsed = size.inPixels <= CHAT.collapsed + 1;
+               if (isCollapsed !== prefsStore.getState().chatCollapsed) setPref("chatCollapsed", isCollapsed);
+               if (!isCollapsed) setPref("chatWidth", Math.round(size.inPixels));
+             }}>
+        {collapsed ? <ChatStrip onExpand={expand} /> : <Chat onCollapse={() => chatRef.current?.collapse()} />}
+      </Panel>
+    </Group>
+  );
 }
 
 function Shell() {
-  const [init] = useState(initialScreen);
-  // Раздел — единственный источник истины; подсвеченная вкладка заголовка выводится из него
-  // (у «Медиа», «Памяти», «Профиля» своей вкладки нет — подсветки нет).
-  const [section, setSection] = useState<Section>(init.section);
-  const tab: Tab | null = section === "settings" ? "Настройки" : SECTION_TAB[section] ?? null;
+  const [section, setSection] = useState<Section>(initialSection);
   const toggleMic = useApp((s) => s.toggleMic);
   const mic = useApp((s) => s.settings?.mic_enabled ?? true);
   const game = useApp((s) => s.gameMode);
   const setGameMode = useApp((s) => s.setGameMode);
+  const loaded = usePrefs((s) => s.loaded);
+  const setEditing = usePrefs((s) => s.setEditing);
+  usePrefsLoader();
 
   useEffect(() => bridge().tray.onAction((id) => {
     if (id === "mic_toggle") void toggleMic();
@@ -94,27 +159,22 @@ function Shell() {
     void bridge().tray.setState({ mic, game });
   }, [mic, game]);
 
-  const go = (s: Section) => setSection(s);
-  const goTab = (t: Tab) => setSection(TAB_SECTION[t]);
-
-  let screen;
-  if (section === "memory") screen = <Placeholder title="Память" phase={5} />;
-  else if (section === "profile") screen = <Placeholder title="Профиль" phase={3} />;
-  else if (section === "media") screen = <Media initial={init.video ? "video" : "music"} />;
-  else if (section === "settings") screen = <Settings />;
-  else if (section === "devices") screen = <Placeholder title="Устройства" phase={3} />;
-  else if (section === "scenarios") screen = <Placeholder title="Сценарии" phase={4} />;
-  else screen = <Home goDevices={() => go("devices")} goScenarios={() => go("scenarios")} goMedia={() => go("media")} />;
+  const go = (s: Section) => {
+    if (s !== "home") setEditing(false);
+    setSection(s);
+  };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-win border border-line bg-bg shadow-soft">
-      <TitleBar tab={tab} onTab={goTab} />
-      <OfflineBanner />
-      <div className="flex min-h-0 flex-1 gap-4 p-5">
-        <Sidebar section={section} onSection={go} />
-        {screen}
+    <div className="flex h-full flex-col overflow-hidden bg-bg">
+      <TitleBar />
+      <div className="flex min-h-0 flex-1 gap-gap px-edge pb-edge pt-gap">
+        <aside className="flex w-[300px] shrink-0 flex-col gap-gap">
+          <CoreCard />
+          <MenuCard section={section} onSection={go} />
+        </aside>
+        {/* Раскладка грузится по device_id — до этого чат и доска не монтируются, чтобы не прыгала ширина. */}
+        {loaded ? <Workspace section={section} /> : <div className="flex-1" aria-busy="true" />}
       </div>
-      <PlayerBar />
       <Toast />
     </div>
   );
