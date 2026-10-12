@@ -66,10 +66,19 @@ _MUSIC_SMTC_VERBS = (
     ("playlists", "music_playlists"),
 )
 _MUSIC_BROWSER_VERBS = (
-    # идут через расширение браузера (core.browser.music_action, имя music:<verb>)
+    # пульт приложения Яндекс.Музыки: SMTC и сессия (media.yandex_remote, _REMOTE_OPS)
     "shuffle", "repeat", "seek_forward", "seek_back",
     "podcasts", "mute", "volume_up", "volume_down",
 )
+
+# Те же глаголы — операции пульта приложения Яндекс.Музыки (media.yandex_remote).
+_REMOTE_OPS = {"seek_forward": ("seek_by", 10), "seek_back": ("seek_by", -10)}
+
+
+def _yamusic_remote():
+    from desktop.core.media.yandex_remote import YandexRemote
+    return YandexRemote()
+
 
 # Приложение (yamusic_app): волна и легаси play/pause
 _MUSIC_APP_ACTIONS = ("music.wave", "music.play", "music.pause")
@@ -625,13 +634,13 @@ class Agent:
         # Один блок вместо трёх (SMTC / браузер / yamusic_app): бэкенд
         # выбирается по каноническому действию. Канонические имена v3
         # (music.*) принимаются в дополнение к старым — до этапа 8.
-        # Громкость музыки — системным микшером на N% (медиаклавиша даёт лишь 2%)
+        # Громкость музыки — громкость СЕССИИ приложения Яндекс.Музыки на N% (VOLUME_STEP);
+        # общая громкость Windows — только system.volume. Нет сессии — честно «noop».
         if action in ("music.volume_up", "music.volume_down",
                       "music:volume_up", "music:volume_down"):
             n = int(arg) if arg.isdigit() and 1 <= int(arg) <= 100 else config.VOLUME_STEP
             up = action.endswith("up")
-            out = await asyncio.to_thread(_nudge_volume, n if up else -n)
-            await _send_ack(R.from_legacy(out))
+            await _send_ack(await _yamusic_remote().control("volume_by", n if up else -n))
             return
 
         _music = _music_canonical(action)
@@ -652,10 +661,11 @@ class Agent:
                     await _send_ack(R.from_legacy(result), extra={"music": result})
                     log.info(f"[music] command_result отправлен серверу (id={cmd_id})")
                 elif _mbackend == "browser":
-                    # Команды через расширение браузера
-                    from desktop.core import browser as _br
-                    result = await asyncio.to_thread(_br.music_action, _mlegacy)
-                    await _send_ack(R.from_legacy(result), extra={"browser": result})
+                    # Перемешать, повтор, перемотка, звук — пульт приложения через SMTC и сессию
+                    # (раньше — горячие клавиши в окно Opera, которые до приложения не доходили).
+                    verb = _mcanon.split(".", 1)[1]
+                    op, value = _REMOTE_OPS.get(verb, (verb, None))
+                    await _send_ack(await _yamusic_remote().control(op, value))
                 else:
                     # Приложение (yamusic_app): волна / легаси play / pause
                     from desktop.core import yamusic_app as _ym

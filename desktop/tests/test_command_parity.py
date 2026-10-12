@@ -61,12 +61,16 @@ def rec(monkeypatch):
         monkeypatch.setattr(agent_module, n, _sync(calls, n))
     monkeypatch.setattr(agent_module, "_nudge_volume", _sync(calls, "_nudge_volume", "ok"))
     monkeypatch.setattr(music, "music_command", _async(calls, "music.music_command"))
-    monkeypatch.setattr(browser, "music_action",
-                        _sync(calls, "browser.music_action", {"ok": True, "detail": "ok"}))
     monkeypatch.setattr(browser, "youtube_player_cmd", _sync(calls, "browser.youtube_player_cmd", "ok"))
     monkeypatch.setattr(yamusic_app, "open_wave", _sync(calls, "yamusic_app.open_wave", True))
     monkeypatch.setattr(yamusic_app, "play_pause", _sync(calls, "yamusic_app.play_pause", True))
     monkeypatch.setattr(kettle, "kettle_command", _async(calls, "kettle.kettle_command"))
+
+    class Remote:  # пульт приложения Яндекс.Музыки (SMTC, сессия)
+        async def control(self, op, value=None):
+            calls.append(("yandex_remote." + op, (value,)))
+            return {"ok": True, "status": "done", "detail": op}
+    monkeypatch.setattr(agent_module, "_yamusic_remote", Remote)
     ext = SimpleNamespace(is_connected=lambda: True, send_command=_async(calls, "extension.send_command"))
     monkeypatch.setitem(sys.modules, "desktop.core.extension_server", ext)
     return calls

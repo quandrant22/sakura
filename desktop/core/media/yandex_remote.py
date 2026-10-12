@@ -114,6 +114,22 @@ class YandexRemote:
         if op == "seek":
             return R.done("перемотка") if await s.smtc_set_position(float(value or 0)) else \
                 R.unsupported("приложение не поддерживает перемотку")
+        if op == "seek_by":
+            pos = await s.smtc_position()
+            if pos is None:
+                return R.noop("Нет активного плеера")
+            target = max(0.0, pos + float(value or 0))
+            if await s.smtc_set_position(target):
+                return R.done(f"перемотка {'вперёд' if float(value or 0) > 0 else 'назад'}")
+            return R.unsupported("приложение не поддерживает перемотку")
+        if op == "podcasts":
+            from desktop.core import config
+            uid = getattr(config, "YANDEX_UID", "") or ""
+            if not uid:
+                return R.unsupported("подкасты: нужен YANDEX_UID")
+            opener = self._open_link or (lambda url: self.platform.open_path(url))
+            ok = opener(f"https://music.yandex.ru/users/{uid}/podcast-subscriptions")
+            return R.done("открыла подкасты") if ok else R.failed("не удалось открыть подкасты")
         if op == "shuffle":
             modes = await s.smtc_modes()
             on = (not modes.get("shuffle")) if value is None else bool(value)

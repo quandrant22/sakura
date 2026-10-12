@@ -736,10 +736,6 @@ def execute_command(action: str) -> dict:
             music_playlist,
             music_podcasts,
             music_prev,
-            music_repeat,
-            music_seek_back,
-            music_seek_forward,
-            music_shuffle,
             music_track,
             music_volume_down,
             music_volume_up,
@@ -756,10 +752,6 @@ def execute_command(action: str) -> dict:
         if arg == "dislike":
             from desktop.core.music import dislike_current
             return {"result": dislike_current()}
-        if arg == "shuffle":       return {"result": music_shuffle()}
-        if arg == "repeat":        return {"result": music_repeat()}
-        if arg == "seek_forward":  return {"result": music_seek_forward()}
-        if arg == "seek_back":     return {"result": music_seek_back()}
         if arg == "volume_up":     return {"result": music_volume_up()}
         if arg == "volume_down":   return {"result": music_volume_down()}
         if arg == "mute":          return {"result": music_mute()}

@@ -1,4 +1,4 @@
-"""tests/test_volume_args.py — число громкости доходит до hands."""
+"""tests/test_volume_args.py — число громкости доходит до hands; громкость музыки — сессия приложения."""
 
 import asyncio
 
@@ -28,7 +28,14 @@ def calls(monkeypatch):
     monkeypatch.setattr(agent_module, "execute_command",
                         lambda action: rec["exec"].append(action) or {"result": "ok"})
     monkeypatch.setattr(agent_module, "_nudge_volume",
-                        lambda delta: rec["nudge"].append(delta) or "ok")
+                        lambda delta: rec.setdefault("system", []).append(delta) or "ok")
+
+    class Remote:
+        async def control(self, op, value=None):
+            assert op == "volume_by"
+            rec["nudge"].append(value)
+            return {"ok": True, "status": "done", "detail": "громкость Яндекс.Музыки"}
+    monkeypatch.setattr(agent_module, "_yamusic_remote", Remote)
     return rec
 
 
@@ -65,3 +72,4 @@ def test_music_volume_up_default_step(calls, monkeypatch):
 def test_music_volume_down_by_number(calls):
     run("music:volume_down", "5")
     assert calls["nudge"] == [-5]
+    assert "system" not in calls  # общая громкость Windows не трогается

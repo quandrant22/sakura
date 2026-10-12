@@ -125,3 +125,32 @@ def test_no_player_is_noop_and_open_app():
     r = remote(info=None)
     assert run(r.control("next"))["status"] == "noop"
     assert run(r.control("open_app"))["ok"] is True
+
+
+def test_seek_by_relative_and_no_player():
+    r = remote()
+    r.smtc.smtc_position = _async_value(30.0)
+    assert run(r.control("seek_by", 10))["ok"] is True
+    assert r.smtc.calls[-1] == ("seek", 40.0)
+    run(r.control("seek_by", -60))
+    assert r.smtc.calls[-1] == ("seek", 0.0)  # не уходит в минус
+    r.smtc.smtc_position = _async_value(None)
+    assert run(r.control("seek_by", 10))["status"] == "noop"
+
+
+def test_podcasts_need_uid(monkeypatch):
+    from desktop.core import config
+    monkeypatch.setattr(config, "YANDEX_UID", "", raising=False)
+    assert run(remote().control("podcasts"))["status"] == "unsupported"
+    monkeypatch.setattr(config, "YANDEX_UID", "123", raising=False)
+    opened = []
+    r = YandexRemote(smtc=FakeSMTC(INFO), platform=FakePlatform(), available=lambda: True, running=lambda: True,
+                     token="", open_link=lambda url: opened.append(url) or True)
+    assert run(r.control("podcasts"))["ok"] is True
+    assert opened == ["https://music.yandex.ru/users/123/podcast-subscriptions"]
+
+
+def _async_value(v):
+    async def f():
+        return v
+    return f
