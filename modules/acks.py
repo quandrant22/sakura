@@ -178,6 +178,8 @@ async def _say(p: _Pending, phrase: str, t_ref: float | None = None) -> str:
         # Фраза — часть своего хода: его turn_id, вытеснен ход — молчит.
         tok = voice_turns.use(p.turn)
         try:
+            from sakura_core.chat_hooks import note_spoken
+            note_spoken(phrase)     # в журнал — только ошибки или CHAT_LOG_ACKS=1
             return await tts_cache.play(phrase, p.ws, p.device_id, t_ref=t_ref)
         finally:
             voice_turns.reset(tok)

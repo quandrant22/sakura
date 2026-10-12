@@ -830,6 +830,9 @@ async def ask_gemini_voice(
         # handle_voice_command в finally), с turn_id хода.
         from sakura_core.voice_turns import send_reply
         await send_reply(websocket, device_id, clean_text)
+    if clean_text:
+        from sakura_core.chat_hooks import note_spoken
+        note_spoken(clean_text)
 
     add_to_history("user",  user_message)
     add_to_history("model", clean_text)

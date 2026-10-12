@@ -94,6 +94,8 @@ async def handle_register(websocket, data, ctx) -> None:
 
     device_id = data.get("device_id")
     bind_device_socket(device_id, websocket)
+    from sakura_core import proto_v2
+    await proto_v2.on_register(websocket, data)
     update_device(device_id,
         active_window = data.get("active_window"),
         context       = data.get("context"),

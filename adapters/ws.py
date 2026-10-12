@@ -14,7 +14,7 @@ import uuid
 import random
 
 from modules.state import _pending_commands, connected_devices, _plan_cancel
-from sakura_core import voice_turns
+from sakura_core import chat_hooks, proto_v2, voice_turns
 from sakura_core.tasks import spawn
 
 log = logging.getLogger("sakura.ws")
@@ -224,7 +224,9 @@ async def ws_handler(websocket):
                     "voice_command": handle_voice_command,
                 }
                 handler = HANDLERS.get(msg_type)
-                if msg_type == "voice_command":
+                if proto_v2.is_v2(msg_type):
+                    await proto_v2.handle(websocket, data, _ctx)
+                elif msg_type == "voice_command":
                     # Голосовой ход — задачей (voice_turns): цикл сокета
                     # читает дальше, новый запрос того же устройства
                     # вытесняет незавершённый ход, а не ждёт его.
@@ -258,6 +260,7 @@ async def ws_handler(websocket):
                      f"(активен другой)")
         elif device_id:
             connected_devices.pop(device_id, None)
+            proto_v2.forget(device_id)
             set_device_offline(device_id)
             await asyncio.to_thread(ps_offline, device_id)
             log.info(f"Устройство отключено: {device_id}")
@@ -336,6 +339,12 @@ async def handle_voice_command(websocket, data, ctx) -> None:
     device_id = data.get("device_id")
     ws_dev = st.connected_devices.get(device_id)
     try:
+        # Журнал чата: запрос — в журнал; «не записывай»/«запись» — здесь же.
+        async def _speak(phrase):
+            if ws_dev is not None:
+                await stream_tts_to_device(phrase, ws_dev, device_id or "laptop", literal=True)
+        if await chat_hooks.on_voice_request(data, _speak):
+            return
         await _handle_voice_command_inner(websocket, data, ctx, t_recv)
     finally:
         # Команда агенту с подтверждением: ход закроет tts_end самой фразы

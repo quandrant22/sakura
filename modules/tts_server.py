@@ -1021,6 +1021,8 @@ async def stream_tts_to_device(
     text = _clean_tts_text(text)
     if not text or len(text.strip()) < MIN_TTS_LEN:
         return
+    from sakura_core.chat_hooks import note_spoken
+    note_spoken(text)
 
     t0 = time.monotonic()
     parts = [] if is_short_reply(text) else glue_first(_split_speech(text))

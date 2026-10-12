@@ -7,6 +7,8 @@ All dicts are module-level singletons — import by reference, never reassign.
 from __future__ import annotations
 
 connected_devices: dict = {}
+# device_id → версия протокола из register (2 — настольный клиент v2)
+device_proto: dict[str, int] = {}
 _pending_event_check: dict = {}   # device_id → True если ждём скриншот для event-тика
 _pending_describe: dict = {}      # device_id → True если ждём скриншот для описания
 _pending_commands: dict[str, dict] = {}  # cmd_id → {"action", "device", "ts", "status"}

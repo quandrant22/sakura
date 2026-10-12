@@ -20,6 +20,21 @@ if _root not in sys.path:
 # Point memory DB to a temp directory so we never touch the production DB
 _tmpdir = tempfile.mkdtemp(prefix="sakura_test_")
 os.environ["MEMORY_DB_PATH"] = os.path.join(_tmpdir, "test.db")
+os.environ["CHAT_DB_PATH"] = os.path.join(_tmpdir, "chat.db")
+
+
+@pytest.fixture(autouse=True)
+def isolated_chat_log(monkeypatch, tmp_path):
+    """Журнал чата — своя пустая база на каждый тест, не memory/chat.db."""
+    import config
+    from modules import chat_log
+
+    monkeypatch.setattr(config, "CHAT_DB_PATH", str(tmp_path / "chat.db"))
+    monkeypatch.setattr(config, "CHAT_LOG_PAUSED", False)
+    monkeypatch.setattr(config, "CHAT_LOG_ACKS", False)
+    monkeypatch.setattr(config, "CHAT_LOG_RETENTION_DAYS", 0)
+    yield
+    chat_log.close()
 
 
 @pytest.fixture(scope="session", autouse=True)

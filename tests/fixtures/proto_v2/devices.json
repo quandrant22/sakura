@@ -1,0 +1,10 @@
+{
+  "devices": [
+    {"id": "mostech", "name": "Ноутбук", "kind": "pc", "online": true, "last_seen": 1760090300.0, "focus": true,
+     "stats": {"cpu": 23, "ram": 61, "gpu": 8, "battery": null, "charging": null, "wifi": null, "signal": null}},
+    {"id": "phone", "name": "Телефон", "kind": "phone", "online": true, "last_seen": 1760090290.0, "focus": false,
+     "stats": {"cpu": null, "ram": null, "gpu": null, "battery": 78, "charging": false, "wifi": "Home", "signal": 3}},
+    {"id": "pc", "name": "Компьютер", "kind": "pc", "online": false, "last_seen": 1760079500.0, "focus": false,
+     "stats": {}}
+  ]
+}

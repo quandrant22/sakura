@@ -48,6 +48,20 @@ ACK_WIT_PROB = float(os.getenv("ACK_WIT_PROB", "0.1"))
 ACK_PENDING_S = float(os.getenv("ACK_PENDING_S", "2.0"))
 # Кэш озвученных фраз (modules/tts_cache.py), вне git.
 TTS_CACHE_DIR = os.getenv("TTS_CACHE_DIR", "memory/tts_cache")
+# Протокол v2 настольного клиента (sakura_core/proto_v2.py): 0 — сервер
+# ведёт себя как v1 (нет registered, запросы v2 — error/unsupported).
+PROTO_V2 = os.getenv("PROTO_V2", "1").strip().lower() not in ("0", "false", "no", "")
+# Журнал чата (modules/chat_log.py): SQLite вне git, права 600.
+CHAT_DB_PATH = os.getenv("CHAT_DB_PATH", "memory/chat.db")
+# 1 — запись журнала на паузе (как после команды «не записывай»).
+CHAT_LOG_PAUSED = os.getenv("CHAT_LOG_PAUSED", "0").strip().lower() in ("1", "true", "yes")
+# 1 — писать в журнал и подтверждения команд («Готово.», «Выполняю.»).
+CHAT_LOG_ACKS = os.getenv("CHAT_LOG_ACKS", "0").strip().lower() in ("1", "true", "yes")
+try:
+    # Срок хранения журнала в днях; 0 — бессрочно.
+    CHAT_LOG_RETENTION_DAYS = max(0, int(os.getenv("CHAT_LOG_RETENTION_DAYS", "0")))
+except ValueError:
+    CHAT_LOG_RETENTION_DAYS = 0
 
 def _history_limit(name, default):
     try:
