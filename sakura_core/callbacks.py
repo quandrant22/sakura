@@ -14,7 +14,8 @@ async def make_reminder_cb(_get_active_ws, stream_tts_to_device, send_to_master,
         ws, dev = _get_active_ws()
         if ws:
             await stream_tts_to_device(msg, ws, dev or "laptop",
-                                       literal=True, emotion=get_current_emotion())
+                                       literal=True, emotion=get_current_emotion(),
+                                       reply_kind="proactive")
         await send_to_master(msg)
     return _reminder_cb
 
@@ -36,7 +37,8 @@ async def make_tg_notif_cb(_get_active_ws, stream_tts_to_device, ask_gemini):
                 )
                 if reply:
                     await stream_tts_to_device(reply, ws, dev or "laptop",
-                                               literal=True, emotion=get_current_emotion())
+                                               literal=True, emotion=get_current_emotion(),
+                                               reply_kind="proactive")
     return _tg_notif_cb
 
 
@@ -46,5 +48,7 @@ async def make_achievement_cb(MASTER_ID, send_telegram_text, mark_sent):
         ach_name = ach.get("name") or ach.get("apiname") or "достижение"
         text = f"Выбито достижение: {ach_name} ({game_name})."
         await send_telegram_text(MASTER_ID, text)
+        from sakura_core.voice_turns import broadcast_reply
+        await broadcast_reply(text, "proactive")
         mark_sent(topic="achievement", text=text)
     return _achievement_cb

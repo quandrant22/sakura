@@ -177,7 +177,8 @@ async def execute_critical_action(critical_action: str, ws_dev, device_id,
             save_history=False, history_limit=VOICE_HISTORY_LIMIT,
             chain=VOICE_MODEL_CHAIN)
         if _kreply:
-            await stream_tts_to_device(_kreply, ws_dev, device_id or "laptop", literal=True)
+            await stream_tts_to_device(_kreply, ws_dev, device_id or "laptop", literal=True,
+                                       reply_kind="llm")
     try:
         if not config.EPISODES_LOG_COMMANDS:
             return

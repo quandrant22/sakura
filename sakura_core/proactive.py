@@ -15,6 +15,16 @@ import random
 
 log = logging.getLogger("sakura.proactive")
 
+
+async def _reply_proactive(text: str) -> None:
+    """Проактивное сообщение — и в окно всех master-устройств (reply
+    kind=proactive), не только в Telegram. Сбой не мешает циклу."""
+    try:
+        from sakura_core.voice_turns import broadcast_reply
+        await broadcast_reply(text, "proactive")
+    except Exception as e:
+        log.debug(f"[proactive] reply: {type(e).__name__}: {e}")
+
 # ── Состояние (перенесено из main.py) ───────────────────────────────────
 
 _last_weather_refresh: float = 0.0
@@ -99,6 +109,7 @@ async def proactive_loop():
                     # send_telegram_text через main — ленивый импорт
                     from adapters.telegram import send_telegram_text as _send_tg
                     await _send_tg(MASTER_ID, ftext)
+                    await _reply_proactive(ftext)
                     mark_sent(topic=ftopic, text=ftext)
                     log.info(f"[proactive] факт ({ftopic}): {ftext}")
                     continue
@@ -155,6 +166,7 @@ async def proactive_loop():
                     )
                     if cap_reply:
                         await _send_tg(MASTER_ID, cap_reply)
+                        await _reply_proactive(cap_reply)
                     await asyncio.to_thread(mark_opened, cap["id"])
             except Exception as e:
                 log.debug(f"[proactive] proactive_loop: {type(e).__name__}: {e}")
@@ -182,6 +194,7 @@ async def proactive_loop():
                     )
                     if cap_reply:
                         await _send_tg(MASTER_ID, cap_reply)
+                        await _reply_proactive(cap_reply)
                     await asyncio.to_thread(mark_sakura_opened, cap["id"])
             except Exception as e:
                 log.debug(f"sakura_capsules: {e}")
@@ -204,6 +217,7 @@ async def proactive_loop():
                     )
                     if note_reply:
                         await _send_tg(MASTER_ID, note_reply)
+                        await _reply_proactive(note_reply)
                         mark_reminded(note["id"])
             except Exception as e:
                 log.debug(f"notes reminder: {e}")
@@ -222,6 +236,7 @@ async def proactive_loop():
                 from config import MASTER_ID
                 from adapters.telegram import send_telegram_text as _send_tg
                 await _send_tg(MASTER_ID, reply)
+                await _reply_proactive(reply)
                 mark_sent(trigger, text=reply)
                 if _pending_task_id is not None:
                     mark_notified(_pending_task_id)
