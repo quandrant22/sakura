@@ -152,3 +152,23 @@ agent\.env — **нет**, `YANDEX_UID` — **нет**, ключ чайника 
 - Питание и закрытие окон — **только** отправка в подставной исполнитель (журнал команды),
   без выполнения.
 - Чайник — после сопряжения (нажать кнопку на чайнике по подсказке).
+
+## Шаг 3.2 (сделано): новые действия
+| id | Подтверждение | Защита |
+|---|---|---|
+| window.minimize/maximize/restore/snap/move_monitor/focus/list | — | — |
+| power.lock, power.display_off | — | — |
+| power.sleep | да | живьём не проверять |
+| process.list | — | — |
+| process.kill | да | системные процессы и Сакура не завершаются |
+| clipboard.read/write/clear | — | текст не пишется в журнал |
+| display.brightness | — | только встроенный экран (WMI) |
+| display.night_light | — | открывает настройки, `unsupported` |
+| audio.mic_mute | — | — |
+| net.wifi | да | только при живой проверке с моком |
+| net.bluetooth | — | — |
+| keys.type | — | чёрный список окон, поля паролей |
+| keys.hotkey | — | белый список, чёрный список окон |
+| keys.media | — | — |
+| files.open/reveal/recent/copy | — | — |
+| files.move, files.delete | да | удаление только в корзину |

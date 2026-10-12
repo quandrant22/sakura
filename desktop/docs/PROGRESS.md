@@ -76,3 +76,10 @@
 - Фраза «Не получилось: <detail>» при status ≠ done в command_result.
 - Триггеры music.restart («трек сначала», «с начала»).
 - vision_request для «Спросить про окно».
+
+## Шаг 3.2 — новые возможности (e572856)
+- window.*, power.lock/display_off/sleep, process.list/kill, clipboard.*, display.brightness/night_light, audio.mic_mute, net.wifi/bluetooth, keys.type/hotkey/media, files.*.
+- Безопасность: не больше 5 действий в секунду; белый список сочетаний клавиш; чёрный список окон (WINDOW_BLOCKLIST); в поля паролей не вводится; системные процессы защищены; журнал только с id и статусом; в трее индикатор, пока идёт действие.
+- Тесты: test_control.py — 25 тестов на подставной платформе; ничего настоящего не выполнялось.
+
+**Ждёт сервер:** триггеры для новых id и поле `confirmed: true` после вопроса пользователю (DECISIONS №39).
