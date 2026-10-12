@@ -15,8 +15,26 @@ from ._stub import make_stub
 
 try:
     import win32gui
+    import win32process
 except ImportError:
-    win32gui = None
+    win32gui = win32process = None
+
+# Браузеры: окно ищется по исполняемому файлу И классу окна. Только класс не годится —
+# Chrome_WidgetWin_1 есть и у Electron-приложений (VS Code, сама Сакура).
+BROWSER_EXES = frozenset({"chrome.exe", "msedge.exe", "opera.exe", "brave.exe", "browser.exe",
+                          "firefox.exe", "vivaldi.exe", "yandex.exe"})
+BROWSER_CLASSES = frozenset({"Chrome_WidgetWin_1", "MozillaWindowClass"})
+
+
+def pick_browser_window(windows):
+    """Из окон в порядке z-order (верхнее первым) — первое окно браузера.
+
+    windows: [(hwnd, title, exe, cls)]. Возвращает (hwnd, title) или None.
+    """
+    for hwnd, title, exe, cls in windows:
+        if title and (exe or "").lower() in BROWSER_EXES and cls in BROWSER_CLASSES:
+            return hwnd, title
+    return None
 
 IDLE_UNKNOWN = 10 ** 9
 
@@ -69,6 +87,34 @@ class WindowsPlatform(make_stub("windows")):
             raise OSError("медиаклавиша не отправлена")
 
     # ── окна ───────────────────────────────────────────────────────
+    def _top_level_windows(self):
+        """Видимые окна верхнего уровня в порядке z-order: [(hwnd, title, exe, cls)]."""
+        import psutil
+        out = []
+
+        def _cb(hwnd, _):
+            if not win32gui.IsWindowVisible(hwnd):
+                return
+            try:
+                _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                exe = psutil.Process(pid).name()
+            except Exception:
+                exe = ""
+            out.append((hwnd, win32gui.GetWindowText(hwnd), exe, win32gui.GetClassName(hwnd)))
+        win32gui.EnumWindows(_cb, None)
+        return out
+
+    def close_browser_window(self) -> str | None:
+        if not win32gui:
+            return None
+        hit = pick_browser_window(self._top_level_windows())
+        if hit is None:
+            return None
+        hwnd, title = hit
+        WM_CLOSE = 0x0010
+        win32gui.PostMessage(hwnd, WM_CLOSE, 0, 0)
+        return title
+
     def activate_window_handle(self, hwnd: int) -> bool:
         """Вывести окно вперёд с обходом блокировки переднего плана Windows."""
         if not win32gui:

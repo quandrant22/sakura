@@ -75,7 +75,7 @@ def rec(monkeypatch):
 def _patch_hands_side_effects(monkeypatch) -> list:
     """Настоящий hands.execute_command, но без реальных побочных эффектов."""
     calls = []
-    for n in ("open_app", "open_file", "close_window", "set_volume", "nudge_volume",
+    for n in ("open_app", "open_file", "close_window", "close_browser", "set_volume", "nudge_volume",
               "take_screenshot", "remember_app", "open_youtube", "media_key"):
         monkeypatch.setattr(hands, n, _sync(calls, f"hands.{n}", "ok"))
     for n, _fn in inspect.getmembers(browser, inspect.isfunction):

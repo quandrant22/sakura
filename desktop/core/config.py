@@ -75,6 +75,12 @@ DATA_DIR  = os.getenv("SAKURA_DATA_DIR") or os.path.join(
 LOG_DIR   = os.path.join(DATA_DIR, "logs")
 APPS_FILE = os.path.join(DATA_DIR, "apps.json")
 
+# ── Чайник (BLE) ────────────────────────────────────────────────────
+KETTLE_MAC      = os.getenv("KETTLE_MAC", "DA:55:99:95:24:76")
+KETTLE_KEY_FILE = os.getenv("KETTLE_KEY_FILE") or os.path.join(DATA_DIR, "kettle_key.json")
+# Без ключа команды чайника не пытаются подключиться; 1 — разрешить сопряжение (создать ключ).
+KETTLE_PAIR     = os.getenv("KETTLE_PAIR", "0") == "1"
+
 # Папки с играми
 GAME_DIRS = [d.strip() for d in os.getenv("GAME_DIRS", r"C:\Games").split(";") if d.strip()]
 

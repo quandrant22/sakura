@@ -23,8 +23,13 @@ from typing import Optional
 log = logging.getLogger("sakura.kettle")
 
 # ── Конфигурация ──────────────────────────────────────────────────────
-KETTLE_MAC = "DA:55:99:95:24:76"
-KEY_FILE   = "memory/kettle_key.json"
+# Адрес и ключ — из desktop.core.config (KETTLE_MAC, KETTLE_KEY_FILE — абсолютный путь в
+# DATA_DIR; раньше относительный memory/kettle_key.json зависел от папки запуска).
+from desktop.core import config as _config
+from desktop.core import results as R
+
+KETTLE_MAC = _config.KETTLE_MAC
+KEY_FILE   = _config.KETTLE_KEY_FILE
 
 # BLE характеристики (Nordic UART Service)
 CHAR_TX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"  # write → чайник
@@ -76,7 +81,7 @@ def _get_or_create_key() -> bytes:
     if not key:
         key = secrets.token_bytes(8)
         _save_key(key)
-        log.info(f"[kettle] Новый ключ: {key.hex()}")
+        log.info("[kettle] создан новый ключ сопряжения")  # сам ключ в лог не пишем
     return key
 
 
@@ -205,6 +210,17 @@ class KettleClient:
         return {"ok": False, "result": f"Неизвестная команда: {action}"}
 
 
+def is_paired() -> bool:
+    return _load_key() is not None
+
+
 async def kettle_command(action: str) -> dict:
-    """Точка входа. Вызывать из agent._run_command."""
+    """Точка входа. Вызывать из agent._run_command.
+
+    Чайник не сопряжён с этим компьютером (нет ключа) — это не ошибка, а «не поддерживается»:
+    без BLE-попыток и без ERROR в логе. Сопряжение — KETTLE_PAIR=1 и кнопка на чайнике.
+    """
+    if not is_paired() and not _config.KETTLE_PAIR:
+        log.info("[kettle] чайник не сопряжён с этим компьютером — команда пропущена")
+        return R.unsupported("чайник не сопряжён с этим компьютером")
     return await KettleClient().run(action)

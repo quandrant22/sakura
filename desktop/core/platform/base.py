@@ -41,6 +41,10 @@ class Platform(ABC):
         """Закрыть окно по части заголовка или имени процесса."""
 
     @abstractmethod
+    def close_browser_window(self) -> str | None:
+        """Закрыть верхнее окно браузера (по процессу и классу окна); заголовок закрытого или None."""
+
+    @abstractmethod
     def press_virtual_key(self, vk: int, hold: float = 0.0) -> bool:
         """Нажать и отпустить виртуальную клавишу (медиаклавиши и т.п.); False — не удалось."""
 

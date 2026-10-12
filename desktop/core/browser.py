@@ -400,108 +400,53 @@ def music_action(action: str) -> dict:
     return {"ok": bool(ok), "detail": ok if isinstance(ok, str) else str(ok)}
 
 
-# ── YouTube хоткеи плеера ────────────────────────────────────────────
-# Работают когда вкладка YouTube активна в Opera.
-# Временно фокусируем вкладку, шлём хоткей, возвращаем фокус.
-
-_YT_HOTKEYS = {
-    "youtube_pause":       ("k",),
-    "youtube_fullscreen":  ("f",),
-    "youtube_forward":     ("l",),
-    "youtube_rewind":      ("j",),
-    "youtube_forward5":    ("right",),
-    "youtube_rewind5":     ("left",),
-    "youtube_next":        ("shift", "n"),
-    "youtube_mute":        ("m",),
-    "youtube_sub_toggle":  ("c",),
-    "youtube_volume_up":   ("up",),
-    "youtube_volume_down": ("down",),
-    "youtube_speed_up":    ("shift", "."),
-    "youtube_speed_down":  ("shift", ","),
-    "youtube_like":        ("shift", "/"),   # нет стандартного хоткея — открываем меню
-    "youtube_mini":        ("i",),
-    "youtube_theater":     ("t",),
-}
+# ── YouTube: управление плеером ──────────────────────────────────────
+# Без расширения разрешена только пауза, и только когда окно с YouTube уже в фокусе:
+# никаких кликов мышью (раньше клик в центр страницы мог нажать на рекламу) и переключений окон.
+_YT_NO_EXT_SAFE = {"youtube_pause": "k"}
+YOUTUBE_TRENDING_URL = "https://www.youtube.com/feed/trending"
 
 
-def _find_youtube_hwnd() -> int | None:
-    """Ищет окно Opera с открытым YouTube."""
-    if not HAS_WIN32:
-        return None
-    found = []
-    def _cb(hwnd, _):
-        if win32gui.IsWindowVisible(hwnd):
-            title = win32gui.GetWindowText(hwnd).lower()
-            if any(t.lower() in title for t in OPERA_TITLES) and "youtube" in title:
-                found.append(hwnd)
-    win32gui.EnumWindows(_cb, None)
-    # Если вкладки YouTube нет — берём любую Opera (могут переключиться на YT)
-    return found[0] if found else _find_opera_hwnd()
+def youtube_player_cmd(action: str) -> dict:
+    """YouTube-команда плеера → {ok, status, detail} (desktop.core.results).
 
-
-def youtube_player_cmd(action: str) -> str:
+    Расширение браузера — основной путь. Без него — только безопасный минимум.
     """
-    Выполняет YouTube команду.
-    Приоритет: расширение браузера → хоткеи (fallback).
-    """
-    # Через расширение — надёжно, без фокуса
+    from desktop.core import results as R
+
+    if action == "youtube_trending":
+        _open_url_background(YOUTUBE_TRENDING_URL)
+        return R.done("открыла «Популярное» на YouTube")
+
     try:
         from desktop.core import extension_server as _ext
         if _ext.is_connected():
             loop = getattr(_ext, "_agent_loop", None)
             if loop is None:
                 raise RuntimeError("agent event loop не установлен")
-            future = asyncio.run_coroutine_threadsafe(
-                _ext.send_command(action), loop
-            )
+            future = asyncio.run_coroutine_threadsafe(_ext.send_command(action), loop)
             try:
                 result = future.result(timeout=9.0)
             except Exception:
                 future.cancel()
                 raise
-            if result.get("ok") is not False:
-                log.info(f"[yt] {action} via extension → {result.get('result', 'ok')}")
-                return f"youtube: {action}"
+            log.info(f"[yt] {action} via extension → {result}")
+            return R.from_legacy(result)
     except Exception as e:
         log.debug(f"[yt] extension: {e}")
 
-    # Fallback — хоткеи
-    keys = _YT_HOTKEYS.get(action)
-    if not keys:
-        return f"неизвестная команда: {action}"
-    hwnd      = _find_youtube_hwnd()
-    if not hwnd:
-        return "Opera не найдена"
-    prev      = _get_foreground()
-    prev_pos  = None
-    try:
-        import time as _t
-        if HAS_PYAUTOGUI:
-            prev_pos = pyautogui.position()
-        win32gui.SetForegroundWindow(hwnd)
-        _t.sleep(0.15)
-        if HAS_PYAUTOGUI:
-            try:
-                rect = win32gui.GetClientRect(hwnd)
-                cx   = (rect[2] - rect[0]) // 2
-                cy   = (rect[3] - rect[1]) // 2 + 100
-                pt   = win32gui.ClientToScreen(hwnd, (cx, cy))
-                pyautogui.click(pt[0], pt[1])
-                _t.sleep(0.1)
-            except Exception:
-                pass
-            pyautogui.press(keys[0]) if len(keys) == 1 else pyautogui.hotkey(*keys)
-        _t.sleep(0.08)
-        if prev and prev != hwnd:
-            try: win32gui.SetForegroundWindow(prev)
-            except Exception: pass
-        if prev_pos and HAS_PYAUTOGUI:
-            try: pyautogui.moveTo(prev_pos.x, prev_pos.y)
-            except Exception: pass
-        return f"youtube: {action}"
-    except Exception as e:
-        log.debug(f"[yt] hotkey {action}: {e}")
-        return str(e)
+    if action == "youtube_like":
+        return R.unsupported("лайк на YouTube без расширения браузера недоступен — подключите расширение")
+    key = _YT_NO_EXT_SAFE.get(action)
+    if key is None:
+        return R.unsupported("расширение браузера не подключено")
+    from desktop.core.eyes import get_active_window
+    if "youtube" not in get_active_window().lower():
+        return R.unsupported("расширение браузера не подключено, а окно YouTube не в фокусе")
+    if not HAS_PYAUTOGUI:
+        return R.failed("клавиатура недоступна")
+    pyautogui.press(key)
+    return R.done("пауза/воспроизведение на YouTube")
 
 
 def music_open_and_find(query: str) -> str:

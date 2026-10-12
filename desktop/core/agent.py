@@ -20,6 +20,7 @@ import time
 import websockets
 
 from desktop.core import config
+from desktop.core import results as R
 from desktop.core.dep_check import check_critical_packages
 from desktop.core.eyes import get_active_window, get_system_info
 from desktop.core.hands import execute_command, init_index, scan_apps
@@ -440,7 +441,7 @@ class Agent:
                         if _cmd_id:
                             await self._ws.send(json.dumps({
                                 "type": "command_result", "id": _cmd_id,
-                                "device_id": config.DEVICE_ID, "ok": True,
+                                "device_id": config.DEVICE_ID, "ok": True, "status": "done",
                                 "detail": "abort принят",
                             }))
                         continue
@@ -553,27 +554,18 @@ class Agent:
     async def _run_command(self, action: str, cmd_id: str | None = None,
                            arg: str = ""):
         if not action:
+            # Пустое действие — не «готово»: сервер должен узнать, что ничего не сделано.
+            if cmd_id:
+                await self._send_result(cmd_id, R.failed("пустое действие"))
             return
         # Канонические имена (browser.*, youtube.*, ext.*, open.app …) —
         # в дополнение к старым (этап 5), до всей диспетчеризации.
         action = _legacy_action(action, arg)
         log.info(f"command: {action} (id={cmd_id})")
 
-        async def _send_ack(ok: bool, detail: str, extra: dict | None = None):
-            """Отправить command_result с id (если есть)."""
-            if not cmd_id:
-                return
-            msg = {
-                "type": "command_result", "id": cmd_id,
-                "device_id": config.DEVICE_ID, "token": config.WS_TOKEN,
-                "ok": ok, "detail": detail,
-            }
-            if extra:
-                msg.update(extra)
-            try:
-                await self._ws.send(json.dumps(msg))
-            except Exception:
-                pass
+        async def _send_ack(res: dict, extra: dict | None = None):
+            """command_result по контракту {ok, status, detail} (desktop.core.results)."""
+            await self._send_result(cmd_id, res, extra)
 
         # Игровой режим — переключаем через bus
         # Встроенные плееры (desktop.core.media): если активен встроенный —
@@ -582,45 +574,46 @@ class Agent:
         if media is not None:
             handled = await media.handle_command(action, arg)
             if handled is not None:
-                await _send_ack(*handled)
+                ok, detail = handled
+                await _send_ack(R.from_legacy({"ok": ok, "result": detail}))
                 return
 
         if action == "game_mode:on":
             self.bus.emit("game_mode", on=True)
-            await _send_ack(True, "game_mode:on")
+            await _send_ack(R.done("игровой режим включён"))
             return
         if action == "game_mode:off":
             self.bus.emit("game_mode", on=False)
-            await _send_ack(True, "game_mode:off")
+            await _send_ack(R.done("игровой режим выключен"))
             return
 
         # ── Новые примитивы (этап 4) ────────────────────────────────
         if action.startswith("hotkey:"):
             result = await asyncio.to_thread(_hotkey, action[7:])
-            await _send_ack(result.get("ok", False), result.get("detail", ""))
+            await _send_ack(R.from_legacy(result))
             return
 
         if action.startswith("type_text:"):
             result = await asyncio.to_thread(_type_text, action[10:])
-            await _send_ack(result.get("ok", False), result.get("detail", ""))
+            await _send_ack(R.from_legacy(result))
             return
 
         if action.startswith("focus_window:"):
             result = await asyncio.to_thread(_focus_window, action[13:])
-            await _send_ack(result.get("ok", False), result.get("detail", ""))
+            await _send_ack(R.from_legacy(result))
             return
 
         if action.startswith("switch_to_app:"):
             result = await asyncio.to_thread(_switch_to_app, action[14:])
-            await _send_ack(result.get("ok", False), result.get("detail", ""))
+            await _send_ack(R.from_legacy(result))
             return
 
         if action.startswith("powershell:"):
             if self._abort_flag:
-                await _send_ack(False, "прервано abort_all")
+                await _send_ack(R.noop("прервано abort_all"))
                 return
             result = await asyncio.to_thread(_powershell, action[11:])
-            await _send_ack(result.get("ok", False), result.get("detail", ""))
+            await _send_ack(R.from_legacy(result))
             return
 
         # ── Музыка: единый блок диспетчеризации (v3, этап 3) ──────────────
@@ -632,8 +625,8 @@ class Agent:
                       "music:volume_up", "music:volume_down"):
             n = int(arg) if arg.isdigit() and 1 <= int(arg) <= 100 else config.VOLUME_STEP
             up = action.endswith("up")
-            await asyncio.to_thread(_nudge_volume, n if up else -n)
-            await _send_ack(True, f"{'громче' if up else 'тише'} на {n}%")
+            out = await asyncio.to_thread(_nudge_volume, n if up else -n)
+            await _send_ack(R.from_legacy(out))
             return
 
         _music = _music_canonical(action)
@@ -650,22 +643,14 @@ class Agent:
                     _ms = int((time.monotonic() - _t0) * 1000)
                     log.info(f"[music] результат {_mlegacy} за {_ms}мс (id={cmd_id}): "
                              f"ok={result.get('ok')} detail={result.get('result','')!r}")
-                    await self._ws.send(json.dumps({
-                        "type": "command_result", "id": cmd_id,
-                        "device_id": config.DEVICE_ID, "token": config.WS_TOKEN,
-                        "ok": True, "detail": result.get("result", ""),
-                        "music": result,
-                    }))
+                    # Раньше здесь всегда было ok: true — «Готово» даже при «Нет активного плеера».
+                    await _send_ack(R.from_legacy(result), extra={"music": result})
                     log.info(f"[music] command_result отправлен серверу (id={cmd_id})")
                 elif _mbackend == "browser":
                     # Команды через расширение браузера
                     from desktop.core import browser as _br
                     result = await asyncio.to_thread(_br.music_action, _mlegacy)
-                    await _send_ack(
-                        result.get("ok", True),
-                        result.get("detail", action),
-                        extra={"browser": result},
-                    )
+                    await _send_ack(R.from_legacy(result), extra={"browser": result})
                 else:
                     # Приложение (yamusic_app): волна / легаси play / pause
                     from desktop.core import yamusic_app as _ym
@@ -679,14 +664,15 @@ class Agent:
                         ok = await asyncio.to_thread(_ym.play_pause)
                         detail = "пауза" if ok else "SMTC сессия не найдена"
                     else:
-                        ok, detail = False, f"unknown: {_mcanon}"
-                    await _send_ack(bool(ok), detail, extra={"yamusic": True})
+                        ok, detail = False, f"неизвестная команда: {_mcanon}"
+                    res = R.done(detail) if ok else R.from_legacy({"ok": False, "result": detail})
+                    await _send_ack(res, extra={"yamusic": True})
             except asyncio.TimeoutError:
                 log.error(f"[music] таймаут обработки {_mcanon} (id={cmd_id})")
-                await _send_ack(False, f"{_mcanon}: таймаут обработки")
+                await _send_ack(R.failed(f"{_mcanon}: таймаут обработки"))
             except Exception as e:
                 log.error(f"music error: {e}")
-                await _send_ack(False, f"music error: {e}")
+                await _send_ack(R.failed(f"ошибка музыки: {e}"))
             return
 
         # Команды через расширение браузера
@@ -696,28 +682,23 @@ class Agent:
                 _ext = _s.modules.get('desktop.core.extension_server')
                 if not _ext:
                     log.warning("[ext] Модуль расширения не загружен")
-                    await _send_ack(False, "расширение не загружено")
+                    await _send_ack(R.unsupported("расширение браузера не загружено"))
                     return
                 send_command  = _ext.send_command
                 is_connected  = _ext.is_connected
                 if not is_connected():
                     log.warning("[ext] Расширение не подключено")
-                    await _send_ack(False, "расширение не подключено")
+                    await _send_ack(R.unsupported("расширение браузера не подключено"))
                     return
                 parts     = action[4:].split(":", 1)
                 ext_action = parts[0]
                 ext_arg    = parts[1] if len(parts) > 1 else ""
                 result    = await send_command(ext_action, ext_arg)
                 log.info(f"[ext] {ext_action} → {result}")
-                await self._ws.send(json.dumps({
-                    "type": "command_result", "id": cmd_id,
-                    "device_id": config.DEVICE_ID, "token": config.WS_TOKEN,
-                    "ok": True, "detail": str(result.get("result", result.get("error", ""))),
-                    "ext": result,
-                }))
+                await _send_ack(R.from_legacy(result), extra={"ext": result})
             except Exception as e:
                 log.error(f"ext command error: {e}")
-                await _send_ack(False, f"ext error: {e}")
+                await _send_ack(R.failed(f"ошибка расширения: {e}"))
             return
 
         # YouTube команды плеера
@@ -730,13 +711,14 @@ class Agent:
                     result = await _ext.send_command(action)
                     log.info(f"[yt] {action} via extension → {result}")
                 else:
+                    # Без расширения — только безопасный путь (см. browser.youtube_player_cmd).
                     from desktop.core.browser import youtube_player_cmd
                     result = await asyncio.to_thread(youtube_player_cmd, action)
-                    log.info(f"[yt] {action} via hotkey → {result}")
-                await _send_ack(True, str(result))
+                    log.info(f"[yt] {action} без расширения → {result}")
+                await _send_ack(R.from_legacy(result))
             except Exception as e:
                 log.error(f"youtube error: {e}")
-                await _send_ack(False, f"youtube error: {e}")
+                await _send_ack(R.failed(f"ошибка YouTube: {e}"))
             return
 
         # Чайник — BLE
@@ -745,17 +727,15 @@ class Agent:
             try:
                 from desktop.core.kettle import kettle_command
                 result = await kettle_command(kettle_action)
-                await self._ws.send(json.dumps({
-                    "type": "command_result", "id": cmd_id,
-                    "device_id": config.DEVICE_ID, "token": config.WS_TOKEN,
-                    "ok": result.get("ok", False), "detail": result.get("result", ""),
-                    "kettle": result,
-                }))
-                if result.get("ok") and kettle_action in ("boil", "boil_heat") or kettle_action.startswith("boil"):
+                res = R.from_legacy(result)
+                await _send_ack(res, extra={"kettle": result})
+                # «Чайник вскипел» — только после успешного включения (раньше `a and b or c`
+                # запускал наблюдение и после неудачного boil).
+                if res["ok"] and kettle_action.split(":")[0] in ("boil", "boil_heat"):
                     spawn(self._kettle_watch(), name="kettle-watch")
             except Exception as e:
                 log.error(f"kettle error: {e}")
-                await _send_ack(False, f"kettle error: {e}")
+                await _send_ack(R.failed(f"ошибка чайника: {e}"))
             return
 
         # ── Фолбэк: execute_command (hands.py) ──────────────────────
@@ -763,21 +743,33 @@ class Agent:
             # arg приходит отдельно («volume» + «70») — склеиваем в «volume:70»
             full = f"{action}:{arg}" if arg and ":" not in action else action
             out = await asyncio.to_thread(execute_command, full)
-            if out.get("screenshot"):
-                await self._ws.send(json.dumps({
-                    "type": "command_result", "id": cmd_id,
-                    "device_id": config.DEVICE_ID, "token": config.WS_TOKEN,
-                    "ok": True, "detail": "скриншот",
-                    "screenshot": out["screenshot"],
-                }))
-            elif out.get("result"):
-                log.info(f"→ {out['result']}")
-                await _send_ack(True, out["result"])
+            if "screenshot" in out:
+                if out["screenshot"]:
+                    await _send_ack(R.done("скриншот"), extra={"screenshot": out["screenshot"]})
+                else:
+                    await _send_ack(R.failed("скриншот не получился"))
             else:
-                await _send_ack(True, "выполнено")
+                log.info(f"→ {out.get('result')}")
+                await _send_ack(R.from_legacy(out.get("result")))
         except Exception as e:
             log.error(f"execute_command error: {e}")
-            await _send_ack(False, f"ошибка: {e}")
+            await _send_ack(R.failed(f"ошибка: {e}"))
+
+    async def _send_result(self, cmd_id: str | None, res: dict, extra: dict | None = None):
+        """command_result серверу: {ok, status, detail} + доп. поля. Без id — некуда отвечать."""
+        if not cmd_id:
+            return
+        msg = {
+            "type": "command_result", "id": cmd_id,
+            "device_id": config.DEVICE_ID, "token": config.WS_TOKEN,
+            "ok": res["ok"], "status": res["status"], "detail": res["detail"],
+        }
+        if extra:
+            msg.update(extra)
+        try:
+            await self._ws.send(json.dumps(msg))
+        except Exception:
+            pass
 
     async def _kettle_watch(self):
         """

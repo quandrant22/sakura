@@ -477,6 +477,14 @@ def find_file(name: str, limit: int = 5) -> list[str]:
     return file_index.search(name.strip(), limit=limit)
 
 
+def close_browser() -> str:
+    try:
+        title = get_platform().close_browser_window()
+    except NotImplementedError:
+        return "закрытие окна браузера недоступно на этой системе"
+    return f"закрыла окно браузера: {title}" if title else "окно браузера не найдено"
+
+
 def close_window(query: str) -> str:
     """Закрыть окно приложения по имени (транслитерация, нормализация).
     Закрывает только ОДНО окно (самое верхнее из совпадений).
@@ -693,7 +701,12 @@ def execute_command(action: str) -> dict:
         scan_apps(force=True)
         return {"result": "пересканировала приложения"}
     if verb == "open_file":     return {"result": open_file(arg)}
-    if verb == "close_window":  return {"result": close_window(arg)}
+    if verb == "close_window":
+        # «Закрой браузер»: окно ищется по процессу и классу (chrome, msedge, opera, brave…),
+        # а не по слову «браузер» в заголовке — его там нет.
+        if arg.strip().lower() in ("браузер", "browser"):
+            return {"result": close_browser()}
+        return {"result": close_window(arg)}
     if verb == "remember_app":  return {"result": remember_app(arg)}
     if verb == "open_url":
         webbrowser.open(arg); return {"result": f"открыл {arg}"}
@@ -806,7 +819,10 @@ def execute_command(action: str) -> dict:
                     fut    = _aio.run_coroutine_threadsafe(_ext.send_command(ext_action, ext_arg), agent_loop)
                     result = fut.result(timeout=5.0)
                     _log2.getLogger("sakura.hands").info(f"[browser] ext result: {result}")
-                    return {"result": result.get("result", "ok")}
+                    # Ошибка расширения — не «ok»: текст ошибки уходит дальше и даёт status=failed.
+                    if result.get("ok") is False or result.get("error"):
+                        return {"result": f"расширение не выполнило {ext_action}: {result.get('error') or 'ошибка'}"}
+                    return {"result": result.get("result") or f"выполнено: {ext_action}"}
                 except Exception as _e:
                     _log2.getLogger("sakura.hands").error(f"[browser] ext error: {_e}")
 
