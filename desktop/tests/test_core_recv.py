@@ -55,7 +55,8 @@ def test_reply_mood_and_context_transfer(monkeypatch):
     names = [e for e, _ in a.bus.events]
     assert names == ["sakura_text", "orb_departure", "mood_update", "orb_arrival", "mood_update",
                      "context_transfer"]
-    assert a.bus.events[0][1] == {"text": "привет"}
+    # kind/turn_id/ts — когда сервер их пришлёт (п. 1.2); сервер v1 шлёт только text.
+    assert a.bus.events[0][1] == {"text": "привет", "kind": None, "turn_id": None, "ts": None}
     assert a._last_mood_update == {"valence": 0.0, "arousal": 0.3}  # последний mood без значений
     assert a.bus.events[-1][1] == {"text": "продолжи на ноутбуке"}
 

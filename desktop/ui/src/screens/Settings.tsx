@@ -121,6 +121,7 @@ function InterfaceSection() {
   const theme = usePrefs((p) => p.theme);
   const mobility = usePrefs((p) => p.mobility);
   const preset = usePrefs((p) => p.preset);
+  const showCommands = usePrefs((p) => p.showCommandResults);
   const set = usePrefs((p) => p.set);
   return (
     <div className="px-4 pb-2">
@@ -133,6 +134,11 @@ function InterfaceSection() {
         <select value={mobility} onChange={(e) => set("mobility", e.target.value as Mobility)} aria-label="Подвижность ядра" className={input}>
           {(Object.keys(MOBILITY_LABEL) as Mobility[]).map((m) => <option key={m} value={m}>{MOBILITY_LABEL[m]}</option>)}
         </select>
+      </Row>
+      <Row label="Результаты команд в чате" hint="Строки «Громкость 70%», «Открыл Яндекс Музыка»">
+        <label className="flex items-center gap-2 text-sm text-ink">
+          <input type="checkbox" checked={showCommands} onChange={(e) => set("showCommandResults", e.target.checked)}
+                 className="accent-accent" /> Показывать</label>
       </Row>
       <Row label="Слияние капель" hint="Пресет фильтра ядра">
         <select value={preset} onChange={(e) => set("preset", e.target.value as MergePreset)} aria-label="Слияние капель" className={input}>

@@ -33,6 +33,22 @@ class ScriptClient implements CoreClient {
 }
 
 describe("store", () => {
+  test("п. 1: ходы — повтор (turn_id, kind, text) игнорируется, поздний ответ встаёт к своему ходу", () => {
+    const c = new ScriptClient();
+    const store = createAppStore(c);
+    store.getState().init();
+    const m = (id: string, role: "user" | "assistant" | "system", text: string, turn_id: string, kind?: string) =>
+      c.emit({ type: "chat_message", message: { id, ts: 1, role, text, channel: "text", device: "pc", turn_id, kind } as never });
+    m("u1", "user", "первый", "t1");
+    m("u2", "user", "второй", "t2");
+    m("a2", "assistant", "ответ на второй", "t2", "llm");
+    m("a1", "assistant", "ответ на первый", "t1", "llm");      // пришёл позже — встаёт после «первый»
+    m("a1-dup", "assistant", "ответ на первый", "t1", "llm");  // повтор с другим id — игнорируется
+    m("c1", "system", "громкость 50%", "t2", "command");
+    expect(store.getState().chat.data.map((x) => x.text)).toEqual(
+      ["первый", "ответ на первый", "второй", "ответ на второй", "громкость 50%"]);
+  });
+
   test("сервер v1: чат живой без истории, остальное — «сервер не поддерживает»", () => {
     const c = new ScriptClient();
     const store = createAppStore(c);

@@ -59,6 +59,22 @@ export interface AppState {
 
 const empty = <T,>(data: T): Slice<T> => ({ data, status: "idle" });
 
+/** Повтор той же реплики Сакуры (turn_id, kind, text) — не дублируем. */
+export function isSameReply(a: Message, b: Message): boolean {
+  return a.role !== "user" && a.role === b.role && !!a.turn_id && a.turn_id === b.turn_id &&
+    (a.kind ?? "") === (b.kind ?? "") && a.text === b.text;
+}
+
+/** Ответ встаёт после последнего сообщения своего хода (поздний ответ на старый ход
+ *  не уходит в конец под новый ход); без хода или у пользователя — в конец. */
+export function insertInTurn(msgs: Message[], m: Message): Message[] {
+  if (m.role === "user" || !m.turn_id) return [...msgs, m];
+  let at = -1;
+  msgs.forEach((x, i) => { if (x.turn_id === m.turn_id) at = i; });
+  if (at < 0 || at === msgs.length - 1) return [...msgs, m];
+  return [...msgs.slice(0, at + 1), m, ...msgs.slice(at + 1)];
+}
+
 /** Понятный текст ошибки для пользователя. */
 export function errorText(e: unknown): string {
   if (e instanceof CoreError) {
@@ -162,10 +178,10 @@ export function createAppStore(client: CoreClient) {
         case "chat_message": {
           const m = (ev as { message: Message }).message;
           const msgs = s.chat.data;
-          if (msgs.some((x) => x.id === m.id)) break;
+          if (msgs.some((x) => x.id === m.id || isSameReply(x, m))) break;
           // Эхо своего сообщения от сервера заменяет локальный «ожидающий» пузырь.
           const pendingIdx = m.role === "user" ? msgs.findIndex((x) => x.pending && x.text === m.text) : -1;
-          const next = pendingIdx >= 0 ? msgs.map((x, i) => (i === pendingIdx ? m : x)) : [...msgs, m];
+          const next = pendingIdx >= 0 ? msgs.map((x, i) => (i === pendingIdx ? m : x)) : insertInTurn(msgs, m);
           set({ chat: { ...s.chat, data: next, status: s.chat.status === "idle" ? "ready" : s.chat.status } });
           break;
         }

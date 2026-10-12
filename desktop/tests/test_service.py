@@ -178,6 +178,28 @@ def test_message_source_marked():
         ("user", "mic", "voice"), ("user", "ui", "text"), ("assistant", "server", "text")]
 
 
+def test_chat_turns_from_bus_and_v2_no_duplicates():
+    # п. 1: реплики Сакуры, строки команд и ходы; при сервере v2 его реплики не дублируются.
+    svc = make_service()
+    sent = []
+    svc._emit = sent.append
+    svc.bus.emit("user_text", text="сделай потише на двадцать")
+    svc.bus.emit("sakura_text", text="Сделано.", kind="ack")
+    svc.bus.emit("command_result", detail="громкость 50%", status="done")
+    chat = [e["message"] for e in sent if e["type"] == "chat_message"]
+    assert [(m["role"], m.get("kind"), m["turn_id"]) for m in chat] == [
+        ("user", None, "t1"), ("assistant", "ack", "t1"), ("system", "command", "t1")]
+
+    sent.clear()
+    svc.link.proto = 2
+    svc.bus.emit("user_text", text="привет")
+    svc.bus.emit("sakura_text", text="Привет!")
+    svc.bus.emit("command_result", detail="Нет активного плеера", status="noop")
+    chat = [e["message"] for e in sent if e["type"] == "chat_message"]
+    assert [(m["role"], m["kind"], m["text"]) for m in chat] == [
+        ("system", "error", "Не получилось: Нет активного плеера")]
+
+
 def test_repeated_state_not_resent():
     # Агент повторяет speaking на каждый аудио-чанк — в интерфейс уходит только смена состояния.
     svc = make_service()

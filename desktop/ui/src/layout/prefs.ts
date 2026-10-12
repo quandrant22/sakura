@@ -19,6 +19,8 @@ interface Persisted {
   locked: boolean;
   mobility: Mobility;
   preset: MergePreset;
+  /** Показывать в чате строки результатов команд («Громкость 70%»). */
+  showCommandResults: boolean;
 }
 
 export interface PrefsState extends Persisted {
@@ -43,6 +45,7 @@ const DEFAULTS = (): Persisted => ({
   locked: false,
   mobility: "normal",
   preset: "soft",
+  showCommandResults: true,
 });
 
 const pick = <T extends string>(v: unknown, allowed: Record<T, unknown>, d: T): T =>
@@ -61,12 +64,13 @@ export function parsePersisted(raw: Record<string, unknown> | null): Persisted {
     locked: raw.locked === true,
     mobility: pick(raw.mobility, MOBILITY, d.mobility),
     preset: pick(raw.preset, MERGE_PRESETS, d.preset),
+    showCommandResults: raw.showCommandResults !== false,
   };
 }
 
 const persisted = (s: PrefsState): Persisted => ({
   theme: s.theme, layout: s.layout, chatWidth: s.chatWidth, chatCollapsed: s.chatCollapsed,
-  locked: s.locked, mobility: s.mobility, preset: s.preset,
+  locked: s.locked, mobility: s.mobility, preset: s.preset, showCommandResults: s.showCommandResults,
 });
 
 export function createPrefsStore(api: () => SakuraBridge["layout"], saveDelayMs = 400) {

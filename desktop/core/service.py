@@ -7,7 +7,6 @@ hands и ServerLink. Всё живёт в одном asyncio-цикле с аг�
 import asyncio
 import logging
 import os
-import time
 
 from desktop.core import config
 from desktop.core.api.server import ApiError, LocalApiServer, default_token_path
@@ -61,6 +60,9 @@ class CoreService:
         if self._agent is not None:
             self._agent.media = self.media
         self._state = "idle"
+        # Ходы чата: все реплики Сакуры, результаты команд, заглушка «звук без текста».
+        from desktop.core.chat_turns import ChatTurns
+        self.chat = ChatTurns(self._chat_emit, device=config.DEVICE_ID, schedule=self._later)
         self.bus.subscribe(self._on_bus)
         self._register_commands()
 
@@ -102,13 +104,20 @@ class CoreService:
         return snap
 
     # ── шина → API ─────────────────────────────────────────────────
-    def _local_chat(self, role: str, text: str, source: str):
-        # Сервер v1 не шлёт chat_message — собираем сообщение из событий агента.
-        if self.link.proto == 2:
+    def _chat_emit(self, event: dict):
+        # Сервер v2 сам шлёт chat_message с репликами — их не дублируем; строки команд
+        # и заглушка «звук без текста» — только от клиента, их показываем всегда.
+        msg = event.get("message") or {}
+        if self.link.proto == 2 and msg.get("kind") not in ("command", "voice_only") and msg.get("role") != "system":
             return
-        self._emit({"type": "chat_message", "message": {
-            "id": f"local-{time.time_ns()}", "ts": time.time(), "role": role, "text": text,
-            "channel": "voice" if source == "mic" else "text", "device": config.DEVICE_ID, "source": source}})
+        self._emit(event)
+
+    @staticmethod
+    def _later(delay: float, fn):
+        import threading
+        t = threading.Timer(delay, fn)
+        t.daemon = True
+        t.start()
 
     def _on_bus(self, event: str, data: dict):
         if event == "state" and data.get("value") in STATES:
@@ -119,12 +128,19 @@ class CoreService:
             if self.media is not None:
                 self.media.on_voice_state(self._state)
             self._emit({"type": "state", "value": self._state, "level": 0})
+            if self._state == "speaking":
+                self.chat.audio()
         elif event == "user_text":
             source = data.get("source", "mic")
             self._emit({"type": "transcript", "text": data.get("text", ""), "final": True, "source": source})
-            self._local_chat("user", data.get("text", ""), source)
+            self.chat.user(data.get("text", ""), source)
         elif event == "sakura_text":
-            self._local_chat("assistant", data.get("text", ""), "server")
+            self.chat.reply(data.get("text", ""), kind=data.get("kind"), turn_id=data.get("turn_id"),
+                            ts=data.get("ts"))
+        elif event == "command_result":
+            self.chat.command(data.get("detail", ""), data.get("status", "failed"), data.get("action", ""))
+        elif event == "tts_end":
+            self.chat.tts_end()
         elif event == "agent_alert":
             self._emit({"type": "notify", "text": data.get("text", ""), "level": "warn"})
         elif event == "game_mode":

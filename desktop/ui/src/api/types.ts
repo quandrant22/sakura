@@ -13,7 +13,12 @@ export interface Message {
   /** только локально: сообщение отправлено и ждёт эха от сервера */
   pending?: boolean;
   /** Откуда сообщение: mic — голос, ui — окно чата, e2e — автоматическая проверка, api — другой клиент, server — ответ. */
-  source?: "mic" | "ui" | "e2e" | "api" | "server";
+  source?: "mic" | "ui" | "e2e" | "api" | "server" | "system";
+  /** Вид реплики Сакуры: llm — ответ модели, ack/template — быстрый, error, proactive,
+   *  command — результат команды (строка «действие»), voice_only — звук без текста. */
+  kind?: "llm" | "ack" | "template" | "error" | "proactive" | "command" | "voice_only";
+  /** Ход: реплика пользователя и все ответы на неё. */
+  turn_id?: string | null;
 }
 
 export interface DeviceStats {

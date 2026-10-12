@@ -460,15 +460,19 @@ class Agent:
                 elif kind == "tts_end":
                     # idle — только когда буфер плеера доиграет
                     log.info(f"[state] tts_end получен (буфер {self.player.buffer_bytes()} байт)")
+                    self.bus.emit("tts_end")
                     self.player.flush()
                     spawn(self._idle_after_playback(self._turn_gen, data.get("listen")),
                           name="idle-after-playback")
 
                 elif kind == "reply":
                     text = (data.get("text") or "").strip()
-                    log.info("[server] reply: %d симв.", len(text))
+                    log.info("[server] reply: %d симв. kind=%s turn=%s", len(text),
+                             data.get("kind"), data.get("turn_id"))
                     if text:
-                        self.bus.emit("sakura_text", text=text)
+                        # kind (llm|ack|template|error|proactive), turn_id, ts — когда сервер их шлёт.
+                        self.bus.emit("sakura_text", text=text, kind=data.get("kind"),
+                                      turn_id=data.get("turn_id"), ts=data.get("ts"))
 
                 elif kind == "mood_update":
                     params = data.get("params", {})
@@ -767,6 +771,10 @@ class Agent:
         }
         if extra:
             msg.update(extra)
+        # Строка «действие» в чате (п. 1): «Громкость 70%», «Не получилось: …».
+        bus = getattr(self, "bus", None)
+        if bus is not None:
+            bus.emit("command_result", detail=res["detail"], status=res["status"])
         try:
             await self._ws.send(json.dumps(msg))
         except Exception:
