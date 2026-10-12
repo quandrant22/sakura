@@ -9,7 +9,9 @@ core/music.py — полная интеграция с Яндекс Музыко
   music_info            — текущий трек (название, исполнитель, статус, прогресс)
   music_play_pause      — play/pause через SMTC
   music_next            — следующий трек через SMTC
-  music_prev            — предыдущий трек через SMTC
+  music_prev            — предыдущий трек через SMTC (двойной шаг назад, если
+                          трек уже играет: одиночный лишь начинает его сначала)
+  music_restart         — текущий трек сначала через SMTC
   music_like            — лайк текущего трека через API
   music_dislike         — дизлайк текущего трека через API
   music_history         — последние 10 треков
@@ -158,6 +160,20 @@ def get_current_track(timeout: float = 2.5) -> dict:
     return info
 
 
+# Позиция, после которой SMTC-«назад» начинает текущий трек сначала,
+# а не переключает на предыдущий (поведение плееров, в т.ч. Яндекс Музыки).
+RESTART_THRESHOLD_S = 3.0
+PREV_SECOND_STEP_DELAY_S = 0.25
+
+
+def _position_s(session) -> float:
+    """Позиция трека в секундах (снимок до команды); неизвестна — 0."""
+    try:
+        return float(session.get_timeline_properties().position.total_seconds())
+    except Exception:
+        return 0.0
+
+
 async def _smtc_control(action: str) -> bool:
     """Управление воспроизведением через SMTC."""
     try:
@@ -176,7 +192,23 @@ async def _smtc_control(action: str) -> bool:
         elif action == "next":
             await session.try_skip_next_async()
         elif action == "prev":
+            # Плеер на «назад» после первых секунд трека начинает его
+            # сначала — для предыдущего трека нужен второй шаг.
+            started = _position_s(session) > RESTART_THRESHOLD_S
             await session.try_skip_previous_async()
+            if started:
+                await asyncio.sleep(PREV_SECOND_STEP_DELAY_S)
+                await session.try_skip_previous_async()
+        elif action == "restart":
+            ok = False
+            try:
+                ok = bool(await session.try_change_playback_position_async(0))
+            except Exception as e:
+                log.debug(f"[music] SMTC restart: позиция: {e}")
+            if not ok:
+                # Плеер не умеет менять позицию — одиночный «назад» в
+                # середине трека как раз начинает его сначала.
+                await session.try_skip_previous_async()
         else:
             return False
         return True
@@ -503,10 +535,11 @@ async def music_command(action: str) -> dict:
             result += f" [{info.get('position', '?:??')} / {info['duration']}]"
         return {"ok": True, "result": result, "info": info}
 
-    if action in ("music_play_pause", "music_next", "music_prev"):
+    if action in ("music_play_pause", "music_next", "music_prev", "music_restart"):
         ctrl = action.replace("music_", "")
         ok   = await _smtc_control(ctrl)
-        labels = {"play_pause": "play/pause", "next": "следующий", "prev": "предыдущий"}
+        labels = {"play_pause": "play/pause", "next": "следующий", "prev": "предыдущий",
+                  "restart": "сначала"}
         return {"ok": ok, "result": labels.get(ctrl, ctrl) if ok else "Нет активного плеера"}
 
     # ── API команды (в потоке — синхронные) ──────────────────────────

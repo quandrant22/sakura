@@ -319,12 +319,32 @@
 
 - id: music.prev
   legacy: [music:prev, music_prev]
-  desc: 'Предыдущий трек/песня'
+  desc: 'Предыдущий трек/песня (двойной шаг назад: одиночный «назад» в плеере лишь начинает текущий трек сначала)'
   executor: agent
   reversible: true
   confirm: false
   followup: ack
-  triggers: ['назад трек', 'предыдущий', 'предыдущий трек', 'прошлый трек']
+  triggers: ['назад трек', 'предыдущий', 'предыдущий трек', 'прошлый трек', 'предыдущая песня', 'верни прошлый трек', 'включи предыдущую']
+
+- id: music.restart
+  desc: 'Текущий трек сначала, перезапустить трек (не предыдущий трек)'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['трек сначала', 'включи сначала', 'перезапусти трек', 'начни трек заново']
+
+# Алиас music.restart для голых «заново» / «с начала»: context задаётся на
+# декларацию, а вне музыки эти слова — разговор («объясни заново»).
+# Агенту уходит тот же music.restart (capabilities/music.py).
+- id: music.restart_playing
+  desc: 'Трек сначала (короткие «заново», «с начала» — только когда играет музыка)'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['с начала', 'заново']
+  context: playing:music
 
 - id: music.repeat
   legacy: [music:repeat]

@@ -58,6 +58,7 @@ _MUSIC_SMTC_VERBS = (
     # глагол → имя для core.music.music_command (= легаси-имя на проводе)
     ("next", "music_next"),
     ("prev", "music_prev"),
+    ("restart", "music_restart"),
     ("play_pause", "music_play_pause"),
     ("like", "music_like"),
     ("dislike", "music_dislike"),
