@@ -14,6 +14,7 @@ import uuid
 import random
 
 from modules.state import _pending_commands, connected_devices, _plan_cancel
+from sakura_core import voice_turns
 from sakura_core.tasks import spawn
 
 log = logging.getLogger("sakura.ws")
@@ -31,6 +32,8 @@ def _register_command(action: str, device: str) -> str:
     _pending_commands[cmd_id] = {
         "action": action, "device": device,
         "ts": time.monotonic(), "status": "sent",
+        # Голосовой ход команды: ответ по command_result — с его turn_id.
+        "turn": voice_turns.current(),
     }
     _cleanup_pending_commands()
     return cmd_id
@@ -121,6 +124,7 @@ async def speak_now_playing_result(cmd_id: str, ws_dev, device_id: str, bot) -> 
         log.info(f"[голос] ответ: {_reply!r}")
         if ws_dev:
             await stream_tts_to_device(_reply, ws_dev, device_id, literal=True)
+            await voice_turns.send_reply(ws_dev, device_id, _reply)
         try:
             await bot.send_message(MASTER_ID, _reply)
         except Exception as e:
@@ -220,7 +224,14 @@ async def ws_handler(websocket):
                     "voice_command": handle_voice_command,
                 }
                 handler = HANDLERS.get(msg_type)
-                if handler:
+                if msg_type == "voice_command":
+                    # Голосовой ход — задачей (voice_turns): цикл сокета
+                    # читает дальше, новый запрос того же устройства
+                    # вытесняет незавершённый ход, а не ждёт его.
+                    voice_turns.start(
+                        dev_from_msg or "laptop", websocket,
+                        lambda d=data, c=_ctx: handler(websocket, d, c))
+                elif handler:
                     await handler(websocket, data, _ctx)
                 else:
                     log.warning(f"unknown msg_type: {msg_type}")

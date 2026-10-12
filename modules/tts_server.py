@@ -26,6 +26,7 @@ from google.genai import types
 
 from config import get_active_key, mark_key_used, VOICE_MODEL_CHAIN
 from sakura_core.llm import generate as _llm_generate, stream_tokens as _llm_stream
+from sakura_core import voice_turns
 
 log = logging.getLogger(__name__)
 
@@ -561,13 +562,15 @@ async def _synthesize_stream(text: str, websocket, device_id: str, t0: float, em
                             if first:
                                 log.info(f"[TTS] первый звук за {time.monotonic()-t0:.1f}с")
                                 first = False
+                            if voice_turns.is_cancelled():
+                                return sent > 0
                             try:
-                                await websocket.send(json.dumps({
+                                await websocket.send(json.dumps(voice_turns.tag({
                                     "type":        "tts_chunk",
                                     "device_id":   device_id,
                                     "audio":       base64.b64encode(response.data).decode(),
                                     "sample_rate": TTS_SAMPLE_RATE,
-                                }))
+                                })))
                                 sent += 1
                             except Exception as e:
                                 log.error(f"[TTS] Отправка: {e}")
@@ -588,12 +591,15 @@ async def _synthesize_stream(text: str, websocket, device_id: str, t0: float, em
 def _make_audio_sender(websocket, device_id: str):
     """Фабрика отправщиков аудио-пакетов на устройство."""
     async def send_audio(data: bytes):
-        await websocket.send(json.dumps({
+        # Ход вытеснен новым запросом устройства — запоздавший пакет не уходит.
+        if voice_turns.is_cancelled():
+            return
+        await websocket.send(json.dumps(voice_turns.tag({
             "type":        "tts_chunk",
             "device_id":   device_id,
             "audio":       base64.b64encode(data).decode(),
             "sample_rate": TTS_SAMPLE_RATE,
-        }))
+        })))
     return send_audio
 
 
@@ -933,12 +939,16 @@ _last_end: dict[str, float] = {}
 
 
 async def _send_end(websocket, device_id: str, listen: float | None = None):
+    turn = voice_turns.current()
+    if turn is not None and turn.cancelled and turn.ended:
+        return      # вытесненный ход уже закрыт — второго tts_end нет
     try:
         payload = {"type": "tts_end", "device_id": device_id}
         if listen is not None:
             payload["listen"] = listen
-        await websocket.send(json.dumps(payload))
+        await websocket.send(json.dumps(voice_turns.tag(payload)))
         _last_end[device_id] = time.monotonic()
+        voice_turns.mark_ended()
     except Exception as e:
         log.debug(f"[tts] tts_end не отправлен: {type(e).__name__}: {e}")
         return
@@ -952,18 +962,23 @@ async def ensure_turn_end(websocket, device_id: str, since: float) -> None:
     и команды без озвучки его не шлют. Повторно не шлёт: tts_end (в том
     числе с listen) уже ушёл после since — ничего не делаем."""
     last_end = _last_end.get(device_id, 0)
+    turn = voice_turns.current()
     trace = (f"[tts] ensure_turn_end device={device_id} "
-             f"since={since:.3f} last_end={last_end:.3f}")
-    if last_end >= since:
+             f"since={since:.3f} last_end={last_end:.3f}"
+             + (f" turn={turn.turn_id}" if turn is not None else ""))
+    # В ходе с turn_id закрытие учитывается по самому ходу: tts_end
+    # другого хода (вытесненного) этот ход не закрывает.
+    if (turn.ended if turn is not None else last_end >= since):
         log.info(f"{trace} -> пропущен")
         return
     try:
-        await websocket.send(json.dumps(
-            {"type": "tts_end", "device_id": device_id}))
+        await websocket.send(json.dumps(voice_turns.tag(
+            {"type": "tts_end", "device_id": device_id})))
     except Exception as e:
         log.debug(f"[tts] tts_end не отправлен: {type(e).__name__}: {e}")
         return
     _last_end[device_id] = time.monotonic()
+    voice_turns.mark_ended()
     log.info(f"{trace} -> отправлен")
 
 
@@ -995,6 +1010,9 @@ async def stream_tts_to_device(
     stop — опциональный callable(): вернул True → озвучка прекращается
     (между пакетами). Полезно для прерывания длинного списка голосом."""
     from modules.state import tts_stop_requested
+    if voice_turns.is_cancelled():
+        log.info(f"[TTS] ход {voice_turns.current_id()} вытеснен — озвучка пропущена | {device_id}")
+        return
     if stop is None:
         stop = lambda: tts_stop_requested(device_id)
 
