@@ -307,3 +307,44 @@ def test_ui_read_text_not_in_journal(caplog):
     caplog.set_level(logging.INFO, logger="sakura.actions")
     run("ui.read", c=uictx())
     assert "Привет" not in " ".join(r.getMessage() for r in caplog.records)
+
+
+# ── живая проверка: run_action отдаёт результат раннеру, а не серверу ──
+def test_local_result_not_sent_to_server():
+    from desktop.core import agent as agent_mod
+    sent = []
+
+    class WS:
+        async def send(self, raw):
+            sent.append(raw)
+
+    async def go():
+        a = agent_mod.Agent.__new__(agent_mod.Agent)
+        a._ws = WS()
+        a.bus = None
+        fut = asyncio.get_running_loop().create_future()
+        a._local_results = {"local:1": fut}
+        await a._send_result("local:1", {"ok": True, "status": "done", "detail": "x"}, {"windows": []})
+        return await fut
+    res = asyncio.run(go())
+    assert res == {"ok": True, "status": "done", "detail": "x", "windows": []} and sent == []
+
+
+def test_run_action_only_with_livecheck_env(monkeypatch):
+    from desktop.core import service
+    names = []
+
+    def collect(env):
+        names.clear()
+        if env:
+            monkeypatch.setenv("SAKURA_LIVECHECK", "1")
+        else:
+            monkeypatch.delenv("SAKURA_LIVECHECK", raising=False)
+        fake = SimpleNamespace(api=SimpleNamespace(command=lambda k, h: names.append(k)), media=None)
+        for attr in dir(service.CoreService):
+            if attr.startswith("cmd_"):
+                setattr(fake, attr, None)
+        service.CoreService._register_commands(fake)
+        return set(names)
+    assert "run_action" not in collect(False)
+    assert "run_action" in collect(True)

@@ -794,6 +794,15 @@ class Agent:
         """command_result серверу: {ok, status, detail} + доп. поля. Без id — некуда отвечать."""
         if not cmd_id:
             return
+        # Локальный раннер живой проверки (desktop.tools.run_action): ответ — ему, не серверу.
+        local = getattr(self, "_local_results", {}).pop(cmd_id, None)
+        if local is not None:
+            bus = getattr(self, "bus", None)
+            if bus is not None:
+                bus.emit("command_result", detail=res["detail"], status=res["status"])
+            if not local.done():
+                local.set_result({**res, **(extra or {})})
+            return
         msg = {
             "type": "command_result", "id": cmd_id,
             "device_id": config.DEVICE_ID, "token": config.WS_TOKEN,

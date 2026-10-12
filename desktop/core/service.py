@@ -7,6 +7,7 @@ hands и ServerLink. Всё живёт в одном asyncio-цикле с аг�
 import asyncio
 import logging
 import os
+import uuid
 
 from desktop.core import config
 from desktop.core.api.server import ApiError, LocalApiServer, default_token_path
@@ -178,6 +179,8 @@ class CoreService:
         c("list_audio_devices", self.cmd_list_audio_devices)
         c("settings_set", self.cmd_settings_set)
         c("game_mode", self.cmd_game_mode)
+        if os.getenv("SAKURA_LIVECHECK") == "1":
+            c("run_action", self.cmd_run_action)
         if self.media is not None:
             self.media.register(c)
         c("server", self.cmd_server)
@@ -227,6 +230,25 @@ class CoreService:
             raise ApiError("unsupported", "сервер не поддерживает")
         log.info("[window_ask] кадр %d КиБ отправлен по запросу пользователя", len(image) * 3 // 4 // 1024)
         return await self.link.request({"type": "vision_request", "image": image, "question": question})
+
+    async def cmd_run_action(self, msg: dict):
+        """Живая проверка: действие напрямую в диспетчер агента (только при SAKURA_LIVECHECK=1)."""
+        action = str(msg.get("action") or "").strip()
+        if not action:
+            raise ApiError("bad_request", "нет действия")
+        cmd_id = f"local:{uuid.uuid4().hex[:8]}"
+        fut = asyncio.get_running_loop().create_future()
+        if not hasattr(self.agent, "_local_results"):
+            self.agent._local_results = {}
+        self.agent._local_results[cmd_id] = fut
+        log.info("[livecheck] %s", action)
+        await self.agent._run_command(action, cmd_id, str(msg.get("arg") or ""), confirmed=msg.get("confirmed") is True)
+        try:
+            return await asyncio.wait_for(fut, timeout=30)
+        except asyncio.TimeoutError:
+            return {"ok": False, "status": "failed", "detail": "нет ответа от действия за 30 с"}
+        finally:
+            self.agent._local_results.pop(cmd_id, None)
 
     async def cmd_power_cancel(self, msg: dict):
         """Кнопка «Отмена» в тосте выключения — то же, что «отмени выключение»."""
