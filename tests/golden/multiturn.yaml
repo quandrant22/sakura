@@ -1,0 +1,46 @@
+# Многоходовые: учитывает предыдущие реплики, не повторяется, не теряет роль.
+category: многоходовые
+defaults:
+  channel: voice
+  rules: {max_sentences: 3}
+scenarios:
+  - id: multi-01
+    history:
+      - {role: user, text: "Запусти Valheim."}
+      - {role: model, text: "Запускаю."}
+    user: "А сколько я в нём уже наиграл?"
+    expect: "Без выдуманных часов, если данных нет."
+  - id: multi-02
+    history:
+      - {role: user, text: "Напомни мне купить молоко."}
+      - {role: model, text: "Запомнила."}
+    user: "Что я просил напомнить?"
+    expect: "Молоко."
+    rules: {must: ["молок"]}
+  - id: multi-03
+    history:
+      - {role: user, text: "Ты меня слышишь?"}
+      - {role: model, text: "Слышу."}
+    user: "Ты меня слышишь?"
+    expect: "Короткий ответ, без раздражения и без нотации."
+  - id: multi-04
+    history:
+      - {role: user, text: "Сейчас без пяти полночь, правильно?"}
+      - {role: model, text: "Да."}
+    user: "Тогда почему ты в прошлый раз сказала «час ночи»?"
+    expect: "Признать ошибку коротко, без оправданий про часовые пояса."
+    rules: {must_not: ["часов(ой|ых) пояс", "датчики не врут"]}
+  - id: multi-05
+    history:
+      - {role: user, text: "Давай сыграем в слова."}
+      - {role: model, text: "Начинайте."}
+    user: "Яблоко."
+    expect: "Слово на «о», без длинных правил."
+    rules: {max_sentences: 2}
+  - id: multi-06
+    history:
+      - {role: user, text: "Мне грустно."}
+      - {role: model, text: "Я рядом. Что случилось?"}
+    user: "Да ничего, просто устал от всего."
+    expect: "Коротко, без советов про отдых списком."
+    rules: {must_not: ["\\n- ", "\\*\\*"]}

@@ -49,6 +49,24 @@ ACK_PENDING_S = float(os.getenv("ACK_PENDING_S", "2.0"))
 # Кэш озвученных фраз (modules/tts_cache.py), вне git.
 TTS_CACHE_DIR = os.getenv("TTS_CACHE_DIR", "memory/tts_cache")
 
+# ── perf/voice-2: скорость голосового ответа ─────────────────────────
+def _flag(name: str, default: str) -> bool:
+    return os.getenv(name, default).strip().lower() not in ("0", "false", "no", "")
+
+# Предсинтез: стадия TTS синтезируется сразу, звук держится до вердикта.
+VOICE_PRESYNTH = _flag("VOICE_PRESYNTH", "1")
+# Ранний шлюз: вопрос без командных глаголов — звук не ждёт вердикта.
+VOICE_EARLY_GATE = _flag("VOICE_EARLY_GATE", "1")
+# Профиль системного промпта голоса: light — без тяжёлых контекстных
+# блоков (персона не меняется; блоки возвращаются по словам запроса),
+# full — как в чате. По умолчанию full, пока brain_eval --online не
+# покажет, что light не хуже (docs/perf-voice-2.md).
+VOICE_PROMPT_PROFILE = os.getenv("VOICE_PROMPT_PROFILE", "full").strip().lower()
+# Предел длины голосового ответа (символов, по границе предложения); 0 — нет.
+VOICE_MAX_CHARS = max(0, int(os.getenv("VOICE_MAX_CHARS", "320") or 0))
+# Сводка [turn] p50/p90 — раз в столько секунд.
+TURN_STATS_PERIOD_S = float(os.getenv("TURN_STATS_PERIOD_S", "3600"))
+
 def _history_limit(name, default):
     try:
         return max(0, int(os.getenv(name, str(default))))

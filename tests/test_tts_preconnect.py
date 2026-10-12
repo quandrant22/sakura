@@ -426,18 +426,28 @@ def test_ws_preconnects_before_verdict_and_reuses_session(monkeypatch, live):
     assert released == [True]
 
 
-def test_ws_command_closes_preconnect(monkeypatch, live):
-    """Команда: предконнект закрывается — TTS не тратится зря."""
+@pytest.mark.parametrize("presynth", [True, False])
+def test_ws_command_closes_preconnect(monkeypatch, live, presynth):
+    """Команда: предконнект закрывается, звук ответа на устройство не уходит.
+
+    Без предсинтеза TTS не тратится вовсе; с предсинтезом (perf/voice-2)
+    стадии могли начать синтез до вердикта — сессии закрыты, звук выброшен."""
+    import config
+    monkeypatch.setattr(config, "VOICE_PRESYNTH", presynth)
+    monkeypatch.setattr(config, "VOICE_EARLY_GATE", False)
     order, synth_calls = [], []
-    _ws_env(monkeypatch, order, synth_calls,
-            decision=Decision("music.next", "llm"), executed=True)
+    ws_dev = _ws_env(monkeypatch, order, synth_calls,
+                     decision=Decision("music.next", "llm"), executed=True)
     released = _record_release(monkeypatch)
 
     asyncio.run(wh.handle_voice_command(None, _data("смени трек"), _mk_ctx()))
 
     assert order.index("preconnect") < order.index("classify")
     assert released == [True], "канал предбанника не закрыт"
-    assert live.closed == 1 and synth_calls == []
+    assert live.closed == 1
+    assert _sent_audio(ws_dev) == [], "звук ответа ушёл при команде"
+    if not presynth:
+        assert synth_calls == []
 
 
 def test_ws_exception_in_command_branch_cancels_prefetch(monkeypatch, live):

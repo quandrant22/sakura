@@ -42,6 +42,24 @@ _NL_WS = re.compile(r"\s*\n\s*")
 _EMOTION_LINE = re.compile(r"^EMOTION:\s*(.+?)\s*$", re.MULTILINE)
 
 
+def fit_to_limit(parts: list[str], sentence: str, limit: int) -> str | None:
+    """Предложение под предел длины ответа (символов, с пробелами между).
+
+    Влезает целиком — оно же. Не влезает — None (ответ кончается на
+    предыдущем предложении). Не влезает даже первое — обрезка по последней
+    границе слова с «…» (не посреди слова)."""
+    used = len(" ".join(parts))
+    extra = len(sentence) + (1 if parts else 0)
+    if used + extra <= limit:
+        return sentence
+    if parts:
+        return None
+    cut = sentence[: max(1, limit - 1)]
+    if " " in cut and not sentence[len(cut):len(cut) + 1].isspace():
+        cut = cut[: cut.rfind(" ")]
+    return cut.rstrip(" ,;:—-") + "…"
+
+
 async def iter_sentences(tokens: AsyncIterator[str]) -> AsyncIterator[str]:
     """Ассемблер стрима: токены → готовые предложения.
 
@@ -128,12 +146,20 @@ async def stream_llm_to_tts(
     Сигнатура совместима с вызовами v2 (main.py ask_gemini_voice): голосовой
     путь идёт через этот адаптер. Возвращает (полный текст, эмоция).
     stop — опциональный callable(): True между пакетами → обрыв озвучки.
-    gate — шлюз классификатора (п.2): пока не открыт, накопленные
-    предложения НЕ уходят в стадии TTS, но чтение токенов продолжается.
+    gate — шлюз классификатора (п.2). Предсинтез (VOICE_PRESYNTH, perf/
+    voice-2): стадии синтезируются сразу, не дожидаясь вердикта, готовый
+    звук держится в памяти; на устройство он уходит, когда шлюз открыт
+    («не команда»). Вердикт «команда» отменяет задачу — синтез снимается,
+    удержанный звук выбрасывается. VOICE_PRESYNTH=0 — прежнее поведение:
+    до вердикта стадии не стартуют.
+    Отправка на устройство идёт параллельно стриму LLM: первая стадия
+    звучит, не дожидаясь конца ответа модели.
     received_at — time.monotonic() приёма голоса (п.5): бюджеты «первый
-    звук» и «ответ готов» считаются от него, а не от старта этого стрима,
-    иначе параллельная классификация выпадает из замера.
+    звук» и «ответ готов» считаются от него, а не от старта этого стрима.
     """
+    import config
+    from sakura_core import turn_timing
+
     key = _llm.pick_key(api_key)
     if client is None:
         client = _llm.get_client(key)
@@ -145,6 +171,10 @@ async def stream_llm_to_tts(
     producers: list[asyncio.Task] = []
     first_audio_logged = False
     synth_failed = False
+    presynth = config.VOICE_PRESYNTH
+    max_chars = config.VOICE_MAX_CHARS
+    changed = asyncio.Event()          # новая стадия или конец стрима
+    stream_done = False
 
     async def _produce(text: str, q: asyncio.Queue, stage: int) -> None:
         try:
@@ -167,9 +197,14 @@ async def stream_llm_to_tts(
     def _new_stage(text: str) -> None:
         q: asyncio.Queue = asyncio.Queue()
         queues.append(q)
+        if len(queues) == 1:
+            turn_timing.mark("stage1_start")
+        held = presynth and gate is not None and not gate.opened
         log.info(f"[voice] стадия {len(queues)}: старт "
-                 f"+{(time.monotonic()-base)*1000:.0f}мс от приёма, {len(text)} симв")
+                 f"+{(time.monotonic()-base)*1000:.0f}мс от приёма, {len(text)} симв"
+                 + (" (звук держится до вердикта)" if held else ""))
         producers.append(asyncio.create_task(_produce(text, q, len(queues))))
+        changed.set()
 
     async def _drain(q: asyncio.Queue) -> bool:
         """Выкачать стадию на устройство до sentinel-а. True — дочитана."""
@@ -190,10 +225,30 @@ async def stream_llm_to_tts(
                 return True
             if not first_audio_logged:
                 first_audio_logged = True
+                turn_timing.mark("first_audio")
                 _ms = (time.monotonic() - base) * 1000
                 log.info(f"[voice] первый звук за {_ms:.0f}мс (от приёма голоса)")
                 budget.check("voice_first_audio", _ms)
 
+    async def _sender() -> None:
+        """Стадии на устройство строго по порядку, параллельно стриму LLM.
+
+        Ждёт шлюз: до вердикта «не команда» готовый звук копится в
+        очередях стадий (в памяти)."""
+        await _open_gate()
+        i = 0
+        while True:
+            if i < len(queues):
+                if not await _drain(queues[i]):
+                    return
+                i += 1
+                continue
+            if stream_done:
+                return
+            changed.clear()
+            if i < len(queues) or stream_done:
+                continue
+            await changed.wait()
 
     # Планирование стадий (этап 3, п.3.3/3.3б): пока ответ может оказаться
     # коротким (≤ SINGLE_MAX_CHARS и ≤ SINGLE_MAX_SENTENCES), предложения
@@ -204,53 +259,80 @@ async def stream_llm_to_tts(
 
     async def _open_gate() -> None:
         if gate is not None:
-            # Токены читаются параллельно классификатору, но в TTS
-            # предложение уходит только после вердикта «не команда».
+            # Вердикт «не команда» (или таймаут шлюза) — звук можно отдавать.
             await gate.wait_open()
 
-    try:
-        try:
-            tokens = _llm.stream_tokens(
+    async def _before_stage() -> None:
+        # Без предсинтеза стадия не стартует до вердикта (прежний путь).
+        if not presynth:
+            await _open_gate()
+
+    async def _tokens():
+        first = True
+        async for tok in _llm.stream_tokens(
                 contents, system=system, model=model, max_tokens=max_tokens,
                 temperature=temperature, api_key=key,
                 timeout=max(0.0, deadline - time.monotonic()),
-                chain=chain,
-            )
-            async for sentence in iter_sentences(tokens):
+                chain=chain):
+            if first:
+                first = False
+                turn_timing.mark("first_token")
+            yield tok
+
+    sender = asyncio.create_task(_sender())
+    try:
+        try:
+            async for sentence in iter_sentences(_tokens()):
                 m = _EMOTION_LINE.match(sentence)
                 if m:
                     emotion = m.group(1)
                     continue
+                stop_after = False
+                if max_chars:
+                    # Предел длины голосового ответа (VOICE_MAX_CHARS): только
+                    # целые предложения; не влезло — дальше не читаем, и
+                    # озвучка, и tts_end не ждут длинного хвоста.
+                    fitted = fit_to_limit(parts, sentence, max_chars)
+                    if fitted is None:
+                        log.info(f"[voice] предел ответа {max_chars} симв — стрим остановлен")
+                        break
+                    stop_after = fitted != sentence
+                    sentence = fitted
                 parts.append(sentence)
                 if started:
-                    await _open_gate()
+                    await _before_stage()
                     _new_stage(sentence)
-                    continue
-                pending.append(sentence)
-                joined = " ".join(pending)
-                if (_tts.TTS_SHORT_SINGLE and len(joined) <= SINGLE_MAX_CHARS
-                        and len(pending) <= SINGLE_MAX_SENTENCES):
-                    continue
-                first: list[str] = []
-                while pending and (not first or len(" ".join(first)) < MIN_FIRST_CHUNK):
-                    first.append(pending.pop(0))
-                await _open_gate()
-                _new_stage(" ".join(first))
-                started = True
-                for s in pending:
-                    _new_stage(s)
-                pending = []
+                else:
+                    pending.append(sentence)
+                    joined = " ".join(pending)
+                    if not (_tts.TTS_SHORT_SINGLE and len(joined) <= SINGLE_MAX_CHARS
+                            and len(pending) <= SINGLE_MAX_SENTENCES):
+                        first: list[str] = []
+                        while pending and (not first or len(" ".join(first)) < MIN_FIRST_CHUNK):
+                            first.append(pending.pop(0))
+                        await _before_stage()
+                        _new_stage(" ".join(first))
+                        started = True
+                        for s in pending:
+                            _new_stage(s)
+                        pending = []
+                if stop_after:
+                    log.info(f"[voice] предел ответа {max_chars} симв — первое "
+                             f"предложение обрезано по слову, стрим остановлен")
+                    break
         except Exception as e:
             log.error(f"[voice] стрим LLM упал: {e}")
+        turn_timing.mark("llm_done")
 
         if pending:
             # Короткий ответ (или обрыв стрима до роста) — одной стадией.
-            await _open_gate()
+            await _before_stage()
             _new_stage(" ".join(pending))
             pending = []
 
         # Ни одного предложения — фолбэк: обычная генерация → двухстадийный путь v2
         if not parts:
+            sender.cancel()
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return "", emotion
@@ -279,14 +361,14 @@ async def stream_llm_to_tts(
                     synth=_live_synthesize)
             return clean, emotion
 
-        # Пакеты уходят строго по порядку стадий
-        for q in queues:
-            if not await _drain(q):
-                break
+        stream_done = True
+        changed.set()
+        await sender
     finally:
-        # Отмена задачи (команда) и обычный выход — продюсеры TTS снимаются
-        # всегда: зависшая Live-сессия не переживает обрыв стрима.
-        for t in producers:
+        # Отмена задачи (команда) и обычный выход — отправка и продюсеры
+        # TTS снимаются всегда: удержанный звук выбрасывается, зависшая
+        # Live-сессия не переживает обрыв стрима.
+        for t in (sender, *producers):
             if not t.done():
                 t.cancel()
             try:

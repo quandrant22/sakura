@@ -26,12 +26,21 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def _track_prefetch_audio(monkeypatch, events):
-    """Пакеты prefetch-стрима (stream_llm_to_tts → _live_synthesize)."""
+    """Пакеты prefetch-стрима, ушедшие НА УСТРОЙСТВО (prefetch_chunk).
+
+    Предсинтез (perf/voice-2) синтезирует стадию до вердикта — это
+    prefetch_synth; звук держится в памяти и при команде выбрасывается."""
+    monkeypatch.setattr(config, "VOICE_EARLY_GATE", False)
+
     async def _fake_live(text, emotion, on_packet, label=""):
-        events.append(("prefetch_chunk", time.monotonic()))
+        events.append(("prefetch_synth", time.monotonic()))
         await on_packet(b"AUDIO")
         return 1
+
+    async def _sent(data):
+        events.append(("prefetch_chunk", time.monotonic()))
     monkeypatch.setattr(voice_mod, "_live_synthesize", _fake_live)
+    monkeypatch.setattr(voice_mod, "_make_audio_sender", lambda websocket, device_id: _sent)
 
 
 def test_command_cancels_prefetch_before_long_speak(monkeypatch):

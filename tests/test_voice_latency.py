@@ -1,7 +1,9 @@
 """perf/voice-latency (п.2): классификатор роутера параллельно со стримом.
 
 Проверяемые инварианты:
-  * команда → стрим ответа отменён, TTS не вызван;
+  * команда → стрим ответа отменён, ни один пакет звука не ушёл на
+    устройство (perf/voice-2: предсинтез может начаться до вердикта, звук
+    держится в памяти и выбрасывается; VOICE_PRESYNTH=0 — TTS не вызван);
   * болтовня → TTS получает текст, суммарная задержка ≈
     max(классификатор, первое предложение), а НЕ сумма;
   * Router.route зовёт on_llm ровно перед LLM-классификатором
@@ -12,6 +14,8 @@ Run: python -m pytest tests/test_voice_latency.py -q
 
 import asyncio
 import time
+
+import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 import adapters.voice as voice_mod
@@ -90,8 +94,19 @@ def _mk_ask_voice(outcome, tts_calls):
     return ask_voice
 
 
+class Calls(list):
+    """Вызовы синтеза (time, text, label) и моменты отправки звука (sent)."""
+
+    def __init__(self):
+        super().__init__()
+        self.sent: list[float] = []
+
+
 def _setup(monkeypatch, tts_calls, *, decision, executed):
     """Патчи окружения ws + сети LLM/TTS. Возвращает ws_dev."""
+    import config
+    # Тест про удержание звука до вердикта, не про ранний шлюз вопросов.
+    monkeypatch.setattr(config, "VOICE_EARLY_GATE", False)
     # Тест про порядок/параллельность стадий, не про планирование:
     # каждое предложение — своя стадия (как до п.3.3).
     monkeypatch.setattr(voice_mod, "SINGLE_MAX_SENTENCES", 0)
@@ -110,7 +125,8 @@ def _setup(monkeypatch, tts_calls, *, decision, executed):
         return 1
 
     async def _fake_send(data):
-        return None
+        if hasattr(tts_calls, "sent"):
+            tts_calls.sent.append(time.monotonic())
 
     monkeypatch.setattr(voice_mod, "_live_synthesize", _fake_live)
     monkeypatch.setattr(voice_mod, "_make_audio_sender",
@@ -148,24 +164,31 @@ def _data(text):
 # ── тесты ──────────────────────────────────────────────────────────
 
 
-def test_command_cancels_stream_and_never_calls_tts(monkeypatch):
-    """Классификатор вернул действие → стрим отменён, TTS не вызван."""
-    tts_calls, outcome = [], {}
+@pytest.mark.parametrize("presynth", [True, False])
+def test_command_cancels_stream_and_never_sends_audio(monkeypatch, presynth):
+    """Классификатор вернул действие → стрим отменён, звук на устройство
+    не ушёл (удержанный предсинтез выброшен); без предсинтеза TTS не вызван."""
+    import config
+    tts_calls, outcome = Calls(), {}
     _setup(monkeypatch, tts_calls,
            decision=Decision("music.next", "llm"), executed=True)
+    monkeypatch.setattr(config, "VOICE_PRESYNTH", presynth)
     ctx = _mk_ctx(_mk_ask_voice(outcome, tts_calls))
 
     asyncio.run(wh.handle_voice_command(None, _data("смени трек"), ctx))
 
     assert outcome.get("cancelled") is True, "стрим ответа должен быть отменён"
     assert outcome.get("completed") is not True
-    assert tts_calls == [], "TTS не должен вызываться при команде"
+    assert tts_calls.sent == [], "звук ответа ушёл на устройство при команде"
+    if not presynth:
+        assert list(tts_calls) == [], "без предсинтеза TTS не вызывается при команде"
 
 
 def test_chatter_tts_gets_text_with_parallel_latency(monkeypatch):
-    """Болтовня → буфер отдан в TTS; задержка ≈ max(классификатор,
-    первое предложение), а не сумма; токены не текли до вердикта."""
-    tts_calls, outcome = [], {}
+    """Болтовня → синтез стартует по первому предложению (предсинтез, не
+    ждёт вердикта); звук на устройство — не раньше вердикта; задержка ≈
+    max(классификатор, первое предложение), а не сумма."""
+    tts_calls, outcome = Calls(), {}
     _setup(monkeypatch, tts_calls,
            decision=Decision(None, "conversation"), executed=False)
     ctx = _mk_ctx(_mk_ask_voice(outcome, tts_calls))
@@ -176,7 +199,9 @@ def test_chatter_tts_gets_text_with_parallel_latency(monkeypatch):
 
     assert outcome.get("completed") is True, "голосовой стрим доигран до конца"
     assert tts_calls, "TTS должен получить текст"
-    first_dt = tts_calls[0][0] - t0
+    assert tts_calls[0][0] - t0 < T_CLASSIFY, "синтез ждал вердикта"
+    assert tts_calls.sent, "звук ушёл на устройство"
+    first_dt = tts_calls.sent[0] - t0
 
     # текст доставлен по предложениям (буфер + продолжение стрима)
     assert tts_calls[0][1] == "Привет, мир."
@@ -184,7 +209,7 @@ def test_chatter_tts_gets_text_with_parallel_latency(monkeypatch):
 
     # не раньше вердикта классификатора
     assert first_dt >= T_CLASSIFY - 0.02, \
-        f"токены ушли в TTS до вердикта ({first_dt:.3f}с)"
+        f"звук ушёл на устройство до вердикта ({first_dt:.3f}с)"
     # ≈ max, а не сумма
     serial = T_CLASSIFY + T_SENTENCE
     assert first_dt < serial - 0.10, \

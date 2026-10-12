@@ -7,8 +7,9 @@
 «Выполняю.». Ход закрывает tts_end самой фразы (tts_cache.play), поэтому
 голосовой обработчик свой tts_end в этом ходе не шлёт (closes_turn).
 
-Ждать command_result внутри голосового хода нельзя: обработчики сокета
-вызываются последовательно, и ответ агента пришёл бы только после хода.
+Ждать command_result внутри голосового хода не нужно: ход закончится
+раньше, а фраза несёт turn_id своего хода (voice_turns) и молчит, если
+устройство уже начало новый ход.
 """
 
 from __future__ import annotations
@@ -136,6 +137,7 @@ class _Pending:
     armed_at: float = field(default_factory=time.monotonic)
     timer: asyncio.Task | None = None
     pending_said: bool = False     # «Выполняю.» уже прозвучало
+    turn: object = None            # голосовой ход (voice_turns.Turn): turn_id фразы
     speaking: bool = False         # таймер сейчас озвучивает «Выполняю.»
 
 
@@ -154,7 +156,9 @@ def arm(cmd_id: str | None, *, ws, device_id: str, action: str,
     from sakura_core.registry import followup_for
     if followup_for(action) != "ack":
         return False
-    p = _Pending(ws=ws, device_id=device_id, action=action, param=param)
+    from sakura_core import voice_turns
+    p = _Pending(ws=ws, device_id=device_id, action=action, param=param,
+                 turn=voice_turns.current())
     _pending[cmd_id] = p
     _armed_at[device_id] = p.armed_at
     p.timer = asyncio.get_running_loop().create_task(
@@ -170,9 +174,15 @@ def closes_turn(device_id: str, since: float) -> bool:
 
 async def _say(p: _Pending, phrase: str, t_ref: float | None = None) -> str:
     from modules import tts_cache
+    from sakura_core import voice_turns
     lock = _speak_locks.setdefault(p.device_id, asyncio.Lock())
     async with lock:
-        return await tts_cache.play(phrase, p.ws, p.device_id, t_ref=t_ref)
+        # Фраза — часть своего хода: его turn_id, вытеснен ход — молчит.
+        tok = voice_turns.use(p.turn)
+        try:
+            return await tts_cache.play(phrase, p.ws, p.device_id, t_ref=t_ref)
+        finally:
+            voice_turns.reset(tok)
 
 
 async def _pending_timer(cmd_id: str) -> None:

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import threading
 
 from personality import get_system_prompt
@@ -96,12 +97,42 @@ _build_system_lock = threading.Lock()
 _build_system_warm = False   # была ли хотя бы одна сборка в этом процессе
 _BUILD_SYSTEM_TTL = 20.0   # секунд
 
+# Лёгкий голосовой профиль (perf/voice-2, VOICE_PROMPT_PROFILE=light):
+# контекстные блоки, без которых короткий устный ответ обходится. Персона
+# (identity), характер (self, style, narrative, version), память о Мастере,
+# правила, устройства и трек — не трогаются.
+VOICE_LIGHT_DROP = frozenset({
+    "graph", "vps", "threads", "focus", "screen", "timeline",
+    "achievements", "patterns", "interests", "habits", "summary", "tasks",
+})
+# Блоки лёгкого профиля, которые возвращаются, если запрос о них (регулярки
+# по тексту запроса, без учёта регистра; «ё» читается как «е»).
+_ON_DEMAND = (
+    (("tasks",), r"сегодня|задач|дел(?:\s|$)|напомн|план|дедлайн|срок|расписан"),
+    (("summary",), r"мы говорили|обсуждал|вчера|помнишь|в прошлый раз|на чем остановились"),
+    (("timeline", "achievements"), r"достижен|за неделю|за месяц|что было|итог|вспомни"),
+    (("threads",), r"продолжим|тема|вернемся"),
+    (("screen",), r"экран|на мониторе|в окне"),
+)
+VOICE_LIGHT_ON_DEMAND = tuple((labels, re.compile(rx, re.IGNORECASE)) for labels, rx in _ON_DEMAND)
+
+
+def light_blocks_for(query: str) -> frozenset[str]:
+    """Блоки лёгкого профиля, которые нужны этому запросу."""
+    q = (query or "").replace("ё", "е").replace("Ё", "Е")
+    out: set[str] = set()
+    for labels, rx in VOICE_LIGHT_ON_DEMAND:
+        if rx.search(q):
+            out.update(labels)
+    return frozenset(out)
+
 
 async def _build_system(
     include_calendar: bool = False,
     active_window: str | None = None,
     query: str = "",
     blocks_out: list[str] | None = None,
+    profile: str = "full",
 ) -> str:
     """Строит системный промпт. Кэшируется для повторных вызовов без query.
 
@@ -119,7 +150,7 @@ async def _build_system(
     _track_sig = f"{(_current_track or {}).get('title', '')}|{(_current_track or {}).get('status', '')}"
     _emotion_sig = get_current_emotion()
     _hour_sig = __import__('datetime').datetime.now().hour
-    _raw_key = f"{include_calendar}:{_window_category(active_window)}:{bool(query)}:{tuple(sorted(_get_online_devices()))}:{_track_sig}:{_emotion_sig}:{_hour_sig}"
+    _raw_key = f"{profile}:{include_calendar}:{_window_category(active_window)}:{bool(query)}:{tuple(sorted(_get_online_devices()))}:{_track_sig}:{_emotion_sig}:{_hour_sig}"
     cache_key = hashlib.md5(_raw_key.encode("utf-8")).hexdigest()
     if not query:
         with _build_system_lock:
@@ -300,67 +331,86 @@ async def _build_system(
         from modules.tasks import get_tasks_context
         return get_tasks_context()
 
+    # Лёгкий голосовой профиль: выброшенные блоки не собираются вовсе.
+    drop = frozenset()
+    if profile == "light":
+        on_demand = light_blocks_for(query)
+        drop = VOICE_LIGHT_DROP - on_demand
+        if on_demand:
+            # В строке [turn] — какие блоки вернул запрос (вне хода — no-op).
+            from sakura_core import turn_timing
+            turn_timing.flag("blocks+=" + ",".join(sorted(on_demand)))
+
+    def _b(label, fn, *args):
+        return None if label in drop else _block(label, fn, *args)
+
     # Все задачи независимы — собираем одновременно, собираем в прежнем порядке.
     tasks = [
         _identity(),
-        _block("caps", _caps),
-        _block("rules", _rules),
-        _block("ctx_block", _ctx_block),
-        _block("devices", _devices),
-        _block("memory", _memory),
-        _block("graph", _graph),
-        _block("vps", _vps),
-        _block("threads", _threads),
-        _block("focus", _focus),
-        _block("screen", _screen),
-        _block("timeline", _timeline),
-        _block("achievements", _achievements),
-        _block("patterns", _patterns),
-        _block("return", _return_hint),
-        _block("identity_model", _identity_model),
+        _b("caps", _caps),
+        _b("rules", _rules),
+        _b("ctx_block", _ctx_block),
+        _b("devices", _devices),
+        _b("memory", _memory),
+        _b("graph", _graph),
+        _b("vps", _vps),
+        _b("threads", _threads),
+        _b("focus", _focus),
+        _b("screen", _screen),
+        _b("timeline", _timeline),
+        _b("achievements", _achievements),
+        _b("patterns", _patterns),
+        _b("return", _return_hint),
+        _b("identity_model", _identity_model),
     ]
     if query:
-        tasks.append(_block("trigger", _trigger))
+        tasks.append(_b("trigger", _trigger))
     tasks += [
-        _block("narrative", _narrative),
-        _block("steam", _steam),
-        _block("style", _style),
-        _block("version", _version_season),
-        _block("interests", _interests),
-        _block("habits", _habits),
+        _b("narrative", _narrative),
+        _b("steam", _steam),
+        _b("style", _style),
+        _b("version", _version_season),
+        _b("interests", _interests),
+        _b("habits", _habits),
     ]
     if _mentions(query, _JP_KEYS):
-        tasks.append(_block("jp", _jp))
+        tasks.append(_b("jp", _jp))
     if _mentions(query, _APP_KEYS):
-        tasks.append(_block("apps", _apps))
+        tasks.append(_b("apps", _apps))
     if _mentions(query, _CODE_KEYS):
-        tasks.append(_block("coding", _coding))
+        tasks.append(_b("coding", _coding))
     if _mentions(query, _FORTUNE_KEYS):
-        tasks.append(_block("fortune", _fortune))
+        tasks.append(_b("fortune", _fortune))
     if include_calendar:
-        tasks.append(_block("calendar", _calendar))
+        tasks.append(_b("calendar", _calendar))
     tasks += [
-        _block("summary", _summary),
-        _block("tasks", _tasks_ctx),
+        _b("summary", _summary),
+        _b("tasks", _tasks_ctx),
     ]
 
+    tasks = [t for t in tasks if t is not None]
     d = dict(await asyncio.gather(*tasks))
 
     parts: list[str] = []
+    labels: list[str] = []
+
+    def _add(label: str, text) -> None:
+        parts.append(text)
+        labels.append(label)
 
     persona, self_ctx, session_ctx = d["identity"]
     if persona:
-        parts.append(persona)
+        _add("identity", persona)
     if self_ctx:
-        parts.append(self_ctx)
+        _add("self", self_ctx)
     if session_ctx:
-        parts.append(session_ctx)
+        _add("session", session_ctx)
 
-    parts.append(d["caps"] or "")
+    _add("caps", d["caps"] or "")
     if d["rules"]:
-        parts.append(d["rules"])
-    parts.append(d["ctx_block"] or "")
-    parts.append(d["devices"] or "")
+        _add("rules", d["rules"])
+    _add("ctx_block", d["ctx_block"] or "")
+    _add("devices", d["devices"] or "")
 
     # Текущий трек — чтобы Сакура всегда знала что играет (с обогащёнными данными YM API)
     if _current_track and _current_track.get("title"):
@@ -376,64 +426,64 @@ async def _build_system(
             _track_str += f" ({t['album_year']})"
         if t.get('cover_url'):
             _track_str += f" [обложка: {t['cover_url']}]"
-        parts.append(_track_str)
+        _add("track", _track_str)
 
     if d["memory"]:
-        parts.append(d["memory"])
-    if d["graph"]:
-        parts.append(d["graph"])
-    if d["vps"]:
-        parts.append(d["vps"])
-    if d["threads"]:
-        parts.append(d["threads"])
-    if d["focus"]:
-        parts.append(d["focus"])
-    if d["screen"]:
-        parts.append(d["screen"])
-    if d["timeline"]:
-        parts.append(d["timeline"])
-    if d["achievements"]:
-        parts.append(d["achievements"])
-    if d["patterns"]:
-        parts.append(d["patterns"])
+        _add("memory", d["memory"])
+    if d.get("graph"):
+        _add("graph", d.get("graph"))
+    if d.get("vps"):
+        _add("vps", d.get("vps"))
+    if d.get("threads"):
+        _add("threads", d.get("threads"))
+    if d.get("focus"):
+        _add("focus", d.get("focus"))
+    if d.get("screen"):
+        _add("screen", d.get("screen"))
+    if d.get("timeline"):
+        _add("timeline", d.get("timeline"))
+    if d.get("achievements"):
+        _add("achievements", d.get("achievements"))
+    if d.get("patterns"):
+        _add("patterns", d.get("patterns"))
     if d["return"]:
-        parts.append(d["return"])
+        _add("return", d["return"])
     if d["identity_model"]:
-        parts.append(d["identity_model"])
+        _add("identity_model", d["identity_model"])
     if query and d.get("trigger"):
-        parts.append(d["trigger"])
+        _add("trigger", d["trigger"])
     if d["narrative"]:
-        parts.append(d["narrative"])
+        _add("narrative", d["narrative"])
     game_ctx, lib_ctx = d["steam"] or (None, None)
     if game_ctx:
-        parts.append(game_ctx)
+        _add("steam", game_ctx)
     elif lib_ctx:
-        parts.append(lib_ctx)
+        _add("steam", lib_ctx)
     if d["style"]:
-        parts.append(d["style"])
+        _add("style", d["style"])
     version_season = d["version"]
     if version_season is not None:
-        parts.append(version_season[0])
-        parts.append(version_season[1])
+        _add("version", version_season[0])
+        _add("season", version_season[1])
 
-    if d["interests"]:
-        parts.append(d["interests"])
-    if d["habits"]:
-        parts.append(d["habits"])
+    if d.get("interests"):
+        _add("interests", d.get("interests"))
+    if d.get("habits"):
+        _add("habits", d.get("habits"))
     if d.get("jp"):
-        parts.append(d["jp"])
+        _add("jp", d["jp"])
     if d.get("apps"):
-        parts.append(d["apps"])
+        _add("apps", d["apps"])
     if d.get("coding"):
-        parts.append(d["coding"])
+        _add("coding", d["coding"])
     if d.get("fortune"):
-        parts.append(d["fortune"])
+        _add("fortune", d["fortune"])
     if include_calendar and d.get("calendar"):
-        parts.append(d["calendar"])
-    if d["summary"]:
-        parts.append(f"РЕЗЮМЕ ПРОШЛОГО РАЗГОВОРА:\n{d['summary']}")
-    if d["tasks"]:
-        parts.append(d["tasks"])
+        _add("calendar", d["calendar"])
+    if d.get("summary"):
+        _add("summary", f"РЕЗЮМЕ ПРОШЛОГО РАЗГОВОРА:\n{d['summary']}")
+    if d.get("tasks"):
+        _add("tasks", d.get("tasks"))
 
     result = "\n\n".join(parts)
     if blocks_out is not None:
@@ -446,7 +496,15 @@ async def _build_system(
     if _dt > _budget and _build_system_warm:
         log.warning(f"[build_system] {_kind}: {_dt * 1000:.0f}мс при бюджете {_budget * 1000:.0f}мс")
     log.info(f"[build_system] {_kind}{'' if _build_system_warm else ' [холодный старт]'} "
-             f"за {_dt:.2f}с, блоков={len(parts)} символов={len(result)}")
+             f"за {_dt:.2f}с, блоков={len(parts)} символов={len(result)}"
+             + (f" профиль={profile}" if profile != "full" else ""))
+    if query or profile != "full":
+        # Вклад блоков: метка=символов (без содержимого), крупные первыми.
+        sizes: dict[str, int] = {}
+        for lbl, txt in zip(labels, parts):
+            sizes[lbl] = sizes.get(lbl, 0) + len(txt or "")
+        log.info("[build_system] блоки: " + " ".join(
+            f"{k}={v}" for k, v in sorted(sizes.items(), key=lambda kv: -kv[1])))
     _build_system_warm = True
 
     if not query:

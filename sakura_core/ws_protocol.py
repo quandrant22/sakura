@@ -19,6 +19,7 @@ import modules.state as st
 from config import (
     MASTER_ID, get_active_key, mark_key_used, MAIN_MODEL, VOICE_MODEL_CHAIN,
 )
+from sakura_core import voice_turns
 from sakura_core.tasks import spawn
 from sakura_core.llm import generate as _llm_generate
 from modules.tts_server import stream_tts_to_device
@@ -281,6 +282,17 @@ async def handle_tg_message(websocket, data, ctx) -> None:
 # ── command_result ─────────────────────────────────────────────────────
 
 async def handle_command_result(websocket, data, ctx) -> None:
+    """Результат команды агента. Ответ на него — продолжение голосового
+    хода, отправившего команду: его turn_id, вытеснен ход — без озвучки."""
+    _cmd = st._pending_commands.get(data.get("id") or "") or {}
+    tok = voice_turns.use(_cmd.get("turn"))
+    try:
+        await _handle_command_result(websocket, data, ctx)
+    finally:
+        voice_turns.reset(tok)
+
+
+async def _handle_command_result(websocket, data, ctx) -> None:
     ask_gemini = ctx["ask_gemini"]
     bot = ctx["bot"]
     _resolve_command_status = ctx["_resolve_command_status"]
@@ -348,6 +360,7 @@ async def handle_command_result(websocket, data, ctx) -> None:
                 if _page_reply and ext_ws:
                     log.info(f"[голос] ответ: {_page_reply!r}")
                     await stream_tts_to_device(_page_reply, ext_ws, ext_dev, literal=True)
+                    await voice_turns.send_reply(ext_ws, ext_dev, _page_reply)
         return
 
     if data.get("music"):
@@ -448,6 +461,7 @@ async def handle_command_result(websocket, data, ctx) -> None:
             log.info(f"[голос] ответ: {music_reply!r}")
             if ws_m:
                 await stream_tts_to_device(music_reply, ws_m, dev_m, literal=True)
+                await voice_turns.send_reply(ws_m, dev_m, music_reply)
             await bot.send_message(MASTER_ID, music_reply)
     elif screenshot:
         _should_describe = data.get("describe") or st._pending_describe.pop(dev_name, False)
