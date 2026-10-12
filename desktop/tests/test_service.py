@@ -217,6 +217,23 @@ def test_window_ask_only_with_frame_and_server_v2():
     assert r3["error"]["code"] == "bad_request"          # слишком большой кадр
 
 
+def test_power_pending_warning_and_cancel(monkeypatch):
+    # Выключение: тост с отсчётом и предупреждение в чате; «Отмена» — shutdown /a (подставной исполнитель).
+    from desktop.core import platform as plat
+    calls = []
+    monkeypatch.setattr(plat, "get_platform", lambda: type("P", (), {"power": staticmethod(calls.append)})())
+    svc = make_service()
+    sent = []
+    svc._emit = sent.append
+    svc.bus.emit("power_pending", action="shutdown", seconds=30)
+    assert {"type": "power_pending", "action": "shutdown", "seconds": 30} in sent
+    chat = [e["message"] for e in sent if e["type"] == "chat_message"]
+    assert "через 30 секунд" in chat[-1]["text"] and "отмени" in chat[-1]["text"]
+    r = run(svc.cmd_power_cancel({}))
+    assert r == {"ok": True} and calls == ["shutdown_cancel"]
+    assert {"type": "power_cancelled"} in sent
+
+
 def test_repeated_state_not_resent():
     # Агент повторяет speaking на каждый аудио-чанк — в интерфейс уходит только смена состояния.
     svc = make_service()

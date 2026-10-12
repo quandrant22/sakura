@@ -54,15 +54,29 @@ def test_no_windll_outside_platform():
     assert bad == []
 
 
-@pytest.mark.parametrize("action,cmd0,flag", [
-    ("shutdown", "shutdown", "/s"), ("restart", "shutdown", "/r"),
-    ("shutdown_cancel", "shutdown", "/a"), ("sleep", "rundll32.exe", None),
-])
-def test_windows_power_commands(action, cmd0, flag):
+@pytest.mark.parametrize("action,flag", [("shutdown", "/s"), ("restart", "/r")])
+def test_windows_shutdown_restart_delayed_30s(action, flag):
+    # Подставной исполнитель: Popen не запускает ничего настоящего.
     with patch.object(windows.subprocess, "Popen") as popen:
         windows.WindowsPlatform().power(action)
     args = popen.call_args[0][0]
-    assert args[0] == cmd0 and (flag is None or flag in args)
+    assert args[:2] == ["shutdown", flag]
+    assert args[args.index("/t") + 1] == "30"  # успеть отменить
+
+
+def test_windows_shutdown_cancel():
+    with patch.object(windows.subprocess, "Popen") as popen:
+        windows.WindowsPlatform().power("shutdown_cancel")
+    assert popen.call_args[0][0] == ["shutdown", "/a"]
+
+
+def test_windows_sleep_via_api_not_rundll32():
+    calls = []
+    fake = type("W", (), {"powrprof": type("P", (), {"SetSuspendState": staticmethod(lambda *a: calls.append(a))})()})()
+    with patch.object(windows.ctypes, "windll", fake, create=True), patch.object(windows.subprocess, "Popen") as popen:
+        windows.WindowsPlatform().power("sleep")
+    assert calls == [(False, True, False)]   # bHibernate=False — сон, а не гибернация
+    popen.assert_not_called()
 
 
 def test_windows_power_unknown_raises():
@@ -73,7 +87,7 @@ def test_windows_power_unknown_raises():
 def test_hands_system_restart_now_supported():
     from desktop.core import hands
     with patch.object(windows.subprocess, "Popen") as popen:
-        assert hands.execute_command("system:restart") == {"result": "перезагрузка"}
+        assert hands.execute_command("system:restart") == {"result": "перезагрузка через 30 с"}
     assert "/r" in popen.call_args[0][0]
 
 

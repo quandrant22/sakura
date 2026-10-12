@@ -758,6 +758,10 @@ class Agent:
             # arg приходит отдельно («volume» + «70») — склеиваем в «volume:70»
             full = f"{action}:{arg}" if arg and ":" not in action else action
             out = await asyncio.to_thread(execute_command, full)
+            if full in ("system:shutdown", "system:restart") and R.from_legacy(out.get("result"))["ok"]:
+                self.bus.emit("power_pending", action=full.split(":")[1], seconds=config.SHUTDOWN_DELAY_S)
+            elif full == "system:shutdown_cancel":
+                self.bus.emit("power_cancelled")
             if "screenshot" in out:
                 if out["screenshot"]:
                     await _send_ack(R.done("скриншот"), extra={"screenshot": out["screenshot"]})

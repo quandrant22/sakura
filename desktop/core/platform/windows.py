@@ -206,7 +206,12 @@ class WindowsPlatform(make_stub("windows")):
         if action == "lock":
             ctypes.windll.user32.LockWorkStation()
             return
-        cmd = POWER_COMMANDS.get(action)
+        if action == "sleep":
+            # Прямой вызов API: bHibernate=False — именно сон. rundll32 передавал строку вместо трёх
+            # BOOL, и при включённой гибернации компьютер уходил в гибернацию.
+            ctypes.windll.powrprof.SetSuspendState(False, True, False)
+            return
+        cmd = power_command(action)
         if cmd is None:
             raise ValueError(f"неизвестная системная команда: {action}")
         subprocess.Popen(cmd)
@@ -242,10 +247,13 @@ class WindowsPlatform(make_stub("windows")):
 KEYEVENTF_KEYUP = 0x0002
 MEDIA_VK = {"play_pause": 0xB3, "next": 0xB0, "prev": 0xB1,
             "mute": 0xAD, "volume_down": 0xAE, "volume_up": 0xAF}
-# Подтверждение выключения уже получено на сервере (modules/ws_handlers.py).
-POWER_COMMANDS = {
-    "shutdown": ["shutdown", "/s", "/t", "0", "/c", "Команда Сакуры"],
-    "restart": ["shutdown", "/r", "/t", "0", "/c", "Команда Сакуры"],
-    "shutdown_cancel": ["shutdown", "/a"],
-    "sleep": ["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"],
-}
+# Подтверждение выключения уже получено на сервере (modules/ws_handlers.py); выключение и
+# перезагрузка — с задержкой SHUTDOWN_DELAY_S, чтобы «отмени выключение» (shutdown /a) успело.
+def power_command(action: str, delay_s: int | None = None) -> list[str] | None:
+    from desktop.core import config
+    delay = str(max(0, int(config.SHUTDOWN_DELAY_S if delay_s is None else delay_s)))
+    return {
+        "shutdown": ["shutdown", "/s", "/t", delay, "/c", "Команда Сакуры"],
+        "restart": ["shutdown", "/r", "/t", delay, "/c", "Команда Сакуры"],
+        "shutdown_cancel": ["shutdown", "/a"],
+    }.get(action)

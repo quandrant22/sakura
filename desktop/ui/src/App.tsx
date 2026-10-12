@@ -50,6 +50,28 @@ function Toast() {
   );
 }
 
+/** Выключение или перезагрузка через N секунд: обратный отсчёт и «Отмена» (shutdown /a). */
+function PowerToast() {
+  const power = useApp((s) => s.power);
+  const cancel = useApp((s) => s.cancelPower);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!power) return;
+    const t = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(t);
+  }, [power]);
+  if (!power) return null;
+  const left = Math.max(0, Math.ceil((power.until - now) / 1000));
+  return (
+    <div role="alertdialog" aria-label="Выключение компьютера"
+         className="fixed left-1/2 top-24 z-50 flex -translate-x-1/2 items-center gap-4 rounded-card border border-accent bg-panel2 px-5 py-3 text-sm text-ink shadow-soft">
+      <span>{power.action === "restart" ? "Перезагрузка" : "Выключение"} через <b className="tabular-nums">{left}</b> с</span>
+      <button type="button" onClick={() => void cancel()} autoFocus
+              className="rounded-btn bg-accent-grad px-3 py-1.5 text-xs font-medium text-white">Отмена</button>
+    </div>
+  );
+}
+
 function Placeholder({ title, phase }: { title: string; phase: number }) {
   return (
     <div className="grid h-full place-items-center rounded-card bg-panel text-sm text-ink-dim">
@@ -204,6 +226,7 @@ function Shell() {
           : <div className="flex-1" aria-busy="true" />}
       </div>
       <Toast />
+      <PowerToast />
     </div>
   );
 }

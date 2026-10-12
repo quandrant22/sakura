@@ -855,8 +855,9 @@ def execute_command(action: str) -> dict:
     if verb == "system":
         # Подтверждение выключения уже получено на сервере (_pending_system в
         # modules/ws_handlers.py) — платформа выполняет сразу.
-        done = {"lock": "заблокировано", "shutdown": "выключение",
-                "restart": "перезагрузка", "shutdown_cancel": "выключение отменено",
+        delay = config.SHUTDOWN_DELAY_S
+        done = {"lock": "заблокировано", "shutdown": f"выключение через {delay} с",
+                "restart": f"перезагрузка через {delay} с", "shutdown_cancel": "выключение отменено",
                 "sleep": "уходим в сон"}
         if arg not in done:
             return {"result": f"неизвестная системная команда: {arg}"}

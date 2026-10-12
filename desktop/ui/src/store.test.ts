@@ -33,6 +33,23 @@ class ScriptClient implements CoreClient {
 }
 
 describe("store", () => {
+  test("выключение через 30 с: отсчёт, «Отмена» — power_cancel, power_cancelled снимает", async () => {
+    const c = new ScriptClient();
+    const store = createAppStore(c);
+    store.getState().init();
+    const t0 = Date.now();
+    c.emit({ type: "power_pending", action: "shutdown", seconds: 30 });
+    const p = store.getState().power!;
+    expect(p.action).toBe("shutdown");
+    expect(p.until - t0).toBeGreaterThanOrEqual(29_000);
+    await store.getState().cancelPower();
+    expect(c.calls.at(-1)?.type).toBe("power_cancel");
+    expect(store.getState().power).toBeNull();
+    c.emit({ type: "power_pending", action: "restart", seconds: 30 });
+    c.emit({ type: "power_cancelled" });
+    expect(store.getState().power).toBeNull();
+  });
+
   test("п. 1: ходы — повтор (turn_id, kind, text) игнорируется, поздний ответ встаёт к своему ходу", () => {
     const c = new ScriptClient();
     const store = createAppStore(c);

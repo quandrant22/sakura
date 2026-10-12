@@ -141,6 +141,14 @@ class CoreService:
             self.chat.command(data.get("detail", ""), data.get("status", "failed"), data.get("action", ""))
         elif event == "tts_end":
             self.chat.tts_end()
+        elif event == "power_pending":
+            what = "Перезагружаю" if data.get("action") == "restart" else "Выключаю"
+            seconds = int(data.get("seconds") or 0)
+            self._emit({"type": "power_pending", "action": data.get("action"), "seconds": seconds})
+            self.chat.reply(f"{what} компьютер через {seconds} секунд. Скажи «отмени», чтобы остановить.",
+                            kind="proactive")
+        elif event == "power_cancelled":
+            self._emit({"type": "power_cancelled"})
         elif event == "agent_alert":
             self._emit({"type": "notify", "text": data.get("text", ""), "level": "warn"})
         elif event == "game_mode":
@@ -161,6 +169,7 @@ class CoreService:
         c("stop_speaking", self.cmd_stop_speaking)
         c("listen_now", self.cmd_listen_now)
         c("window_ask", self.cmd_window_ask)
+        c("power_cancel", self.cmd_power_cancel)
         c("quick_action", self.cmd_quick_action)
         c("list_apps", self.cmd_list_apps)
         c("list_audio_devices", self.cmd_list_audio_devices)
@@ -215,6 +224,14 @@ class CoreService:
             raise ApiError("unsupported", "сервер не поддерживает")
         log.info("[window_ask] кадр %d КиБ отправлен по запросу пользователя", len(image) * 3 // 4 // 1024)
         return await self.link.request({"type": "vision_request", "image": image, "question": question})
+
+    async def cmd_power_cancel(self, msg: dict):
+        """Кнопка «Отмена» в тосте выключения — то же, что «отмени выключение»."""
+        from desktop.core.platform import get_platform
+        await asyncio.to_thread(get_platform().power, "shutdown_cancel")
+        self._emit({"type": "power_cancelled"})
+        self.chat.command("выключение отменено", "done")
+        return {"ok": True}
 
     async def cmd_quick_action(self, msg: dict):
         kind, arg = msg.get("id"), msg.get("arg")

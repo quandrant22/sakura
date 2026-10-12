@@ -36,6 +36,10 @@ export interface AppState {
   scenarios: Slice<Scenario[]>;
   preview: Slice<{ scenario: Scenario; warnings: string[] } | null>;
   toast: { text: string; level: "info" | "warn" | "error" } | null;
+  /** Запланировано выключение/перезагрузка: до какого момента (мс) — для тоста с отсчётом и «Отмена». */
+  power: { action: "shutdown" | "restart"; until: number } | null;
+  /** «Отмена» в тосте выключения. */
+  cancelPower(): Promise<void>;
   /** Последние уведомления (виджет «Уведомления»); в файл не пишутся. */
   notifications: { ts: number; text: string; level: "info" | "warn" | "error" }[];
 
@@ -203,6 +207,14 @@ export function createAppStore(client: CoreClient) {
           set({ status: { data: rest as Status, status: "ready" } });
           break;
         }
+        case "power_pending": {
+          const p = ev as unknown as { action: string; seconds: number };
+          set({ power: { action: p.action === "restart" ? "restart" : "shutdown", until: Date.now() + (Number(p.seconds) || 0) * 1000 } });
+          break;
+        }
+        case "power_cancelled":
+          set({ power: null });
+          break;
         case "notify": {
           const n = ev as { text: string; level: "info" | "warn" | "error" };
           // Лента уведомлений (виджет) — только в памяти, последние 50.
@@ -227,6 +239,16 @@ export function createAppStore(client: CoreClient) {
       preview: empty(null),
       toast: null,
       notifications: [],
+      power: null,
+
+      async cancelPower() {
+        try {
+          await client.call("power_cancel");
+          set({ power: null });
+        } catch (e) {
+          set({ toast: { text: errorText(e), level: "error" } });
+        }
+      },
 
       init() {
         const offEv = client.onEvent(onEvent);

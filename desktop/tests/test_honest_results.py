@@ -112,3 +112,18 @@ def test_kettle_watch_only_after_success(monkeypatch):
 def test_key_path_is_absolute():
     import os
     assert os.path.isabs(kettle.KEY_FILE)
+
+
+def test_shutdown_announces_pending_and_cancel(monkeypatch):
+    # Подставной исполнитель: execute_command не выключает компьютер.
+    events = []
+    a = _agent()
+    a.bus = SimpleNamespace(emit=lambda ev, **k: events.append((ev, k)))
+    monkeypatch.setattr(agent_mod, "execute_command", lambda full: {"result": "выключение через 30 с"})
+    _run(a, "system.shutdown")
+    assert ("power_pending", {"action": "shutdown", "seconds": 30}) in events
+    a2 = _agent()
+    a2.bus = a.bus
+    monkeypatch.setattr(agent_mod, "execute_command", lambda full: {"result": "выключение отменено"})
+    _run(a2, "system.shutdown_cancel")
+    assert ("power_cancelled", {}) in events
