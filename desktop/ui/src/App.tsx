@@ -11,6 +11,8 @@ import { CoreCard, MenuCard, type Section } from "./components/LeftColumn";
 import { TitleBar } from "./components/TitleBar";
 import { CHAT, prefsStore, usePrefs } from "./layout/prefs";
 import { MediaProvider } from "./media/MediaContext";
+import { Devices } from "./screens/Devices";
+import { Scenarios } from "./screens/Scenarios";
 import { Settings } from "./screens/Settings";
 import { createAppStore, StoreContext, useApp } from "./store";
 
@@ -99,8 +101,8 @@ function Workspace({ section }: { section: Section }) {
 
   let screen;
   if (section === "settings") screen = <Settings />;
-  else if (section === "devices") screen = <Placeholder title="Устройства" phase={3} />;
-  else if (section === "scenarios") screen = <Placeholder title="Сценарии" phase={5} />;
+  else if (section === "devices") screen = <Devices />;
+  else if (section === "scenarios") screen = <Scenarios />;
   else if (section === "memory") screen = <Placeholder title="Память" phase={5} />;
   else screen = <WidgetBoard />;
 

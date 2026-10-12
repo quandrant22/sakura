@@ -61,7 +61,7 @@ function PairRow({ pair, onChange, disabled = false }: { pair: Pair; onChange?(p
 
 const EXAMPLE: Pair = { cond: "time", condValue: "22:00–07:00", act: "action", actValue: "Не беспокоить на телефоне" };
 
-export function ScenarioBuilder({ onOpen }: { onOpen(): void }) {
+export function ScenarioBuilder() {
   const preview = useApp((s) => s.preview);
   const previewScenario = useApp((s) => s.previewScenario);
   const [name, setName] = useState("");
@@ -69,13 +69,7 @@ export function ScenarioBuilder({ onOpen }: { onOpen(): void }) {
   const [phrase, setPhrase] = useState("");
 
   return (
-    <Card title="Создание сценария" icon={<Workflow size={18} />}
-          action={
-            <button type="button" onClick={onOpen}
-                    className="flex items-center gap-1 whitespace-nowrap rounded-card bg-accent px-2.5 py-1 text-xs text-white shadow-glow">
-              <Plus size={14} /> Новый сценарий
-            </button>
-          }>
+    <Card title="Создание сценария" icon={<Workflow size={18} />}>
       <div className="space-y-3 overflow-y-auto px-4 pb-4">
         <input aria-label="Название сценария" value={name} onChange={(e) => setName(e.target.value)}
                placeholder="Например: Режим сна" className={field + " w-full py-2 text-sm"} />

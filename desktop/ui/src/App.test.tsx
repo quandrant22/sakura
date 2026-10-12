@@ -54,8 +54,12 @@ test("меню переключает экраны; инструменты до�
   render(<App client={new DemoClient("normal")} />);
   await waitFor(() => expect(screen.getByRole("button", { name: /Правка доски/ })).toBeTruthy());
   fireEvent.click(screen.getByRole("button", { name: /Сценарии/ }));
-  expect(screen.getByText(/Сценарии: экран появится/)).toBeTruthy();
+  expect(screen.getByRole("region", { name: "Создание сценария" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: /Правка доски/ })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: /Устройства/ }));
+  await waitFor(() => expect(screen.getByText(/Последняя активность/)).toBeTruthy());
+  fireEvent.click(screen.getByRole("button", { name: /Память/ }));
+  expect(screen.getByText(/Память: экран появится/)).toBeTruthy();
 });
 
 test("режим правки: убрать виджет, вернуть, сбросить; замок выключает правку", async () => {
