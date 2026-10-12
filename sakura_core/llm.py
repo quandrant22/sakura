@@ -729,7 +729,8 @@ async def ask_gemini_voice(
         return ("Все ключи исчерпаны.", "neutral")
 
     _t_build = __import__("time").monotonic()
-    full_system = await _build_system(query=user_message)
+    full_system = await _build_system(query=user_message,
+                                      profile=config.VOICE_PROMPT_PROFILE)
     len_hint = _LEN_HINT.get(length, "")
     if len_hint:
         full_system = f"{full_system}\n\n{len_hint}"

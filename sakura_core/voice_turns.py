@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import logging
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -43,6 +44,12 @@ class Turn:
     ended: bool = False         # tts_end этого хода уже ушёл
     done: bool = False          # обработчик хода завершился
     prev: Turn | None = field(default=None, repr=False)
+    # Хронометраж (sakura_core.turn_timing): мс от приёма до этапов.
+    t_recv: float = field(default_factory=time.monotonic)
+    marks: dict[str, float] = field(default_factory=dict)
+    kind: str = "other"         # conversation | command | other
+    flags: list[str] = field(default_factory=list)
+    reported: bool = False
 
 
 _current: contextvars.ContextVar[Turn | None] = contextvars.ContextVar(
@@ -92,6 +99,9 @@ def mark_ended() -> None:
     t = _current.get()
     if t is not None:
         t.ended = True
+        from sakura_core import turn_timing
+        turn_timing.mark("tts_end", t)
+        turn_timing.maybe_report(t)
 
 
 def use(turn: Turn | None) -> contextvars.Token:
@@ -191,6 +201,8 @@ async def _run(turn: Turn, factory: Callable[[], Awaitable[None]]) -> None:
         log.error(f"[turn] {turn.device_id}: ход {turn.turn_id}: {type(e).__name__}: {e}")
     finally:
         turn.done = True
+        from sakura_core import turn_timing
+        turn_timing.on_done(turn)
 
 
 def start(device_id: str, ws, factory: Callable[[], Awaitable[None]]) -> Turn:

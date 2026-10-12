@@ -594,6 +594,8 @@ def _make_audio_sender(websocket, device_id: str):
         # Ход вытеснен новым запросом устройства — запоздавший пакет не уходит.
         if voice_turns.is_cancelled():
             return
+        from sakura_core import turn_timing
+        turn_timing.mark("first_audio")
         await websocket.send(json.dumps(voice_turns.tag({
             "type":        "tts_chunk",
             "device_id":   device_id,

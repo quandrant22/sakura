@@ -14,7 +14,7 @@ import uuid
 import random
 
 from modules.state import _pending_commands, connected_devices, _plan_cancel
-from sakura_core import voice_turns
+from sakura_core import turn_timing, voice_turns
 from sakura_core.tasks import spawn
 
 log = logging.getLogger("sakura.ws")
@@ -457,6 +457,14 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
         voice_gate = VoiceGate()
         log.info(f"[voice] prefetch старт +{(time.monotonic()-t_recv)*1000:.0f}мс "
                  f"от приёма (параллельно классификатору)")
+        # Ранний шлюз (perf/voice-2): вопрос без командных глаголов —
+        # звук не ждёт вердикта; «команда» всё равно снимет поток.
+        import config as _cfg
+        from sakura_core.early_gate import opens_early
+        if _cfg.VOICE_EARLY_GATE and opens_early(text):
+            voice_gate.open()
+            turn_timing.flag("early_gate")
+            log.info("[voice] ранний шлюз: вопрос без командных глаголов — звук не ждёт вердикта")
         voice_task = asyncio.create_task(ask_gemini_voice(
             user_message  = text + ctx_str,
             websocket     = ws_dev,
@@ -467,6 +475,17 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
         ))
 
     prefetch_closed = False
+
+    async def _on_command_verdict():
+        """Вердикт «команда» (или готовый ответ разговорного слоя)."""
+        turn_timing.mark("verdict")
+        turn_timing.set_kind("command")
+        turn = voice_turns.current()
+        if turn is not None and "first_audio" in turn.marks and voice_task is not None:
+            # Ранний шлюз уже отдал звук ответа — отмена после первого звука.
+            turn_timing.flag("verdict_after_audio")
+            log.warning("[voice] ранний шлюз: вердикт «команда» пришёл после первого звука")
+        await _cancel_voice_prefetch()
 
     async def _cancel_voice_prefetch():
         """Команда подтверждена — стрим ответа отменяется, TTS не зван.
@@ -528,7 +547,7 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
                                   speak=_v3_speak,
                                   resolve_reply=_ws_resolve_reply,
                                   on_llm=_prefetch_voice,
-                                  on_command=_cancel_voice_prefetch,
+                                  on_command=_on_command_verdict,
                                   on_agent_command=_arm_ack,
                                   source=device_id):
                 await _cancel_voice_prefetch()
@@ -680,9 +699,11 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
         except Exception as e:
             log.debug(f"[voice] game_hub ctx: {e}")
         log.info(f"[voice] → ask_gemini_voice ws_dev={ws_dev is not None} device={device_id}")
+        turn_timing.mark("verdict")
+        turn_timing.set_kind("conversation")
         if voice_task is not None:
             # Классификатор вернул «не команда» (и ветки-команды выше не
-            # сработали): накопленный буфер отдаём в TTS и дожидаемся стрима.
+            # сработали): удержанный звук — на устройство, ждём стрим.
             voice_gate.open()
             handed_off = True
             await voice_task
