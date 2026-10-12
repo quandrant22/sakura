@@ -83,3 +83,7 @@
 - Тесты: test_control.py — 25 тестов на подставной платформе; ничего настоящего не выполнялось.
 
 **Ждёт сервер:** триггеры для новых id и поле `confirmed: true` после вопроса пользователю (DECISIONS №39).
+
+## Шаг 3.3 — UI Automation (0072072)
+- ui.click, ui.type, ui.scroll, ui.read через comtypes (UIAutomationCore). Тесты на заглушке, живьём не запускалось.
+- 3.4 computer.do не делаю: ждёт серверный computer_step.
