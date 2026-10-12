@@ -17,7 +17,13 @@ export interface SakuraBridge {
   layout: {
     get(deviceId: string): Promise<Record<string, unknown> | null>;
     set(deviceId: string, entry: Record<string, unknown>): Promise<boolean>;
+    /** Сохранить раскладку в файл (диалог); false — отменено. */
+    exportFile(json: string): Promise<boolean>;
+    /** Выбрать файл раскладки (диалог); текст файла или null. */
+    importFile(): Promise<string | null>;
   };
+  /** Виджет в отдельном окне. */
+  widgets: { popout(type: string, id: string): Promise<void> };
   openLogs(): Promise<string>;
   core: { connection(): Promise<CoreConnection | null> };
   tray: {
@@ -58,6 +64,8 @@ function memoryLayout(): SakuraBridge["layout"] {
   return {
     get: async (id) => mem.get(id) ?? null,
     set: async (id, entry) => { mem.set(id, entry); return true; },
+    exportFile: async () => false,
+    importFile: async () => null,
   };
 }
 
@@ -71,6 +79,7 @@ const fallback: SakuraBridge = {
   },
   version: async () => "dev",
   layout: memoryLayout(),
+  widgets: { popout: async () => {} },
   openLogs: async () => "",
   core: { connection: async () => null },
   tray: { onAction: () => () => {}, setState: async () => {} },

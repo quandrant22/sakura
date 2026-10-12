@@ -1,11 +1,12 @@
-// Настройки интерфейса этого устройства: раскладка доски, тема, ширина чата, замок, подвижность ядра.
+// Настройки интерфейса этого устройства: доска (страницы и раскладки, layout.json v2), тема, ширина
+// чата, замок, подвижность ядра, медиа.
 // Хранятся в %LOCALAPPDATA%\Sakura\layout.json по device_id (через preload-мост).
 import { createStore, useStore } from "zustand";
 
 import { bridge, type SakuraBridge } from "../bridge";
 import { MERGE_PRESETS, MOBILITY, type MergePreset, type Mobility } from "../core-gfx/coreFrame";
 import { CAPTURE_MODES, type CaptureMode, FPS, ZOOM } from "../capture/captureLogic";
-import { addWidget, defaultLayout, type LayoutItem, removeWidget, sanitizeLayout, type WidgetId } from "./board";
+import { type Board, defaultBoard, migrateV1, validateBoard } from "./boardModel";
 
 export type Theme = "night" | "sketch";
 export const THEMES: Record<Theme, string> = { night: "Сакура-ночь", sketch: "Как в наброске" };
@@ -14,7 +15,12 @@ export const CHAT = { default: 350, min: 320, maxFraction: 0.6, collapsed: 56 };
 
 interface Persisted {
   theme: Theme;
-  layout: LayoutItem[];
+  /** Доска v2: страницы, у каждой раскладки lg/md/sm. */
+  board: Board;
+  /** pack — авто-упаковка без перекрытий; free — свободно (виджет не вытесняет соседей). */
+  boardMode: "pack" | "free";
+  /** Запущена игра → страница «Игры». */
+  autoGamePage: boolean;
   chatWidth: number;
   chatCollapsed: boolean;
   locked: boolean;
@@ -49,14 +55,15 @@ export interface PrefsState extends Persisted {
   load(deviceId: string): Promise<void>;
   set<K extends keyof Persisted>(key: K, value: Persisted[K]): void;
   setEditing(on: boolean): void;
-  addWidget(id: WidgetId): void;
-  removeWidget(id: WidgetId): void;
-  resetLayout(): void;
+  /** Изменить доску чистой операцией из boardModel. */
+  updateBoard(fn: (b: Board) => Board): void;
 }
 
 const DEFAULTS = (): Persisted => ({
   theme: "night",
-  layout: defaultLayout(),
+  board: defaultBoard(),
+  boardMode: "pack",
+  autoGamePage: false,
   chatWidth: CHAT.default,
   chatCollapsed: false,
   locked: false,
@@ -80,7 +87,10 @@ export function parsePersisted(raw: Record<string, unknown> | null): Persisted {
   const w = raw.chatWidth;
   return {
     theme: pick(raw.theme, THEMES, d.theme),
-    layout: sanitizeLayout(raw.layout) ?? d.layout,
+    // v2 — проверка; старая запись (layout v1) — миграция; иначе раскладка по умолчанию.
+    board: raw.board ? validateBoard(raw.board) : raw.layout ? migrateV1(raw.layout) : d.board,
+    boardMode: raw.boardMode === "free" ? "free" : "pack",
+    autoGamePage: raw.autoGamePage === true,
     chatWidth: typeof w === "number" && Number.isFinite(w) ? Math.max(CHAT.min, Math.round(w)) : d.chatWidth,
     chatCollapsed: raw.chatCollapsed === true,
     locked: raw.locked === true,
@@ -107,7 +117,7 @@ function parseViews(raw: unknown): Persisted["captureViews"] {
 }
 
 const persisted = (s: PrefsState): Persisted => ({
-  theme: s.theme, layout: s.layout, chatWidth: s.chatWidth, chatCollapsed: s.chatCollapsed,
+  theme: s.theme, board: s.board, boardMode: s.boardMode, autoGamePage: s.autoGamePage, chatWidth: s.chatWidth, chatCollapsed: s.chatCollapsed,
   locked: s.locked, mobility: s.mobility, preset: s.preset, showCommandResults: s.showCommandResults,
   musicSource: s.musicSource, musicBarStyle: s.musicBarStyle, videoFit: s.videoFit,
   captureFps: s.captureFps, captureViews: s.captureViews,
@@ -131,9 +141,10 @@ export function createPrefsStore(api: () => SakuraBridge["layout"], saveDelayMs 
     },
     set: (key, value) => set({ [key]: value } as Partial<PrefsState>),
     setEditing: (on) => set({ editing: on && !get().locked }),
-    addWidget: (id) => set({ layout: addWidget(get().layout, id) }),
-    removeWidget: (id) => set({ layout: removeWidget(get().layout, id) }),
-    resetLayout: () => set({ layout: defaultLayout() }),
+    updateBoard: (fn) => {
+      const next = fn(get().board);
+      if (next !== get().board) set({ board: next });
+    },
   }));
 
   // Сохранение с задержкой: перетаскивание и разделитель чата не пишут файл на каждый кадр.

@@ -34,6 +34,11 @@ test("повреждённый файл не роняет чтение", () => {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, "{не json");
   expect(readLayout(file, "pc")).toBeNull();
+  expect(readLayout(file, "pc")).toBeNull();
+  // повреждённый файл сохранён копией — ровно одной
+  const copies = fs.readdirSync(path.dirname(file)).filter((n) => n.startsWith("layout.json.corrupt-"));
+  expect(copies).toHaveLength(1);
+  expect(fs.readFileSync(path.join(path.dirname(file), copies[0]!), "utf-8")).toBe("{не json");
   expect(writeLayout(file, "pc", { theme: "night" })).toBe(true);
   expect(readLayout(file, "pc")).toEqual({ theme: "night" });
 });

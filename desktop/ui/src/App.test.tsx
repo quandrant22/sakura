@@ -50,33 +50,47 @@ test("офлайн: ядро «Нет связи» с пояснением, «П
   expect(screen.getAllByRole("button", { name: /Повторить/ }).length).toBeGreaterThanOrEqual(2);
 });
 
-test("меню переключает экраны; инструменты доски только на главной", async () => {
+test("меню переключает экраны; страницы и инструменты доски — только на главной", async () => {
   render(<App client={new DemoClient("normal")} />);
-  await waitFor(() => expect(screen.getByRole("button", { name: /Правка доски/ })).toBeTruthy());
+  await waitFor(() => expect(screen.getByRole("navigation", { name: "Страницы доски" })).toBeTruthy());
+  expect(screen.getByRole("button", { name: /Правка/ })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: /Сценарии/ }));
   expect(screen.getByRole("region", { name: "Создание сценария" })).toBeTruthy();
-  expect(screen.queryByRole("button", { name: /Правка доски/ })).toBeNull();
+  expect(screen.queryByRole("navigation", { name: "Страницы доски" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: /Устройства/ }));
   await waitFor(() => expect(screen.getByText(/Последняя активность/)).toBeTruthy());
   fireEvent.click(screen.getByRole("button", { name: /Память/ }));
   expect(screen.getByText(/Память: экран появится/)).toBeTruthy();
 });
 
-test("режим правки: убрать виджет, вернуть, сбросить; замок выключает правку", async () => {
+test("правка: убрать виджет и «Отменить», галерея добавляет, замок выключает правку", async () => {
   render(<App client={new DemoClient("normal")} />);
-  await waitFor(() => expect(screen.getByRole("button", { name: /Правка доски/ })).toBeTruthy());
-  fireEvent.click(screen.getByRole("button", { name: /Правка доски/ }));
+  await waitFor(() => expect(screen.getByRole("button", { name: /^Правка/ })).toBeTruthy());
+  fireEvent.click(screen.getByRole("button", { name: /^Правка/ }));
   fireEvent.click(screen.getByLabelText("Убрать виджет «Видео»"));
   expect(screen.queryByRole("region", { name: "Видео" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Видео" }));
+  fireEvent.click(screen.getByRole("button", { name: "Отменить" }));
   expect(screen.getByRole("region", { name: "Видео" })).toBeTruthy();
-  fireEvent.click(screen.getByLabelText("Убрать виджет «Музыка»"));
-  fireEvent.click(screen.getByRole("button", { name: /Сбросить раскладку/ }));
-  expect(screen.getByRole("region", { name: "Музыка" })).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("button", { name: /Виджет/ }));
+  const gallery = screen.getByRole("complementary", { name: "Галерея виджетов" });
+  expect(gallery.textContent).toContain("уже на странице"); // музыка — один на страницу
+  fireEvent.click(screen.getByLabelText("Добавить «Заметки» S"));
+  await waitFor(() => expect(screen.getByRole("region", { name: "Заметки" })).toBeTruthy());
 
   fireEvent.click(screen.getByLabelText("Закрепить доску"));
   expect(screen.queryByLabelText(/Убрать виджет/)).toBeNull();
-  expect((screen.getByRole("button", { name: /Правка доски/ }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button", { name: /^Правка/ }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+test("страницы: переключение щелчком и Ctrl+2, у каждой своя раскладка", async () => {
+  render(<App client={new DemoClient("normal")} />);
+  await waitFor(() => expect(screen.getByRole("navigation", { name: "Страницы доски" })).toBeTruthy());
+  fireEvent.click(screen.getByRole("button", { name: "Медиа" }));
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Система" })).toBeNull());
+  expect(screen.getByRole("region", { name: "Видео" })).toBeTruthy();
+  fireEvent.keyDown(window, { key: "2", ctrlKey: true });
+  await waitFor(() => expect(screen.getByRole("region", { name: "Быстрые действия" })).toBeTruthy());
 });
 
 test("клик по ядру — «говорить сейчас», долгое нажатие — микрофон", async () => {

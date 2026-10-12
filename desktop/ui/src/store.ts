@@ -36,6 +36,8 @@ export interface AppState {
   scenarios: Slice<Scenario[]>;
   preview: Slice<{ scenario: Scenario; warnings: string[] } | null>;
   toast: { text: string; level: "info" | "warn" | "error" } | null;
+  /** Последние уведомления (виджет «Уведомления»); в файл не пишутся. */
+  notifications: { ts: number; text: string; level: "info" | "warn" | "error" }[];
 
   init(): () => void;
   loadHistory(): Promise<void>;
@@ -203,7 +205,9 @@ export function createAppStore(client: CoreClient) {
         }
         case "notify": {
           const n = ev as { text: string; level: "info" | "warn" | "error" };
-          set({ toast: { text: n.text, level: n.level } });
+          // Лента уведомлений (виджет) — только в памяти, последние 50.
+          set({ toast: { text: n.text, level: n.level },
+                notifications: [{ ts: Date.now() / 1000, text: n.text, level: n.level }, ...get().notifications].slice(0, 50) });
           break;
         }
       }
@@ -222,6 +226,7 @@ export function createAppStore(client: CoreClient) {
       scenarios: empty<Scenario[]>([]),
       preview: empty(null),
       toast: null,
+      notifications: [],
 
       init() {
         const offEv = client.onEvent(onEvent);

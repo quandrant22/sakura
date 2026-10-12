@@ -1,27 +1,36 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { defaultLayout } from "./board";
+import { addWidgetTo, defaultBoard, getPage, migrateV1 } from "./boardModel";
 import { CHAT, createPrefsStore, parsePersisted } from "./prefs";
 
 function fakeApi(initial: Record<string, Record<string, unknown>> = {}) {
   const mem = new Map(Object.entries(initial));
   const set = vi.fn(async (id: string, e: Record<string, unknown>) => { mem.set(id, e); return true; });
-  return { api: { get: async (id: string) => mem.get(id) ?? null, set }, mem, set };
+  return { api: { get: async (id: string) => mem.get(id) ?? null, set, exportFile: async () => false, importFile: async () => null },
+           mem, set };
 }
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
-test("по умолчанию: «Сакура-ночь», чат 350, раскладка наброска", () => {
+test("по умолчанию: «Сакура-ночь», чат 350, доска v2 из трёх страниц", () => {
   const p = parsePersisted(null);
-  expect(p).toMatchObject({ theme: "night", chatWidth: 350, chatCollapsed: false, locked: false, mobility: "normal", preset: "soft" });
-  expect(p.layout).toEqual(defaultLayout());
+  expect(p).toMatchObject({ theme: "night", chatWidth: 350, chatCollapsed: false, locked: false, mobility: "normal",
+                            preset: "soft", boardMode: "pack", autoGamePage: false });
+  expect(p.board).toEqual(defaultBoard());
 });
 
 test("испорченные значения заменяются значениями по умолчанию", () => {
-  const p = parsePersisted({ theme: "neon", chatWidth: 10, layout: "x", mobility: "turbo", locked: "yes" });
-  expect(p).toMatchObject({ theme: "night", chatWidth: CHAT.min, locked: false, mobility: "normal" });
-  expect(p.layout).toEqual(defaultLayout());
+  const p = parsePersisted({ theme: "neon", chatWidth: 10, board: "x", mobility: "turbo", locked: "yes", boardMode: "chaos" });
+  expect(p).toMatchObject({ theme: "night", chatWidth: CHAT.min, locked: false, mobility: "normal", boardMode: "pack" });
+  expect(p.board).toEqual(defaultBoard());
+});
+
+test("старая запись (layout v1) мигрирует в v2", () => {
+  const v1 = [{ i: "system", x: 0, y: 0, w: 9, h: 16 }, { i: "app", x: 0, y: 16, w: 24, h: 11 }];
+  const p = parsePersisted({ layout: v1 });
+  expect(p.board).toEqual(migrateV1(v1));
+  expect(getPage(p.board).breakpoints.lg.map((it) => it.type)).toEqual(["system", "window"]);
 });
 
 test("загрузка по device_id и сохранение с задержкой", async () => {
@@ -53,15 +62,13 @@ test("режим правки не сохраняется и недоступе�
   expect(s.getState().editing).toBe(false);
 });
 
-test("удалить, добавить, сбросить", async () => {
-  const { api } = fakeApi();
+test("изменения доски сохраняются в layout.json (version 2)", async () => {
+  const { api, mem } = fakeApi();
   const s = createPrefsStore(() => api, 100);
   await s.getState().load("pc");
-  s.getState().removeWidget("video");
-  expect(s.getState().layout.map((it) => it.i)).not.toContain("video");
-  s.getState().addWidget("video");
-  expect(s.getState().layout.map((it) => it.i)).toContain("video");
-  s.getState().set("layout", []);
-  s.getState().resetLayout();
-  expect(s.getState().layout).toEqual(defaultLayout());
+  s.getState().updateBoard((b) => addWidgetTo(b, "notes", "S").board);
+  vi.advanceTimersByTime(150);
+  const saved = mem.get("pc")?.board as { version: number; pages: { breakpoints: { lg: { type: string }[] } }[] };
+  expect(saved.version).toBe(2);
+  expect(saved.pages[0]!.breakpoints.lg.some((it) => it.type === "notes")).toBe(true);
 });

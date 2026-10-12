@@ -1,14 +1,17 @@
 import { X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Group, Panel, Separator, usePanelRef } from "react-resizable-panels";
 
 import { type CoreClient, WsCoreClient } from "./api/client";
 import { DemoClient, type DemoMode } from "./api/demo";
+import { BoardBar } from "./board/BoardBar";
 import { WidgetBoard } from "./board/WidgetBoard";
 import { bridge } from "./bridge";
 import { Chat, ChatStrip } from "./components/Chat";
 import { CoreCard, MenuCard, type Section } from "./components/LeftColumn";
 import { TitleBar } from "./components/TitleBar";
+import { CATALOG, gamesPage, getPage, patchWidget, setActivePage, type WidgetType } from "./layout/boardModel";
+import { VIEWS } from "./board/registry";
 import { CHAT, prefsStore, usePrefs } from "./layout/prefs";
 import { MediaProvider } from "./media/MediaContext";
 import { Devices } from "./screens/Devices";
@@ -92,7 +95,7 @@ function usePrefsLoader() {
   useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
 }
 
-function Workspace({ section }: { section: Section }) {
+function Workspace({ section, galleryOpen, onCloseGallery }: { section: Section; galleryOpen: boolean; onCloseGallery(): void }) {
   const winW = useWindowWidth();
   const chatRef = usePanelRef();
   const chatWidth = usePrefs((s) => s.chatWidth);
@@ -104,7 +107,7 @@ function Workspace({ section }: { section: Section }) {
   else if (section === "devices") screen = <Devices />;
   else if (section === "scenarios") screen = <Scenarios />;
   else if (section === "memory") screen = <Placeholder title="Память" phase={5} />;
-  else screen = <WidgetBoard />;
+  else screen = <WidgetBoard galleryOpen={galleryOpen} onCloseGallery={onCloseGallery} />;
 
   const expand = () => {
     const p = chatRef.current;
@@ -151,7 +154,29 @@ function Shell() {
   const setGameMode = useApp((s) => s.setGameMode);
   const loaded = usePrefs((s) => s.loaded);
   const setEditing = usePrefs((s) => s.setEditing);
+  const updateBoard = usePrefs((s) => s.updateBoard);
+  const autoGamePage = usePrefs((s) => s.autoGamePage);
+  const [gallery, setGallery] = useState(false);
   usePrefsLoader();
+
+  // Ctrl+1..9 — страница доски (на главной).
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.altKey || e.shiftKey || !/^[1-9]$/.test(e.key) || section !== "home") return;
+      const page = prefsStore.getState().board.pages[Number(e.key) - 1];
+      if (!page) return;
+      e.preventDefault();
+      updateBoard((b) => setActivePage(b, page.id));
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [section, updateBoard]);
+
+  // Запущена игра (игровой режим) → страница «Игры», если включено в меню доски.
+  useEffect(() => {
+    if (!game || !autoGamePage) return;
+    updateBoard((b) => { const p = gamesPage(b); return p ? setActivePage(b, p.id) : b; });
+  }, [game, autoGamePage, updateBoard]);
 
   useEffect(() => bridge().tray.onAction((id) => {
     if (id === "mic_toggle") void toggleMic();
@@ -162,35 +187,66 @@ function Shell() {
   }, [mic, game]);
 
   const go = (s: Section) => {
-    if (s !== "home") setEditing(false);
+    if (s !== "home") { setEditing(false); setGallery(false); }
     setSection(s);
   };
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-bg">
-      <TitleBar />
+      <TitleBar center={section === "home" && loaded ? <BoardBar galleryOpen={gallery} onGallery={() => setGallery(!gallery)} /> : undefined} />
       <div className="flex min-h-0 flex-1 gap-gap px-edge pb-edge pt-gap">
         <aside className="flex w-[300px] shrink-0 flex-col gap-gap">
           <CoreCard />
           <MenuCard section={section} onSection={go} />
         </aside>
         {/* Раскладка грузится по device_id — до этого чат и доска не монтируются, чтобы не прыгала ширина. */}
-        {loaded ? <Workspace section={section} /> : <div className="flex-1" aria-busy="true" />}
+        {loaded ? <Workspace section={section} galleryOpen={gallery} onCloseGallery={() => setGallery(false)} />
+          : <div className="flex-1" aria-busy="true" />}
       </div>
       <Toast />
     </div>
   );
 }
 
-export default function App({ client }: { client?: CoreClient }) {
+/** Сторы ядра и медиа — общие для главного окна и окна отдельного виджета. */
+export function Providers({ client, children }: { client?: CoreClient; children: ReactNode }) {
   const core = useMemo(() => client ?? makeClient(window.location.search), [client]);
   const store = useMemo(() => createAppStore(core), [core]);
   useEffect(() => store.getState().init(), [store]);
   return (
     <StoreContext.Provider value={store}>
-      <MediaProvider client={core}>
-        <Shell />
-      </MediaProvider>
+      <MediaProvider client={core}>{children}</MediaProvider>
     </StoreContext.Provider>
   );
+}
+
+/** «В отдельное окно»: один виджет на всё окно (?view=widget&type=…&id=…), настройки — в той же раскладке. */
+function WidgetWindow({ type, id }: { type: WidgetType; id: string }) {
+  usePrefsLoader();
+  const board = usePrefs((s) => s.board);
+  const loaded = usePrefs((s) => s.loaded);
+  const update = usePrefs((s) => s.updateBoard);
+  const item = board.pages.flatMap((p) => p.breakpoints.lg).find((it) => it.id === id)
+    ?? { id, type, x: 0, y: 0, w: 1, h: 1 };
+  const view = VIEWS[type];
+  const page = board.pages.find((p) => p.breakpoints.lg.some((it) => it.id === id)) ?? getPage(board);
+  useEffect(() => { document.title = `Sakura · ${CATALOG[type].title}`; }, [type]);
+  if (!loaded) return <div className="h-full bg-bg" aria-busy="true" />;
+  return (
+    <div className="flex h-full flex-col bg-bg p-3">
+      <section aria-label={CATALOG[type].title} className="flex min-h-0 flex-1 flex-col overflow-auto rounded-card bg-panel pt-3">
+        <view.Component item={item}
+                        setSettings={(patch) => update((b) => patchWidget(b, id, { settings: { ...item.settings, ...patch } }, page.id))} />
+      </section>
+    </div>
+  );
+}
+
+export function WidgetWindowApp({ type, id }: { type: string; id: string }) {
+  if (!(type in CATALOG)) return <div className="p-4 text-sm text-ink-dim">Неизвестный виджет</div>;
+  return <Providers><WidgetWindow type={type as WidgetType} id={id} /></Providers>;
+}
+
+export default function App({ client }: { client?: CoreClient }) {
+  return <Providers client={client}><Shell /></Providers>;
 }

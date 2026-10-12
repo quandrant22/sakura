@@ -5,7 +5,8 @@ import { type ReactNode, useEffect, useState } from "react";
 import { bridge } from "../bridge";
 import { SakuraLogo } from "./SakuraLogo";
 
-export function TitleBar() {
+/** center — содержимое центра (страницы доски на главной); пустое место остаётся перетаскиванием окна. */
+export function TitleBar({ center }: { center?: ReactNode }) {
   const [maximized, setMaximized] = useState(false);
 
   useEffect(() => {
@@ -20,8 +21,8 @@ export function TitleBar() {
         <span className="text-sm font-semibold tracking-logo text-ink">SAKURA</span>
       </div>
 
-      {/* Пустой центр — за него окно перетаскивается. */}
-      <div className="h-full flex-1" />
+      {/* Центр: страницы доски (кнопки — no-drag); всё пустое — перетаскивание окна. */}
+      {center ?? <div className="h-full flex-1" />}
 
       <div className="no-drag flex items-center gap-gap">
         <WinButton label="Свернуть" onClick={() => void bridge().window.minimize()}>

@@ -9,11 +9,12 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { bridge } from "../../bridge";
 import { CAPTURE_MODES, type CaptureMode, captureRect, filterSources, fitWidgetRows, type WindowSource, ZOOM } from "../../capture/captureLogic";
 import { useWindowCapture } from "../../capture/useWindowCapture";
-import { GRID } from "../../layout/board";
+import { MARGIN, ROW_HEIGHT, setWidgetHeight } from "../../layout/boardModel";
 import { usePrefs } from "../../layout/prefs";
 import { useMediaClient } from "../../media/MediaContext";
 import { errorText } from "../../store";
 import { useInteracting } from "../interaction";
+import type { WidgetProps } from "./SmallWidgets";
 
 const btn = "flex items-center gap-1 rounded-btn border border-line px-2 py-1 text-[11px] text-ink-dim hover:border-accent hover:text-ink disabled:opacity-40";
 
@@ -45,7 +46,7 @@ function elapsed(since: number, now: number) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-export function AppWindowWidget() {
+export function AppWindowWidget({ item }: Partial<WidgetProps>) {
   const client = useMediaClient();
   const [rootRef, root] = useBox<HTMLDivElement>();
   const [stageRef, stage] = useBox<HTMLDivElement>();
@@ -53,7 +54,7 @@ export function AppWindowWidget() {
   const interacting = useInteracting();
   const baseFps = usePrefs((p) => p.captureFps);
   const views = usePrefs((p) => p.captureViews);
-  const layout = usePrefs((p) => p.layout);
+  const updateBoard = usePrefs((p) => p.updateBoard);
   const setPref = usePrefs((p) => p.set);
   const { stream, state, error, src, since, start: startCapture, stop, videoRef, onResize, grabFrame } =
     useWindowCapture({ baseFps, width: root.w, hidden, interacting });
@@ -102,8 +103,8 @@ export function AppWindowWidget() {
   const fitWidget = () => {
     const aspect = src.width / src.height;
     const chrome = root.h - stage.h + 44; // заголовок виджета + панель
-    const rows = fitWidgetRows(root.w, aspect, GRID.rowHeight, GRID.margin[1], chrome);
-    setPref("layout", layout.map((it) => (it.i === "app" ? { ...it, h: rows } : it)));
+    const rows = fitWidgetRows(root.w, aspect, ROW_HEIGHT, MARGIN[1], chrome);
+    if (item) updateBoard((b) => setWidgetHeight(b, item.id, rows));
   };
 
   const live = state === "live" || state === "black";
@@ -157,7 +158,7 @@ export function AppWindowWidget() {
           <button type="button" className={btn} aria-label="Сбросить масштаб" onClick={() => setView({ zoom: 1 })}><RotateCcw size={12} /></button>
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-1">
-          <button type="button" className={btn} onClick={fitWidget} disabled={!src.width}>Подогнать виджет</button>
+          {item && <button type="button" className={btn} onClick={fitWidget} disabled={!src.width}>Подогнать виджет</button>}
           <button type="button" className={btn} onClick={() => source && void bridge().capture.openMini(source.id, src.width / src.height)}>
             <PictureInPicture2 size={12} /> Поверх всех</button>
           <button type="button" className={btn} onClick={() => void ask()} title="Один кадр уйдёт на сервер для ответа">

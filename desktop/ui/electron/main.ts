@@ -132,6 +132,35 @@ ipcMain.handle("window:is-maximized", () => win?.isMaximized() ?? false);
 ipcMain.handle("app:version", () => app.getVersion());
 ipcMain.handle("layout:get", (_e, deviceId: unknown) => readLayout(layoutFile, deviceId));
 ipcMain.handle("layout:set", (_e, deviceId: unknown, entry: unknown) => writeLayout(layoutFile, deviceId, entry));
+ipcMain.handle("layout:export", async (_e, json: unknown) => {
+  if (!win || typeof json !== "string" || json.length > 1_000_000) return false;
+  const r = await dialog.showSaveDialog(win, { title: "Экспорт раскладки", defaultPath: "sakura-layout.json",
+                                               filters: [{ name: "JSON", extensions: ["json"] }] });
+  if (r.canceled || !r.filePath) return false;
+  fs.writeFileSync(r.filePath, json, "utf-8");
+  return true;
+});
+ipcMain.handle("layout:import", async () => {
+  if (!win) return null;
+  const r = await dialog.showOpenDialog(win, { title: "Импорт раскладки", properties: ["openFile"],
+                                               filters: [{ name: "JSON", extensions: ["json"] }] });
+  const file = r.canceled ? undefined : r.filePaths[0];
+  if (!file || fs.statSync(file).size > 1_000_000) return null;
+  return fs.readFileSync(file, "utf-8"); // разбор и проверка — в окне (validateBoard)
+});
+
+// «В отдельное окно»: виджет в своём окне (тот же интерфейс, ?view=widget).
+const WIDGET_TYPES = new Set(["music", "video", "window", "system", "scenarios", "today", "server", "notes",
+                              "notifications", "focus-timer", "quick-actions"]);
+ipcMain.handle("widget:popout", (_e, type: unknown, id: unknown) => {
+  if (typeof type !== "string" || !WIDGET_TYPES.has(type) || typeof id !== "string" || id.length > 64) return;
+  const w = new BrowserWindow({
+    width: 520, height: 420, minWidth: 320, minHeight: 200, title: "Sakura", backgroundColor: "#0a0610",
+    autoHideMenuBar: true,
+    webPreferences: { preload: path.join(here, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  void loadPage(w, `?view=widget&type=${encodeURIComponent(type)}&id=${encodeURIComponent(id)}`);
+});
 ipcMain.handle("app:open-logs", () => shell.openPath(path.join(dataDir, "logs")));
 ipcMain.handle("core:connection", () => {
   try {

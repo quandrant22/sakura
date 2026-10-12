@@ -17,6 +17,11 @@ const api = {
   layout: {
     get: (deviceId: string): Promise<Record<string, unknown> | null> => ipcRenderer.invoke("layout:get", deviceId),
     set: (deviceId: string, entry: Record<string, unknown>): Promise<boolean> => ipcRenderer.invoke("layout:set", deviceId, entry),
+    exportFile: (json: string): Promise<boolean> => ipcRenderer.invoke("layout:export", json),
+    importFile: (): Promise<string | null> => ipcRenderer.invoke("layout:import"),
+  },
+  widgets: {
+    popout: (type: string, id: string): Promise<void> => ipcRenderer.invoke("widget:popout", type, id),
   },
   openLogs: (): Promise<string> => ipcRenderer.invoke("app:open-logs"),
   core: {
