@@ -47,10 +47,28 @@ describe("sanitizeLayout", () => {
     ]);
     expect(out).toEqual([
       { i: "system", x: 0, y: 0, w: 9, h: 16 },
-      { i: "music", x: 7, y: 0, w: 17, h: 4 },
+      { i: "music", x: 7, y: 16, w: 17, h: 4 }, // перекрывала «Систему» — опущена под неё
     ]);
     expect(sanitizeLayout("x")).toBeNull();
   });
+});
+
+test("перекрытия из сохранённого файла раздвигаются (случай с mostech 12.10)", () => {
+  const out = sanitizeLayout([
+    { i: "system", x: 15, y: 40, w: 9, h: 16 },
+    { i: "video", x: 0, y: 0, w: 15, h: 16 },
+    { i: "app", x: 0, y: 32, w: 24, h: 11 },
+    { i: "music", x: 0, y: 38, w: 24, h: 4 },
+  ])!;
+  const by = Object.fromEntries(out.map((it) => [it.i, it]));
+  expect(by.app).toMatchObject({ y: 32 });
+  expect(by.music).toMatchObject({ y: 43 });
+  expect(by.system).toMatchObject({ y: 47 });
+  for (const a of out) for (const b of out) {
+    if (a === b) continue;
+    const hit = a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+    expect(hit).toBe(false);
+  }
 });
 
 describe("добавить / удалить", () => {

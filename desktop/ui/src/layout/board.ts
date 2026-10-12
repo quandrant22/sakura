@@ -43,7 +43,26 @@ export const defaultLayout = (): LayoutItem[] => WIDGET_IDS.map((i) => ({ i, ...
 const isWidget = (v: unknown): v is WidgetId => typeof v === "string" && v in WIDGETS;
 const int = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Math.round(v) : NaN);
 
-/** Проверка сохранённой раскладки: неизвестные виджеты и мусор отбрасываются, размеры — в пределах сетки. */
+const overlaps = (a: Omit<LayoutItem, "i">, b: Omit<LayoutItem, "i">) =>
+  a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+
+/** Раздвинуть перекрытия: виджеты по порядку сверху вниз, мешающий опускается под соседа. */
+export function resolveCollisions(layout: LayoutItem[]): LayoutItem[] {
+  const placed: LayoutItem[] = [];
+  for (const it of [...layout].sort((a, b) => a.y - b.y || a.x - b.x)) {
+    const cur = { ...it };
+    let hit = placed.find((p) => overlaps(cur, p));
+    while (hit) {
+      cur.y = hit.y + hit.h;
+      hit = placed.find((p) => overlaps(cur, p));
+    }
+    placed.push(cur);
+  }
+  return layout.map((it) => placed.find((p) => p.i === it.i)!);
+}
+
+/** Проверка сохранённой раскладки: неизвестные виджеты и мусор отбрасываются, размеры — в пределах сетки,
+ *  перекрытия раздвигаются. */
 export function sanitizeLayout(raw: unknown): LayoutItem[] | null {
   if (!Array.isArray(raw)) return null;
   const seen = new Set<WidgetId>();
@@ -59,7 +78,7 @@ export function sanitizeLayout(raw: unknown): LayoutItem[] | null {
     out.push({ i: o.i, x: Math.min(GRID.cols - cw, Math.max(0, x)), y: Math.max(0, y), w: cw, h: Math.max(meta.minH, h) });
     seen.add(o.i);
   }
-  return out;
+  return resolveCollisions(out);
 }
 
 /** Нижняя граница раскладки в строках. */
