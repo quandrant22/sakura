@@ -46,6 +46,7 @@ CATEGORY: dict[str, str] = {
     "music.next": "music",
     "music.prev": "music",
     "music.restart": "music",
+    "music.restart_playing": "music",
 }
 
 _DEVICE_ERR = ("оффлайн", "недоступ", "offline", "not connected", "нет подключения")

@@ -332,7 +332,19 @@
   reversible: true
   confirm: false
   followup: ack
-  triggers: ['трек сначала', 'включи сначала', 'с начала', 'заново', 'перезапусти трек', 'начни трек заново']
+  triggers: ['трек сначала', 'включи сначала', 'перезапусти трек', 'начни трек заново']
+
+# Алиас music.restart для голых «заново» / «с начала»: context задаётся на
+# декларацию, а вне музыки эти слова — разговор («объясни заново»).
+# Агенту уходит тот же music.restart (capabilities/music.py).
+- id: music.restart_playing
+  desc: 'Трек сначала (короткие «заново», «с начала» — только когда играет музыка)'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['с начала', 'заново']
+  context: playing:music
 
 - id: music.repeat
   legacy: [music:repeat]

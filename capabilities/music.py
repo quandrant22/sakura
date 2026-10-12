@@ -18,5 +18,7 @@ MUSIC_AGENT_ACTIONS = (
 
 # Явная таблица: канонический id → команда агенту.
 MUSIC_COMMANDS = {aid: AgentCommand(aid) for aid in MUSIC_AGENT_ACTIONS}
+# Алиасы реестра (другой context) — тот же id на проводе.
+MUSIC_COMMANDS["music.restart_playing"] = AgentCommand("music.restart")
 
 register_table(MUSIC_COMMANDS)

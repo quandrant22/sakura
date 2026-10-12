@@ -52,10 +52,10 @@ def index(registry):
 # --- загрузка и валидация -------------------------------------------------
 
 
-def test_load_returns_89_declarations(registry):
+def test_load_returns_90_declarations(registry):
     # system.volume was intentionally added in commit 5fe1b3f,
-    # music.restart — fix/music-restart.
-    assert len(registry) == 89
+    # music.restart и алиас music.restart_playing — fix/music-restart.
+    assert len(registry) == 90
 
 
 def test_validate_passes_on_real_registry(registry):

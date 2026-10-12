@@ -41,7 +41,7 @@ def test_all_music_actions_registered():
         d.id for d in load()
         if d.id.startswith("music.") and not d.id.startswith("music_stats")
     }
-    assert len(music_ids) == 19     # + music.restart
+    assert len(music_ids) == 20     # + music.restart, music.restart_playing
     missing = music_ids - set(registered())
     assert not missing, f"нет хендлеров: {missing}"
 
