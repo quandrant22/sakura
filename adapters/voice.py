@@ -42,6 +42,24 @@ _NL_WS = re.compile(r"\s*\n\s*")
 _EMOTION_LINE = re.compile(r"^EMOTION:\s*(.+?)\s*$", re.MULTILINE)
 
 
+def fit_to_limit(parts: list[str], sentence: str, limit: int) -> str | None:
+    """Предложение под предел длины ответа (символов, с пробелами между).
+
+    Влезает целиком — оно же. Не влезает — None (ответ кончается на
+    предыдущем предложении). Не влезает даже первое — обрезка по последней
+    границе слова с «…» (не посреди слова)."""
+    used = len(" ".join(parts))
+    extra = len(sentence) + (1 if parts else 0)
+    if used + extra <= limit:
+        return sentence
+    if parts:
+        return None
+    cut = sentence[: max(1, limit - 1)]
+    if " " in cut and not sentence[len(cut):len(cut) + 1].isspace():
+        cut = cut[: cut.rfind(" ")]
+    return cut.rstrip(" ,;:—-") + "…"
+
+
 async def iter_sentences(tokens: AsyncIterator[str]) -> AsyncIterator[str]:
     """Ассемблер стрима: токены → готовые предложения.
 
@@ -269,6 +287,17 @@ async def stream_llm_to_tts(
                 if m:
                     emotion = m.group(1)
                     continue
+                stop_after = False
+                if max_chars:
+                    # Предел длины голосового ответа (VOICE_MAX_CHARS): только
+                    # целые предложения; не влезло — дальше не читаем, и
+                    # озвучка, и tts_end не ждут длинного хвоста.
+                    fitted = fit_to_limit(parts, sentence, max_chars)
+                    if fitted is None:
+                        log.info(f"[voice] предел ответа {max_chars} симв — стрим остановлен")
+                        break
+                    stop_after = fitted != sentence
+                    sentence = fitted
                 parts.append(sentence)
                 if started:
                     await _before_stage()
@@ -287,10 +316,9 @@ async def stream_llm_to_tts(
                         for s in pending:
                             _new_stage(s)
                         pending = []
-                if max_chars and len(" ".join(parts)) >= max_chars:
-                    # Предел длины голосового ответа: дальше не читаем —
-                    # и озвучка, и tts_end не ждут длинного хвоста.
-                    log.info(f"[voice] предел ответа {max_chars} симв — стрим остановлен")
+                if stop_after:
+                    log.info(f"[voice] предел ответа {max_chars} симв — первое "
+                             f"предложение обрезано по слову, стрим остановлен")
                     break
         except Exception as e:
             log.error(f"[voice] стрим LLM упал: {e}")

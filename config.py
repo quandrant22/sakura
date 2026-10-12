@@ -58,8 +58,10 @@ VOICE_PRESYNTH = _flag("VOICE_PRESYNTH", "1")
 # Ранний шлюз: вопрос без командных глаголов — звук не ждёт вердикта.
 VOICE_EARLY_GATE = _flag("VOICE_EARLY_GATE", "1")
 # Профиль системного промпта голоса: light — без тяжёлых контекстных
-# блоков (персона не меняется), full — как в чате.
-VOICE_PROMPT_PROFILE = os.getenv("VOICE_PROMPT_PROFILE", "light").strip().lower()
+# блоков (персона не меняется; блоки возвращаются по словам запроса),
+# full — как в чате. По умолчанию full, пока brain_eval --online не
+# покажет, что light не хуже (docs/perf-voice-2.md).
+VOICE_PROMPT_PROFILE = os.getenv("VOICE_PROMPT_PROFILE", "full").strip().lower()
 # Предел длины голосового ответа (символов, по границе предложения); 0 — нет.
 VOICE_MAX_CHARS = max(0, int(os.getenv("VOICE_MAX_CHARS", "320") or 0))
 # Сводка [turn] p50/p90 — раз в столько секунд.

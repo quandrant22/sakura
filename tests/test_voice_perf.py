@@ -254,7 +254,7 @@ def test_early_gate_rules():
 # ── предел длины ответа ────────────────────────────────────────────
 
 def test_voice_max_chars_stops_stream(env, monkeypatch):
-    monkeypatch.setattr(config, "VOICE_MAX_CHARS", 80)
+    monkeypatch.setattr(config, "VOICE_MAX_CHARS", 120)
     env.sentences = tuple(f"Это предложение номер {i} очень длинного ответа." for i in range(10))
     env.verdict = 0.05
 
@@ -263,8 +263,19 @@ def test_voice_max_chars_stops_stream(env, monkeypatch):
         return await voice_mod.stream_llm_to_tts(
             contents="x", websocket=env.ws, device_id=DEV, timeout=6.0)
     text, _ = asyncio.run(_go())
-    assert 80 <= len(text) < 80 + 60, len(text)
-    assert text.endswith(".")
+    assert len(text) <= 120 and text.endswith("ответа."), (len(text), text)
+    assert len(text) > 120 - 50, "отброшено больше одного предложения"
+
+
+def test_fit_to_limit():
+    from adapters.voice import fit_to_limit
+    assert fit_to_limit([], "Короткое.", 20) == "Короткое."
+    assert fit_to_limit(["Первое."], "Второе.", 15) == "Второе."       # 7+1+7 = 15
+    assert fit_to_limit(["Первое."], "Второе длинное.", 15) is None     # не влезло — конец
+    cut = fit_to_limit([], "Одно очень длинное предложение без точки внутри", 20)
+    assert cut.endswith("…") and len(cut) <= 20
+    assert cut[:-1] in "Одно очень длинное предложение" and not cut[:-1].endswith(" ")
+    assert cut == "Одно очень длинное…"                                # не посреди слова
 
 
 # ── лёгкий профиль промпта ─────────────────────────────────────────
@@ -311,3 +322,79 @@ def test_voice_uses_configured_profile(monkeypatch):
     with pytest.raises(RuntimeError):
         asyncio.run(llm.ask_gemini_voice("привет"))
     assert seen["profile"] == "light"
+
+
+# ── блоки лёгкого профиля по запросу ───────────────────────────────
+
+@pytest.mark.parametrize("query,blocks", [
+    ("Что у меня сегодня?", {"tasks"}),
+    ("какие задачи на завтра", {"tasks"}),
+    ("сколько у меня дел", {"tasks"}),
+    ("Напомни про дедлайн", {"tasks"}),
+    ("О чём мы говорили вчера?", {"summary"}),
+    ("помнишь, на чем остановились?", {"summary"}),
+    ("Какие достижения за неделю?", {"timeline", "achievements"}),
+    ("подведи итог месяца", {"timeline", "achievements"}),
+    ("Продолжим ту тему", {"threads"}),
+    ("вернёмся к нашему разговору", {"threads"}),
+    ("что у меня на экране", {"screen"}),
+    ("Посмотри в окне браузера", {"screen"}),
+    ("Как дела?", set()),
+    ("расскажи анекдот", set()),
+])
+def test_light_blocks_on_demand(query, blocks):
+    from sakura_core.prompt import light_blocks_for
+    assert light_blocks_for(query) == frozenset(blocks), query
+
+
+@pytest.mark.parametrize("query,label,want", [
+    ("какие задачи на сегодня", "tasks", True),
+    ("о чём мы говорили в прошлый раз", "summary", True),
+    ("что было за неделю", "timeline", True),
+    ("продолжим тему", "threads", True),
+    ("что на мониторе", "screen", True),
+    ("как дела", "tasks", False),
+])
+def test_light_profile_builds_block_on_demand(monkeypatch, query, label, want):
+    import modules.context as context
+    import modules.tasks as tasks_mod
+    import modules.threads as threads
+    import modules.timeline as timeline
+    import sakura_core.prompt as prompt
+    called = []
+
+    def _rec(name):
+        def f(*a, **k):
+            called.append(name)
+            return f"[{name}]"
+        return f
+    monkeypatch.setattr(prompt, "get_system_prompt", lambda **k: "ПЕРСОНА")
+    monkeypatch.setattr(tasks_mod, "get_tasks_context", _rec("tasks"))
+    monkeypatch.setattr(timeline, "get_timeline_context", _rec("timeline"))
+    monkeypatch.setattr(threads, "get_threads_context", _rec("threads"))
+    monkeypatch.setattr(context, "get_screen_context", _rec("screen"))
+    import memory.memory as mem
+    monkeypatch.setattr(mem, "load_session_summary", _rec("summary"))
+    text = asyncio.run(prompt._build_system(query=query, profile="light"))
+    assert (label in called) is want, (query, called)
+    assert (f"[{label}]" in text) is want
+
+
+def test_turn_line_marks_added_blocks(monkeypatch, caplog):
+    import sakura_core.prompt as prompt
+    monkeypatch.setattr(prompt, "get_system_prompt", lambda **k: "ПЕРСОНА")
+    monkeypatch.setattr(voice_turns, "_last", {})
+    caplog.set_level(logging.INFO, logger="sakura.turn")
+
+    async def _turn():
+        await prompt._build_system(query="какие у меня задачи сегодня", profile="light")
+        await prompt._build_system(query="как дела", profile="light")
+
+    async def _go():
+        t = voice_turns.start(DEV, FakeWS(), _turn)
+        await t.task
+        return t
+    t = asyncio.run(_go())
+    assert t.flags == ["blocks+=tasks"]
+    line = turn_timing.line(t)
+    assert " blocks+=tasks " in line

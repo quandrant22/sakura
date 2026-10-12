@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import threading
 
 from personality import get_system_prompt
@@ -104,6 +105,26 @@ VOICE_LIGHT_DROP = frozenset({
     "graph", "vps", "threads", "focus", "screen", "timeline",
     "achievements", "patterns", "interests", "habits", "summary", "tasks",
 })
+# Блоки лёгкого профиля, которые возвращаются, если запрос о них (регулярки
+# по тексту запроса, без учёта регистра; «ё» читается как «е»).
+_ON_DEMAND = (
+    (("tasks",), r"сегодня|задач|дел(?:\s|$)|напомн|план|дедлайн|срок|расписан"),
+    (("summary",), r"мы говорили|обсуждал|вчера|помнишь|в прошлый раз|на чем остановились"),
+    (("timeline", "achievements"), r"достижен|за неделю|за месяц|что было|итог|вспомни"),
+    (("threads",), r"продолжим|тема|вернемся"),
+    (("screen",), r"экран|на мониторе|в окне"),
+)
+VOICE_LIGHT_ON_DEMAND = tuple((labels, re.compile(rx, re.IGNORECASE)) for labels, rx in _ON_DEMAND)
+
+
+def light_blocks_for(query: str) -> frozenset[str]:
+    """Блоки лёгкого профиля, которые нужны этому запросу."""
+    q = (query or "").replace("ё", "е").replace("Ё", "Е")
+    out: set[str] = set()
+    for labels, rx in VOICE_LIGHT_ON_DEMAND:
+        if rx.search(q):
+            out.update(labels)
+    return frozenset(out)
 
 
 async def _build_system(
@@ -311,7 +332,14 @@ async def _build_system(
         return get_tasks_context()
 
     # Лёгкий голосовой профиль: выброшенные блоки не собираются вовсе.
-    drop = VOICE_LIGHT_DROP if profile == "light" else frozenset()
+    drop = frozenset()
+    if profile == "light":
+        on_demand = light_blocks_for(query)
+        drop = VOICE_LIGHT_DROP - on_demand
+        if on_demand:
+            # В строке [turn] — какие блоки вернул запрос (вне хода — no-op).
+            from sakura_core import turn_timing
+            turn_timing.flag("blocks+=" + ",".join(sorted(on_demand)))
 
     def _b(label, fn, *args):
         return None if label in drop else _block(label, fn, *args)
@@ -470,7 +498,7 @@ async def _build_system(
     log.info(f"[build_system] {_kind}{'' if _build_system_warm else ' [холодный старт]'} "
              f"за {_dt:.2f}с, блоков={len(parts)} символов={len(result)}"
              + (f" профиль={profile}" if profile != "full" else ""))
-    if profile != "full" or log.isEnabledFor(logging.DEBUG):
+    if query or profile != "full":
         # Вклад блоков: метка=символов (без содержимого), крупные первыми.
         sizes: dict[str, int] = {}
         for lbl, txt in zip(labels, parts):

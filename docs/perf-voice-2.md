@@ -12,8 +12,8 @@
 | b. предсинтез с удержанием звука | `adapters/voice.py` `stream_llm_to_tts` | `VOICE_PRESYNTH` (1) |
 | b'. отправка звука параллельно стриму LLM (раньше — после конца стрима) | там же | — |
 | c. ранний шлюз для вопросов | `sakura_core/early_gate.py`, `adapters/ws.py` | `VOICE_EARLY_GATE` (1) |
-| d. лёгкий голосовой профиль промпта + размеры блоков в лог | `sakura_core/prompt.py` | `VOICE_PROMPT_PROFILE` (light) |
-| d'. предел длины голосового ответа | `adapters/voice.py` | `VOICE_MAX_CHARS` (320) |
+| d. лёгкий голосовой профиль промпта (блоки по словам запроса) + размеры блоков в лог | `sakura_core/prompt.py` | `VOICE_PROMPT_PROFILE` (**full** до brain_eval) |
+| d'. предел длины голосового ответа: целые предложения, иначе обрезка по слову с «…» | `adapters/voice.py` | `VOICE_MAX_CHARS` (320) |
 
 Строка хода:
 
@@ -80,8 +80,35 @@
 Не собираются: `graph, vps, threads, focus, screen, timeline, achievements,
 patterns, interests, habits, summary, tasks`. Персона и характер
 (`identity, self, style, narrative, version`), память о Мастере, правила,
-устройства, трек, Steam — без изменений. Вернуть как было:
-`VOICE_PROMPT_PROFILE=full`.
+устройства, трек, Steam — без изменений.
+
+Блоки возвращаются, если о них запрос (регулярки по тексту, без учёта
+регистра, «ё» = «е»); в строке `[turn]` — пометка `blocks+=…`:
+
+| блоки | слова запроса |
+|---|---|
+| tasks | сегодня, задач, «дел», напомн, план, дедлайн, срок, расписан |
+| summary | мы говорили, обсуждал, вчера, помнишь, в прошлый раз, на чём остановились |
+| timeline, achievements | достижен, за неделю, за месяц, что было, итог, вспомни |
+| threads | продолжим, тема, вернёмся |
+| screen | экран, на мониторе, в окне |
+
+По умолчанию `VOICE_PROMPT_PROFILE=full`: контрольный прогон
+`brain_eval --online` (критерий: факты и польза у light не ниже full более
+чем на 0,1, правила без регрессий) не выполнен — он требует копии боевых
+данных и ключа. Как прогнать (≈80 запросов из 150):
+
+```
+cp -a /opt/sakura/memory /tmp/eval-data/memory        # копия, боевой каталог не трогается
+cd /opt/sakura   # после выката perf/voice-2
+for p in full light; do
+  venv/bin/python tools/brain_eval.py --online --profile $p --data-dir /tmp/eval-data \
+      --keys-from /opt/sakura --only '^(talk|mem|plan)-' --max-requests 75 --out /tmp/eval_$p.jsonl
+done
+venv/bin/python tools/brain_eval.py --summary /tmp/eval_full.jsonl /tmp/eval_light.jsonl
+```
+
+Прошёл критерий — `VOICE_PROMPT_PROFILE=light` в .env и рестарт.
 
 ## Ранний шлюз
 
