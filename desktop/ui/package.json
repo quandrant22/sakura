@@ -7,7 +7,7 @@
   "main": "dist-electron/main.js",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n vite,electron \"vite\" \"wait-on tcp:5173 && npm run build:electron && cross-env SAKURA_DEV_URL=http://localhost:5173 electron .\"",
+    "dev": "concurrently -k -n vite,electron \"vite\" \"wait-on tcp:127.0.0.1:5173 && npm run build:electron && cross-env SAKURA_DEV_URL=http://127.0.0.1:5173 electron .\"",
     "build": "tsc -p tsconfig.json && vite build && npm run build:electron",
     "build:electron": "tsc -p tsconfig.electron.json",
     "start": "electron .",
