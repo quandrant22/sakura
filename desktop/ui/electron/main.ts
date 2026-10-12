@@ -1,7 +1,9 @@
 // Главный процесс Electron: одно окно без системной рамки, трей, безопасные настройки.
 // С ядром (Python) общается только окно — по локальному API; main лишь читает
 // файл с портом и токеном (ui.token) и отдаёт его окну через preload-мост.
-import { BrowserWindow, Menu, Tray, app, dialog, ipcMain, nativeImage, screen, session, shell } from "electron";
+import {
+  BrowserWindow, Menu, Tray, app, desktopCapturer, dialog, ipcMain, nativeImage, screen, session, shell,
+} from "electron";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -142,9 +144,90 @@ ipcMain.handle("core:connection", () => {
   }
   return null;
 });
+// ── Захват окна (виджет «Окно приложения») — только по явному выбору пользователя ──
+// Кадры не пишутся на диск и никуда не отправляются; getDisplayMedia получает ровно то окно,
+// которое выбрано в интерфейсе (capture:select), иначе запрос отклоняется.
+let pendingCaptureId: string | null = null;
+let captureMini: BrowserWindow | null = null;
+const CAPTURE_ID = /^window:\d+:\d+$/;
+
+ipcMain.handle("capture:sources", async () => {
+  const srcs = await desktopCapturer.getSources({ types: ["window"], thumbnailSize: { width: 0, height: 0 } });
+  return srcs.map((s) => ({ id: s.id, name: s.name }));
+});
+ipcMain.handle("capture:blocklist", () => (process.env.WINDOW_BLOCKLIST ?? "").split(",").map((s) => s.trim()).filter(Boolean));
+ipcMain.handle("capture:select", (_e, id: string) => {
+  pendingCaptureId = typeof id === "string" && CAPTURE_ID.test(id) ? id : null;
+  return pendingCaptureId !== null;
+});
+
+function installDisplayMediaHandler() {
+  session.defaultSession.setDisplayMediaRequestHandler((_req, callback) => {
+    const id = pendingCaptureId;
+    pendingCaptureId = null;
+    if (!id) return callback({});
+    void desktopCapturer.getSources({ types: ["window"], thumbnailSize: { width: 0, height: 0 } }).then((srcs) => {
+      const src = srcs.find((s) => s.id === id);
+      callback(src ? { video: src } : {});
+    });
+  });
+}
+
+// Мини-окно захвата: поверх всех окон, красная рамка (её рисует страница), пропорции источника,
+// позиция и размер запоминаются; в игровом режиме прячется.
+function saveCaptureBounds() {
+  if (captureMini) writeBounds(miniBoundsFile, "window", captureMini.getBounds());
+}
+ipcMain.handle("capture:mini-open", (_e, id: string, aspect: number) => {
+  if (typeof id !== "string" || !CAPTURE_ID.test(id)) return;
+  const a = Number.isFinite(aspect) && aspect > 0.2 && aspect < 5 ? aspect : VIDEO_ASPECT;
+  captureMini?.close();
+  const area = screen.getPrimaryDisplay().workArea;
+  const size = presetSize("M", a);
+  const saved = readBounds(miniBoundsFile, "window");
+  const b = clampToArea(saved ?? { ...size, x: area.x + 24, y: area.y + area.height - size.height - 24 }, area, a);
+  const min = minSize(a);
+  captureMini = new BrowserWindow({
+    ...b, minWidth: min.width, minHeight: min.height, frame: false, alwaysOnTop: true, title: "Sakura · окно",
+    backgroundColor: "#000000", show: !trayState.game,
+    webPreferences: { preload: path.join(here, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  captureMini.setAspectRatio(a);
+  captureMini.setAlwaysOnTop(true, "floating");
+  captureMini.on("moved", () => {
+    if (!captureMini) return;
+    const cur = captureMini.getBounds();
+    const snapped = snapToCorner(cur, screen.getDisplayMatching(cur).workArea);
+    if (snapped.x !== cur.x || snapped.y !== cur.y) captureMini.setBounds(snapped);
+    saveCaptureBounds();
+  });
+  captureMini.on("resized", saveCaptureBounds);
+  captureMini.webContents.on("before-input-event", (ev, input) => {
+    if (input.type === "keyDown" && input.key === "Escape") { ev.preventDefault(); captureMini?.close(); }
+  });
+  captureMini.on("closed", () => {
+    captureMini = null;
+    win?.webContents.send("capture:mini-closed");
+  });
+  pendingCaptureId = id; // мини-окно само запросит getDisplayMedia этого окна
+  void loadPage(captureMini, `?view=capture-mini&source=${encodeURIComponent(id)}`);
+});
+ipcMain.handle("capture:mini-close", () => captureMini?.close());
+ipcMain.handle("capture:mini-select", (e) => {
+  // Повторный запрос кадра из мини-окна (после перезагрузки страницы) — только для его же источника.
+  if (captureMini && e.sender === captureMini.webContents) {
+    const q = new URL(e.sender.getURL()).searchParams.get("source");
+    pendingCaptureId = q && CAPTURE_ID.test(q) ? q : null;
+  }
+});
+
 ipcMain.handle("tray:state", (_e, state: { mic?: boolean; game?: boolean }) => {
   if (typeof state.mic === "boolean") trayState.mic = state.mic;
-  if (typeof state.game === "boolean") trayState.game = state.game;
+  if (typeof state.game === "boolean") {
+    trayState.game = state.game;
+    // Игровой режим прячет мини-окно захвата, выход из него — возвращает.
+    if (captureMini) { if (state.game) captureMini.hide(); else captureMini.showInactive(); }
+  }
   buildTrayMenu();
 });
 // Автозапуск: Electron пишет в HKCU\...\Run текущего пользователя.
@@ -275,6 +358,7 @@ if (!app.requestSingleInstanceLock()) {
       // Окно не ждёт ядро: до готовности оно само покажет «нет связи с ядром» и переподключится.
       void core.waitReady().then((ok) => console.log(`[core] ${ok ? "готово" : "не ответило вовремя"}`));
     }
+    installDisplayMediaHandler();
     win = createWindow();
     win.once("ready-to-show", () => win?.show());
     createTray();

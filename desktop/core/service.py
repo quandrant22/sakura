@@ -160,6 +160,7 @@ class CoreService:
         c("mic_toggle", self.cmd_mic_toggle)
         c("stop_speaking", self.cmd_stop_speaking)
         c("listen_now", self.cmd_listen_now)
+        c("window_ask", self.cmd_window_ask)
         c("quick_action", self.cmd_quick_action)
         c("list_apps", self.cmd_list_apps)
         c("list_audio_devices", self.cmd_list_audio_devices)
@@ -200,6 +201,20 @@ class CoreService:
         self.agent.player.interrupt()
         hearing.open_followup()
         self.agent.set_state("listening")
+
+    # Один кадр окна — серверу на описание, только по явному нажатию «Спросить про окно».
+    # Кадр не пишется на диск и не попадает в лог; размер ограничен.
+    WINDOW_ASK_MAX_B64 = 2_000_000
+
+    async def cmd_window_ask(self, msg: dict):
+        image = str(msg.get("image") or "")
+        question = str(msg.get("question") or "Что в этом окне?").strip()[:500]
+        if not image or len(image) > self.WINDOW_ASK_MAX_B64:
+            raise ApiError("bad_request", "нет кадра или он слишком большой")
+        if self.link.proto != 2:
+            raise ApiError("unsupported", "сервер не поддерживает")
+        log.info("[window_ask] кадр %d КиБ отправлен по запросу пользователя", len(image) * 3 // 4 // 1024)
+        return await self.link.request({"type": "vision_request", "image": image, "question": question})
 
     async def cmd_quick_action(self, msg: dict):
         kind, arg = msg.get("id"), msg.get("arg")

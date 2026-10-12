@@ -46,6 +46,17 @@ body {
   user-select: none;
 }
 
+/* Пока перетаскивают или меняют размер виджета: iframe/video/canvas не перехватывают мышь
+   (иначе перетаскивание «залипает» над YouTube), текст не выделяется. */
+body.is-interacting {
+  user-select: none;
+}
+body.is-interacting iframe,
+body.is-interacting video,
+body.is-interacting canvas {
+  pointer-events: none;
+}
+
 /* Перетаскивание окна за заголовок; интерактивные элементы внутри — no-drag. */
 .drag {
   -webkit-app-region: drag;

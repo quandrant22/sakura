@@ -200,6 +200,23 @@ def test_chat_turns_from_bus_and_v2_no_duplicates():
         ("system", "error", "Не получилось: Нет активного плеера")]
 
 
+def test_window_ask_only_with_frame_and_server_v2():
+    async def go():
+        svc = make_service()
+        await svc.api.start()
+        ws, _ = await _client(svc)
+        r1 = await _call(ws, {"type": "window_ask", "request_id": "1"})
+        r2 = await _call(ws, {"type": "window_ask", "request_id": "2", "image": "QUJD"})
+        r3 = await _call(ws, {"type": "window_ask", "request_id": "3", "image": "x" * 2_000_001})
+        await ws.close()
+        await svc.api.stop()
+        return r1, r2, r3
+    r1, r2, r3 = run(go())
+    assert r1["error"]["code"] == "bad_request"          # без кадра
+    assert r2["error"]["code"] in ("unsupported", "offline")  # сервер v1 / нет связи — честно
+    assert r3["error"]["code"] == "bad_request"          # слишком большой кадр
+
+
 def test_repeated_state_not_resent():
     # Агент повторяет speaking на каждый аудио-чанк — в интерфейс уходит только смена состояния.
     svc = make_service()

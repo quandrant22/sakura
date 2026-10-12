@@ -4,6 +4,7 @@ import { createStore, useStore } from "zustand";
 
 import { bridge, type SakuraBridge } from "../bridge";
 import { MERGE_PRESETS, MOBILITY, type MergePreset, type Mobility } from "../core-gfx/coreFrame";
+import { CAPTURE_MODES, type CaptureMode, FPS, ZOOM } from "../capture/captureLogic";
 import { addWidget, defaultLayout, type LayoutItem, removeWidget, sanitizeLayout, type WidgetId } from "./board";
 
 export type Theme = "night" | "sketch";
@@ -27,6 +28,10 @@ interface Persisted {
   musicBarStyle: MusicBarStyle;
   /** Видео: вписать целиком (полосы) или заполнить с обрезкой (только локальное видео). */
   videoFit: "fit" | "fill";
+  /** Показ окна: базовая частота кадров 1–30. */
+  captureFps: number;
+  /** Показ окна: режим и масштаб для каждого окна-источника (по названию). */
+  captureViews: Record<string, { mode: CaptureMode; zoom: number }>;
 }
 
 export type MusicSource = "yandex" | "sakura";
@@ -61,6 +66,8 @@ const DEFAULTS = (): Persisted => ({
   musicSource: "yandex",
   musicBarStyle: "yandex",
   videoFit: "fit",
+  captureFps: FPS.default,
+  captureViews: {},
 });
 
 const pick = <T extends string>(v: unknown, allowed: Record<T, unknown>, d: T): T =>
@@ -83,13 +90,27 @@ export function parsePersisted(raw: Record<string, unknown> | null): Persisted {
     musicSource: pick(raw.musicSource, MUSIC_SOURCES, d.musicSource),
     musicBarStyle: pick(raw.musicBarStyle, BAR_STYLES, d.musicBarStyle),
     videoFit: raw.videoFit === "fill" ? "fill" : "fit",
+    captureFps: typeof raw.captureFps === "number" ? Math.min(FPS.max, Math.max(FPS.min, Math.round(raw.captureFps))) : d.captureFps,
+    captureViews: parseViews(raw.captureViews),
   };
+}
+
+function parseViews(raw: unknown): Persisted["captureViews"] {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Persisted["captureViews"] = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>).slice(0, 50)) {
+    const o = v as { mode?: unknown; zoom?: unknown } | null;
+    if (!o || typeof o.mode !== "string" || !(o.mode in CAPTURE_MODES) || typeof o.zoom !== "number") continue;
+    out[k.slice(0, 200)] = { mode: o.mode as CaptureMode, zoom: Math.min(ZOOM.max, Math.max(ZOOM.min, o.zoom)) };
+  }
+  return out;
 }
 
 const persisted = (s: PrefsState): Persisted => ({
   theme: s.theme, layout: s.layout, chatWidth: s.chatWidth, chatCollapsed: s.chatCollapsed,
   locked: s.locked, mobility: s.mobility, preset: s.preset, showCommandResults: s.showCommandResults,
   musicSource: s.musicSource, musicBarStyle: s.musicBarStyle, videoFit: s.videoFit,
+  captureFps: s.captureFps, captureViews: s.captureViews,
 });
 
 export function createPrefsStore(api: () => SakuraBridge["layout"], saveDelayMs = 400) {

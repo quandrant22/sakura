@@ -34,6 +34,19 @@ const api = {
     get: (): Promise<boolean> => ipcRenderer.invoke("autostart:get"),
     set: (enabled: boolean): Promise<boolean> => ipcRenderer.invoke("autostart:set", enabled),
   },
+  capture: {
+    sources: (): Promise<{ id: string; name: string }[]> => ipcRenderer.invoke("capture:sources"),
+    blocklist: (): Promise<string[]> => ipcRenderer.invoke("capture:blocklist"),
+    select: (id: string): Promise<boolean> => ipcRenderer.invoke("capture:select", id),
+    openMini: (id: string, aspect: number): Promise<void> => ipcRenderer.invoke("capture:mini-open", id, aspect),
+    closeMini: (): Promise<void> => ipcRenderer.invoke("capture:mini-close"),
+    miniSelect: (): Promise<void> => ipcRenderer.invoke("capture:mini-select"),
+    onMiniClosed: (cb: () => void): (() => void) => {
+      const h = () => cb();
+      ipcRenderer.on("capture:mini-closed", h);
+      return () => ipcRenderer.removeListener("capture:mini-closed", h);
+    },
+  },
   media: {
     openMini: (url: string): Promise<void> => ipcRenderer.invoke("media:mini-open", url),
     closeMini: (): Promise<void> => ipcRenderer.invoke("media:mini-close"),

@@ -25,6 +25,16 @@ export interface SakuraBridge {
     setState(state: { mic?: boolean; game?: boolean }): Promise<void>;
   };
   autostart: { get(): Promise<boolean>; set(enabled: boolean): Promise<boolean> };
+  /** Захват окна — только по явному выбору; кадры не пишутся на диск. */
+  capture: {
+    sources(): Promise<{ id: string; name: string }[]>;
+    blocklist(): Promise<string[]>;
+    select(id: string): Promise<boolean>;
+    openMini(id: string, aspect: number): Promise<void>;
+    closeMini(): Promise<void>;
+    miniSelect(): Promise<void>;
+    onMiniClosed(cb: () => void): () => void;
+  };
   media: {
     openMini(url: string): Promise<void>;
     closeMini(): Promise<void>;
@@ -65,6 +75,10 @@ const fallback: SakuraBridge = {
   core: { connection: async () => null },
   tray: { onAction: () => () => {}, setState: async () => {} },
   autostart: { get: async () => false, set: async (v) => v },
+  capture: {
+    sources: async () => [], blocklist: async () => [], select: async () => false, openMini: async () => {},
+    closeMini: async () => {}, miniSelect: async () => {}, onMiniClosed: () => () => {},
+  },
   media: { openMini: async () => {}, closeMini: async () => {}, miniPreset: async () => {}, onMiniClosed: () => () => {}, setProxy: async () => {}, chooseFolder: async () => null },
 };
 
