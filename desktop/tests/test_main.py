@@ -32,3 +32,20 @@ def test_cli_help_parses():
     with pytest.raises(SystemExit) as e:
         core_main.main(["--help"])
     assert e.value.code == 0
+
+
+def test_second_instance_exits_with_already_running(tmp_path, monkeypatch):
+    # Надзор в Electron не перезапускает ядро с этим кодом.
+    monkeypatch.setattr(core_main.config, "DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(core_main.config, "LOG_DIR", str(tmp_path / "logs"))
+    held = core_main.SingleInstance(str(tmp_path / "core.lock"))
+    assert held.acquire()
+    root = logging.getLogger()
+    saved = list(root.handlers)
+    try:
+        assert core_main.main(["--headless"]) == core_main.EXIT_ALREADY_RUNNING == 3
+    finally:
+        for h in root.handlers:
+            h.close()
+        root.handlers[:] = saved
+        held._fh.close()

@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { CoreSupervisor, coreAutostartEnabled } from "./coreProcess.js";
 import { readLayout, writeLayout } from "./layoutFile.js";
 import { pacFor } from "./pac.js";
 
@@ -15,6 +16,9 @@ const devUrl = process.env.SAKURA_DEV_URL;
 const dataDir = path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), "AppData", "Local"), "Sakura");
 const tokenFile = process.env.SAKURA_UI_TOKEN ?? path.join(dataDir, "ui.token");
 const layoutFile = process.env.SAKURA_LAYOUT_FILE ?? path.join(dataDir, "layout.json");
+// Корень репозитория (здесь лежит пакет desktop): dist-electron → ui → desktop → корень.
+const repoDir = process.env.SAKURA_REPO_DIR ?? path.join(here, "..", "..", "..");
+let core: CoreSupervisor | null = null;
 
 let win: BrowserWindow | null = null;
 let miniWin: BrowserWindow | null = null;
@@ -221,6 +225,19 @@ if (!app.requestSingleInstanceLock()) {
       await takeScreenshots(JSON.parse(specs) as ShotSpec[], process.env.SAKURA_SCREENSHOT_DIR ?? ".");
       return;
     }
+    // SAKURA_CORE_AUTOSTART=1 — ядро запускается вместе с окном (Python — SAKURA_PYTHON).
+    if (coreAutostartEnabled(process.env)) {
+      core = new CoreSupervisor({
+        python: process.env.SAKURA_PYTHON ?? (process.platform === "win32" ? "python.exe" : "python3"),
+        cwd: repoDir,
+        logDir: path.join(dataDir, "logs"),
+        tokenFile,
+        log: (line) => console.log(`[core] ${line}`),
+      });
+      core.start();
+      // Окно не ждёт ядро: до готовности оно само покажет «нет связи с ядром» и переподключится.
+      void core.waitReady().then((ok) => console.log(`[core] ${ok ? "готово" : "не ответило вовремя"}`));
+    }
     win = createWindow();
     win.once("ready-to-show", () => win?.show());
     createTray();
@@ -228,6 +245,7 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.on("before-quit", () => {
     quitting = true;
+    core?.stop();
   });
   app.on("window-all-closed", () => {
     if (quitting) app.quit();

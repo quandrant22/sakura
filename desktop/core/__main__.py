@@ -19,6 +19,9 @@ from desktop.core import config
 
 log = logging.getLogger("sakura")
 
+# Код выхода «ядро уже запущено»: надзор в Electron (coreProcess.ts) такое ядро не перезапускает.
+EXIT_ALREADY_RUNNING = 3
+
 
 def setup_logging(log_dir: str) -> None:
     os.makedirs(log_dir, exist_ok=True)
@@ -98,7 +101,7 @@ def main(argv=None) -> int:
     guard = SingleInstance(os.path.join(config.DATA_DIR, "core.lock"))
     if not guard.acquire():
         log.warning("Ядро Сакуры уже запущено.")
-        return 1
+        return EXIT_ALREADY_RUNNING
     log.info("[core] старт: device=%s env=%s data=%s headless=%s", config.DEVICE_ID,
              "найден" if config.ENV_FILE else "нет", config.DATA_DIR, args.headless)
     asyncio.run(run_core(args.api_port))
