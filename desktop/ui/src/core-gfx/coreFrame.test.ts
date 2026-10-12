@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { coreFrame, VIEWBOX, type CoreVisualState } from "./coreFrame";
+import { coreFrame, DROP_R, SATELLITES, VIEWBOX, type CoreVisualState, type Mobility } from "./coreFrame";
 
 const STATES: CoreVisualState[] = ["idle", "listening", "thinking", "speaking", "offline"];
+const MOBILITIES: Mobility[] = ["low", "normal", "high"];
 
 function bbox(f: ReturnType<typeof coreFrame>) {
   const all = [f.drop, ...f.satellites];
@@ -11,32 +12,64 @@ function bbox(f: ReturnType<typeof coreFrame>) {
   };
 }
 
+function maxWidth(state: CoreVisualState, mobility: Mobility, seconds = 60) {
+  let w = 0;
+  for (let t = 0; t < seconds; t += 0.05) {
+    const b = bbox(coreFrame(t, state, 0, mobility));
+    w = Math.max(w, b.maxX - b.minX);
+  }
+  return w;
+}
+
+/** Средняя скорость центров спутников, px/с. */
+function meanSpeed(state: CoreVisualState, seconds = 60, dt = 1 / 60) {
+  let dist = 0;
+  let prev = coreFrame(0, state, 0).satellites;
+  for (let t = dt; t <= seconds; t += dt) {
+    const cur = coreFrame(t, state, 0).satellites;
+    cur.forEach((s, i) => { dist += Math.hypot(s.cx - prev[i]!.cx, s.cy - prev[i]!.cy); });
+    prev = cur;
+  }
+  return dist / seconds / SATELLITES.length;
+}
+
 describe("coreFrame", () => {
   it("нет NaN и всё внутри viewBox", () => {
     for (const s of STATES)
-      for (const level of [0, 0.5, 1, NaN, -3, 7])
-        for (let t = 0; t < 30; t += 0.37) {
-          const f = coreFrame(t, s, level);
-          const nums = [f.drop, ...f.satellites].flatMap((c) => [c.cx, c.cy, c.r])
-            .concat(f.rings.flatMap((r) => [r.r, r.opacity]), [f.opacity]);
-          expect(nums.every(Number.isFinite)).toBe(true);
-          const b = bbox(f);
-          expect(b.minX).toBeGreaterThanOrEqual(VIEWBOX.x);
-          expect(b.maxX).toBeLessThanOrEqual(VIEWBOX.x + VIEWBOX.w);
-          expect(b.minY).toBeGreaterThanOrEqual(VIEWBOX.y);
-          expect(b.maxY).toBeLessThanOrEqual(VIEWBOX.y + VIEWBOX.h);
-          for (const r of f.rings) expect(r.r).toBeLessThanOrEqual(Math.min(-VIEWBOX.x, VIEWBOX.y + VIEWBOX.h));
-        }
+      for (const mob of MOBILITIES)
+        for (const level of [0, 0.5, 1, NaN, -3, 7])
+          for (let t = 0; t < 30; t += 0.37) {
+            const f = coreFrame(t, s, level, mob);
+            const nums = [f.drop, ...f.satellites].flatMap((c) => [c.cx, c.cy, c.r])
+              .concat(f.rings.flatMap((r) => [r.r, r.opacity]), [f.opacity]);
+            expect(nums.every(Number.isFinite)).toBe(true);
+            const b = bbox(f);
+            expect(b.minX).toBeGreaterThanOrEqual(VIEWBOX.x);
+            expect(b.maxX).toBeLessThanOrEqual(VIEWBOX.x + VIEWBOX.w);
+            expect(b.minY).toBeGreaterThanOrEqual(VIEWBOX.y);
+            expect(b.maxY).toBeLessThanOrEqual(VIEWBOX.y + VIEWBOX.h);
+            for (const r of f.rings) expect(r.r).toBeLessThanOrEqual(Math.min(-VIEWBOX.x, VIEWBOX.y + VIEWBOX.h));
+          }
   });
 
-  it("при максимальном раскрытии силуэт ≈155x149", () => {
-    let w = 0, h = 0;
-    for (let t = 0; t < 60; t += 0.05) {
-      const b = bbox(coreFrame(t, "thinking", 0));
-      w = Math.max(w, b.maxX - b.minX); h = Math.max(h, b.maxY - b.minY);
-    }
-    expect(w).toBeGreaterThan(150); expect(w).toBeLessThan(160);
-    expect(h).toBeGreaterThan(144); expect(h).toBeLessThan(154);
+  it("при полном раскрытии силуэт ≈155x149", () => {
+    const all = [[0, 0, DROP_R] as const, ...SATELLITES];
+    const w = Math.max(...all.map(([x, , r]) => x + r)) - Math.min(...all.map(([x, , r]) => x - r));
+    const h = Math.max(...all.map(([, y, r]) => y + r)) - Math.min(...all.map(([, y, r]) => y - r));
+    expect(w).toBeCloseTo(155, -1);
+    expect(h).toBeCloseTo(149, -1);
+    // В покое с высокой подвижностью силуэт доходит до полного раскрытия.
+    expect(maxWidth("idle", "high")).toBeGreaterThan(150);
+  });
+
+  it("«думает» движется не медленнее покоя (орбита)", () => {
+    expect(meanSpeed("thinking")).toBeGreaterThanOrEqual(meanSpeed("idle"));
+  });
+
+  it("подвижность: низкая в покое — ширина не больше ~115", () => {
+    expect(maxWidth("idle", "low")).toBeLessThanOrEqual(115);
+    expect(maxWidth("idle", "low")).toBeLessThan(maxWidth("idle", "normal"));
+    expect(maxWidth("idle", "normal")).toBeLessThanOrEqual(maxWidth("idle", "high"));
   });
 
   it("кольца только при слушании и растут с уровнем", () => {

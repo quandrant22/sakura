@@ -12,11 +12,16 @@ export const SATELLITES: ReadonlyArray<readonly [number, number, number]> = [
   [55, 25, 12],
   [-48, 30, 9],
 ];
-// Фаза и скорость «бульканья» каждого спутника — чтобы они двигались вразнобой.
-const WOBBLE: ReadonlyArray<readonly [number, number]> = [[0, 1], [1.9, 1.27], [3.7, 0.83], [5.1, 1.51], [2.6, 1.13]];
+// Фаза, скорость «бульканья» и направление орбиты (1 — по часовой) каждого спутника.
+const WOBBLE: ReadonlyArray<readonly [number, number, number]> = [
+  [0, 1, 1], [1.9, 1.27, -1], [3.7, 0.83, 1], [5.1, 1.51, -1], [2.6, 1.13, 1],
+];
+// Угловая скорость орбиты в состоянии «думает», рад/с.
+const ORBIT_SPEED = 0.6;
 
-// viewBox: центр капли в (0,0); запас под кольца-волны.
-export const VIEWBOX = { x: -130, y: -130, w: 260, h: 220 } as const;
+// viewBox: центр капли в (0,0); квадрат 260 — с запасом под орбиту и кольца-волны.
+// Диаметр капли 91 px при ширине 260 px — как в наброске.
+export const VIEWBOX = { x: -130, y: -130, w: 260, h: 260 } as const;
 export const MAX_RING_R = 84;
 
 export const MERGE_PRESETS = {
@@ -25,6 +30,10 @@ export const MERGE_PRESETS = {
   liquid: { blur: 8, matrix: "26 -12" },
 } as const;
 export type MergePreset = keyof typeof MERGE_PRESETS;
+
+// «Подвижность ядра» из настроек: множитель амплитуды раскрытия.
+export const MOBILITY = { low: 0.5, normal: 1, high: 1.3 } as const;
+export type Mobility = keyof typeof MOBILITY;
 
 export interface Circle { cx: number; cy: number; r: number }
 export interface Ring { r: number; opacity: number }
@@ -37,7 +46,7 @@ interface Motion { base: number; amp: number; omega: number }
 function motion(state: CoreVisualState, level: number): Motion {
   switch (state) {
     case "listening": return { base: 0.5, amp: 0.3, omega: 1.6 };
-    case "thinking": return { base: 0.97, amp: 0.03, omega: 2.2 };
+    case "thinking": return { base: 0.7, amp: 0.25, omega: 1.4 };
     case "speaking": return { base: 0.4 + 0.5 * level, amp: 0.08 + 0.25 * level, omega: 4 };
     case "offline": return { base: 0.3, amp: 0.02, omega: 0.3 };
     default: return { base: 0.55, amp: 0.35, omega: 1.1 };
@@ -45,19 +54,24 @@ function motion(state: CoreVisualState, level: number): Motion {
 }
 
 /** Кадр в момент t (секунды). level — уровень звука 0..1 (микрофон или озвучка). */
-export function coreFrame(t: number, state: CoreVisualState, level: number): CoreFrame {
+export function coreFrame(t: number, state: CoreVisualState, level: number, mobility: Mobility = "normal"): CoreFrame {
   t = finite(t);
   level = clamp(finite(level), 0, 1);
-  const m = motion(state, level);
+  const raw = motion(state, level);
+  // Нижняя граница раскрытия (base − amp) не меняется, амплитуда умножается на подвижность.
+  const k = MOBILITY[mobility];
+  const m = { ...raw, base: raw.base - raw.amp * (1 - k), amp: raw.amp * k };
+  const orbit = state === "thinking" ? ORBIT_SPEED * t : 0;
 
   const breathe = state === "offline" ? 1 : 1 + 0.025 * Math.sin(t * 0.8);
   const dropR = DROP_R * breathe;
 
   const satellites = SATELLITES.map(([dx, dy, r], i) => {
-    const [phase, speed] = WOBBLE[i] ?? [0, 1];
+    const [phase, speed, dir] = WOBBLE[i] ?? [0, 1, 1];
     // Раскрытие 0 — спутник спрятан в капле, 1 — полностью выпучен.
     const e = clamp(m.base + m.amp * Math.sin(t * m.omega * speed + phase), 0, 1);
-    return { cx: dx * e, cy: dy * e, r: r * (0.6 + 0.4 * e) };
+    const a = orbit * dir, cos = Math.cos(a), sin = Math.sin(a);
+    return { cx: (dx * cos - dy * sin) * e, cy: (dx * sin + dy * cos) * e, r: r * (0.6 + 0.4 * e) };
   });
 
   const rings: Ring[] = [];
