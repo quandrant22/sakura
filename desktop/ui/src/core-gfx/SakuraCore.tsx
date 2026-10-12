@@ -58,9 +58,11 @@ export function SakuraCore({ state, level, preset = "soft", size = VIEWBOX.w, cl
           <stop stopColor="#FF6AE3" />
           <stop offset="1" stopColor="#3E0074" />
         </radialGradient>
-        <filter id={`f${id}`} x="-50%" y="-50%" width="200%" height="200%">
+        {/* sRGB и atop: форма берётся из «слипшейся» альфы, цвет — из исходного градиента без размытия и каймы. */}
+        <filter id={`f${id}`} x="-50%" y="-50%" width="200%" height="200%" colorInterpolationFilters="sRGB">
           <feGaussianBlur in="SourceGraphic" stdDeviation={m.blur} result="b" />
-          <feColorMatrix in="b" mode="matrix" values={`1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 ${m.matrix}`} />
+          <feColorMatrix in="b" mode="matrix" values={`1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 ${m.matrix}`} result="goo" />
+          <feComposite in="SourceGraphic" in2="goo" operator="atop" />
         </filter>
       </defs>
       {f.rings.map((r, i) => (
