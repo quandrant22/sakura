@@ -21,7 +21,17 @@ interface Persisted {
   preset: MergePreset;
   /** Показывать в чате строки результатов команд («Громкость 70%»). */
   showCommandResults: boolean;
+  /** Источник панели музыки: приложение Яндекс.Музыки (пульт) или медиатека Сакуры. */
+  musicSource: MusicSource;
+  /** Стиль панели: как в Яндекс.Музыке или в цветах Сакуры. */
+  musicBarStyle: MusicBarStyle;
 }
+
+export type MusicSource = "yandex" | "sakura";
+export type MusicBarStyle = "yandex" | "sakura";
+const MUSIC_SOURCES: Record<MusicSource, string> = { yandex: "Яндекс.Музыка", sakura: "Медиатека Сакуры" };
+const BAR_STYLES: Record<MusicBarStyle, string> = { yandex: "Яндекс", sakura: "Сакура" };
+export { BAR_STYLES, MUSIC_SOURCES };
 
 export interface PrefsState extends Persisted {
   deviceId: string | null;
@@ -46,6 +56,8 @@ const DEFAULTS = (): Persisted => ({
   mobility: "normal",
   preset: "soft",
   showCommandResults: true,
+  musicSource: "yandex",
+  musicBarStyle: "yandex",
 });
 
 const pick = <T extends string>(v: unknown, allowed: Record<T, unknown>, d: T): T =>
@@ -65,12 +77,15 @@ export function parsePersisted(raw: Record<string, unknown> | null): Persisted {
     mobility: pick(raw.mobility, MOBILITY, d.mobility),
     preset: pick(raw.preset, MERGE_PRESETS, d.preset),
     showCommandResults: raw.showCommandResults !== false,
+    musicSource: pick(raw.musicSource, MUSIC_SOURCES, d.musicSource),
+    musicBarStyle: pick(raw.musicBarStyle, BAR_STYLES, d.musicBarStyle),
   };
 }
 
 const persisted = (s: PrefsState): Persisted => ({
   theme: s.theme, layout: s.layout, chatWidth: s.chatWidth, chatCollapsed: s.chatCollapsed,
   locked: s.locked, mobility: s.mobility, preset: s.preset, showCommandResults: s.showCommandResults,
+  musicSource: s.musicSource, musicBarStyle: s.musicBarStyle,
 });
 
 export function createPrefsStore(api: () => SakuraBridge["layout"], saveDelayMs = 400) {

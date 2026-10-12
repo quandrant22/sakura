@@ -205,6 +205,91 @@ async def _smtc_set_position(seconds: float) -> bool:
         return False
 
 
+# ── Пульт приложения через SMTC: перемешивание, повтор, обложка ─────────────
+
+REPEAT_MODES = ("none", "track", "list")  # MediaPlaybackAutoRepeatMode: 0, 1, 2
+
+
+async def _session():
+    from winsdk.windows.media.control import (
+        GlobalSystemMediaTransportControlsSessionManager as MediaManager,
+    )
+    sessions = await asyncio.wait_for(MediaManager.request_async(), timeout=3.0)
+    return _pick_yamusic_session(sessions) or sessions.get_current_session()
+
+
+async def smtc_modes() -> dict:
+    """{'shuffle': bool|None, 'repeat': 'none'|'track'|'list'|None} — None, если приложение не сообщает."""
+    try:
+        session = await _session()
+        if not session:
+            return {"shuffle": None, "repeat": None}
+        pb = session.get_playback_info()
+        shuffle = pb.is_shuffle_active
+        mode = pb.auto_repeat_mode
+        return {"shuffle": None if shuffle is None else bool(shuffle),
+                "repeat": None if mode is None else REPEAT_MODES[int(mode)]}
+    except Exception as e:
+        log.debug(f"[music] SMTC modes: {e}")
+        return {"shuffle": None, "repeat": None}
+
+
+async def smtc_set_shuffle(on: bool) -> bool:
+    try:
+        session = await _session()
+        return bool(session and await session.try_change_shuffle_active_async(bool(on)))
+    except Exception as e:
+        log.debug(f"[music] SMTC shuffle: {e}")
+        return False
+
+
+async def smtc_set_repeat(mode: str) -> bool:
+    try:
+        from winsdk.windows.media import MediaPlaybackAutoRepeatMode
+        session = await _session()
+        value = MediaPlaybackAutoRepeatMode(REPEAT_MODES.index(mode))
+        return bool(session and await session.try_change_auto_repeat_mode_async(value))
+    except Exception as e:
+        log.debug(f"[music] SMTC repeat: {e}")
+        return False
+
+
+async def smtc_set_position(seconds: float) -> bool:
+    return await _smtc_set_position(seconds)
+
+
+_cover_cache: dict = {"key": None, "data": None}
+
+
+async def smtc_cover() -> bytes | None:
+    """Обложка текущего трека из SMTC (миниатюра приложения), с кэшем по треку."""
+    try:
+        from winsdk.windows.storage.streams import Buffer, DataReader, InputStreamOptions
+        session = await _session()
+        if not session:
+            return None
+        props = await asyncio.wait_for(session.try_get_media_properties_async(), timeout=3.0)
+        key = (props.title, props.artist)
+        if _cover_cache["key"] == key:
+            return _cover_cache["data"]
+        data = None
+        if props.thumbnail:
+            stream = await props.thumbnail.open_read_async()
+            size = int(stream.size)
+            if 0 < size <= 4 * 1024 * 1024:
+                buf = Buffer(size)
+                await stream.read_async(buf, size, InputStreamOptions.READ_AHEAD)
+                reader = DataReader.from_buffer(buf)
+                out = bytearray(buf.length)
+                reader.read_bytes(out)
+                data = bytes(out)
+        _cover_cache.update(key=key, data=data)
+        return data
+    except Exception as e:
+        log.debug(f"[music] SMTC cover: {e}")
+        return None
+
+
 async def smart_prev(get_position=None, press_prev=None, sleep=asyncio.sleep,
                      threshold_s: float | None = None, gap_ms: int | None = None) -> dict:
     """«Предыдущий трек» в приложении: одно нажатие «назад» при позиции ≤ PREV_RESTART_THRESHOLD_S,

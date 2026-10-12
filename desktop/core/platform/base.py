@@ -24,6 +24,14 @@ class Platform(ABC):
         """Сдвинуть громкость на delta процентов, вернуть итоговое значение."""
 
     @abstractmethod
+    def app_volume_get(self, names: tuple[str, ...]) -> int | None:
+        """Громкость звуковой сессии приложения (0..100) по части имени процесса; None — сессии нет."""
+
+    @abstractmethod
+    def app_volume_set(self, names: tuple[str, ...], percent: int) -> int | None:
+        """Установить громкость сессии приложения 0..100; итог или None — сессии нет."""
+
+    @abstractmethod
     def media_key(self, kind: str) -> None:
         """Медиаклавиша: play_pause, next, prev, mute, volume_up, volume_down."""
 

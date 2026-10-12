@@ -131,7 +131,7 @@ class MediaService:
     def register(self, api_command):
         for name in ("state", "library", "scan", "urls", "playlist", "history", "position", "open_url",
                      "youtube_from_browser", "youtube_to_browser", "youtube_check", "yandex", "level",
-                     "settings", "external", "clear_covers", "open_external"):
+                     "settings", "external", "clear_covers", "open_external", "ymremote"):
             api_command(f"media_{name}", getattr(self, f"cmd_{name}"))
 
     async def cmd_state(self, msg):
@@ -283,6 +283,16 @@ class MediaService:
         if op in ("play_pause", "next", "prev"):
             return {"ok": await remote_smtc.control(op)}
         raise ValueError(f"op {op}")
+
+    async def cmd_ymremote(self, msg):
+        """Панель Яндекс.Музыки (remote): op=state — снимок, иначе операция пульта."""
+        from desktop.core.media.yandex_remote import YandexRemote
+        remote = getattr(self, "_ym_remote", None) or YandexRemote()
+        self._ym_remote = remote
+        op = msg.get("op", "state")
+        if op == "state":
+            return await remote.state()
+        return await remote.control(op, msg.get("value"))
 
     async def cmd_open_external(self, msg):
         """«Открыть во внешнем проигрывателе» — если контейнер/кодек не играется в окне."""

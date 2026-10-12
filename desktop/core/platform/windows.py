@@ -79,6 +79,43 @@ class WindowsPlatform(make_stub("windows")):
         except Exception:
             return False
 
+    # ── громкость отдельного приложения (сессия микшера, ISimpleAudioVolume) ──
+    @staticmethod
+    def _app_sessions(names):
+        import comtypes
+        try:
+            comtypes.CoInitialize()
+        except Exception:
+            pass
+        from pycaw.pycaw import AudioUtilities
+        wanted = tuple(n.lower() for n in names)
+        out = []
+        for s in AudioUtilities.GetAllSessions():
+            proc = getattr(s, "Process", None)
+            name = (proc.name() if proc else "").lower()
+            if name and any(w in name for w in wanted):
+                out.append(s.SimpleAudioVolume)
+        return out
+
+    def app_volume_get(self, names):
+        try:
+            vols = self._app_sessions(names)
+        except Exception:
+            return None
+        return round(vols[0].GetMasterVolume() * 100) if vols else None
+
+    def app_volume_set(self, names, percent):
+        try:
+            vols = self._app_sessions(names)
+        except Exception:
+            return None
+        if not vols:
+            return None
+        level = max(0, min(100, int(percent)))
+        for v in vols:  # у приложения бывает несколько сессий — двигаем все
+            v.SetMasterVolume(level / 100.0, None)
+        return level
+
     def media_key(self, kind: str) -> None:
         vk = MEDIA_VK.get(kind)
         if vk is None:

@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test } from "vitest";
 
 import type { CoreClient, Listener } from "../../api/client";
 import { DemoClient } from "../../api/demo";
@@ -8,6 +8,10 @@ import { MediaProvider, useMediaMeta, useMusicStore } from "../../media/MediaCon
 import type { Track } from "../../media/types";
 import { MusicWidget } from "./MusicWidget";
 
+import { prefsStore } from "../../layout/prefs";
+
+// Эти тесты — про медиатеку Сакуры; панель Яндекс.Музыки — в music/YandexBar.test.tsx.
+beforeEach(() => prefsStore.getState().set("musicSource", "sakura"));
 afterEach(cleanup);
 
 const tracks: Track[] = [1, 2].map((id) => ({ id, source: "local", title: `Песня ${id}`, artist: "Артист", album: "", duration: 120 }));
