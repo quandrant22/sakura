@@ -8,6 +8,7 @@ import { MERGE_PRESETS, type MergePreset, type Mobility } from "../core-gfx/core
 import { THEMES, type Theme, usePrefs } from "../layout/prefs";
 import { useMediaClient, useMediaMeta, useMusic } from "../media/MediaContext";
 import type { MediaSettings } from "../media/types";
+import { TOKEN_STEPS } from "../board/widgets/music/barLogic";
 import { errorText } from "../store";
 
 function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
@@ -110,6 +111,10 @@ function MediaSection() {
           <input type="checkbox" checked={s.music_yandex} onChange={(e) => void set("music_yandex", e.target.checked)} className="accent-accent" />
           Включить</label>
       </Row>
+      <div aria-label="Доступ к Яндекс.Музыке" className="mt-2 rounded-btn bg-panel2 px-4 py-3 text-xs leading-relaxed text-ink-dim">
+        <div className="mb-1 text-sm text-ink">Доступ к Яндекс.Музыке (лайки, дизлайки, текст песни)</div>
+        <ol className="list-decimal pl-4">{TOKEN_STEPS.map((t) => <li key={t}>{t}</li>)}</ol>
+      </div>
       {msg && <div role="alert" className="py-2 text-sm text-accent">{msg}</div>}
     </div>
   );

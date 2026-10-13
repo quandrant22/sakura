@@ -10,15 +10,9 @@ import { type MouseEvent, type PointerEvent, type ReactNode, useCallback, useEff
 import { usePrefs } from "../../../layout/prefs";
 import { useMediaClient } from "../../../media/MediaContext";
 import {
-  type ControlResult, dominantColor, extrapolate, fmt, type Hint, hintFor, prevAction, type RemoteState, visibleControls,
+  type ControlResult, dominantColor, extrapolate, fmt, type Hint, hintFor, prevAction, type RemoteState, TOKEN_STEPS,
+  visibleControls,
 } from "./barLogic";
-
-export const TOKEN_STEPS = [
-  "Откройте файл C:\\sakura-git\\agent\\.env в Блокноте.",
-  "Добавьте строку YANDEX_MUSIC_TOKEN=ваш_токен (токен — в настройках аккаунта Яндекс.Музыки или через инструкцию библиотеки yandex-music).",
-  "Сохраните файл и перезапустите Сакуру (трей → «Выход», затем снова ярлык Sakura).",
-  "Значение токена Сакура нигде не показывает и не отправляет на сервер.",
-];
 
 const POLL_MS = 2000;
 const TICK_MS = 250;

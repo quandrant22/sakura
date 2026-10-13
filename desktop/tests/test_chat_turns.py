@@ -91,3 +91,44 @@ def test_two_fast_turns_keep_order_and_explicit_turn_id():
     h.chat.reply("ответ на второй")
     assert h.msgs() == [("user", None, "первый", t1), ("user", None, "второй", t2),
                         ("assistant", "llm", "ответ на первый", t1), ("assistant", "llm", "ответ на второй", t2)]
+
+
+def test_fast_turns_placeholder_for_previous_turn_not_lost():
+    """Новый ход начался раньше tts_end прошлого — заглушка прошлого хода всё равно появляется."""
+    h = Harness()
+    t1 = h.chat.user("включи свет", source="mic")
+    h.chat.audio()                      # звук ответа на t1, текста нет
+    t2 = h.chat.user("и музыку", source="mic")
+    h.chat.audio()
+    h.chat.tts_end()
+    h.fire()
+    placeholders = [m for m in h.msgs() if m[1] == "voice_only"]
+    assert placeholders == [("assistant", "voice_only", VOICE_ONLY_TEXT, t1),
+                            ("assistant", "voice_only", VOICE_ONLY_TEXT, t2)]
+
+
+def test_interrupted_speech_without_tts_end_still_checked():
+    h = Harness()
+    t1 = h.chat.user("расскажи сказку", source="mic")
+    h.chat.audio()                      # озвучку перебили — tts_end не пришёл
+    h.chat.user("стоп", source="mic")
+    h.fire()
+    assert ("assistant", "voice_only", VOICE_ONLY_TEXT, t1) in h.msgs()
+
+
+def test_each_voice_turn_gets_text_or_placeholder_once():
+    h = Harness()
+    turns = []
+    for i in range(5):
+        turns.append(h.chat.user(f"фраза {i}", source="mic"))
+        h.chat.audio()
+        if i % 2 == 0:
+            h.chat.reply(f"ответ {i}")
+        h.chat.tts_end()
+    h.fire()
+    h.chat.tts_end()
+    h.fire()
+    for i, t in enumerate(turns):
+        answers = [m for m in h.msgs() if m[0] == "assistant" and m[3] == t]
+        assert len(answers) == 1, (i, answers)
+        assert answers[0][1] == ("llm" if i % 2 == 0 else "voice_only")

@@ -39,6 +39,7 @@ class ChatTurns:
         self._turn: str | None = None          # текущий ход
         self._audio: set[str] = set()          # ходы, в которых был звук
         self._texted: set[str] = set()         # ходы, где Сакура ответила текстом
+        self._checking: set[str] = set()       # ходы, для которых проверка текста уже назначена
         self._seen: set[tuple] = set()         # (turn_id, kind, text) — защита от повторов
         self._msg_ids = itertools.count(1)
 
@@ -64,6 +65,8 @@ class ChatTurns:
 
     def user(self, text: str, source: str = "mic") -> str:
         """Новая реплика пользователя — новый ход."""
+        # Прошлый ход со звуком, но без tts_end (озвучку прервали) — тоже проверить на текст.
+        self._schedule_checks()
         self._turn = f"t{next(self._ids)}"
         self._message("user", text, self._turn, None, source)
         return self._turn
@@ -100,9 +103,14 @@ class ChatTurns:
 
     def tts_end(self):
         """Озвучка кончилась: если текста так и не будет — заглушка и WARNING."""
-        turn = self._turn
-        if turn and turn in self._audio:
-            self._schedule(TEXT_AFTER_AUDIO_S, lambda: self._check_text(turn))
+        self._schedule_checks()
+
+    def _schedule_checks(self):
+        # Все ходы со звуком без текста, а не только текущий: при быстрых ходах новый ход
+        # начинается раньше, чем кончилась озвучка прошлого, — его заглушка не должна пропасть.
+        for turn in sorted(self._audio - self._texted - self._checking):
+            self._checking.add(turn)
+            self._schedule(TEXT_AFTER_AUDIO_S, lambda t=turn: self._check_text(t))
 
     def _check_text(self, turn: str):
         if turn in self._texted:
