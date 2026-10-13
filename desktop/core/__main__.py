@@ -64,6 +64,29 @@ class SingleInstance:
             return False
 
 
+def watch_parent(parent_pid: int, pid_exists=None, exit_fn=os._exit, interval: float = 2.0,
+                 sleep=time.sleep, once: bool = False) -> None:
+    """Окно (Electron) запустило ядро и исчезло, не закрыв его, — ядро завершается само."""
+    if pid_exists is None:
+        import psutil
+        pid_exists = psutil.pid_exists
+    while True:
+        if not pid_exists(parent_pid):
+            log.warning("[core] окно (pid %s) завершилось — закрываю ядро", parent_pid)
+            exit_fn(0)
+            return
+        if once:
+            return
+        sleep(interval)
+
+
+def _start_parent_watch() -> None:
+    raw = os.getenv("SAKURA_PARENT_PID", "")
+    if raw.isdigit():
+        import threading
+        threading.Thread(target=watch_parent, args=(int(raw),), daemon=True, name="parent-watch").start()
+
+
 def _start_music_listener(service) -> None:
     from desktop.core.music_listener import start
 
@@ -108,6 +131,7 @@ def main(argv=None) -> int:
         return EXIT_ALREADY_RUNNING
     log.info("[core] старт: device=%s env=%s data=%s headless=%s offline=%s", config.DEVICE_ID,
              "найден" if config.ENV_FILE else "нет", config.DATA_DIR, args.headless, config.OFFLINE)
+    _start_parent_watch()
     asyncio.run(run_core(args.api_port))
     return 0
 

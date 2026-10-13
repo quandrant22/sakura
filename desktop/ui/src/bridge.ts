@@ -4,6 +4,8 @@ export interface CoreConnection {
   token: string;
 }
 
+export type CoreProcessState = "idle" | "starting" | "running" | "restarting" | "failed" | "external" | "stopped";
+
 export interface SakuraBridge {
   window: {
     minimize(): Promise<void>;
@@ -25,7 +27,13 @@ export interface SakuraBridge {
   /** Виджет в отдельном окне. */
   widgets: { popout(type: string, id: string): Promise<void> };
   openLogs(): Promise<string>;
-  core: { connection(): Promise<CoreConnection | null> };
+  core: {
+    connection(): Promise<CoreConnection | null>;
+    /** Состояние ядра, запущенного окном; null — ядро запущено отдельно. */
+    state(): Promise<CoreProcessState | null>;
+    onState(cb: (state: CoreProcessState) => void): () => void;
+    openLog(): Promise<void>;
+  };
   tray: {
     onAction(cb: (id: string) => void): () => void;
     setState(state: { mic?: boolean; game?: boolean; busy?: boolean }): Promise<void>;
@@ -81,7 +89,7 @@ const fallback: SakuraBridge = {
   layout: memoryLayout(),
   widgets: { popout: async () => {} },
   openLogs: async () => "",
-  core: { connection: async () => null },
+  core: { connection: async () => null, state: async () => null, onState: () => () => {}, openLog: async () => {} },
   tray: { onAction: () => () => {}, setState: async () => {} },
   autostart: { get: async () => false, set: async (v) => v },
   capture: {

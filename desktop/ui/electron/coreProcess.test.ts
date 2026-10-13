@@ -22,7 +22,9 @@ const spawn = vi.fn(() => { const c = new FakeChild(); children.push(c); return 
 function make(extra: Partial<ConstructorParameters<typeof CoreSupervisor>[0]> = {}) {
   return new CoreSupervisor({
     python: "python", cwd: dir, logDir: path.join(dir, "logs"), tokenFile: path.join(dir, "ui.token"),
-    spawn: spawn as never, now: () => clock, restartDelayMs: 10, ...extra,
+    spawn: spawn as never, now: () => clock, restartDelayMs: 10,
+    killTree: (pid: number) => { for (const c of children) if (c.pid === pid) c.kill(); },
+    ...extra,
   });
 }
 
@@ -113,4 +115,29 @@ test("выход из приложения закрывает ядро и не �
   vi.advanceTimersByTime(100);
   expect(spawn).toHaveBeenCalledTimes(1);
   expect(s.state).toBe("stopped");
+});
+
+
+test("выход закрывает ядро деревом процессов (killTree с pid ядра)", () => {
+  const killed: number[] = [];
+  const s = make({ killTree: (pid) => killed.push(pid) });
+  s.start();
+  s.stop();
+  expect(killed).toEqual([4242]);
+});
+
+test("ядру передаётся PID окна — оно завершится, если окно упало", () => {
+  make().start();
+  const opts = (spawn.mock.calls[0] as unknown as [string, string[], { env: Record<string, string> }])[2];
+  expect(opts.env.SAKURA_PARENT_PID).toBe(String(process.pid));
+});
+
+test("смена состояния уходит в onState: starting → restarting → failed", () => {
+  const states: string[] = [];
+  const s = make({ onState: (st) => states.push(st), maxRestarts: 1 });
+  s.start();
+  children[0]!.exit(1);
+  vi.advanceTimersByTime(20);
+  children[1]!.exit(1);
+  expect(states).toEqual(["starting", "restarting", "failed"]);
 });

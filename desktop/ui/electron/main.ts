@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { CoreSupervisor, coreAutostartEnabled } from "./coreProcess.js";
+import { type CoreState, CoreSupervisor, coreAutostartEnabled } from "./coreProcess.js";
 import { readLayout, writeLayout } from "./layoutFile.js";
 import {
   clampToArea, minSize, type Preset, presetSize, readBounds, snapToCorner, VIDEO_ASPECT, writeBounds,
@@ -25,6 +25,10 @@ const miniBoundsFile = path.join(dataDir, "mini_windows.json");
 // Корень репозитория (здесь лежит пакет desktop): dist-electron → ui → desktop → корень.
 const repoDir = process.env.SAKURA_REPO_DIR ?? path.join(here, "..", "..", "..");
 let core: CoreSupervisor | null = null;
+// Состояние ядра, запущенного окном (SAKURA_CORE_AUTOSTART); null — ядро запущено отдельно.
+let coreState: CoreState | null = null;
+const logDir = path.join(dataDir, "logs");
+const appIcon = path.join(here, "..", "..", "assets", "sakura.ico");
 
 let win: BrowserWindow | null = null;
 let miniWin: BrowserWindow | null = null;
@@ -50,6 +54,7 @@ function createWindow(): BrowserWindow {
     backgroundColor: "#00000000",
     show: false,
     title: "Sakura",
+    icon: fs.existsSync(appIcon) ? appIcon : undefined,
     webPreferences: {
       preload: path.join(here, "preload.cjs"),
       contextIsolation: true,
@@ -99,6 +104,8 @@ function buildTrayMenu(): void {
       { label: "Открыть", click: showWindow },
       { label: "Заглушить микрофон", type: "checkbox", checked: !trayState.mic, click: () => send("mic_toggle") },
       { label: "Игровой режим", type: "checkbox", checked: trayState.game, click: () => send("game_mode") },
+      ...(coreState === "failed"
+        ? [{ label: "Ядро не запустилось: открыть журнал", click: openCoreLog }] : []),
       { type: "separator" },
       {
         label: "Выход",
@@ -109,6 +116,18 @@ function buildTrayMenu(): void {
       },
     ]),
   );
+}
+
+function openCoreLog(): void {
+  const log = path.join(logDir, "sakura.log");
+  void shell.openPath(fs.existsSync(log) ? log : logDir);
+}
+
+function onCoreState(state: CoreState): void {
+  coreState = state;
+  win?.webContents.send("core:state", state);
+  tray?.setToolTip(state === "failed" ? "Sakura — ядро не запустилось" : "Sakura");
+  buildTrayMenu();
 }
 
 function createTray(): void {
@@ -130,6 +149,8 @@ ipcMain.handle("window:toggle-maximize", () => {
 ipcMain.handle("window:close", () => win?.close());
 ipcMain.handle("window:is-maximized", () => win?.isMaximized() ?? false);
 ipcMain.handle("app:version", () => app.getVersion());
+ipcMain.handle("core:state", () => coreState);
+ipcMain.handle("core:open-log", () => openCoreLog());
 ipcMain.handle("layout:get", (_e, deviceId: unknown) => readLayout(layoutFile, deviceId));
 ipcMain.handle("layout:set", (_e, deviceId: unknown, entry: unknown) => writeLayout(layoutFile, deviceId, entry));
 ipcMain.handle("layout:export", async (_e, json: unknown) => {
@@ -382,9 +403,10 @@ if (!process.env.SAKURA_E2E && !app.requestSingleInstanceLock()) {
       core = new CoreSupervisor({
         python: process.env.SAKURA_PYTHON ?? (process.platform === "win32" ? "python.exe" : "python3"),
         cwd: repoDir,
-        logDir: path.join(dataDir, "logs"),
+        logDir,
         tokenFile,
         log: (line) => console.log(`[core] ${line}`),
+        onState: onCoreState,
       });
       core.start();
       // Окно не ждёт ядро: до готовности оно само покажет «нет связи с ядром» и переподключится.

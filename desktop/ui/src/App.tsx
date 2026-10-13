@@ -8,6 +8,7 @@ import { BoardBar } from "./board/BoardBar";
 import { WidgetBoard } from "./board/WidgetBoard";
 import { bridge } from "./bridge";
 import { Chat, ChatStrip } from "./components/Chat";
+import { CoreFailedBanner } from "./components/CoreFailedBanner";
 import { CoreCard, MenuCard, type Section } from "./components/LeftColumn";
 import { TitleBar } from "./components/TitleBar";
 import { CATALOG, gamesPage, getPage, patchWidget, setActivePage, type WidgetType } from "./layout/boardModel";
@@ -217,6 +218,7 @@ function Shell() {
   return (
     <div className="flex h-full flex-col overflow-hidden bg-bg">
       <TitleBar center={section === "home" && loaded ? <BoardBar galleryOpen={gallery} onGallery={() => setGallery(!gallery)} /> : undefined} />
+      <CoreFailedBanner />
       <div className="flex min-h-0 flex-1 gap-gap px-edge pb-edge pt-gap">
         <aside className="flex w-[300px] shrink-0 flex-col gap-gap">
           <CoreCard />

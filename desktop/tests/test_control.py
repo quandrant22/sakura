@@ -434,3 +434,13 @@ def test_system_volume_synonym(action, arg, expected, monkeypatch):
     hands.execute_command(expected)
     assert applied == [{"volume:40": ("set", 40), "volume_up:10": ("nudge", 10),
                         "volume_down:5": ("nudge", -5)}[expected]]
+
+
+def test_core_exits_when_parent_window_gone():
+    from desktop.core.__main__ import watch_parent
+    alive, exited = {1234}, []
+    watch_parent(1234, pid_exists=lambda p: p in alive, exit_fn=exited.append, once=True)
+    assert exited == []
+    alive.clear()
+    watch_parent(1234, pid_exists=lambda p: p in alive, exit_fn=exited.append, once=True)
+    assert exited == [0]

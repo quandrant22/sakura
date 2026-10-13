@@ -26,6 +26,13 @@ const api = {
   openLogs: (): Promise<string> => ipcRenderer.invoke("app:open-logs"),
   core: {
     connection: (): Promise<{ port: number; token: string } | null> => ipcRenderer.invoke("core:connection"),
+    state: (): Promise<string | null> => ipcRenderer.invoke("core:state"),
+    onState: (cb: (state: string) => void): (() => void) => {
+      const h = (_e: unknown, s: string) => cb(s);
+      ipcRenderer.on("core:state", h);
+      return () => ipcRenderer.removeListener("core:state", h);
+    },
+    openLog: (): Promise<void> => ipcRenderer.invoke("core:open-log"),
   },
   tray: {
     onAction: (cb: (id: string) => void): (() => void) => {

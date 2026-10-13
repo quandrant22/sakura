@@ -2,7 +2,7 @@
 // дочерним процессом, ждёт готовности (свежий ui.token), перезапускает при падении — не больше
 // maxRestarts раз за windowMs — и закрывает ядро при выходе из приложения.
 // Вывод консоли ядра — в logs/core-console.log; свой sakura.log ядро пишет само в ту же папку.
-import { type ChildProcess, spawn as nodeSpawn } from "node:child_process";
+import { type ChildProcess, spawn as nodeSpawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -24,6 +24,15 @@ export interface CoreOptions {
   spawn?: typeof nodeSpawn;
   now?: () => number;
   log?: (line: string) => void;
+  /** Смена состояния — окно и трей показывают «Ядро не запустилось». */
+  onState?: (state: CoreState) => void;
+  /** Закрыть ядро вместе с дочерними процессами (Windows: taskkill /T /F). */
+  killTree?: (pid: number) => void;
+}
+
+/** Windows: дерево процессов ядра целиком — без осиротевших python. */
+export function killTreeWin(pid: number): void {
+  spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
 }
 
 export const coreAutostartEnabled = (env: NodeJS.ProcessEnv) => env.SAKURA_CORE_AUTOSTART === "1";
@@ -33,7 +42,14 @@ export class CoreSupervisor {
   private restarts: number[] = [];
   private timer: ReturnType<typeof setTimeout> | undefined;
   private startedAt = 0;
-  state: CoreState = "idle";
+  private _state: CoreState = "idle";
+
+  get state(): CoreState { return this._state; }
+  set state(s: CoreState) {
+    if (s === this._state) return;
+    this._state = s;
+    this.o.onState?.(s);
+  }
 
   constructor(private o: CoreOptions) {}
 
@@ -57,7 +73,9 @@ export class CoreSupervisor {
     const spawn = this.o.spawn ?? nodeSpawn;
     const child = spawn(this.o.python, ["-m", "desktop.core", "--headless"], {
       cwd: this.o.cwd,
-      env: { ...process.env, ...this.o.env, PYTHONUNBUFFERED: "1", PYTHONIOENCODING: "utf-8" },
+      // SAKURA_PARENT_PID — ядро само завершится, если окно упало и не закрыло его.
+      env: { ...process.env, ...this.o.env, PYTHONUNBUFFERED: "1", PYTHONIOENCODING: "utf-8",
+             SAKURA_PARENT_PID: String(process.pid) },
       stdio: ["ignore", out, out],
       windowsHide: true,
     });
@@ -115,7 +133,9 @@ export class CoreSupervisor {
     clearTimeout(this.timer);
     if (this.child && this.child.exitCode === null) {
       this.note("закрываю ядро при выходе");
-      this.child.kill();
+      const kill = this.o.killTree ?? (process.platform === "win32" ? killTreeWin : null);
+      if (kill && this.child.pid) kill(this.child.pid);
+      else this.child.kill();
     }
     this.child = null;
   }
