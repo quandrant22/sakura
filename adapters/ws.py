@@ -223,7 +223,10 @@ async def ws_handler(websocket):
                     "voice_command": handle_voice_command,
                 }
                 handler = HANDLERS.get(msg_type)
-                if msg_type == "vision_request":
+                from sakura_core import proto_v2
+                if proto_v2.is_v2(msg_type):
+                    await proto_v2.handle(websocket, data, _ctx)
+                elif msg_type == "vision_request":
                     # «Спросить про окно»: модель думает секунды — задачей,
                     # цикл сокета читает дальше.
                     from sakura_core import vision_request
@@ -269,6 +272,9 @@ async def ws_handler(websocket):
                      f"(активен другой)")
         elif device_id:
             connected_devices.pop(device_id, None)
+            from sakura_core import proto_devices, proto_v2
+            proto_v2.forget(device_id)
+            await proto_devices.on_disconnect(device_id)
             set_device_offline(device_id)
             await asyncio.to_thread(ps_offline, device_id)
             log.info(f"Устройство отключено: {device_id}")

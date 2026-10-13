@@ -94,11 +94,14 @@ async def handle_register(websocket, data, ctx) -> None:
 
     device_id = data.get("device_id")
     bind_device_socket(device_id, websocket)
+    from sakura_core import proto_devices, proto_v2
+    await proto_v2.on_register(websocket, data)
     update_device(device_id,
         active_window = data.get("active_window"),
         context       = data.get("context"),
         system_info   = data.get("system_info"))
     log.info(f"Устройство подключено: {device_id}")
+    await proto_devices.on_heartbeat(device_id, data)
 
     if is_master_device(device_id) and should_greet_device(device_id):
         greeting = await ask_gemini(
@@ -133,6 +136,8 @@ async def handle_ping(websocket, data, ctx) -> None:
         active_window = data.get("active_window"),
         context       = data.get("context"),
         system_info   = data.get("system_info"))
+    from sakura_core import proto_devices
+    await proto_devices.on_heartbeat(device_id, data)
 
     active_win = data.get("active_window", "")
     await asyncio.to_thread(watcher_update, device_id,
