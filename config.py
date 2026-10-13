@@ -51,6 +51,13 @@ COMPUTER_MAX_SHOT_BYTES = 400 * 1024
 # Протокол v2 настольного клиента (sakura_core/proto_v2.py): 0 — сервер
 # ведёт себя как v1 (нет registered, запросы v2 — error/unsupported).
 PROTO_V2 = os.getenv("PROTO_V2", "1").strip().lower() not in ("0", "false", "no", "")
+# Сторож зависшего голосового хода (sakura_core/voice_turns.py): не
+# завершился за TURN_TIMEOUT_S — «Не получилось ответить, повтори» и
+# tts_end; пока звук идёт (сообщения моложе TURN_ACTIVE_GRACE_S) — не
+# зависание, но не дольше TURN_TIMEOUT_MAX_S. 0 — сторож выключен.
+TURN_TIMEOUT_S = float(os.getenv("TURN_TIMEOUT_S", "30"))
+TURN_ACTIVE_GRACE_S = 5.0
+TURN_TIMEOUT_MAX_S = 120.0
 # «на рабочем ноутбуке» в команде → это устройство (feat/pc-control).
 WORK_LAPTOP_DEVICE = os.getenv("WORK_LAPTOP_DEVICE", "mostech").strip()
 ACKS_ENABLED = os.getenv("ACKS_ENABLED", "1").strip().lower() not in ("0", "false", "no", "")

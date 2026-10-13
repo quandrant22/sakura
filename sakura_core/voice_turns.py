@@ -50,6 +50,8 @@ class Turn:
     kind: str = "other"         # conversation | command | other
     flags: list[str] = field(default_factory=list)
     reported: bool = False
+    # Сторож зависшего хода: момент последнего исходящего сообщения хода.
+    last_activity: float = field(default_factory=time.monotonic)
 
 
 _current: contextvars.ContextVar[Turn | None] = contextvars.ContextVar(
@@ -86,6 +88,7 @@ def tag(payload: dict) -> dict:
     t = _current.get()
     if t is not None:
         payload["turn_id"] = t.turn_id
+        t.last_activity = time.monotonic()
     return payload
 
 
@@ -204,11 +207,66 @@ async def _supersede(prev: Turn) -> None:
         if pending:
             log.warning(f"[turn] {prev.device_id}: {len(pending)} ход(а) не "
                         f"завершились за {CANCEL_WAIT_S:.0f}с — аудио отбрасывается")
-    for t in _chain(prev):
+    # Закрываем от старых к новым — клиент видит tts_end в порядке ходов.
+    for t in reversed(list(_chain(prev))):
         if not t.ended:
             await _send_end_for(t)
     for t in list(_chain(prev)):
         t.prev = None           # цепочку дальше не держим
+
+
+TIMEOUT_REPLY = "Не получилось ответить, повтори."
+WATCH_POLL_S = 1.0          # как часто сторож проверяет ход
+
+
+def _timeout_due(turn: Turn, now: float) -> bool:
+    """Ход завис: дольше TURN_TIMEOUT_S без завершения. Пока звук ещё
+    идёт (сообщения хода моложе TURN_ACTIVE_GRACE_S) — длинный ответ, не
+    зависание; но не дольше TURN_TIMEOUT_MAX_S от приёма."""
+    import config
+    age = now - turn.t_recv
+    if age < config.TURN_TIMEOUT_S:
+        return False
+    if age >= config.TURN_TIMEOUT_MAX_S:
+        return True
+    return now - turn.last_activity >= config.TURN_ACTIVE_GRACE_S
+
+
+async def _watched(turn: Turn, factory: Callable[[], Awaitable[None]]) -> None:
+    """Обработчик хода под сторожем: завис — «Не получилось ответить,
+    повтори» (reply kind=error), задача снята, клиенту tts_end."""
+    import config
+    if config.TURN_TIMEOUT_S <= 0:
+        await factory()
+        return
+    child = asyncio.ensure_future(factory())
+    try:
+        while True:
+            done, _ = await asyncio.wait({child}, timeout=WATCH_POLL_S)
+            if done:
+                child.result()          # исключение обработчика — наружу
+                return
+            if _timeout_due(turn, time.monotonic()):
+                break
+    except asyncio.CancelledError:
+        # Ход вытеснен: обработчик снимается и дорабатывает свой finally
+        # (tts_end хода) до того, как вытесняющий ход начнёт говорить.
+        child.cancel()
+        await asyncio.wait({child}, timeout=CANCEL_WAIT_S)
+        raise
+    age = time.monotonic() - turn.t_recv
+    log.warning(f"[turn] {turn.device_id}: ход {turn.turn_id} завис ({age:.0f}с) — "
+                f"«{TIMEOUT_REPLY}»")
+    from sakura_core import turn_timing
+    turn_timing.flag("timeout", turn)
+    # Сначала текст (ход ещё не вытеснен — reply уходит), потом снять задачу:
+    # её finally закроет ход tts_end; не закрыл — закрываем сами.
+    await send_reply(turn.ws, turn.device_id, TIMEOUT_REPLY, kind="error")
+    child.cancel()
+    await asyncio.wait({child}, timeout=CANCEL_WAIT_S)
+    turn.cancelled = True           # запоздавшее аудио зависшего хода — не уходит
+    if not turn.ended:
+        await _send_end_for(turn)
 
 
 async def _run(turn: Turn, factory: Callable[[], Awaitable[None]]) -> None:
@@ -217,7 +275,7 @@ async def _run(turn: Turn, factory: Callable[[], Awaitable[None]]) -> None:
             await _supersede(turn.prev)
         _current.set(turn)
         log.info(f"[turn] {turn.device_id}: ход {turn.turn_id} начат")
-        await factory()
+        await _watched(turn, factory)
     except asyncio.CancelledError:
         log.info(f"[turn] {turn.device_id}: ход {turn.turn_id} отменён")
         raise
