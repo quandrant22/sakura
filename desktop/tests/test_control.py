@@ -404,7 +404,7 @@ def test_offline_core_never_connects_to_vps(monkeypatch):
 def test_no_server_flag_sets_offline(monkeypatch):
     from desktop.core import __main__ as entry
     from desktop.core import config
-    monkeypatch.delenv("SAKURA_OFFLINE", raising=False)
+    monkeypatch.setenv("SAKURA_OFFLINE", "0")  # monkeypatch вернёт окружение после main()
     monkeypatch.setattr(config, "OFFLINE", False)
     monkeypatch.setattr(entry, "setup_logging", lambda d: None)
     monkeypatch.setattr(entry, "SingleInstance", lambda p: SimpleNamespace(acquire=lambda: False))
