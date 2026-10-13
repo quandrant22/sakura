@@ -166,6 +166,13 @@ def _legacy_action(action: str, arg: str = "") -> str:
     # shutdown_cancel в старом агенте не переводился и давал «неизвестная команда».
     if domain == "system" and verb in ("shutdown", "restart", "sleep", "lock", "shutdown_cancel"):
         return f"system:{verb}"
+    # Сервер шлёт громкость legacy-именем «volume» + число; id реестра system.volume — синоним.
+    # «+N»/«-N» — относительно текущей (hands: volume_up/volume_down).
+    if action == "system.volume":
+        a = (arg or "").strip()
+        if a[:1] in ("+", "-") and a[1:].isdigit():
+            return f"volume_{'up' if a[0] == '+' else 'down'}:{a[1:]}"
+        return "volume"
     return action
 
 

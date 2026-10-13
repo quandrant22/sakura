@@ -412,3 +412,25 @@ def test_no_server_flag_sets_offline(monkeypatch):
     monkeypatch.setattr(hooks, "install_exception_hooks", lambda log: None)
     assert entry.main(["--no-server"]) == entry.EXIT_ALREADY_RUNNING
     assert config.OFFLINE is True
+
+
+@pytest.mark.parametrize("action,arg,expected", [
+    ("volume", "40", "volume:40"),            # как шлёт сервер
+    ("system.volume", "40", "volume:40"),     # id реестра
+    ("system.volume", "+10", "volume_up:10"),
+    ("system.volume", "-5", "volume_down:5"),
+])
+def test_system_volume_synonym(action, arg, expected, monkeypatch):
+    from desktop.core import agent as agent_mod
+    from desktop.core import hands
+    seen, applied = [], []
+    monkeypatch.setattr(agent_mod, "execute_command", lambda full: seen.append(full) or {"result": "Громкость"})
+    monkeypatch.setattr(hands, "set_volume", lambda v: applied.append(("set", v)) or "ok")
+    monkeypatch.setattr(hands, "nudge_volume", lambda d: applied.append(("nudge", d)) or "ok")
+    a = agent_mod.Agent.__new__(agent_mod.Agent)
+    a._ws, a.bus, a.media, a.server_link = None, None, None, None
+    asyncio.run(a._run_command(action, None, arg))
+    assert seen == [expected]
+    hands.execute_command(expected)
+    assert applied == [{"volume:40": ("set", 40), "volume_up:10": ("nudge", 10),
+                        "volume_down:5": ("nudge", -5)}[expected]]
