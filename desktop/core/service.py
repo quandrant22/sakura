@@ -179,6 +179,9 @@ class CoreService:
         c("list_audio_devices", self.cmd_list_audio_devices)
         c("settings_set", self.cmd_settings_set)
         c("game_mode", self.cmd_game_mode)
+        c("secrets_status", self.cmd_secrets_status)
+        c("secrets_set", self.cmd_secrets_set)
+        c("core_restart", self.cmd_core_restart)
         if os.getenv("SAKURA_LIVECHECK") == "1":
             c("run_action", self.cmd_run_action)
         if self.media is not None:
@@ -249,6 +252,30 @@ class CoreService:
             return {"ok": False, "status": "failed", "detail": "нет ответа от действия за 30 с"}
         finally:
             self.agent._local_results.pop(cmd_id, None)
+
+    # ── «Секреты»: только «задан / не задан» и запись; значения не возвращаются и не журналируются ──
+    async def cmd_secrets_status(self, msg: dict):
+        from desktop.core import envfile
+        path = envfile.env_path()
+        return {"env_file": path, "exists": bool(path and os.path.isfile(path)), "keys": envfile.status(path)}
+
+    async def cmd_secrets_set(self, msg: dict):
+        from desktop.core import envfile
+        path = envfile.env_path()
+        if not path:
+            raise ApiError("unsupported", "файл .env не найден — запустите Сакуру ярлыком или задайте SAKURA_ENV_FILE")
+        try:
+            await asyncio.to_thread(envfile.set_secret, path, str(msg.get("key") or ""), msg.get("value"),
+                                    self._restrict)
+        except envfile.SecretError as e:
+            raise ApiError("bad_request", str(e)) from None
+        return {"keys": envfile.status(path), "restart_suggested": True}
+
+    async def cmd_core_restart(self, msg: dict):
+        """Перезапуск ядра (новые значения .env): окно (CoreSupervisor) запустит ядро заново."""
+        log.info("[core] перезапуск по запросу интерфейса")
+        asyncio.get_running_loop().call_later(0.3, os._exit, 0)
+        return {"restarting": True}
 
     async def cmd_power_cancel(self, msg: dict):
         """Кнопка «Отмена» в тосте выключения — то же, что «отмени выключение»."""
