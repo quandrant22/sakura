@@ -49,13 +49,53 @@ test("«Предыдущий»: на 10 с одинарный клик — в н
   expect(c.ops.map((o) => o.op)).toEqual(["restart", "prev"]);
 });
 
-test("лайк без токена неактивен с подсказкой", async () => {
-  setup();
+const HINT = "Нужен доступ к Яндекс.Музыке. Добавь YANDEX_MUSIC_TOKEN в C:\\sakura-git\\agent\\.env и перезапусти Сакуру";
+
+test("лайк без токена: приглушён, по клику — полная подсказка и «Как это сделать», в ядро не уходит", async () => {
+  const c = setup({ ...new RemoteClient("normal").state, like_hint: HINT });
   // по умолчанию в jsdom ширина 690 → лайк виден
   await waitFor(() => expect(screen.getByText("Песня")).toBeTruthy());
   const like = screen.getByLabelText("Нравится") as HTMLButtonElement;
-  expect(like.disabled).toBe(true);
+  expect(like.className).toContain("opacity-35");
   expect(like.title).toContain("YANDEX_MUSIC_TOKEN");
+  fireEvent.click(like);
+  const hint = await screen.findByRole("status");
+  expect(hint.textContent).toContain(HINT);           // полностью, без обрезки
+  expect(hint.className).toContain("text-warn");      // цвет предупреждения, не акцента
+  fireEvent.click(screen.getByText("Как это сделать"));
+  expect(screen.getByRole("dialog", { name: "Как подключить Яндекс.Музыку" }).textContent).toContain("перезапустите Сакуру");
+  expect(c.ops).toEqual([]);
+});
+
+test("ошибка действия — подсказка цветом предупреждения; звук не найден — один повтор через 2 с", async () => {
+  const c = setup();
+  await waitFor(() => expect(screen.getByText("Песня")).toBeTruthy());
+  let calls = 0;
+  const orig = c.call.bind(c);
+  c.call = async <T,>(type: string, payload: Record<string, unknown> = {}): Promise<T> => {
+    if (type === "media_ymremote" && payload.op === "mute") {
+      calls += 1;
+      return { ok: false, status: "noop", detail: "Звук Яндекс.Музыки не найден: включите трек — повторю через 2 с",
+               retry_ms: 20 } as T;
+    }
+    return orig<T>(type, payload);
+  };
+  fireEvent.click(screen.getByLabelText("Выключить звук"));
+  const hint = await screen.findByRole("status");
+  expect(hint.className).toContain("text-warn");
+  expect(hint.textContent).toContain("повторю через 2 с");
+  await waitFor(() => expect(calls).toBe(2));
+  await new Promise((r) => setTimeout(r, 60));
+  expect(calls).toBe(2); // повтор только один
+});
+
+test("с токеном: сердце закрашено, если лайк стоит; клик шлёт like", async () => {
+  const c = setup({ ...new RemoteClient("normal").state, can_like: true, can_lyrics: true, like_hint: null, liked: true });
+  await waitFor(() => expect(screen.getByLabelText("Убрать лайк")).toBeTruthy());
+  expect(screen.getByLabelText("Убрать лайк").getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(screen.getByLabelText("Убрать лайк"));
+  await act(async () => {});
+  expect(c.ops.map((o) => o.op)).toContain("like");
 });
 
 test("приложение не запущено — кнопка «Открыть Яндекс.Музыку»", async () => {

@@ -17,6 +17,35 @@ export interface RemoteState {
   can_like?: boolean;
   like_hint?: string | null;
   can_lyrics?: boolean;
+  /** Стоит ли лайк у текущего трека (API, нужен токен); null — неизвестно. */
+  liked?: boolean | null;
+}
+
+/** Ответ пульта на действие. */
+export interface ControlResult {
+  ok: boolean;
+  status?: "done" | "noop" | "failed" | "unsupported";
+  detail: string;
+  /** «token» — показать кнопку «Как это сделать» (инструкция про YANDEX_MUSIC_TOKEN). */
+  help?: string;
+  /** Повторить действие через столько мс (звук приложения ещё не появился). */
+  retry_ms?: number;
+  lyrics?: string;
+  liked?: boolean;
+  volume?: number;
+}
+
+export interface Hint {
+  text: string;
+  /** Ошибка или отказ — цвет предупреждения; успех — обычный. */
+  warn: boolean;
+  help?: string;
+}
+
+/** Подсказка по ответу действия: успехи не показываются, отказ и ошибка — полностью, с действием. */
+export function hintFor(r: ControlResult | null | undefined): Hint | null {
+  if (!r || r.ok) return null;
+  return { text: r.detail, warn: true, help: r.help };
 }
 
 /** Позиция сейчас: снимок SMTC + время с его обновления (+ сколько прошло с получения снимка). */

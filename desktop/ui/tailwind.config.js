@@ -16,6 +16,7 @@ export default {
         accent: { DEFAULT: c("accent"), deep: c("accent-deep"), soft: "var(--accent-soft)" },
         ink: { DEFAULT: c("ink"), dim: c("ink-dim") },
         online: c("online"),
+        warn: c("warn"),
         ym: { yellow: c("ym-yellow"), on: c("ym-on-yellow"), bar: c("ym-bar") },
       },
       backgroundImage: {

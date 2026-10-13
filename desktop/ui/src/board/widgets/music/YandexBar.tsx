@@ -3,13 +3,22 @@
 // справа «Текст», настройки и громкость; фон — по цвету обложки; прогресс — по нижней кромке.
 import {
   ExternalLink, Heart, HeartCrack, ListMusic, MoreHorizontal, Pause, Play, Repeat, Repeat1, Settings2, Shuffle,
-  SkipBack, SkipForward, Volume2, VolumeX,
+  SkipBack, SkipForward, Volume2, VolumeX, X,
 } from "lucide-react";
 import { type MouseEvent, type PointerEvent, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { usePrefs } from "../../../layout/prefs";
 import { useMediaClient } from "../../../media/MediaContext";
-import { dominantColor, extrapolate, fmt, prevAction, type RemoteState, visibleControls } from "./barLogic";
+import {
+  type ControlResult, dominantColor, extrapolate, fmt, type Hint, hintFor, prevAction, type RemoteState, visibleControls,
+} from "./barLogic";
+
+export const TOKEN_STEPS = [
+  "Откройте файл C:\\sakura-git\\agent\\.env в Блокноте.",
+  "Добавьте строку YANDEX_MUSIC_TOKEN=ваш_токен (токен — в настройках аккаунта Яндекс.Музыки или через инструкцию библиотеки yandex-music).",
+  "Сохраните файл и перезапустите Сакуру (трей → «Выход», затем снова ярлык Sakura).",
+  "Значение токена Сакура нигде не показывает и не отправляет на сервер.",
+];
 
 const POLL_MS = 2000;
 const TICK_MS = 250;
@@ -78,11 +87,12 @@ function useCoverColor(src: string | null | undefined) {
 }
 
 function IconBtn(p: { label: string; title?: string; onClick?(e: MouseEvent): void; disabled?: boolean; active?: boolean;
-                      children: ReactNode }) {
+                      dim?: boolean; children: ReactNode }) {
   return (
     <button type="button" aria-label={p.label} title={p.title ?? p.label} aria-pressed={p.active} disabled={p.disabled}
             onClick={p.onClick}
             className={"grid h-8 w-8 shrink-0 place-items-center rounded-full transition-colors disabled:opacity-35 " +
+              (p.dim ? "opacity-35 " : "") +
               (p.active ? "text-ym-yellow" : "text-ink-dim hover:text-ink")}>
       {p.children}
     </button>
@@ -93,21 +103,63 @@ export function YandexBar({ onMenu }: { onMenu?(): void }) {
   const { st, position, refresh, client } = useRemote();
   const style = usePrefs((p) => p.musicBarStyle);
   const [ref, width] = useWidth<HTMLDivElement>();
-  const [hint, setHint] = useState<string | null>(null);
+  const [hint, setHint] = useState<Hint | null>(null);
+  const [help, setHelp] = useState(false);
+  const [lyrics, setLyrics] = useState<string | null>(null);
   const [drag, setDrag] = useState<number | null>(null); // доля 0..1 во время перетаскивания
   const bg = useCoverColor(st?.cover);
   const show = visibleControls(width);
   const dur = st?.duration_s ?? 0;
 
-  const control = async (op: string, value?: unknown) => {
+  const control = async (op: string, value?: unknown, retried = false) => {
     try {
-      const r = await client.call<{ ok: boolean; detail: string }>("media_ymremote", { op, value });
-      setHint(r && !r.ok ? r.detail : null);
+      const r = await client.call<ControlResult>("media_ymremote", { op, value });
+      setHint(hintFor(r));
+      if (r?.lyrics) setLyrics(r.lyrics);
+      // Звук приложения ещё не появился (трек не играет) — один повтор через 2 с.
+      if (r && !r.ok && r.retry_ms && !retried) setTimeout(() => void control(op, value, true), r.retry_ms);
     } catch (e) {
-      setHint(String((e as Error).message || e));
+      setHint({ text: String((e as Error).message || e), warn: true });
     }
     void refresh();
   };
+  /** Кнопка без токена не выключена: по клику — полная подсказка с «Как это сделать». */
+  const needToken = (op: string) => (st?.can_like ? void control(op)
+    : setHint({ text: st?.like_hint ?? "", warn: true, help: "token" }));
+
+  const bubble = hint && (
+    <div role="status" className={"absolute left-[94px] right-3 top-1.5 z-10 flex items-start gap-2 rounded-btn bg-panel2/95 px-3 py-1.5 text-xs leading-snug shadow-soft " +
+                                   (hint.warn ? "text-warn" : "text-ink")}>
+      <span className="min-w-0 flex-1 whitespace-normal break-words">{hint.text}</span>
+      {hint.help === "token" && (
+        <button type="button" onClick={() => setHelp(true)} className="shrink-0 rounded-full border border-warn/50 px-2 py-0.5 text-[11px]">
+          Как это сделать
+        </button>
+      )}
+      <button type="button" aria-label="Скрыть подсказку" onClick={() => setHint(null)} className="shrink-0 text-ink-dim hover:text-ink">
+        <X size={13} />
+      </button>
+    </div>
+  );
+  const popups = (
+    <>
+      {help && (
+        <div role="dialog" aria-label="Как подключить Яндекс.Музыку"
+             className="absolute inset-x-3 bottom-2 top-2 z-20 overflow-auto rounded-btn bg-panel2 p-3 text-xs leading-relaxed text-ink shadow-soft">
+          <div className="mb-1 flex items-center justify-between font-medium">Доступ к Яндекс.Музыке
+            <button type="button" aria-label="Закрыть" onClick={() => setHelp(false)}><X size={14} /></button></div>
+          <ol className="list-decimal pl-4">{TOKEN_STEPS.map((t) => <li key={t}>{t}</li>)}</ol>
+        </div>
+      )}
+      {lyrics && (
+        <div role="dialog" aria-label="Текст песни"
+             className="absolute inset-x-3 bottom-2 top-2 z-20 overflow-auto whitespace-pre-wrap rounded-btn bg-panel2 p-3 text-xs leading-relaxed text-ink shadow-soft">
+          <button type="button" aria-label="Закрыть текст" onClick={() => setLyrics(null)} className="float-right"><X size={14} /></button>
+          {lyrics}
+        </div>
+      )}
+    </>
+  );
 
   // Прогресс по нижней кромке: клик и перетаскивание — перемотка (запрос — при отпускании).
   const fraction = (e: PointerEvent<HTMLDivElement>) => {
@@ -128,6 +180,7 @@ export function YandexBar({ onMenu }: { onMenu?(): void }) {
            style={{ background }} aria-label="Яндекс.Музыка">
         <div className="grid h-16 w-16 shrink-0 place-items-center rounded-[10px] bg-panel2 text-ink-dim"><ListMusic size={24} /></div>
         <div className="min-w-0 flex-1 text-sm text-ink-dim">{text}</div>
+        {bubble}
         {st && st.status !== "no_smtc" && (
           <button type="button" onClick={() => void control("open_app")}
                   className="flex shrink-0 items-center gap-1.5 rounded-full bg-ym-yellow px-3 py-1.5 text-xs font-medium text-ym-on">
@@ -148,14 +201,15 @@ export function YandexBar({ onMenu }: { onMenu?(): void }) {
       <div className="min-w-0 w-36 shrink">
         <div className="truncate text-sm font-medium text-ink" title={st.title}>{st.title}</div>
         <div className="truncate text-xs text-ink-dim" title={st.artist}>{st.artist || "—"}</div>
-        {hint && <div className="truncate text-[11px] text-accent" role="status">{hint}</div>}
       </div>
+      {bubble}
+      {popups}
       {onMenu && <IconBtn label="Меню панели" onClick={onMenu}><MoreHorizontal size={18} /></IconBtn>}
 
       <div className="mx-auto flex items-center gap-1">
         {show.rating && (
-          <IconBtn label="Не нравится" title={st.can_like ? "Не нравится" : `Не нравится — ${st.like_hint}`}
-                   disabled={!st.can_like} onClick={() => void control("dislike")}><HeartCrack size={17} /></IconBtn>
+          <IconBtn label="Не нравится" title={st.can_like ? "Не нравится" : `Не нравится. ${st.like_hint}`}
+                   dim={!st.can_like} onClick={() => needToken("dislike")}><HeartCrack size={17} /></IconBtn>
         )}
         {show.modes && (
           <IconBtn label="Перемешать" active={!!st.shuffle} onClick={() => void control("shuffle")}><Shuffle size={17} /></IconBtn>
@@ -174,17 +228,20 @@ export function YandexBar({ onMenu }: { onMenu?(): void }) {
           </IconBtn>
         )}
         {show.rating && (
-          <IconBtn label="Нравится" title={st.can_like ? "Нравится" : `Нравится — ${st.like_hint}`}
-                   disabled={!st.can_like} onClick={() => void control("like")}><Heart size={17} /></IconBtn>
+          <IconBtn label={st.liked ? "Убрать лайк" : "Нравится"} active={!!st.liked}
+                   title={st.can_like ? (st.liked ? "Убрать лайк" : "Нравится") : `Нравится. ${st.like_hint}`}
+                   dim={!st.can_like} onClick={() => needToken("like")}>
+            <Heart size={17} fill={st.liked ? "currentColor" : "none"} />
+          </IconBtn>
         )}
       </div>
 
       <div className="flex shrink-0 items-center gap-1">
         {show.extras && (
           <>
-            <button type="button" disabled={!st.can_lyrics} title={st.can_lyrics ? "Текст песни" : `Текст — ${st.like_hint}`}
-                    className="rounded-full px-2 py-1 text-xs text-ink-dim hover:text-ink disabled:opacity-35"
-                    onClick={() => void control("lyrics")}>Текст</button>
+            <button type="button" title={st.can_lyrics ? "Текст песни" : `Текст. ${st.like_hint}`}
+                    className={"rounded-full px-2 py-1 text-xs text-ink-dim hover:text-ink " + (st.can_lyrics ? "" : "opacity-35")}
+                    onClick={() => needToken("lyrics")}>Текст</button>
             <IconBtn label="Настройки панели" onClick={onMenu}><Settings2 size={16} /></IconBtn>
           </>
         )}
