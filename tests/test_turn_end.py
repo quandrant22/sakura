@@ -273,7 +273,7 @@ def test_v3_confirm_yes_without_speech_gets_single_tts_end(monkeypatch):
         await ws_dev.send(json.dumps({"type": "command", "action": action}))
     monkeypatch.setattr(ex, "execute_critical_action", _exec_crit)
 
-    async def _confirm(text, *, source, on_execute, on_cancel):
+    async def _confirm(text, *, source, on_execute, on_cancel, **kw):
         await on_execute("system.shutdown")
         return True
     monkeypatch.setattr(br, "handle_v3_confirm", _confirm)

@@ -106,6 +106,10 @@ class Executor:
         }
         if command.arg:
             payload["arg"] = command.arg
+        if (ctx.extra or {}).get("confirmed"):
+            # Пользователь сказал «да» на вопрос подтверждения: клиент без
+            # этого поля опасное действие не исполняет («нужно подтверждение»).
+            payload["confirmed"] = True
         await ctx.device_ws.send(json.dumps(payload))
         return cmd_id
 
@@ -120,10 +124,29 @@ class Executor:
             pending = None
             source = ctx.extra.get("source")
             timeout = TELEGRAM_CONFIRM_TTL if source == "telegram" else DEVICE_CONFIRM_TTL
+            # Команда собирается ДО вопроса — из исходной фразы («перенеси
+            # файл отчёт в документы»): после «да» текстом будет «да», а
+            # уйти должно ровно то, о чём спрашивали.
+            prepared = None
+            fn = _HANDLERS.get(action_id)
+            from capabilities.pc_control import PC_ACTIONS
+            if action_id in PC_ACTIONS and fn is not None and callable(fn):
+                try:
+                    built = fn(ExecutionContext(device_ws=ctx.device_ws, device_id=ctx.device_id,
+                                                register_command=ctx.register_command,
+                                                param=param, extra=ctx.extra))
+                    if isinstance(built, AgentCommand):
+                        prepared = {"action": built.action, "arg": built.arg}
+                except Exception as e:
+                    log.debug(f"[confirm] {action_id}: команда не собрана заранее: {e}")
             if self._session is not None:
+                # «да» ждём от того, кто спросил (голос — устройство-источник),
+                # даже если команда уйдёт другому («на рабочем ноутбуке»).
+                asker = source if source not in (None, "telegram") else ctx.device_id
                 pending = self._session.expect("confirm", action=action_id,
-                                               device=ctx.device_id or None,
-                                               ttl=timeout)
+                                               device=asker or None,
+                                               ttl=timeout,
+                                               payload={"param": param, "command": prepared})
                 timeout = pending.until - _time.monotonic()
             log.info(
                 f"[confirm] ожидание: action={action_id} "
@@ -132,6 +155,11 @@ class Executor:
             prompt = decl.confirm_prompt or f"{decl.desc}?"
             return (prompt, True)
 
+        prepared = (ctx.extra or {}).get("prepared_command")
+        if ctx.extra.get("confirmed") and prepared:
+            # «да» на вопрос: команда собрана в момент вопроса.
+            return await self._send_command(
+                AgentCommand(prepared["action"], arg=prepared.get("arg") or ""), ctx)
         fn = _HANDLERS.get(action_id)
         if fn is None:
             raise RuntimeError(f"нет хендлера для '{action_id}'")

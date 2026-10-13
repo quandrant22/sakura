@@ -402,9 +402,24 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
                                                device_id or "laptop", literal=True)
                 else:
                     await bot.send_message(MASTER_ID, "Хорошо, отменила.")
+            async def _v3_ws_exec_decision(dec):
+                from sakura_core.bridge import execute_decision
+                if not ws_dev:
+                    await bot.send_message(MASTER_ID, "Устройство отключилось, не могу выполнить.")
+                    return
+                _ok, _cmd_id = await execute_decision(
+                    dec, device_ws=ws_dev, device_id=device_id,
+                    register_command=ctx.get("_register_command"),
+                    text=text, source=device_id)
+                if isinstance(_cmd_id, str) and _cmd_id:
+                    # Результат агента озвучит подтверждение: «Готово» при
+                    # status=done, иначе «Не получилось: …».
+                    acks.arm(_cmd_id, ws=ws_dev, device_id=device_id or "laptop",
+                             action=dec.action, param=dec.param)
             if await handle_v3_confirm(text, source=device_id,
                                        on_execute=_v3_ws_execute,
-                                       on_cancel=_v3_ws_cancel):
+                                       on_cancel=_v3_ws_cancel,
+                                       on_execute_decision=_v3_ws_exec_decision):
                 return
     except Exception as _v3_conf_err:
         log.debug(f"[ws] v3 confirm: {type(_v3_conf_err).__name__}: {_v3_conf_err}")
