@@ -348,3 +348,24 @@ def test_run_action_only_with_livecheck_env(monkeypatch):
         return set(names)
     assert "run_action" not in collect(False)
     assert "run_action" in collect(True)
+
+
+def test_livecheck_device_id_wins_over_dotenv(monkeypatch):
+    import importlib
+
+    from desktop.core import config
+    monkeypatch.setenv("DEVICE_ID", "mostech")
+    monkeypatch.setenv("SAKURA_DEVICE_ID", "mostech-check")
+    try:
+        assert importlib.reload(config).DEVICE_ID == "mostech-check"
+    finally:
+        monkeypatch.delenv("SAKURA_DEVICE_ID")
+        importlib.reload(config)
+
+
+def test_mic_off_from_start(monkeypatch):
+    import inspect
+
+    from desktop.core import hearing
+    src = inspect.getsource(hearing)
+    assert 'self.mic_enabled   = os.getenv("SAKURA_MIC_OFF") != "1"' in src

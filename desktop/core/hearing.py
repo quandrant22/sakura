@@ -713,7 +713,8 @@ class Hearing(threading.Thread):
         self._mute_until   = 0.0
         # Микрофон выключен пользователем (локальный API mic_toggle / трей):
         # поток читает звук, но не слушает слово и не записывает фразы.
-        self.mic_enabled   = True
+        # SAKURA_MIC_OFF=1 — выключен с самого старта (живая проверка: не слушать до подключения).
+        self.mic_enabled   = os.getenv("SAKURA_MIC_OFF") != "1"
         self._timeline_sequence = 0
         self.vad           = None
         self.recognizer    = None
