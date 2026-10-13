@@ -121,8 +121,17 @@ def reply_text(text: str) -> str:
     return text[:REPLY_MAX_CHARS]
 
 
-async def send_reply(websocket, device_id: str, text: str) -> bool:
-    """Полный текст голосового ответа устройству-источнику (type=reply).
+# Виды ответов в reply.kind (feat/reply-kinds):
+#   llm       — ответ модели (потоковый голосовой, по command_result, LLM-фразы)
+#   ack       — подтверждение команды («Готово.», «Громкость 70.», «Выполняю.»)
+#   template  — готовые и кэшированные фразы, ответы реестра
+#   error     — «Не получилось: <detail>»
+#   proactive — напоминания, брифинги, уведомления (всем master-устройствам)
+REPLY_KINDS = ("llm", "ack", "template", "error", "proactive")
+
+
+async def send_reply(websocket, device_id: str, text: str, kind: str = "llm") -> bool:
+    """Текст ответа устройству (type=reply): {text, kind, turn_id, ts}.
 
     Только master-устройствам; вытесненный ход текст не шлёт. Ошибка
     отправки не ломает ход. True — сообщение ушло."""
@@ -134,15 +143,30 @@ async def send_reply(websocket, device_id: str, text: str) -> bool:
     text = reply_text(text)
     if not text:
         return False
+    if kind not in REPLY_KINDS:
+        log.warning(f"[turn] reply: неизвестный kind={kind!r} — template")
+        kind = "template"
     import json
     try:
         await websocket.send(json.dumps(tag({
             "type": "reply", "device_id": device_id, "text": text,
+            "kind": kind, "ts": round(time.time(), 3),
         })))
     except Exception as e:
         log.debug(f"[turn] reply не отправлен: {type(e).__name__}: {e}")
         return False
     return True
+
+
+async def broadcast_reply(text: str, kind: str = "proactive") -> int:
+    """reply всем подключённым master-устройствам (проактивные сообщения).
+    Возвращает, скольким ушло."""
+    from modules.state import connected_devices
+    sent = 0
+    for dev, ws in list(connected_devices.items()):
+        if await send_reply(ws, dev, text, kind):
+            sent += 1
+    return sent
 
 
 async def _send_end_for(turn: Turn) -> None:

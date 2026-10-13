@@ -109,8 +109,10 @@ async def handle_register(websocket, data, ctx) -> None:
 
     try:
         if is_master_device(device_id) and await asyncio.to_thread(should_brief):
+            from functools import partial
             spawn(run_briefing(
-                device_id, websocket, ask_gemini, stream_tts_to_device,
+                device_id, websocket, ask_gemini,
+                partial(stream_tts_to_device, reply_kind="proactive"),
                 telegram_bot=bot, master_id=MASTER_ID,
             ), name="device-briefing")
     except Exception as e:
@@ -241,7 +243,8 @@ async def handle_kettle_ready(websocket, data, ctx) -> None:
     )
     if reply_k:
         if ws_k:
-            await stream_tts_to_device(reply_k, ws_k, dev, literal=True)
+            await stream_tts_to_device(reply_k, ws_k, dev, literal=True,
+                                       reply_kind="proactive")
         await bot.send_message(MASTER_ID, reply_k)
 
 
@@ -268,7 +271,8 @@ async def handle_notification(websocket, data, ctx) -> None:
                     prompt, save_history=False, chain=VOICE_MODEL_CHAIN,
                 )
                 if _reply:
-                    await stream_tts_to_device(_reply, _active_ws, _ad or "laptop", literal=True)
+                    await stream_tts_to_device(_reply, _active_ws, _ad or "laptop", literal=True,
+                                               reply_kind="proactive")
     except Exception as e:
         log.error(f"[notification] {e}")
 
@@ -309,20 +313,33 @@ async def _handle_command_result(websocket, data, ctx) -> None:
             f"[ws] command_result с НЕИЗВЕСТНЫМ id={_cmd_id_from_agent!r} "
             f"(device={data.get('device_id')}) — ожидались: "
             f"{[k for k, v in st._pending_commands.items() if v['status'] == 'sent'][-5:]}")
+    from modules import acks
+    # Контракт desktop: {ok, status: done|noop|failed|unsupported, detail};
+    # status главнее ok — «Готово» только при done.
+    _status = data.get("status") if data.get("status") in acks.RESULT_STATUSES else None
     if _cmd_id_from_agent and _cmd_id_from_agent in st._pending_commands:
-        if "ok" in data:
-            _cmd_ok = data["ok"]
+        if "ok" in data or _status is not None:
+            _cmd_ok = (_status == "done") if _status is not None else data["ok"]
             _cmd_detail = data.get("detail", "")
             st._pending_commands[_cmd_id_from_agent]["status"] = "executed" if _cmd_ok else "failed"
             st._pending_commands[_cmd_id_from_agent]["detail"] = _cmd_detail
         else:
             st._pending_commands[_cmd_id_from_agent]["status"] = "executed"
+        _armed = acks.is_armed(_cmd_id_from_agent)
         # Голосовое подтверждение (modules/acks): в фоне — цикл сокета не ждёт.
-        from modules import acks
         spawn(acks.on_result(_cmd_id_from_agent,
                              _cmd_ok and not acks.detail_is_error(_cmd_detail),
-                             _cmd_detail),
+                             _cmd_detail, status=_status),
               name=f"ack-{_cmd_id_from_agent}")
+        if (_status not in (None, "done") and not _armed
+                and voice_turns.current() is not None):
+            # Команда голосового хода без подтверждения (followup=llm) не
+            # удалась: честное «Не получилось», без LLM-продолжения.
+            _ws_err = st.connected_devices.get(dev_name)
+            if _ws_err is not None:
+                await stream_tts_to_device(acks.status_phrase(_cmd_detail), _ws_err,
+                                           dev_name, literal=True, reply_kind="error")
+            return
     elif result:
         _cmd_detail = str(result)
         _cmd_ok = not any(t in _cmd_detail.lower() for t in
@@ -359,8 +376,8 @@ async def _handle_command_result(websocket, data, ctx) -> None:
                 )
                 if _page_reply and ext_ws:
                     log.info(f"[голос] ответ: {_page_reply!r}")
-                    await stream_tts_to_device(_page_reply, ext_ws, ext_dev, literal=True)
-                    await voice_turns.send_reply(ext_ws, ext_dev, _page_reply)
+                    await stream_tts_to_device(_page_reply, ext_ws, ext_dev, literal=True,
+                                               reply_kind="llm")
         return
 
     if data.get("music"):
@@ -460,8 +477,8 @@ async def _handle_command_result(websocket, data, ctx) -> None:
         if music_reply:
             log.info(f"[голос] ответ: {music_reply!r}")
             if ws_m:
-                await stream_tts_to_device(music_reply, ws_m, dev_m, literal=True)
-                await voice_turns.send_reply(ws_m, dev_m, music_reply)
+                await stream_tts_to_device(music_reply, ws_m, dev_m, literal=True,
+                                           reply_kind="llm")
             await bot.send_message(MASTER_ID, music_reply)
     elif screenshot:
         _should_describe = data.get("describe") or st._pending_describe.pop(dev_name, False)
@@ -493,7 +510,7 @@ async def _handle_command_result(websocket, data, ctx) -> None:
                         _dev_ws = st.connected_devices.get(dev_name)
                         if _dev_ws:
                             await stream_tts_to_device(
-                                _vtext, _dev_ws, dev_name, literal=True
+                                _vtext, _dev_ws, dev_name, literal=True, reply_kind="llm"
                             )
             except Exception as _ve:
                 log.error(f"[vision] {_ve}")
@@ -509,7 +526,8 @@ async def _handle_command_result(websocket, data, ctx) -> None:
                         ws_ev = st.connected_devices.get(dev_name)
                         if ws_ev:
                             await stream_tts_to_device(
-                                ev_reply, ws_ev, dev_name, literal=True
+                                ev_reply, ws_ev, dev_name, literal=True,
+                                reply_kind="proactive"
                             )
             except Exception as _ee:
                 log.debug(f"game_event_handle: {_ee}")

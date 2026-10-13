@@ -990,6 +990,17 @@ async def ensure_turn_end(websocket, device_id: str, since: float) -> None:
 MIN_TTS_LEN = 2
 
 
+async def send_spoken_reply(text: str, websocket, device_id: str, kind: str) -> None:
+    """reply со сказанным: proactive — всем master-устройствам, иначе источнику."""
+    try:
+        if kind == "proactive":
+            await voice_turns.broadcast_reply(text, kind)
+        else:
+            await voice_turns.send_reply(websocket, device_id, text, kind)
+    except Exception as e:
+        log.debug(f"[tts] reply не отправлен: {type(e).__name__}: {e}")
+
+
 async def stream_tts_to_device(
     text: str,
     websocket,
@@ -998,6 +1009,7 @@ async def stream_tts_to_device(
     emotion: str = "спокойная",
     stop=None,
     listen: float | None = None,
+    reply_kind: str | None = "template",
 ):
     """Единая точка входа озвучки (голос и все фоновые пути).
 
@@ -1010,7 +1022,11 @@ async def stream_tts_to_device(
     остальное синтезируется параллельно без слышимых пауз.
 
     stop — опциональный callable(): вернул True → озвучка прекращается
-    (между пакетами). Полезно для прерывания длинного списка голосом."""
+    (между пакетами). Полезно для прерывания длинного списка голосом.
+
+    reply_kind — текст сказанного уходит reply-ем (feat/reply-kinds) перед
+    tts_end: устройству-источнику, а proactive — всем master-устройствам;
+    None — без reply (текст уже отправлен вызывающим)."""
     from modules.state import tts_stop_requested
     if voice_turns.is_cancelled():
         log.info(f"[TTS] ход {voice_turns.current_id()} вытеснен — озвучка пропущена | {device_id}")
@@ -1032,6 +1048,8 @@ async def stream_tts_to_device(
     else:
         sent = await _stream_two_stage(
             parts[0], " ".join(parts[1:]), websocket, device_id, emotion, t0, stop)
+    if reply_kind:
+        await send_spoken_reply(text, websocket, device_id, reply_kind)
     await _send_end(websocket, device_id, listen=listen)
     if sent == -1:
         log.info(f"[TTS] Озвучка прервана по стоп-сигналу | {device_id}")
@@ -1084,7 +1102,8 @@ async def stream_llm_to_tts(
         clean = re.sub(r'EMOTION:\w+', '', full_text).strip()
 
         if clean and websocket:
-            await stream_tts_to_device(clean, websocket, device_id, emotion=emotion)
+            await stream_tts_to_device(clean, websocket, device_id, emotion=emotion,
+                                      reply_kind="llm")
 
         return full_text, emotion
 
@@ -1111,7 +1130,8 @@ async def stream_llm_to_tts(
 
             clean = re.sub(r'EMOTION:\w+', '', full_text).strip()
             if clean and websocket:
-                await stream_tts_to_device(clean, websocket, device_id, emotion=emotion)
+                await stream_tts_to_device(clean, websocket, device_id, emotion=emotion,
+                                      reply_kind="llm")
 
         except Exception as e2:
             log.error(f"[TTS stream fallback] {e2}")

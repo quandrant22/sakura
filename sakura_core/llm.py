@@ -721,7 +721,7 @@ async def ask_gemini_voice(
         if websocket:
             try:
                 from sakura_core.voice_turns import send_reply
-                await send_reply(websocket, device_id, "Все ключи исчерпаны.")
+                await send_reply(websocket, device_id, "Все ключи исчерпаны.", kind="error")
                 from modules.tts_server import _send_end
                 await _send_end(websocket, device_id)
             except Exception as e:

@@ -242,7 +242,7 @@ def test_no_ack_for_followup_llm(monkeypatch, synth_calls):
 def test_ack_on_error_with_reason(monkeypatch):
     spoken = []
 
-    async def _play(text, websocket, device_id, t_ref=None):
+    async def _play(text, websocket, device_id, t_ref=None, reply_kind=None):
         spoken.append(text)
         return "память"
     monkeypatch.setattr(tts_cache, "play", _play)
@@ -258,7 +258,7 @@ def test_pending_phrase_once_then_success_silent_error_spoken(monkeypatch):
     monkeypatch.setattr(config, "ACK_PENDING_S", 0.05)
     spoken = []
 
-    async def _play(text, websocket, device_id, t_ref=None):
+    async def _play(text, websocket, device_id, t_ref=None, reply_kind=None):
         spoken.append(text)
         return "память"
     monkeypatch.setattr(tts_cache, "play", _play)
@@ -304,7 +304,7 @@ def test_ok_true_with_error_detail_spoken_as_error(monkeypatch):
     """Агент прислал ok=True, но detail — ошибка: подтверждение говорит ошибку."""
     spoken = []
 
-    async def _play(text, websocket, device_id, t_ref=None):
+    async def _play(text, websocket, device_id, t_ref=None, reply_kind=None):
         spoken.append(text)
         return "память"
     monkeypatch.setattr(tts_cache, "play", _play)

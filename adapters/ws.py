@@ -124,7 +124,6 @@ async def speak_now_playing_result(cmd_id: str, ws_dev, device_id: str, bot) -> 
         log.info(f"[голос] ответ: {_reply!r}")
         if ws_dev:
             await stream_tts_to_device(_reply, ws_dev, device_id, literal=True)
-            await voice_turns.send_reply(ws_dev, device_id, _reply)
         try:
             await bot.send_message(MASTER_ID, _reply)
         except Exception as e:
@@ -224,7 +223,13 @@ async def ws_handler(websocket):
                     "voice_command": handle_voice_command,
                 }
                 handler = HANDLERS.get(msg_type)
-                if msg_type == "voice_command":
+                if msg_type == "vision_request":
+                    # «Спросить про окно»: модель думает секунды — задачей,
+                    # цикл сокета читает дальше.
+                    from sakura_core import vision_request
+                    spawn(vision_request.handle(websocket, data),
+                          name=f"vision-request-{dev_from_msg}")
+                elif msg_type == "voice_command":
                     # Голосовой ход — задачей (voice_turns): цикл сокета
                     # читает дальше, новый запрос того же устройства
                     # вытесняет незавершённый ход, а не ждёт его.
@@ -431,7 +436,8 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
 
         async def _speak(phrase):
             if ws_dev:
-                await stream_tts_to_device(phrase, ws_dev, device_id or "laptop", literal=True)
+                await stream_tts_to_device(phrase, ws_dev, device_id or "laptop", literal=True,
+                                           reply_kind="llm")
         await resolve_conv_reply(
             _r, text=text,
             deliver=_speak,
@@ -598,7 +604,8 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
             if _lr:
                 _active_ws, _ad = _get_active_ws()
                 if _active_ws:
-                    await stream_tts_to_device(_lr, _active_ws, _ad or 'laptop', literal=True)
+                    await stream_tts_to_device(_lr, _active_ws, _ad or 'laptop', literal=True,
+                                               reply_kind="llm")
             return
         _teaching = parse_teaching(text)
         if _teaching:
@@ -614,7 +621,8 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
             if _tr:
                 _active_ws, _ad = _get_active_ws()
                 if _active_ws:
-                    await stream_tts_to_device(_tr, _active_ws, _ad or 'laptop', literal=True)
+                    await stream_tts_to_device(_tr, _active_ws, _ad or 'laptop', literal=True,
+                                               reply_kind="llm")
             return
 
         # ── ПОЛЬЗОВАТЕЛЬСКИЕ ЦЕПОЧКИ ────────────────────
@@ -631,7 +639,8 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
                 history_limit=VOICE_HISTORY_LIMIT, chain=VOICE_MODEL_CHAIN,
             )
             if _chain_reply and ws_dev:
-                await stream_tts_to_device(_chain_reply, ws_dev, device_id or "laptop", literal=True)
+                await stream_tts_to_device(_chain_reply, ws_dev, device_id or "laptop",
+                                           literal=True, reply_kind="llm")
             return
 
         if any(w in text.lower() for w in ("цепочки", "список цепочек", "мои цепочки")):
@@ -656,7 +665,8 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
                 history_limit=VOICE_HISTORY_LIMIT, chain=VOICE_MODEL_CHAIN,
             )
             if _trig_reply and ws_dev:
-                await stream_tts_to_device(_trig_reply, ws_dev, device_id or "laptop", literal=True)
+                await stream_tts_to_device(_trig_reply, ws_dev, device_id or "laptop",
+                                           literal=True, reply_kind="llm")
             return
 
         if any(w in text.lower() for w in ("триггеры", "список триггеров", "мои триггеры")):
@@ -674,9 +684,10 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
             await _cancel_voice_prefetch()
             payload = _strip_payload_words(text_lower)
 
-            async def _say(phrase):
+            async def _say(phrase, kind="template"):
                 if ws_dev:
-                    await stream_tts_to_device(phrase, ws_dev, device_id or "laptop", literal=True)
+                    await stream_tts_to_device(phrase, ws_dev, device_id or "laptop",
+                                               literal=True, reply_kind=kind)
 
             if not payload:
                 await _say("Что прислать в телеграм, Мастер?")
@@ -688,7 +699,7 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
                 ask_gemini, send_safe, search_image, download_bytes,
                 search_and_fetch, needs_search, _translate_en, bot, MASTER_ID,
             )
-            await _say("Готово, Мастер.")
+            await _say("Готово, Мастер.", kind="ack")
             return
 
         active_win = data.get("active_window", "")

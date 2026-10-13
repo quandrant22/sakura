@@ -108,7 +108,7 @@ async def get_pcm(text: str) -> tuple[bytes | None, str]:
 
 
 async def play(text: str, websocket, device_id: str,
-               t_ref: float | None = None) -> str:
+               t_ref: float | None = None, reply_kind: str | None = None) -> str:
     """Озвучить фразу из кэша (или синтезировать и положить в кэш).
 
     tts_end уходит всегда, даже если звук не получился. t_ref —
@@ -127,6 +127,8 @@ async def play(text: str, websocket, device_id: str,
     except Exception as e:
         log.error(f"[tts_cache] {text!r}: {type(e).__name__}: {e}")
     finally:
+        if reply_kind:
+            await tts.send_spoken_reply(text, websocket, device_id, reply_kind)
         await tts._send_end(websocket, device_id)
     return source
 
