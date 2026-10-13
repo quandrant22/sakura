@@ -11,6 +11,7 @@ v3_fast_path до своей диспетчеризации. На этапе 5 �
 from __future__ import annotations
 
 import logging
+import re
 import config
 
 from sakura_core.executor import ExecutionContext, Executor, get_handler
@@ -39,6 +40,8 @@ def _load_capabilities() -> None:
         import capabilities.files        # noqa: F401
         import capabilities.kettle       # noqa: F401
         import capabilities.music        # noqa: F401
+        import capabilities.pc_control   # noqa: F401
+        import capabilities.computer     # noqa: F401
         import capabilities.system       # noqa: F401
         import capabilities.vps_domains  # noqa: F401
         import capabilities.youtube      # noqa: F401
@@ -52,7 +55,11 @@ _load_capabilities()
 # require_handlers=True — декларация без хендлера роняет импорт моста, а не
 # уходит тихо на старый путь в бою. Импорт capabilities.* выше обязан быть
 # до этой строки: пустая таблица также считается отсутствием исполнения.
-_declarations = tuple(_load_registry())
+_declarations = tuple(
+    d for d in _load_registry()
+    # computer.do — только при COMPUTER_USE=1: иначе фразы до него не доходят.
+    if d.id != "computer.do" or config.COMPUTER_USE
+)
 
 
 def get_router() -> Router:
@@ -110,7 +117,8 @@ async def execute_decision(decision, *, device_ws, device_id, register_command,
                                   "source": source,
                                   # «да» из диалога подтверждения — исполнять
                                   # без повторного вопроса (executor).
-                                  "confirmed": decision.source == "session"})
+                                  "confirmed": decision.source == "session",
+                                  "prepared_command": (decision.pending_payload or {}).get("command")})
     result = await get_executor().execute(decision.action, ctx,
                                           param=decision.param)
     pending = get_router().session.pending
@@ -120,6 +128,20 @@ async def execute_decision(decision, *, device_ws, device_id, register_command,
     else:
         log.info(f"[v3] исполнено: {decision.action} ({decision.source})")
     return True, result
+
+
+_WORK_LAPTOP = re.compile(
+    r"[,\s]*на\s+рабоч(?:ем|ий)\s+(?:ноутбуке|ноуте|компьютере|компе|пк)\b", re.IGNORECASE)
+
+
+def target_device(text: str) -> tuple[str, str | None]:
+    """«… на рабочем ноутбуке» → (фраза без уточнения, WORK_LAPTOP_DEVICE).
+
+    Без уточнения — (фраза, None): команда уходит устройству в фокусе
+    (голос — источнику, Telegram — активному)."""
+    if not text or not _WORK_LAPTOP.search(text):
+        return text, None
+    return _WORK_LAPTOP.sub("", text).strip(), config.WORK_LAPTOP_DEVICE
 
 
 async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
@@ -146,7 +168,23 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
     on_agent_command(decision, cmd_id) — async-хук: команда ушла агенту
     (результат исполнения — cmd_id); голос «вооружает» подтверждение.
     """
-    from modules.state import _current_track
+    from modules.state import _current_track, connected_devices
+
+    text, target = target_device(text)
+    if target and target != device_id:
+        target_ws = connected_devices.get(target)
+        if target_ws is None:
+            msg = "Рабочий ноутбук сейчас не в сети."
+            for deliver in (ack, speak):
+                if deliver is not None:
+                    try:
+                        await deliver(msg)
+                        break
+                    except Exception as e:
+                        log.debug(f"[v3] ответ не доставлен: {type(e).__name__}: {e}")
+            return True
+        log.info(f"[v3] устройство из фразы: {target} (вместо {device_id})")
+        device_ws, device_id = target_ws, target
 
     context = resolve_context(
         (data or {}).get("active_window", ""), _current_track or None
@@ -214,12 +252,23 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
     return True
 
 
+def confirms_via_executor(action: str | None) -> bool:
+    """«да» исполняется через Executor (команда с "confirmed": true), а не
+    старым путём execute_critical_action: действия управления компьютером."""
+    from capabilities.pc_control import EXECUTOR_CONFIRMED
+    return action in EXECUTOR_CONFIRMED
+
+
 async def handle_v3_confirm(text, *, source: str | None = None,
-                            on_execute, on_cancel, on_error=None):
+                            on_execute, on_cancel, on_error=None,
+                            on_execute_decision=None):
     """Handle v3 session confirm/deny dialog.
 
     Returns True if the text was handled by the v3 session, False otherwise.
     on_execute(action) — called when user confirms; should execute the action.
+    on_execute_decision(decision) — для действий управления компьютером
+    (confirms_via_executor): исполнить решение через execute_decision —
+    готовая команда из ожидания уходит с "confirmed": true.
     on_cancel() — called when user denies.
     on_error(err) — called on exception (optional).
     """
@@ -237,7 +286,10 @@ async def handle_v3_confirm(text, *, source: str | None = None,
             return True
         if dec.verdict == "confirm" and dec.action:
             log.info(f"[confirm] принято: action={action} фраза={text!r}")
-            await on_execute(dec.action)
+            if on_execute_decision is not None and confirms_via_executor(dec.action):
+                await on_execute_decision(dec)
+            else:
+                await on_execute(dec.action)
         else:
             log.info(f"[confirm] отклонено: action={action} фраза={text!r}")
             await on_cancel()

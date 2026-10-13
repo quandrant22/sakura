@@ -246,10 +246,22 @@ async def handle_message(message: Message):
             await message.answer("Готово.")
         else:
             await message.answer("Устройство отключилось, не могу выполнить.")
+    async def _v3_on_execute_decision(dec):
+        from sakura_core.bridge import execute_decision
+        from adapters.ws import _register_command
+        ws, dev = _get_active_ws()
+        if not ws:
+            await message.answer("Устройство отключилось, не могу выполнить.")
+            return
+        await execute_decision(dec, device_ws=ws, device_id=dev,
+                               register_command=_register_command,
+                               text=text, source="telegram")
+        await message.answer("Отправила.")
     async def _v3_on_cancel():
         await message.answer("Хорошо, отменила.")
     if await handle_v3_confirm(text, source="telegram",
-                               on_execute=_v3_on_execute, on_cancel=_v3_on_cancel):
+                               on_execute=_v3_on_execute, on_cancel=_v3_on_cancel,
+                               on_execute_decision=_v3_on_execute_decision):
         return
 
     if "tg" in _state_mod._pending_system:

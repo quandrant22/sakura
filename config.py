@@ -43,6 +43,13 @@ CONFIRM_LISTEN_SEC = float(os.getenv("CONFIRM_LISTEN_SEC", "10"))
 VOICE_GATE_WAIT_S = float(os.getenv("VOICE_GATE_WAIT_S", "4.0"))
 # Голосовые подтверждения команд агента (modules/acks.py): включены,
 # доля «сухих» реплик, через сколько без command_result сказать «Выполняю.».
+# computer.do / computer_step (агент сам управляет компьютером по шагам):
+# 1 — включено; по умолчанию выключено. До 20 шагов на задачу, кадр ≤ 400 КБ.
+COMPUTER_USE = os.getenv("COMPUTER_USE", "0").strip().lower() in ("1", "true", "yes")
+COMPUTER_MAX_STEPS = 20
+COMPUTER_MAX_SHOT_BYTES = 400 * 1024
+# «на рабочем ноутбуке» в команде → это устройство (feat/pc-control).
+WORK_LAPTOP_DEVICE = os.getenv("WORK_LAPTOP_DEVICE", "mostech").strip()
 ACKS_ENABLED = os.getenv("ACKS_ENABLED", "1").strip().lower() not in ("0", "false", "no", "")
 ACK_WIT_PROB = float(os.getenv("ACK_WIT_PROB", "0.1"))
 ACK_PENDING_S = float(os.getenv("ACK_PENDING_S", "2.0"))

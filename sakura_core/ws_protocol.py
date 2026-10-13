@@ -285,6 +285,43 @@ async def handle_tg_message(websocket, data, ctx) -> None:
 
 # ── command_result ─────────────────────────────────────────────────────
 
+READ_RESULT_MAX = 2000
+
+_READ_PROMPT = (
+    "Мастер попросил: «{desc}». Компьютер ответил:\n{detail}\n\n"
+    "Перескажи Мастеру коротко и по делу, до трёх предложений, без списков "
+    "и разметки. Ничего не добавляй от себя."
+)
+
+
+async def _answer_read_result(action, ok, detail, dev_name, ask_gemini, bot) -> None:
+    """Результат действия-чтения (окна, процессы, буфер, недавние файлы,
+    текст окна): пересказ голосом там, где спросили (голос) или в Telegram."""
+    from modules import acks
+    from sakura_core.registry import load as _load_registry
+    detail = (detail or "").strip()[:READ_RESULT_MAX]
+    if not ok:
+        text = acks.error_phrase(detail)
+    else:
+        desc = next((d.desc for d in _load_registry() if d.id == action), action)
+        text = ""
+        if detail:
+            try:
+                text = await ask_gemini(_READ_PROMPT.format(desc=desc, detail=detail),
+                                        save_history=False, chain=VOICE_MODEL_CHAIN)
+            except Exception as e:
+                log.debug(f"[pc] пересказ {action}: {type(e).__name__}: {e}")
+        text = (text or detail or "Пусто.").strip()
+        if len(text) > 400:
+            text = text[:400].rsplit(" ", 1)[0] + "…"
+    ws_dev = st.connected_devices.get(dev_name)
+    if voice_turns.current() is not None and ws_dev is not None:
+        await stream_tts_to_device(text, ws_dev, dev_name, literal=True,
+                                   reply_kind="llm" if ok else "error")
+    else:
+        await bot.send_message(MASTER_ID, text)
+
+
 async def handle_command_result(websocket, data, ctx) -> None:
     """Результат команды агента. Ответ на него — продолжение голосового
     хода, отправившего команду: его turn_id, вытеснен ход — без озвучки."""
@@ -339,6 +376,11 @@ async def _handle_command_result(websocket, data, ctx) -> None:
             if _ws_err is not None:
                 await stream_tts_to_device(acks.status_phrase(_cmd_detail), _ws_err,
                                            dev_name, literal=True, reply_kind="error")
+            return
+        _act = (st._pending_commands.get(_cmd_id_from_agent) or {}).get("action")
+        from capabilities.pc_control import READ_ACTIONS
+        if _act in READ_ACTIONS:
+            await _answer_read_result(_act, _cmd_ok, _cmd_detail, dev_name, ask_gemini, bot)
             return
     elif result:
         _cmd_detail = str(result)
