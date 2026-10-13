@@ -917,16 +917,18 @@ class Agent:
 
         # ── Основной цикл: подключение к VPS ──────────────────────────
         log.info("[agent] Запускаю подключение к VPS: %s", config.VPS_WS_URL)
+        from desktop.core import transport as _tr
+        try:
+            _transport = _tr.make_transport(config.SERVER_TRANSPORT, config.VPS_WS_URL, config.SERVER_CERT_SHA256)
+        except _tr.TransportError as e:
+            log.error("[agent] транспорт: %s", e)
+            self.bus.emit("agent_alert", text=f"Не удалось подключиться к серверу: {e}")
+            return
         _backoff = config.RECONNECT_SEC
         while True:
             try:
-                log.info("[agent] Подключаюсь к %s...", config.VPS_WS_URL)
-                async with websockets.connect(
-                    config.VPS_WS_URL,
-                    ping_interval=20,
-                    proxy=None,
-                    max_size=None,
-                ) as ws:
+                log.info("[agent] Подключаюсь к %s (%s)...", config.VPS_WS_URL, _transport.kind)
+                async with _tr.session(_transport) as ws:
                     await ws.send(json.dumps(self._payload("register")))
                     self._ws = ws
                     if self.server_link is not None:

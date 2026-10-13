@@ -35,6 +35,10 @@ if ENV_FILE:
 
 # ── Подключение к VPS ───────────────────────────────────────────────
 VPS_WS_URL   = os.getenv("VPS_WS_URL",   "ws://31.76.80.5:8765")
+# Транспорт до сервера (desktop.core.transport): ws | wss | noise; пусто — по схеме VPS_WS_URL.
+SERVER_TRANSPORT = os.getenv("SERVER_TRANSPORT", "")
+# Закрепление сертификата для wss: SHA-256 отпечаток DER (hex, двоеточия допустимы).
+SERVER_CERT_SHA256 = os.getenv("SERVER_CERT_SHA256", "")
 # SAKURA_DEVICE_ID — переменная процесса для проверочного запуска: .env грузится с override
 # и перезаписал бы DEVICE_ID, а сервер не должен принять проверочное ядро за рабочее устройство.
 DEVICE_ID    = os.getenv("SAKURA_DEVICE_ID") or os.getenv("DEVICE_ID", "laptop")
