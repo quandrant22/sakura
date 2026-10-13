@@ -60,6 +60,40 @@ class FakePlatform:
         return self.volume
 
 
+class FakeButtons:
+    """Кнопки окна Яндекс.Музыки (UI Automation)."""
+    def __init__(self, press="no_a11y", state=None):
+        self.result, self.st, self.pressed = press, state or {}, []
+
+    def press(self, kind):
+        self.pressed.append(kind)
+        return self.result
+
+    def state(self, kind):
+        return self.st.get(kind)
+
+
+class FakeLikes:
+    def __init__(self, liked=False):
+        self.is_liked, self.calls = liked, []
+
+    def liked(self, title, artist):
+        return self.is_liked
+
+    def toggle_like(self, title, artist):
+        self.calls.append(("like", title, artist))
+        self.is_liked = not self.is_liked
+        return {"ok": True, "status": "done", "detail": "поставила лайк" if self.is_liked else "убрала лайк",
+                "liked": self.is_liked}
+
+    def dislike(self, title, artist):
+        self.calls.append(("dislike", title, artist))
+        return {"ok": True, "status": "done", "detail": "дизлайк"}
+
+    def lyrics(self, title, artist):
+        return {"ok": True, "status": "done", "detail": "текст песни", "lyrics": "ла-ла"}
+
+
 INFO = {"title": "Песня", "artist": "Певица", "album": "Альбом", "playing": True,
         "position_s": 12.0, "duration_s": 200.0, "updated_age_s": 0.5}
 
@@ -68,9 +102,10 @@ def run(c):
     return asyncio.run(c)
 
 
-def remote(info=INFO, available=True, running=True, token="", volume=40, **kw):
+def remote(info=INFO, available=True, running=True, token="", volume=40, buttons=None, likes=None, **kw):
     return YandexRemote(smtc=FakeSMTC(info, **kw), platform=FakePlatform(volume), available=lambda: available,
-                        running=lambda: running, token=token, open_link=lambda url: url == "yandexmusic://")
+                        running=lambda: running, token=token, open_link=lambda url: url == "yandexmusic://",
+                        buttons=buttons or FakeButtons(), likes=likes or FakeLikes())
 
 
 def test_state_ok_with_cover_modes_volume():
@@ -113,12 +148,15 @@ def test_session_volume_and_mute():
     r = remote(volume=40)
     assert run(r.control("volume_by", 10))["detail"] == "громкость Яндекс.Музыки 50%"
     assert run(r.control("mute"))["detail"] == "звук Яндекс.Музыки выключен"
-    assert run(remote(volume=None).control("volume", 30))["status"] == "noop"
+    out = run(remote(volume=None).control("volume", 30))
+    assert out["status"] == "noop" and out["retry_ms"] == 2000 and "повторю через 2 с" in out["detail"]
 
 
 def test_like_without_token_disabled():
-    out = run(remote(token="").control("like"))
-    assert out == {"ok": False, "status": "unsupported", "detail": TOKEN_HINT}
+    for op in ("like", "dislike", "lyrics"):
+        out = run(remote(token="").control(op))
+        assert out == {"ok": False, "status": "unsupported", "detail": TOKEN_HINT, "help": "token"}
+    assert "YANDEX_MUSIC_TOKEN" in TOKEN_HINT and r"C:\sakura-git\agent\.env" in TOKEN_HINT
 
 
 def test_no_player_is_noop_and_open_app():
@@ -154,3 +192,43 @@ def _async_value(v):
     async def f():
         return v
     return f
+
+
+# ── перемешивание и повтор: SMTC → кнопка окна → честный отказ ──
+def test_modes_fall_back_to_window_buttons():
+    b = FakeButtons(press="done")
+    r = remote(supports=False, buttons=b)
+    assert run(r.control("shuffle"))["ok"] is True and run(r.control("repeat"))["ok"] is True
+    assert b.pressed == ["shuffle", "repeat"]
+
+
+def test_modes_without_accessibility_explain_how():
+    r = remote(supports=False, buttons=FakeButtons(press="no_a11y"))
+    out = run(r.control("shuffle"))
+    assert out["status"] == "unsupported" and "--force-renderer-accessibility" in out["detail"]
+    out = run(remote(supports=False, buttons=FakeButtons(press="no_window")).control("repeat"))
+    assert "окно Яндекс.Музыки не найдено" in out["detail"]
+
+
+def test_state_reads_modes_from_window_when_smtc_has_none():
+    r = remote(shuffle=None, repeat=None, buttons=FakeButtons(state={"shuffle": True, "repeat": False}))
+    st = run(r.state())
+    assert st["shuffle"] is True and st["repeat"] == "none"
+
+
+# ── лайк, дизлайк, текст с токеном (фейковый API) ──
+def test_like_toggle_dislike_lyrics_with_token():
+    likes = FakeLikes(liked=False)
+    r = remote(token="t", likes=likes)
+    st = run(r.state())
+    assert st["can_like"] is True and st["liked"] is False
+    assert run(r.control("like"))["liked"] is True
+    assert run(r.control("like"))["detail"] == "убрала лайк"
+    assert run(r.control("dislike"))["ok"] is True
+    assert run(r.control("lyrics"))["lyrics"] == "ла-ла"
+    assert likes.calls[0] == ("like", "Песня", "Певица")
+
+
+def test_like_without_player_is_noop():
+    r = remote(token="t", info=None)
+    assert run(r.control("like"))["status"] == "noop"

@@ -156,3 +156,20 @@ def read(name: str = "") -> str:
             if size >= READ_LIMIT:
                 break
     return "\n".join(out)[:READ_LIMIT]
+
+
+def window_by_title(prefix: str):
+    """Элемент видимого окна верхнего уровня, чей заголовок начинается с prefix (или None)."""
+    import ctypes
+    found = []
+
+    @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+    def cb(h, _):
+        buf = ctypes.create_unicode_buffer(512)
+        ctypes.windll.user32.GetWindowTextW(h, buf, 512)
+        if buf.value.startswith(prefix) and ctypes.windll.user32.IsWindowVisible(h):
+            found.append(h)
+            return False
+        return True
+    ctypes.windll.user32.EnumWindows(cb, 0)
+    return client().ElementFromHandle(found[0]) if found else None

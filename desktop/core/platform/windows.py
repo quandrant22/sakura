@@ -55,6 +55,32 @@ def _query_idle() -> float:
     return ms / 1000.0
 
 
+_SESSION_EXPIRED = 2  # AudioSessionStateExpired
+
+
+def pick_app_sessions(sessions, names, procs) -> list:
+    """Громкости сессий приложения: сессия процесса, чьё имя или имя предка совпадает с names.
+
+    Chromium/Electron играет звук из дочернего процесса (audio service), у главного сессии нет.
+    sessions: [(pid, state, volume)], procs: {pid: (имя в нижнем регистре, ppid)}.
+    Истёкшие сессии пропускаются; активные — первыми (по ним читается громкость).
+    """
+    wanted = tuple(n.lower() for n in names)
+
+    def belongs(pid) -> bool:
+        seen = set()
+        while pid and pid not in seen and pid in procs:
+            seen.add(pid)
+            name, ppid = procs[pid]
+            if any(w in name for w in wanted):
+                return True
+            pid = ppid
+        return False
+    hits = [(state, vol) for pid, state, vol in sessions if state != _SESSION_EXPIRED and belongs(pid)]
+    hits.sort(key=lambda h: h[0] != 1)  # 1 — AudioSessionStateActive
+    return [vol for _, vol in hits]
+
+
 class WindowsPlatform(make_stub("windows")):
     name = "windows"
 
@@ -87,15 +113,13 @@ class WindowsPlatform(make_stub("windows")):
             comtypes.CoInitialize()
         except Exception:
             pass
+        import psutil
         from pycaw.pycaw import AudioUtilities
-        wanted = tuple(n.lower() for n in names)
-        out = []
-        for s in AudioUtilities.GetAllSessions():
-            proc = getattr(s, "Process", None)
-            name = (proc.name() if proc else "").lower()
-            if name and any(w in name for w in wanted):
-                out.append(s.SimpleAudioVolume)
-        return out
+        procs = {}
+        for p in psutil.process_iter(["pid", "name", "ppid"]):
+            procs[p.info["pid"]] = ((p.info["name"] or "").lower(), p.info["ppid"])
+        sessions = [(s.ProcessId, s.State, s.SimpleAudioVolume) for s in AudioUtilities.GetAllSessions()]
+        return pick_app_sessions(sessions, names, procs)
 
     def app_volume_get(self, names):
         try:
