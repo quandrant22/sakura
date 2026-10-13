@@ -48,6 +48,13 @@ VOICE_GATE_WAIT_S = float(os.getenv("VOICE_GATE_WAIT_S", "4.0"))
 COMPUTER_USE = os.getenv("COMPUTER_USE", "0").strip().lower() in ("1", "true", "yes")
 COMPUTER_MAX_STEPS = 20
 COMPUTER_MAX_SHOT_BYTES = 400 * 1024
+# Сторож зависшего голосового хода (sakura_core/voice_turns.py): не
+# завершился за TURN_TIMEOUT_S — «Не получилось ответить, повтори» и
+# tts_end; пока звук идёт (сообщения моложе TURN_ACTIVE_GRACE_S) — не
+# зависание, но не дольше TURN_TIMEOUT_MAX_S. 0 — сторож выключен.
+TURN_TIMEOUT_S = float(os.getenv("TURN_TIMEOUT_S", "30"))
+TURN_ACTIVE_GRACE_S = 5.0
+TURN_TIMEOUT_MAX_S = 120.0
 # «на рабочем ноутбуке» в команде → это устройство (feat/pc-control).
 WORK_LAPTOP_DEVICE = os.getenv("WORK_LAPTOP_DEVICE", "mostech").strip()
 ACKS_ENABLED = os.getenv("ACKS_ENABLED", "1").strip().lower() not in ("0", "false", "no", "")
