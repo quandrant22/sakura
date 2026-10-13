@@ -1,0 +1,44 @@
+# /etc/caddy/Caddyfile — wss:// для Сакуры (docs/wss.md).
+#
+# Схема: клиент → wss://SAKURA_DOMAIN (443) → nginx stream (ssl_preread,
+# map по SNI в /etc/nginx/stream-vpn.conf) → Caddy 127.0.0.1:8445 (TLS,
+# сертификат Let's Encrypt) → ws_handler 127.0.0.1:8765.
+# Порт 443 занят nginx (VPN и подписки), поэтому Caddy слушает только
+# localhost; сертификат — через TLS-ALPN-01: проверка Let's Encrypt
+# приходит на 443 с тем же SNI и уходит к Caddy как есть.
+#
+# SAKURA_DOMAIN — заменить на домен владельца (A-запись → IP этого VPS).
+
+{
+	admin off
+	default_bind 127.0.0.1
+	http_port 8089
+	https_port 8445
+	auto_https disable_redirects
+	# корень локального CA в системное доверие не ставить
+	skip_install_trust
+	# необязательно: адрес для уведомлений Let's Encrypt
+	# email owner@example.org
+}
+
+SAKURA_DOMAIN {
+	tls {
+		issuer acme {
+			# порт 80 не используется: только TLS-ALPN-01 через 443
+			disable_http_challenge
+		}
+	}
+	# все пути — клиенты подключаются к корню, как раньше к ws://IP:8765/
+	reverse_proxy 127.0.0.1:8765 {
+		# долгие WebSocket-сессии не рвать
+		stream_timeout 24h
+		stream_close_delay 5s
+	}
+	log {
+		output file /var/log/caddy/sakura.log {
+			roll_size 10mb
+			roll_keep 5
+		}
+		format json
+	}
+}

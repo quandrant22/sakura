@@ -1,0 +1,10 @@
+--- /etc/nginx/stream-vpn.conf
++++ /etc/nginx/stream-vpn.conf
+@@ map $ssl_preread_server_name $backend {
+         kizune-ryoiki.duckdns.org  127.0.0.1:8080;
+         kizune-ryoiki.ru           127.0.0.1:8082;
+         sub.kizune-ryoiki.ru       127.0.0.1:8083;
++        SAKURA_DOMAIN              127.0.0.1:8445;   # Сакура: Caddy, wss:// (docs/wss.md)
+         www.icloud.com              127.0.0.1:8448;
+         default                    127.0.0.1:8443;
+     }
