@@ -129,8 +129,8 @@ class Executor:
             # уйти должно ровно то, о чём спрашивали.
             prepared = None
             fn = _HANDLERS.get(action_id)
-            from capabilities.pc_control import PC_ACTIONS
-            if action_id in PC_ACTIONS and fn is not None and callable(fn):
+            from capabilities.pc_control import EXECUTOR_CONFIRMED
+            if action_id in EXECUTOR_CONFIRMED and fn is not None and callable(fn):
                 try:
                     built = fn(ExecutionContext(device_ws=ctx.device_ws, device_id=ctx.device_id,
                                                 register_command=ctx.register_command,

@@ -36,6 +36,10 @@ PC_ACTIONS = (
     "files.reveal", "files.recent", "files.copy", "files.move", "files.delete",
     "ui.click", "ui.type", "ui.scroll", "ui.read",
 )
+# «да» на вопрос подтверждения исполняется через Executor (команда собрана
+# в момент вопроса, уходит с "confirmed": true): эти действия и computer.do.
+EXECUTOR_CONFIRMED = frozenset(PC_ACTIONS) | {"computer.do"}
+
 # Действия-списки и чтения: результат (detail) пересказывается голосом.
 READ_ACTIONS = frozenset({
     "window.list", "process.list", "clipboard.read", "files.recent", "ui.read",

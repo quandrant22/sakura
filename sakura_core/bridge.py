@@ -41,6 +41,7 @@ def _load_capabilities() -> None:
         import capabilities.kettle       # noqa: F401
         import capabilities.music        # noqa: F401
         import capabilities.pc_control   # noqa: F401
+        import capabilities.computer     # noqa: F401
         import capabilities.system       # noqa: F401
         import capabilities.vps_domains  # noqa: F401
         import capabilities.youtube      # noqa: F401
@@ -54,7 +55,11 @@ _load_capabilities()
 # require_handlers=True — декларация без хендлера роняет импорт моста, а не
 # уходит тихо на старый путь в бою. Импорт capabilities.* выше обязан быть
 # до этой строки: пустая таблица также считается отсутствием исполнения.
-_declarations = tuple(_load_registry())
+_declarations = tuple(
+    d for d in _load_registry()
+    # computer.do — только при COMPUTER_USE=1: иначе фразы до него не доходят.
+    if d.id != "computer.do" or config.COMPUTER_USE
+)
 
 
 def get_router() -> Router:
@@ -250,8 +255,8 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
 def confirms_via_executor(action: str | None) -> bool:
     """«да» исполняется через Executor (команда с "confirmed": true), а не
     старым путём execute_critical_action: действия управления компьютером."""
-    from capabilities.pc_control import PC_ACTIONS
-    return action in PC_ACTIONS
+    from capabilities.pc_control import EXECUTOR_CONFIRMED
+    return action in EXECUTOR_CONFIRMED
 
 
 async def handle_v3_confirm(text, *, source: str | None = None,

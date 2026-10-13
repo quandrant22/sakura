@@ -224,7 +224,13 @@ async def ws_handler(websocket):
                     "voice_command": handle_voice_command,
                 }
                 handler = HANDLERS.get(msg_type)
-                if msg_type == "voice_command":
+                if msg_type == "computer_step":
+                    # Шаг computer.do: модель смотрит кадр — задачей, цикл
+                    # сокета читает дальше.
+                    from sakura_core import computer_use
+                    spawn(computer_use.handle(websocket, data),
+                          name=f"computer-step-{dev_from_msg}")
+                elif msg_type == "voice_command":
                     # Голосовой ход — задачей (voice_turns): цикл сокета
                     # читает дальше, новый запрос того же устройства
                     # вытесняет незавершённый ход, а не ждёт его.
