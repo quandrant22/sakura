@@ -92,7 +92,11 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="desktop.core", description="Sakura desktop core")
     ap.add_argument("--headless", action="store_true", help="без интерфейса, только ядро")
     ap.add_argument("--api-port", type=int, default=0, help="порт локального API (0 — любой свободный)")
+    ap.add_argument("--no-server", action="store_true", help="не подключаться к VPS (как SAKURA_OFFLINE=1)")
     args = ap.parse_args(argv)
+    if args.no_server:
+        os.environ["SAKURA_OFFLINE"] = "1"
+        config.OFFLINE = True
 
     setup_logging(config.LOG_DIR)
     from desktop.core.exception_hooks import install_exception_hooks
@@ -102,8 +106,8 @@ def main(argv=None) -> int:
     if not guard.acquire():
         log.warning("Ядро Сакуры уже запущено.")
         return EXIT_ALREADY_RUNNING
-    log.info("[core] старт: device=%s env=%s data=%s headless=%s", config.DEVICE_ID,
-             "найден" if config.ENV_FILE else "нет", config.DATA_DIR, args.headless)
+    log.info("[core] старт: device=%s env=%s data=%s headless=%s offline=%s", config.DEVICE_ID,
+             "найден" if config.ENV_FILE else "нет", config.DATA_DIR, args.headless, config.OFFLINE)
     asyncio.run(run_core(args.api_port))
     return 0
 

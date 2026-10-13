@@ -38,6 +38,9 @@ VPS_WS_URL   = os.getenv("VPS_WS_URL",   "ws://31.76.80.5:8765")
 # SAKURA_DEVICE_ID — переменная процесса для проверочного запуска: .env грузится с override
 # и перезаписал бы DEVICE_ID, а сервер не должен принять проверочное ядро за рабочее устройство.
 DEVICE_ID    = os.getenv("SAKURA_DEVICE_ID") or os.getenv("DEVICE_ID", "laptop")
+# SAKURA_OFFLINE=1 (или --no-server): к VPS не подключаться вовсе — без register и apps_list;
+# локальный API, расширение, медиа и слух работают (живая проверка).
+OFFLINE      = os.getenv("SAKURA_OFFLINE") == "1"
 WS_TOKEN     = os.getenv("WS_TOKEN",      "")  # только из .env, без значения по умолчанию
 PING_INTERVAL = int(os.getenv("PING_INTERVAL", "25"))
 WINDOW_POLL   = int(os.getenv("WINDOW_POLL", "2"))

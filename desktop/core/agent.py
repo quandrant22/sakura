@@ -860,7 +860,8 @@ class Agent:
 
     async def run(self):
         # Без токена VPS не пустит — не стучимся вовсе (токен только из .env)
-        if not str(getattr(config, "WS_TOKEN", "") or "").strip():
+        offline = bool(getattr(config, "OFFLINE", False))
+        if not offline and not str(getattr(config, "WS_TOKEN", "") or "").strip():
             log.error("WS_TOKEN не задан в .env")
             # Окно не закрываем — показываем причину в оверлее
             self.bus.emit("agent_alert",
@@ -890,14 +891,22 @@ class Agent:
         except Exception as _ext_e:
             log.warning(f"[extension] Не удалось запустить сервер: {_ext_e}")
 
-        spawn(self._heartbeat(), name="agent-heartbeat")
+        if not offline:
+            spawn(self._heartbeat(), name="agent-heartbeat")
         spawn(self._state_watchdog(), name="state-watchdog")
-        spawn(self._screen_analysis_loop(), name="screen-analysis-loop")
+        if not offline:
+            spawn(self._screen_analysis_loop(), name="screen-analysis-loop")
         self.hearing.start()
 
         # Фоновый индекс — не блокируем event loop
         import threading as _th2
         _th2.Thread(target=init_index, daemon=True).start()
+
+        if offline:
+            log.info("[agent] SAKURA_OFFLINE: к VPS не подключаюсь (без register и apps_list)")
+            self.bus.emit("connection", online=False)
+            await asyncio.Event().wait()
+            return
 
         # ── Основной цикл: подключение к VPS ──────────────────────────
         log.info("[agent] Запускаю подключение к VPS: %s", config.VPS_WS_URL)

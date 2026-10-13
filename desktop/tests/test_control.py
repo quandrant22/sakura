@@ -369,3 +369,46 @@ def test_mic_off_from_start(monkeypatch):
     from desktop.core import hearing
     src = inspect.getsource(hearing)
     assert 'self.mic_enabled   = os.getenv("SAKURA_MIC_OFF") != "1"' in src
+
+
+def test_offline_core_never_connects_to_vps(monkeypatch):
+    from desktop.core import agent as agent_mod
+    from desktop.core import config
+    events, started = [], []
+    monkeypatch.setattr(config, "OFFLINE", True)
+    monkeypatch.setattr(config, "WS_TOKEN", "")
+
+    def no_connect(*a, **k):
+        raise AssertionError("в режиме offline подключения к VPS быть не должно")
+    monkeypatch.setattr(agent_mod.websockets, "connect", no_connect)
+    monkeypatch.setattr(agent_mod, "_EXTENSION_SERVER", "нет-такого-файла.py")
+    monkeypatch.setattr(agent_mod, "init_index", lambda: None)
+    monkeypatch.setattr(agent_mod, "spawn", lambda coro, name="": (started.append(name), coro.close()))
+    import desktop.core.presence as presence
+    monkeypatch.setattr(presence, "prime_system_info", lambda: None)
+    a = agent_mod.Agent.__new__(agent_mod.Agent)
+    a.bus = SimpleNamespace(emit=lambda ev, **k: events.append((ev, k)))
+    a.hearing = SimpleNamespace(start=lambda: started.append("hearing"))
+    a.server_link = None
+
+    async def go():
+        try:
+            await asyncio.wait_for(a.run(), timeout=0.3)
+        except asyncio.TimeoutError:
+            pass
+    asyncio.run(go())
+    assert ("connection", {"online": False}) in events
+    assert "hearing" in started and "agent-heartbeat" not in started and "screen-analysis-loop" not in started
+
+
+def test_no_server_flag_sets_offline(monkeypatch):
+    from desktop.core import __main__ as entry
+    from desktop.core import config
+    monkeypatch.delenv("SAKURA_OFFLINE", raising=False)
+    monkeypatch.setattr(config, "OFFLINE", False)
+    monkeypatch.setattr(entry, "setup_logging", lambda d: None)
+    monkeypatch.setattr(entry, "SingleInstance", lambda p: SimpleNamespace(acquire=lambda: False))
+    import desktop.core.exception_hooks as hooks
+    monkeypatch.setattr(hooks, "install_exception_hooks", lambda log: None)
+    assert entry.main(["--no-server"]) == entry.EXIT_ALREADY_RUNNING
+    assert config.OFFLINE is True
