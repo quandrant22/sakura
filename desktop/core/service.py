@@ -99,6 +99,18 @@ class CoreService:
         hearing = getattr(self._agent, "hearing", None)
         out["mic_enabled"] = bool(getattr(hearing, "mic_enabled", True))
         out["core_ready"] = self._agent is not None
+        # Настройки → «Сеть» и «Расширение»: только адрес и транспорт (без токена), подключено ли расширение.
+        from urllib.parse import urlparse
+        out["server_url"] = "" if config.OFFLINE else urlparse(config.VPS_WS_URL)._replace(query="").geturl()
+        out["server_transport"] = config.SERVER_TRANSPORT or ("wss" if config.VPS_WS_URL.startswith("wss://") else "ws")
+        out["cert_pinned"] = bool(config.SERVER_CERT_SHA256)
+        out["offline"] = bool(config.OFFLINE)
+        try:
+            import sys as _sys
+            ext = _sys.modules.get("desktop.core.extension_server")
+            out["extension_connected"] = bool(ext and ext.is_connected())
+        except Exception:  # noqa: BLE001
+            out["extension_connected"] = False
         return out
 
     def snapshot(self) -> list[dict]:
@@ -187,6 +199,10 @@ class CoreService:
         c("apps_state", self.cmd_apps_state)
         c("music_ui_ack", self.cmd_music_ui_ack)
         c("ym_token_check", self.cmd_ym_token_check)
+        c("logs_tail", self.cmd_logs_tail)
+        c("diagnostics", self.cmd_diagnostics)
+        c("update_status", self.cmd_update_status)
+        c("update_pull", self.cmd_update_pull)
         c("music_metrics", self.cmd_music_metrics)
         c("app_restart", self.cmd_app_restart)
         c("secrets_status", self.cmd_secrets_status)
@@ -429,6 +445,66 @@ class CoreService:
         """«Проверить токен» (Настройки → Секреты): что доступно по токену — только статусы и счётчики."""
         from desktop.core.media.yandex_api import YandexApi
         return await YandexApi().inventory()
+
+    # ── Диагностика, журнал, обновление ──
+    LOG_HIDE = ("token", "key", "secret", "password", "пароль")
+
+    async def cmd_logs_tail(self, msg: dict):
+        """Последние строки sakura.log; строки со словами token/key/secret/password скрываются целиком."""
+        n = max(10, min(int(msg.get("n") or 200), 1000))
+        path = os.path.join(config.LOG_DIR, "sakura.log")
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()[-n:]
+        except OSError:
+            return {"lines": [], "path": path}
+        safe = ["[строка скрыта: служебные данные]" if any(w in ln.lower() for w in self.LOG_HIDE) else ln.rstrip("\n")
+                for ln in lines]
+        return {"lines": safe, "path": path}
+
+    async def cmd_diagnostics(self, msg: dict):
+        import platform as _pf
+        import sys as _sys
+        return {"python": _sys.version.split()[0], "os": _pf.platform(), "pid": os.getpid(),
+                "device_id": config.DEVICE_ID, "offline": bool(config.OFFLINE),
+                "server": {"online": self.link.state_event().get("server") == "online",
+                           "proto": self.link.state_event().get("proto")},
+                "music": await self.cmd_music_metrics({}), "data_dir": config.DATA_DIR, "log_dir": config.LOG_DIR}
+
+    @staticmethod
+    def _repo_dir() -> str:
+        return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    @staticmethod
+    def _git(*args, timeout=60) -> tuple[int, str]:
+        import subprocess
+        r = subprocess.run(["git", "-C", CoreService._repo_dir(), *args], capture_output=True, text=True,
+                           timeout=timeout, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return r.returncode, (r.stdout or r.stderr).strip()
+
+    async def cmd_update_status(self, msg: dict):
+        """Есть ли обновление: git fetch и сравнение с веткой на сервере (без изменения файлов)."""
+        code, branch = await asyncio.to_thread(self._git, "rev-parse", "--abbrev-ref", "HEAD")
+        if code:
+            raise ApiError("unavailable", "это не git-репозиторий — обновите вручную")
+        await asyncio.to_thread(self._git, "fetch", "--quiet", "origin", branch)
+        _, counts = await asyncio.to_thread(self._git, "rev-list", "--left-right", "--count", f"HEAD...origin/{branch}")
+        ahead, behind = (int(x) for x in (counts.split() + ["0", "0"])[:2])
+        _, dirty = await asyncio.to_thread(self._git, "status", "--porcelain", "--untracked-files=no")
+        return {"branch": branch, "behind": behind, "ahead": ahead, "dirty": bool(dirty)}
+
+    async def cmd_update_pull(self, msg: dict):
+        """Обновить по кнопке: только перемотка вперёд (git pull --ff-only), без локальных изменений."""
+        st = await self.cmd_update_status({})
+        if st["dirty"]:
+            raise ApiError("conflict", "есть несохранённые изменения в коде — обновление не выполняю")
+        if not st["behind"]:
+            return {"updated": False, "detail": "обновлений нет"}
+        code, out = await asyncio.to_thread(self._git, "pull", "--ff-only", "origin", st["branch"])
+        if code:
+            raise ApiError("failed", "обновление не прошло (не перемотка вперёд) — нужна ручная проверка")
+        log.info("[update] git pull --ff-only: %s коммит(ов)", st["behind"])
+        return {"updated": True, "detail": f"получено коммитов: {st['behind']}. Перезапустите Сакуру.", "restart": True}
 
     async def cmd_music_metrics(self, msg: dict):
         vals = sorted(getattr(self, "_music_ms", []))

@@ -60,7 +60,7 @@ test("меню переключает экраны; страницы и инст
   fireEvent.click(screen.getByRole("button", { name: /Устройства/ }));
   await waitFor(() => expect(screen.getByText(/Последняя активность/)).toBeTruthy());
   fireEvent.click(screen.getByRole("button", { name: /Память/ }));
-  expect(screen.getByText(/Память: экран появится/)).toBeTruthy();
+  expect(screen.getByLabelText("Поиск по памяти")).toBeTruthy();
 });
 
 test("правка: убрать виджет и «Отменить», галерея добавляет, замок выключает правку", async () => {

@@ -1,20 +1,25 @@
 // Левая колонка 300 px (фиксированная): карточка ядра 300x287 и меню.
-import { Brain, Cpu, Home, MicOff, Settings as SettingsIcon, Workflow } from "lucide-react";
+import { Brain, Cpu, Home, MicOff, Settings as SettingsIcon, UserRound, Workflow } from "lucide-react";
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 
 import { bridge } from "../bridge";
+import { useT } from "../i18n";
 import type { CoreVisualState } from "../core-gfx/coreFrame";
 import { SakuraCore } from "../core-gfx/SakuraCore";
 import { usePrefs } from "../layout/prefs";
 import { useApp } from "../store";
 
-export type Section = "home" | "devices" | "scenarios" | "memory" | "settings";
+/** Порядок разделов — Alt+1…6. */
+export const SECTION_ORDER = ["home", "devices", "scenarios", "memory", "profile", "settings"] as const;
+
+export type Section = "home" | "devices" | "scenarios" | "memory" | "profile" | "settings";
 
 const MENU: { id: Section; label: string; icon: typeof Home }[] = [
   { id: "home", label: "Главная", icon: Home },
   { id: "devices", label: "Устройства", icon: Cpu },
   { id: "scenarios", label: "Сценарии", icon: Workflow },
   { id: "memory", label: "Память", icon: Brain },
+  { id: "profile", label: "Профиль", icon: UserRound },
   { id: "settings", label: "Настройки", icon: SettingsIcon },
 ];
 
@@ -102,6 +107,7 @@ const item = "flex h-[35px] w-[260px] shrink-0 items-center gap-3 rounded-btn px
 export function MenuCard({ section, onSection }: { section: Section; onSection(s: Section): void }) {
   const [version, setVersion] = useState(__APP_VERSION__);
   const server = useApp((s) => s.link === "open" && s.server.online);
+  const t = useT();
   useEffect(() => {
     void bridge().version().then((v) => v !== "dev" && setVersion(v));
   }, []);
@@ -110,10 +116,11 @@ export function MenuCard({ section, onSection }: { section: Section; onSection(s
     // Низкое окно (до 860 px): поля и шаг меню меньше.
     <nav aria-label="Меню" className="flex min-h-0 w-[300px] flex-1 flex-col rounded-card bg-panel px-gap py-edge [@media(max-height:860px)]:py-gap">
       <div className="flex flex-col gap-[15px] [@media(max-height:860px)]:gap-[6px]">
-        {MENU.map(({ id, label, icon: Icon }) => (
+        {MENU.map(({ id, label, icon: Icon }, i) => (
           <button key={id} type="button" onClick={() => onSection(id)} aria-current={section === id ? "page" : undefined}
+                  title={`${t(label)} (Alt+${i + 1})`}
                   className={item + (section === id ? "bg-accent-grad text-white shadow-glow" : "text-ink-dim hover:bg-panel2 hover:text-ink")}>
-            <Icon size={18} /> {label}
+            <Icon size={18} /> {t(label)}
           </button>
         ))}
       </div>

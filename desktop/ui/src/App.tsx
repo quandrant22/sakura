@@ -9,7 +9,10 @@ import { WidgetBoard } from "./board/WidgetBoard";
 import { bridge } from "./bridge";
 import { Chat, ChatStrip } from "./components/Chat";
 import { CoreFailedBanner } from "./components/CoreFailedBanner";
-import { CoreCard, MenuCard, type Section } from "./components/LeftColumn";
+import { OfflineBanner } from "./components/OfflineBanner";
+import { Memory } from "./screens/Memory";
+import { Profile } from "./screens/Profile";
+import { CoreCard, MenuCard, type Section, SECTION_ORDER } from "./components/LeftColumn";
 import { TitleBar } from "./components/TitleBar";
 import { CATALOG, gamesPage, getPage, patchWidget, setActivePage, type WidgetType } from "./layout/boardModel";
 import { VIEWS } from "./board/registry";
@@ -73,14 +76,6 @@ function PowerToast() {
   );
 }
 
-function Placeholder({ title, phase }: { title: string; phase: number }) {
-  return (
-    <div className="grid h-full place-items-center rounded-card bg-panel text-sm text-ink-dim">
-      {title}: экран появится в фазе {phase}
-    </div>
-  );
-}
-
 const SECTIONS: Section[] = ["home", "devices", "scenarios", "memory", "settings"];
 
 // ?screen=devices|scenarios|memory|settings — стартовый экран (снимки экранов, отладка).
@@ -129,7 +124,8 @@ function Workspace({ section, galleryOpen, onCloseGallery }: { section: Section;
   if (section === "settings") screen = <Settings />;
   else if (section === "devices") screen = <Devices />;
   else if (section === "scenarios") screen = <Scenarios />;
-  else if (section === "memory") screen = <Placeholder title="Память" phase={5} />;
+  else if (section === "memory") screen = <Memory />;
+  else if (section === "profile") screen = <Profile />;
   else screen = <WidgetBoard galleryOpen={galleryOpen} onCloseGallery={onCloseGallery} />;
 
   const expand = () => {
@@ -215,10 +211,23 @@ function Shell() {
     setSection(s);
   };
 
+  // Alt+1…6 — разделы меню (клавиатурная навигация).
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (!e.altKey || e.ctrlKey || e.shiftKey || !/^[1-6]$/.test(e.key)) return;
+      e.preventDefault();
+      const target = SECTION_ORDER[Number(e.key) - 1];
+      if (target) go(target);
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  });
+
   return (
     <div className="flex h-full flex-col overflow-hidden bg-bg">
       <TitleBar center={section === "home" && loaded ? <BoardBar galleryOpen={gallery} onGallery={() => setGallery(!gallery)} /> : undefined} />
       <CoreFailedBanner />
+      <OfflineBanner />
       <div className="flex min-h-0 flex-1 gap-gap px-edge pb-edge pt-gap">
         <aside className="flex w-[300px] shrink-0 flex-col gap-gap">
           <CoreCard />

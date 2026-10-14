@@ -155,3 +155,9 @@ body .react-grid-item > .react-resizable-handle.react-resizable-handle-se { righ
 body .react-grid-item > .react-resizable-handle.react-resizable-handle-sw { left: 0; bottom: 0; transform: none; }
 body .react-grid-item > .react-resizable-handle.react-resizable-handle-ne { right: 0; top: 0; transform: none; }
 body .react-grid-item > .react-resizable-handle.react-resizable-handle-nw { left: 0; top: 0; transform: none; }
+
+/* Клавиатурная навигация: видимая рамка фокуса (только при управлении с клавиатуры). */
+:focus-visible {
+  outline: 2px solid rgb(var(--accent));
+  outline-offset: 2px;
+}

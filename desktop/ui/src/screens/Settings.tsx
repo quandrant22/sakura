@@ -12,6 +12,9 @@ import { TOKEN_STEPS } from "../board/widgets/music/barLogic";
 import { errorText } from "../store";
 import { AppsSection } from "./AppsSection";
 import { SecretsSection } from "./SecretsSection";
+import {
+  DiagnosticsSection, ExtensionSection, GameModeSection, LanguageSection, NetworkSection, SoundSection, UpdateSection,
+} from "./SettingsExtra";
 
 function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
@@ -173,11 +176,17 @@ function AutostartRow() {
 export function Settings() {
   return (
     <div className="flex h-full min-h-0 flex-col gap-gap overflow-y-auto pr-1">
-      <Card title="Интерфейс"><InterfaceSection /></Card>
+      <Card title="Интерфейс"><InterfaceSection /><LanguageSection /></Card>
       <Card title="Медиа"><MediaSection /></Card>
+      <Card title="Звук"><SoundSection /></Card>
+      <Card title="Сеть"><NetworkSection /></Card>
+      <Card title="Расширение браузера"><ExtensionSection /></Card>
+      <Card title="Игровой режим"><GameModeSection /></Card>
       <Card title="Система"><AutostartRow /></Card>
       <Card title="Приложения"><AppsSection /></Card>
       <Card title="Секреты"><SecretsSection /></Card>
+      <Card title="Диагностика"><DiagnosticsSection /></Card>
+      <Card title="Обновление"><UpdateSection /></Card>
     </div>
   );
 }
