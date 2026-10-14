@@ -95,6 +95,7 @@ export function SecretsSection() {
         <SecretField key={s.key} k={s.key} label={s.label} hint={s.hint} isSet={st?.keys[s.key]}
                      onSaved={(keys) => { setSt((x) => (x ? { ...x, keys } : x)); setSaved(true); }} />
       ))}
+      <TokenCheck />
       {saved && (
         <div role="status" className="mt-2 flex items-center gap-3 rounded-btn bg-panel2 px-3 py-2 text-xs text-ink">
           <span className="flex-1">Сохранено. Новое значение заработает после перезапуска ядра.</span>
@@ -103,6 +104,41 @@ export function SecretsSection() {
             <RotateCw size={13} /> {restarting ? "Перезапускаю…" : "Перезапустить ядро"}
           </button>
         </div>
+      )}
+    </div>
+  );
+}
+
+interface Inventory { token: boolean; ok?: boolean; error?: string; plus?: boolean | null;
+                      items?: Record<string, { ok: boolean; count?: number | null; error?: string }> }
+
+/** «Проверить токен» Яндекс.Музыки: что доступно — только статусы и счётчики. */
+function TokenCheck() {
+  const client = useMediaClient();
+  const [inv, setInv] = useState<Inventory | null>(null);
+  const [busy, setBusy] = useState(false);
+  const check = async () => {
+    setBusy(true);
+    try { setInv(await client.call<Inventory>("ym_token_check")); } catch (e) { setInv({ token: true, ok: false, error: errorText(e) }); }
+    setBusy(false);
+  };
+  return (
+    <div className="border-b border-line py-3 text-xs">
+      <button type="button" disabled={busy} onClick={() => void check()}
+              className="rounded-full border border-line px-3 py-1 text-ink-dim hover:text-ink disabled:opacity-40">
+        {busy ? "Проверяю…" : "Проверить токен Яндекс.Музыки"}
+      </button>
+      {inv && !inv.token && <div className="mt-2 text-warn">Токен не задан</div>}
+      {inv?.error && <div className="mt-2 text-warn">{inv.error}</div>}
+      {inv?.items && (
+        <ul aria-label="Что доступно по токену" className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1">
+          {inv.plus != null && <li className="text-ink">Плюс: {inv.plus ? "есть" : "нет"}</li>}
+          {Object.entries(inv.items).map(([k, v]) => (
+            <li key={k} className={v.ok ? "text-ink" : "text-warn"}>
+              {v.ok ? "●" : "○"} {k}{v.ok && v.count != null ? `: ${v.count}` : ""}{!v.ok && v.error ? ` — ${v.error}` : ""}
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

@@ -186,6 +186,7 @@ class CoreService:
         c("game_mode", self.cmd_game_mode)
         c("apps_state", self.cmd_apps_state)
         c("music_ui_ack", self.cmd_music_ui_ack)
+        c("ym_token_check", self.cmd_ym_token_check)
         c("music_metrics", self.cmd_music_metrics)
         c("app_restart", self.cmd_app_restart)
         c("secrets_status", self.cmd_secrets_status)
@@ -423,6 +424,11 @@ class CoreService:
         self._music_ms.append(ms)
         log.info("[music] event→ui %d ms", ms)
         return {"ms": ms}
+
+    async def cmd_ym_token_check(self, msg: dict):
+        """«Проверить токен» (Настройки → Секреты): что доступно по токену — только статусы и счётчики."""
+        from desktop.core.media.yandex_api import YandexApi
+        return await YandexApi().inventory()
 
     async def cmd_music_metrics(self, msg: dict):
         vals = sorted(getattr(self, "_music_ms", []))
