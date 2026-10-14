@@ -59,6 +59,14 @@ def allowed_args(key: str, args) -> list[str]:
     return [a for a in (args or ()) if a in allowed]
 
 
+def spawn_env(base=None) -> dict:
+    """Окружение для запуска приложения: без ELECTRON_RUN_AS_NODE (его ставит VS Code и Electron-родители) —
+    иначе Electron-приложение (Яндекс.Музыка) запускается как Node и сразу выходит с кодом 9."""
+    env = dict(os.environ if base is None else base)
+    env.pop("ELECTRON_RUN_AS_NODE", None)
+    return env
+
+
 def is_store_path(path: str) -> bool:
     return "\\windowsapps\\" in (path or "").lower().replace("/", "\\")
 
@@ -122,7 +130,8 @@ def _default_env() -> Env:
                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
     def spawn(argv):
-        subprocess.Popen(argv, close_fds=True, creationflags=getattr(subprocess, "DETACHED_PROCESS", 0)
+        subprocess.Popen(argv, close_fds=True, env=spawn_env(),
+                         creationflags=getattr(subprocess, "DETACHED_PROCESS", 0)
                          | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
 
     def a11y_elements():

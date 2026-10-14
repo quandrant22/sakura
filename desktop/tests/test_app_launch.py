@@ -163,3 +163,8 @@ def test_agent_open_app_launches_with_params_when_not_running():
     asyncio.run(a._run_command("open.app", "c1", "яндекс музыка"))
     assert w.spawned == [[EXE, A.A11Y_FLAG]]
     assert sent[-1]["id"] == "c1" and sent[-1]["ok"] is True
+
+
+def test_spawn_env_drops_electron_run_as_node():
+    env = A.spawn_env({"ELECTRON_RUN_AS_NODE": "1", "PATH": "x"})
+    assert env == {"PATH": "x"}
