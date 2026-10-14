@@ -46,6 +46,25 @@ function useRemote() {
     }
   }, [client]);
 
+  // Мгновенный трек: события наблюдателя SMTC (music_state) — сразу, обложка (music_cover) — следом.
+  useEffect(() => client.onEvent((ev) => {
+    const e = ev as { type: string; state?: RemoteState & { seq: number }; seq?: number; cover?: string };
+    if (e.type === "music_state" && e.state) {
+      const next = e.state;
+      setSt((prev) => {
+        const sameTrack = prev && prev.title === next.title && prev.artist === next.artist && prev.album === next.album;
+        return { ...(prev ?? {}), ...next, cover: sameTrack ? prev?.cover : null };
+      });
+      setFetchedAt(performance.now());
+    } else if (e.type === "music_cover" && e.cover) {
+      setSt((prev) => (prev && prev.seq === e.seq ? { ...prev, cover: e.cover } : prev));
+    }
+  }), [client]);
+  const seq = st?.seq;
+  useEffect(() => {
+    if (seq != null) void client.call("music_ui_ack", { seq }).catch(() => {});
+  }, [client, seq]);
+
   useEffect(() => {
     const first = setTimeout(() => void refresh(), 0);
     const poll = setInterval(() => { if (!document.hidden) void refresh(); }, POLL_MS);
@@ -184,7 +203,8 @@ export function YandexBar({ onMenu }: { onMenu?(): void }) {
     : undefined;
 
   if (!st || st.status !== "ok") {
-    const text = !st ? "Подключаюсь к Яндекс.Музыке…" : st.status === "no_smtc" ? "Нет доступа к панели медиа Windows (SMTC)"
+    const text = !st ? "Загрузка…" : st.status === "no_smtc" ? "Нет доступа к панели медиа Windows (SMTC)"
+      : st.status === "starting" ? "Запускается…"
       : st.status === "not_running" ? "Яндекс.Музыка не запущена" : "Ничего не играет";
     return (
       <div ref={ref} className={"flex h-full items-center gap-4 px-4 " + (yandex ? "" : "bg-panel")}
@@ -192,7 +212,7 @@ export function YandexBar({ onMenu }: { onMenu?(): void }) {
         <div className="grid h-16 w-16 shrink-0 place-items-center rounded-[10px] bg-panel2 text-ink-dim"><ListMusic size={24} /></div>
         <div className="min-w-0 flex-1 text-sm text-ink-dim">{text}</div>
         {bubble}
-        {st && st.status !== "no_smtc" && (
+        {st && st.status !== "no_smtc" && st.status !== "starting" && (
           <button type="button" onClick={() => void control("open_app")}
                   className="flex shrink-0 items-center gap-1.5 rounded-full bg-ym-yellow px-3 py-1.5 text-xs font-medium text-ym-on">
             <ExternalLink size={13} /> Открыть Яндекс.Музыку

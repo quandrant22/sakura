@@ -2,7 +2,9 @@
 // доминирующий цвет обложки, поведение кнопки «Предыдущий». Отрисовка — YandexBar.tsx.
 
 export interface RemoteState {
-  status: "ok" | "idle" | "not_running" | "no_smtc";
+  status: "ok" | "idle" | "not_running" | "no_smtc" | "starting";
+  /** Номер события наблюдателя SMTC (music_state) — для подтверждения окном. */
+  seq?: number;
   title?: string;
   artist?: string;
   album?: string;

@@ -22,6 +22,7 @@ class RemoteClient extends DemoClient {
     }
     return super.call<T>(type, payload);
   }
+  emitEvent(ev: Record<string, unknown>) { this.emit(ev as never); }
 }
 
 function setup(state?: Record<string, unknown>) {
@@ -109,5 +110,26 @@ test("приложение не запущено — кнопка «Открыт
 test("нет доступа к SMTC — честное состояние без кнопки открытия", async () => {
   setup({ status: "no_smtc" });
   await waitFor(() => expect(screen.getByText(/Нет доступа к панели медиа/)).toBeTruthy());
+  expect(screen.queryByText(/Открыть Яндекс.Музыку/)).toBeNull();
+});
+
+test("событие music_state применяется сразу (без опроса) и подтверждается окном", async () => {
+  const c = setup();
+  await waitFor(() => expect(screen.getByText("Песня")).toBeTruthy());
+  const acks: unknown[] = [];
+  const orig = c.call.bind(c);
+  c.call = async <T,>(type: string, payload: Record<string, unknown> = {}): Promise<T> => {
+    if (type === "music_ui_ack") { acks.push(payload.seq); return { ms: 5 } as T; }
+    return orig<T>(type, payload);
+  };
+  act(() => c.emitEvent({ type: "music_state", state: { status: "ok", seq: 42, title: "Новый трек", artist: "Кто-то",
+                                                         playing: true, position_s: 0, duration_s: 100 } }));
+  expect(screen.getByText("Новый трек")).toBeTruthy();
+  await waitFor(() => expect(acks).toEqual([42]));
+});
+
+test("процесс есть, сессии нет — «Запускается…», а не «Открыть Яндекс.Музыку»", async () => {
+  setup({ status: "starting" });
+  await waitFor(() => expect(screen.getByText("Запускается…")).toBeTruthy());
   expect(screen.queryByText(/Открыть Яндекс.Музыку/)).toBeNull();
 });

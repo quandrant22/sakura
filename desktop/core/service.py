@@ -185,6 +185,8 @@ class CoreService:
         c("settings_set", self.cmd_settings_set)
         c("game_mode", self.cmd_game_mode)
         c("apps_state", self.cmd_apps_state)
+        c("music_ui_ack", self.cmd_music_ui_ack)
+        c("music_metrics", self.cmd_music_metrics)
         c("app_restart", self.cmd_app_restart)
         c("secrets_status", self.cmd_secrets_status)
         c("secrets_set", self.cmd_secrets_set)
@@ -367,8 +369,81 @@ class CoreService:
         return await self.link.request(inner)
 
     # ── запуск ─────────────────────────────────────────────────────
+    # ── мгновенный трек (события SMTC → окно ≤ 300 мс) ──
+    MUSIC_METRIC_N = 200
+
+    def _on_music_state(self, st: dict, t_event: float | None):
+        import collections
+        if not hasattr(self, "_music_t"):
+            self._music_t, self._music_ms = {}, collections.deque(maxlen=self.MUSIC_METRIC_N)
+            self._covers = {}
+        if t_event is not None:
+            self._music_t[st["seq"]] = t_event
+            while len(self._music_t) > 50:
+                self._music_t.pop(next(iter(self._music_t)))
+        self._emit({"type": "music_state", "state": st})
+        if st.get("status") == "ok":
+            track = {k: st.get(k) for k in ("title", "artist", "album")}
+            track["status"] = "играет" if st.get("playing") else "пауза"
+            agent = self._agent
+            if agent is not None:
+                agent._current_track = {**getattr(agent, "_current_track", {}), **track}
+                if st.get("changed") in ("track", "restart"):
+                    push = getattr(agent, "push_current_track", None)
+                    if push is not None:
+                        asyncio.ensure_future(push())
+            if st.get("changed") == "track":
+                asyncio.ensure_future(self._music_cover(st))
+
+    async def _music_cover(self, st: dict):
+        """Обложка — асинхронно, после текста; кэш по (artist, title, album)."""
+        from desktop.core.media.smtc_watch import track_key
+        key = track_key(st)
+        cover = self._covers.get(key)
+        if cover is None:
+            try:
+                from desktop.core import music
+                from desktop.core.media.yandex_remote import _cover_url
+                cover = _cover_url(await music.smtc_cover()) or ""
+            except Exception:  # noqa: BLE001
+                cover = ""
+            if len(self._covers) > 64:
+                self._covers.pop(next(iter(self._covers)))
+            self._covers[key] = cover
+        if cover:
+            self._emit({"type": "music_cover", "seq": st["seq"], "cover": cover})
+
+    async def cmd_music_ui_ack(self, msg: dict):
+        """Окно применило music_state: время «событие SMTC → окно»."""
+        import time as _t
+        t0 = getattr(self, "_music_t", {}).pop(msg.get("seq"), None)
+        if t0 is None:
+            return None
+        ms = int((_t.monotonic() - t0) * 1000)
+        self._music_ms.append(ms)
+        log.info("[music] event→ui %d ms", ms)
+        return {"ms": ms}
+
+    async def cmd_music_metrics(self, msg: dict):
+        vals = sorted(getattr(self, "_music_ms", []))
+        if not vals:
+            return {"count": 0}
+        pick = lambda q: vals[min(len(vals) - 1, int(q * len(vals)))]  # noqa: E731
+        return {"count": len(vals), "p50": pick(0.5), "p95": pick(0.95), "max": vals[-1]}
+
+    async def _start_music_watch(self):
+        if os.name != "nt":
+            return
+        try:
+            from desktop.core.media.smtc_watch import SmtcWatch
+            self._music_watch = SmtcWatch(self._on_music_state)
+            await self._music_watch.start()
+        except Exception as e:  # noqa: BLE001
+            log.warning("[music] наблюдатель SMTC не запущен: %s", type(e).__name__)
+
     async def run(self, api_port: int = 0):
         await self.api.start(api_port)
+        asyncio.ensure_future(self._start_music_watch())
         if self.media is not None:
             self.media.start()
             self._emit({"type": "media_settings", "settings": self.media.snapshot()})

@@ -78,7 +78,7 @@ export class DemoClient implements CoreClient {
     return () => this.linkListeners.delete(cb);
   }
 
-  private emit(ev: CoreEvent) {
+  protected emit(ev: CoreEvent) {
     for (const cb of this.listeners) cb(ev);
   }
 

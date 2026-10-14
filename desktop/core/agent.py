@@ -380,6 +380,16 @@ class Agent:
             payload["current_track"] = track
         return payload
 
+    async def push_current_track(self):
+        """Смена трека — сразу ping с current_track (не ждать heartbeat; цель ≤ 300 мс)."""
+        ws = getattr(self, "_ws", None)
+        if ws is None:
+            return
+        try:
+            await ws.send(json.dumps(self._payload("ping")))
+        except Exception:  # noqa: BLE001
+            pass
+
     async def _heartbeat(self):
         last_window, last_ping = None, 0.0
         last_mood_emit = 0.0
