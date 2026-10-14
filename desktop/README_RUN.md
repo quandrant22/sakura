@@ -32,6 +32,8 @@
 
 Крестик в окне только прячет Сакуру в трей.
 
+Из скрипта: `C:\sakura-dev\desktop\ui\node_modules\electron\dist\electron.exe . --quit` (папка desktop\ui) — то же, что «Выход».
+
 ## Журналы
 
 Папка `%LOCALAPPDATA%\Sakura\logs` (вставьте путь в адресную строку проводника):
