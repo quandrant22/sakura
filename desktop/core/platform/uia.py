@@ -136,6 +136,23 @@ def scroll(direction: str, pages: int = 1) -> bool:
     return True
 
 
+def _field_text(el) -> str:
+    """Текст поля редактирования (Edit/Document): в Name у них подпись («Текстовый редактор»),
+    а содержимое — в ValuePattern или TextPattern (живая проверка 14.10, Блокнот)."""
+    g = _gen()
+    try:
+        pat = _pattern(el, _VALUE, g.IUIAutomationValuePattern)
+        if pat and pat.CurrentValue:
+            return pat.CurrentValue.strip()
+        unk = el.GetCurrentPattern(10014)  # TextPattern
+        if unk:
+            tp = unk.QueryInterface(g.IUIAutomationTextPattern)
+            return (tp.DocumentRange.GetText(READ_LIMIT) or "").strip()
+    except Exception:  # noqa: BLE001
+        return ""
+    return ""
+
+
 def read(name: str = "") -> str:
     """Видимый текст активного окна (или одного элемента), без полей паролей."""
     if name:
@@ -148,7 +165,8 @@ def read(name: str = "") -> str:
     for el in _descendants():
         if el.CurrentControlType not in _TEXT_TYPES or el.CurrentIsPassword or el.CurrentIsOffscreen:
             continue
-        t = (el.CurrentName or "").strip()
+        field = _field_text(el) if el.CurrentControlType in (50004, 50030) else ""
+        t = field or (el.CurrentName or "").strip()
         if t and t not in seen:
             seen.add(t)
             out.append(t)

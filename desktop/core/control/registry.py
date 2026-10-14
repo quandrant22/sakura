@@ -298,8 +298,26 @@ def files_open(arg, ctx):
     return R.from_legacy(ctx.files.open_file(arg or ""))
 
 
+def _find_exact(ctx, name: str) -> str | None:
+    """Находка индекса — только если имя файла совпадает в точности (индекс ищет неточно:
+    на «copy.txt» он вернул cpu.txt — живая проверка 14.10)."""
+    name = (name or "").strip()
+    if not name:
+        return None
+    path = ctx.files.find(name)
+    if not path:
+        return None
+    return path if os.path.basename(path).lower() == os.path.basename(name).lower() else None
+
+
+def _full_path(name: str) -> str | None:
+    """Удаление и перенос — только по полному существующему пути, без поиска по индексу."""
+    name = (name or "").strip().strip('"')
+    return name if os.path.isabs(name) and os.path.isfile(name) else None
+
+
 def files_reveal(arg, ctx):
-    path = ctx.files.find((arg or "").strip())
+    path = _find_exact(ctx, arg)
     if not path:
         return R.failed("файл не найден")
     return R.done("показала файл в проводнике") if ctx.platform.reveal(path) else R.failed("не удалось")
@@ -319,7 +337,7 @@ def files_copy(arg, ctx):
     pair = _two_paths(arg)
     if not pair:
         return R.failed("нужно «откуда|куда»")
-    src = ctx.files.find(pair[0])
+    src = _find_exact(ctx, pair[0])
     if not src:
         return R.failed("файл не найден")
     ctx.fs.copy(src, pair[1])
@@ -330,18 +348,20 @@ def files_move(arg, ctx):
     pair = _two_paths(arg)
     if not pair:
         return R.failed("нужно «откуда|куда»")
-    src = ctx.files.find(pair[0])
+    src = _full_path(pair[0])
     if not src:
-        return R.failed("файл не найден")
+        return R.failed("для переноса нужен полный путь к файлу — по имени не переношу")
     ctx.fs.move(src, pair[1])
     return R.done("переместила")
 
 
 def files_delete(arg, ctx):
-    src = ctx.files.find((arg or "").strip())
+    src = _full_path(arg)
     if not src:
-        return R.failed("файл не найден")
-    return R.done("удалила в корзину") if ctx.platform.recycle(src) else R.failed("не удалось удалить в корзину")
+        return R.failed("для удаления нужен полный путь к файлу — по имени не удаляю")
+    if not ctx.platform.recycle(src):
+        return R.failed("не удалось удалить в корзину")
+    return R.done(f"удалила в корзину: {os.path.basename(src)}")
 
 
 # ── UI Automation (п. 3.3): только активное окно, не в чёрном списке ──

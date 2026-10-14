@@ -182,8 +182,9 @@ def test_files():
     assert run("files.copy", "отчёт", c=c)["status"] == "failed"
     assert run("files.move", "отчёт|D:/", c=c)["detail"] == "нужно подтверждение"
     assert run("files.delete", "отчёт", c=c)["detail"] == "нужно подтверждение"
-    assert run("files.delete", "отчёт", confirmed=True, c=c)["detail"] == "удалила в корзину"
-    assert ("recycle", ("C:/x/отчёт",)) in c.platform.calls
+    # удаление по имени запрещено — только полный существующий путь
+    assert run("files.delete", "отчёт", confirmed=True, c=c)["status"] == "failed"
+    assert not any(call[0] == "recycle" for call in c.platform.calls)
 
 
 # ── общие правила ────────────────────────────────────────────────────
@@ -444,3 +445,20 @@ def test_core_exits_when_parent_window_gone():
     alive.clear()
     watch_parent(1234, pid_exists=lambda p: p in alive, exit_fn=exited.append, once=True)
     assert exited == [0]
+
+
+
+def test_delete_never_by_fuzzy_index_match(tmp_path):
+    """Живая проверка 14.10: индекс на «copy.txt» вернул cpu.txt — удаляться должен только точный путь."""
+    real = tmp_path / "copy.txt"
+    real.write_text("x")
+    c = ctx()
+    c.files = SimpleNamespace(find=lambda n: r"C:\\sakura-tmp\\cpu.txt", open_file=lambda n: "", recent=lambda: [])
+    assert run("files.delete", "copy.txt", confirmed=True, c=c)["status"] == "failed"
+    assert run("files.reveal", "copy.txt", c=c)["status"] == "failed"
+    assert run("files.copy", f"copy.txt|{tmp_path / 'b.txt'}", c=c)["status"] == "failed"
+    assert run("files.move", f"copy.txt|{tmp_path / 'b.txt'}", confirmed=True, c=c)["status"] == "failed"
+    assert not any(call[0] == "recycle" for call in c.platform.calls)
+    out = run("files.delete", str(real), confirmed=True, c=c)
+    assert out["ok"] is True and out["detail"] == "удалила в корзину: copy.txt"
+    assert ("recycle", (str(real),)) in c.platform.calls
