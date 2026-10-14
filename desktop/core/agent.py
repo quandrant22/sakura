@@ -158,8 +158,11 @@ def _legacy_action(action: str, arg: str = "") -> str:
     if action == "open.app":
         target = arg or "яндекс музыка"
         return f"open_app:{target}"
-    if action == "app.switch":
+    if action in ("app.switch", "app.switch_open"):
         return f"switch_to_app:{arg}" if arg else "switch_to_app:"
+    # kettle.* — id реестра; сервер шлёт kettle:<verb>[:<градусы>] — клиент принимает оба.
+    if domain == "kettle" and verb in ("boil", "off", "status", "heat", "boil_heat"):
+        return f"kettle:{verb}:{arg}" if arg and verb in ("heat", "boil_heat") else f"kettle:{verb}"
     # system.* → system:<verb> (execute_command, verb "system"): опасные
     # системные действия переехали в реестр на этапе 5, подтверждение
     # спрашивает сервер (executor, confirm: true) — агент выключает сразу.

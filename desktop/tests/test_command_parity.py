@@ -138,3 +138,19 @@ def test_hands_knows_every_verb(cid, rec, monkeypatch):
     text = str(out.get("result", out))
     assert not text.startswith("неизвестная"), f"{cid}: hands не знает «{sent[-1]}» → {text}"
     assert side or "screenshot" in out, f"{cid}: hands ничего не исполнил для «{sent[-1]}»"
+
+
+@pytest.mark.parametrize("cid,arg", [("app.switch_open", "telegram"), ("kettle.boil", ""), ("kettle.off", ""),
+                                     ("kettle.status", ""), ("kettle.heat", "80"), ("kettle.boil_heat", "80")])
+def test_registry_id_accepted_as_well_as_wire_name(cid, arg, rec, monkeypatch):
+    """Расхождения id реестра и имени на проводе: клиент принимает оба (тот же исполнитель, что и провод)."""
+    wire_action, wire_arg = WIRE[cid]
+    a = _agent(rec)
+    asyncio.run(a._run_command(wire_action, "w", wire_arg))
+    via_wire = [name for name, _ in rec]
+    rec.clear()
+    a = _agent(rec)
+    asyncio.run(a._run_command(cid, "i", arg))
+    assert [name for name, _ in rec] == via_wire
+    last = [m for m in a._ws.sent if m.get("type") == "command_result"][-1]
+    assert "неизвестн" not in str(last.get("detail", ""))
