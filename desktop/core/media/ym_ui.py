@@ -11,6 +11,7 @@ BUTTONS = {
     "repeat": ("повтор", "repeat"),
 }
 _BUTTON = 50000
+_HYPERLINK = 50005
 _INVOKE, _TOGGLE = 10000, 10015
 MIN_TREE = 30  # меньше элементов — доступность Chromium выключена
 
@@ -80,3 +81,50 @@ class YmWindowButtons:
             unk.QueryInterface(IUIAutomationInvokePattern).Invoke()
             return "done"
         return "not_found"
+
+    # ── воспроизведение (music.autoplay): имена из реального дерева приложения 5.122 ──
+    def _controls(self):
+        root = self._window()
+        if root is None:
+            return []
+        c = self.uia.client()
+        arr = root.FindAll(4, c.CreateTrueCondition())
+        return [arr.GetElement(i) for i in range(min(arr.Length, 5000))]
+
+    @staticmethod
+    def _invoke(el) -> bool:
+        from comtypes.gen.UIAutomationClient import IUIAutomationInvokePattern
+        unk = el.GetCurrentPattern(_INVOKE)
+        if not unk:
+            return False
+        unk.QueryInterface(IUIAutomationInvokePattern).Invoke()
+        return True
+
+    def play_bar(self) -> bool:
+        """«Воспроизведение» в панели плеера (между «Предыдущая песня» и «Следующая песня»)."""
+        els = self._controls()
+        names = [(e.CurrentName or "") for e in els]
+        if "Предыдущая песня" not in names:
+            return False
+        for e in els[names.index("Предыдущая песня") + 1:]:
+            if (e.CurrentName or "") == "Воспроизведение" and e.CurrentControlType == _BUTTON:
+                return self._invoke(e)
+        return False
+
+    def open_link(self, name: str) -> bool:
+        """Ссылка боковой панели («Моя волна», «Плейлист Мне нравится») — переход на страницу."""
+        for e in self._controls():
+            if (e.CurrentName or "") == name and e.CurrentControlType == _HYPERLINK:
+                return self._invoke(e)
+        return False
+
+    def play_main(self) -> bool:
+        """Первая видимая «Воспроизведение» в основной области (до панели плеера)."""
+        els = self._controls()
+        names = [(e.CurrentName or "") for e in els]
+        end = names.index("Предыдущая песня") if "Предыдущая песня" in names else len(els)
+        for e in els[:end]:
+            if ((e.CurrentName or "") == "Воспроизведение" and e.CurrentControlType == _BUTTON
+                    and not e.CurrentIsOffscreen):
+                return self._invoke(e)
+        return False

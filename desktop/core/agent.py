@@ -590,6 +590,15 @@ class Agent:
             """command_result по контракту {ok, status, detail} (desktop.core.results)."""
             await self._send_result(cmd_id, res, extra)
 
+        # «Включи музыку» (шаг Ж): запустить Яндекс.Музыку и начать воспроизведение.
+        if action == "music.autoplay":
+            ap = getattr(self, "autoplay", None)
+            if ap is None:
+                from desktop.core.media.autoplay import Autoplay
+                ap = self.autoplay = Autoplay()
+            await _send_ack(await ap.run(arg or "wave"))
+            return
+
         # Игровой режим — переключаем через bus
         # Встроенные плееры (desktop.core.media): если активен встроенный —
         # действие music.*/youtube.* исполняет он, иначе — прежний внешний путь ниже.
