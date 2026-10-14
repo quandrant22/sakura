@@ -69,7 +69,7 @@ def _default_deps() -> Deps:
 
     return Deps(status=status, smtc_play=smtc_play, app_state=lambda: launcher.state("yandex_music"),
                 launch=lambda: launcher.launch("yandex_music"), restart=lambda: launcher.restart("yandex_music"),
-                ui=ui, has_token=has_token, window_ready=lambda: ui._window() is not None)
+                ui=ui, has_token=has_token, window_ready=ui.ready)
 
 
 class Autoplay:
@@ -168,4 +168,5 @@ class Autoplay:
             if r.get("ok"):
                 return r
         mark("не началось")
-        return R.failed(FAIL_TEXT)
+        return R.failed(FAIL_TEXT if target in ("wave", "any") else
+                        FAIL_TEXT.replace("«Моя волна»", "«Воспроизведение» в приложении"))

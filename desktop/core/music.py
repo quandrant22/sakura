@@ -237,7 +237,11 @@ async def smtc_modes() -> dict:
 async def smtc_set_shuffle(on: bool) -> bool:
     try:
         session = await _session()
-        return bool(session and await session.try_change_shuffle_active_async(bool(on)))
+        # Яндекс.Музыка отвечает True, хотя is_shuffle_enabled=False и ничего не меняет (живая проверка
+        # 15.10) — без поддержки не пробуем, иначе ложный успех; пульт перейдёт к кнопке окна.
+        if not session or not session.get_playback_info().controls.is_shuffle_enabled:
+            return False
+        return bool(await session.try_change_shuffle_active_async(bool(on)))
     except Exception as e:
         log.debug(f"[music] SMTC shuffle: {e}")
         return False
@@ -248,7 +252,9 @@ async def smtc_set_repeat(mode: str) -> bool:
         from winsdk.windows.media import MediaPlaybackAutoRepeatMode
         session = await _session()
         value = MediaPlaybackAutoRepeatMode(REPEAT_MODES.index(mode))
-        return bool(session and await session.try_change_auto_repeat_mode_async(value))
+        if not session or not session.get_playback_info().controls.is_repeat_enabled:
+            return False  # см. smtc_set_shuffle: ложный True без поддержки
+        return bool(await session.try_change_auto_repeat_mode_async(value))
     except Exception as e:
         log.debug(f"[music] SMTC repeat: {e}")
         return False

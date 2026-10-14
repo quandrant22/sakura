@@ -233,3 +233,24 @@ def test_like_toggle_dislike_lyrics_with_token():
 def test_like_without_player_is_noop():
     r = remote(token="t", info=None)
     assert run(r.control("like"))["status"] == "noop"
+
+
+def test_smtc_modes_not_attempted_without_support(monkeypatch):
+    """Живая проверка 15.10: приложение отвечает True на смену режима при is_*_enabled=False — ложный успех."""
+    from types import SimpleNamespace as NS
+
+    from desktop.core import music
+    calls = []
+
+    async def ok(*a):
+        calls.append(a)
+        return True
+    sess = NS(get_playback_info=lambda: NS(controls=NS(is_shuffle_enabled=False, is_repeat_enabled=False)),
+              try_change_shuffle_active_async=ok, try_change_auto_repeat_mode_async=ok)
+
+    async def session():
+        return sess
+    monkeypatch.setattr(music, "_session", session)
+    assert asyncio.run(music.smtc_set_shuffle(True)) is False
+    assert asyncio.run(music.smtc_set_repeat("list")) is False
+    assert calls == []

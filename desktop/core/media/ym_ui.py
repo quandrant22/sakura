@@ -100,6 +100,11 @@ class YmWindowButtons:
         unk.QueryInterface(IUIAutomationInvokePattern).Invoke()
         return True
 
+    def ready(self) -> bool:
+        """Интерфейс приложения дорисован: в дереве есть панель плеера (живая проверка 15.10:
+        окно появляется раньше, и нажатия в первые секунды не срабатывают)."""
+        return any((e.CurrentName or "") == "Предыдущая песня" for e in self._controls())
+
     def play_bar(self) -> bool:
         """«Воспроизведение» в панели плеера (между «Предыдущая песня» и «Следующая песня»)."""
         els = self._controls()
