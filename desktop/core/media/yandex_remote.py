@@ -114,7 +114,7 @@ class YandexRemote:
             return R.unsupported(f"{what}: окно Яндекс.Музыки не найдено — откройте приложение")
         if res == "not_found":
             return R.unsupported(f"{what}: кнопка в окне Яндекс.Музыки не найдена — нажмите её в приложении")
-        return R.unsupported(f"{what} через Windows недоступно: {A11Y_HINT}")
+        return R.unsupported(f"{what} недоступно. {A11Y_HINT}", help="a11y")
 
     @property
     def smtc(self):

@@ -18,6 +18,7 @@ class Ctx:
     files: object = None        # hands: open_file(name) / find_file(name) / recent()
     fs: object = None           # copy(src, dst) / move(src, dst)
     ui: object = None           # UI Automation: click / type_into / scroll / read (platform.uia)
+    apps: object = None         # AppLauncher (подменяется в тестах)
     extra: dict = field(default_factory=dict)
 
     @classmethod
@@ -390,6 +391,15 @@ def ui_read(arg, ctx):
     return R.done(text, text=text) if text else R.failed("текста не нашла")
 
 
+# ── приложения (шаг Е): перезапуск с параметрами из белого списка ──
+def app_restart(arg, ctx):
+    from desktop.core import app_launch
+    key = app_launch.app_key(arg or "яндекс музыка")
+    if key is None:
+        return R.unsupported("перезапускать можно только Яндекс.Музыку")
+    return (ctx.apps or app_launch.AppLauncher()).restart(key)
+
+
 ACTIONS: dict[str, Action] = {
     "window.minimize": Action(_window_state("minimize"), True, False),
     "window.maximize": Action(_window_state("maximize"), True, False),
@@ -418,6 +428,7 @@ ACTIONS: dict[str, Action] = {
     "ui.type": Action(ui_type, False, False, guard_window=True),
     "ui.scroll": Action(ui_scroll, True, False, guard_window=True),
     "ui.read": Action(ui_read, True, False, guard_window=True),
+    "app.restart": Action(app_restart, True, False),
     "files.open": Action(files_open, True, False),
     "files.reveal": Action(files_reveal, True, False),
     "files.recent": Action(files_recent, True, False),

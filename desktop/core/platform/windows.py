@@ -437,3 +437,30 @@ def power_command(action: str, delay_s: int | None = None) -> list[str] | None:
         "restart": ["shutdown", "/r", "/t", delay, "/c", "Команда Сакуры"],
         "shutdown_cancel": ["shutdown", "/a"],
     }.get(action)
+
+
+def uninstall_exes(names, exe_name: str) -> list[str]:
+    """Пути exe из реестра Uninstall (HKCU, HKLM) для программ, чьё DisplayName содержит одно из names."""
+    import os
+    import winreg
+    out = []
+    for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        try:
+            root = winreg.OpenKey(hive, r"Software\Microsoft\Windows\CurrentVersion\Uninstall")
+        except OSError:
+            continue
+        for i in range(winreg.QueryInfoKey(root)[0]):
+            try:
+                k = winreg.OpenKey(root, winreg.EnumKey(root, i))
+                name = str(winreg.QueryValueEx(k, "DisplayName")[0]).lower()
+            except OSError:
+                continue
+            if not any(n in name for n in names):
+                continue
+            for v in ("DisplayIcon", "InstallLocation"):
+                try:
+                    val = str(winreg.QueryValueEx(k, v)[0]).split(",")[0].strip('"')
+                except OSError:
+                    continue
+                out.append(val if val.lower().endswith(".exe") else os.path.join(val, exe_name))
+    return out

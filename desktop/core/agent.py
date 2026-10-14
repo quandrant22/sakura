@@ -601,6 +601,18 @@ class Agent:
                 await _send_ack(R.from_legacy({"ok": ok, "result": detail}))
                 return
 
+        # Яндекс.Музыка не запущена — запуск с параметрами из Настроек (шаг Е: кнопки окна).
+        # app_launcher выставляет run() (в тестах его нет — старый путь без системных вызовов).
+        launcher = getattr(self, "app_launcher", None)
+        if launcher is not None and action.startswith(("open_app:", "switch_to_app:", "app.switch_open")):
+            from desktop.core import app_launch
+            target = action.split(":", 1)[1] if ":" in action else arg
+            key = app_launch.app_key(target)
+            if key is not None:
+                if not await asyncio.to_thread(lambda: launcher.state(key)["running"]):
+                    await _send_ack(await asyncio.to_thread(launcher.launch, key))
+                    return
+
         # Управление ПК (п. 2.3): окна, питание, процессы, буфер, экран и звук, сеть, клавиши, файлы.
         from desktop.core import control
         if action in control.ACTIONS:
@@ -875,6 +887,8 @@ class Agent:
                           text="Не задан WS_TOKEN (.env) — агент не подключается")
             return
         self._loop = asyncio.get_running_loop()
+        from desktop.core.app_launch import AppLauncher
+        self.app_launcher = AppLauncher()
         from desktop.core.presence import prime_system_info
         prime_system_info()
         # Запускаем локальный WS сервер для расширения браузера

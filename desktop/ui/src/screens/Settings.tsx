@@ -10,6 +10,7 @@ import { useMediaClient, useMediaMeta, useMusic } from "../media/MediaContext";
 import type { MediaSettings } from "../media/types";
 import { TOKEN_STEPS } from "../board/widgets/music/barLogic";
 import { errorText } from "../store";
+import { AppsSection } from "./AppsSection";
 import { SecretsSection } from "./SecretsSection";
 
 function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
@@ -175,6 +176,7 @@ export function Settings() {
       <Card title="Интерфейс"><InterfaceSection /></Card>
       <Card title="Медиа"><MediaSection /></Card>
       <Card title="Система"><AutostartRow /></Card>
+      <Card title="Приложения"><AppsSection /></Card>
       <Card title="Секреты"><SecretsSection /></Card>
     </div>
   );

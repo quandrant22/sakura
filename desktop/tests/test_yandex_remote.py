@@ -205,7 +205,8 @@ def test_modes_fall_back_to_window_buttons():
 def test_modes_without_accessibility_explain_how():
     r = remote(supports=False, buttons=FakeButtons(press="no_a11y"))
     out = run(r.control("shuffle"))
-    assert out["status"] == "unsupported" and "--force-renderer-accessibility" in out["detail"]
+    assert out["status"] == "unsupported" and out["help"] == "a11y"
+    assert "Перезапустить с поддержкой кнопок" in out["detail"]
     out = run(remote(supports=False, buttons=FakeButtons(press="no_window")).control("repeat"))
     assert "окно Яндекс.Музыки не найдено" in out["detail"]
 

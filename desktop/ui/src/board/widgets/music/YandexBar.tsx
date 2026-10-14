@@ -117,6 +117,17 @@ export function YandexBar({ onMenu }: { onMenu?(): void }) {
     }
     void refresh();
   };
+  /** Перезапуск Яндекс.Музыки с ключом доступности (кнопки окна: перемешать, повтор). */
+  const restartWithButtons = async () => {
+    setHint({ text: "Перезапускаю Яндекс.Музыку с поддержкой кнопок…", warn: false });
+    try {
+      const r = await client.call<ControlResult>("app_restart", { app: "yandex_music" });
+      setHint(r.ok ? { text: r.detail, warn: false } : hintFor(r));
+    } catch (e) {
+      setHint({ text: String((e as Error).message || e), warn: true });
+    }
+    void refresh();
+  };
   /** Кнопка без токена не выключена: по клику — полная подсказка с «Как это сделать». */
   const needToken = (op: string) => (st?.can_like ? void control(op)
     : setHint({ text: st?.like_hint ?? "", warn: true, help: "token" }));
@@ -125,6 +136,12 @@ export function YandexBar({ onMenu }: { onMenu?(): void }) {
     <div role="status" className={"absolute left-[94px] right-3 top-1.5 z-10 flex items-start gap-2 rounded-btn bg-panel2/95 px-3 py-1.5 text-xs leading-snug shadow-soft " +
                                    (hint.warn ? "text-warn" : "text-ink")}>
       <span className="min-w-0 flex-1 whitespace-normal break-words">{hint.text}</span>
+      {hint.help === "a11y" && (
+        <button type="button" onClick={() => void restartWithButtons()}
+                className="shrink-0 rounded-full border border-warn/50 px-2 py-0.5 text-[11px]">
+          Перезапустить с поддержкой кнопок
+        </button>
+      )}
       {hint.help === "token" && (
         <button type="button" onClick={() => setHelp(true)} className="shrink-0 rounded-full border border-warn/50 px-2 py-0.5 text-[11px]">
           Как это сделать

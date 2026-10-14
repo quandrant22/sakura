@@ -24,7 +24,7 @@ DEFAULT_SETTINGS = {
 # Ключи настроек, которые интерфейс может менять (остальное — через .env).
 SETTINGS_KEYS = frozenset(DEFAULT_SETTINGS) | {"autostart", "game_processes", "wake_sensitivity",
                                                "stt_model", "hotkey_talk", "input_device",
-                                               "output_device"}
+                                               "output_device", "music_accessibility"}
 # Встроенный сценарий «Фокус» на сервере.
 FOCUS_SCENARIO_ID = "focus"
 
@@ -87,8 +87,13 @@ class CoreService:
         self.api.emit_threadsafe(event)
 
     def settings_snapshot(self) -> dict:
+        from desktop.core import app_launch
+        saved = self.settings.items().get("music_accessibility")
+        if saved is not None:
+            app_launch.PREFS["yandex_music"] = bool(saved)
         out = dict(DEFAULT_SETTINGS)
         out.update({k: v for k, v in self.settings.items().items() if k in SETTINGS_KEYS})
+        out["music_accessibility"] = app_launch.PREFS.get("yandex_music", True)
         out["device_id"] = config.DEVICE_ID
         out["extension_id"] = os.getenv("SAKURA_EXTENSION_ID", "")
         hearing = getattr(self._agent, "hearing", None)
@@ -179,6 +184,8 @@ class CoreService:
         c("list_audio_devices", self.cmd_list_audio_devices)
         c("settings_set", self.cmd_settings_set)
         c("game_mode", self.cmd_game_mode)
+        c("apps_state", self.cmd_apps_state)
+        c("app_restart", self.cmd_app_restart)
         c("secrets_status", self.cmd_secrets_status)
         c("secrets_set", self.cmd_secrets_set)
         c("core_restart", self.cmd_core_restart)
@@ -253,6 +260,20 @@ class CoreService:
         finally:
             self.agent._local_results.pop(cmd_id, None)
 
+    # ── Настройки → Приложения: параметры запуска (белый список) ──
+    async def cmd_apps_state(self, msg: dict):
+        from desktop.core import app_launch
+        st = await asyncio.to_thread(app_launch.AppLauncher().state, "yandex_music")
+        return {"yandex_music": {**st, "enabled": app_launch.PREFS.get("yandex_music", True),
+                                 "args": app_launch.default_args("yandex_music")}}
+
+    async def cmd_app_restart(self, msg: dict):
+        from desktop.core import app_launch
+        key = app_launch.app_key(str(msg.get("app") or "yandex_music"))
+        if key is None:
+            raise ApiError("bad_request", "это приложение нельзя перезапускать из Сакуры")
+        return await asyncio.to_thread(app_launch.AppLauncher().restart, key)
+
     # ── «Секреты»: только «задан / не задан» и запись; значения не возвращаются и не журналируются ──
     async def cmd_secrets_status(self, msg: dict):
         from desktop.core import envfile
@@ -326,6 +347,9 @@ class CoreService:
         if key not in SETTINGS_KEYS:
             raise ApiError("bad_request", f"нельзя менять настройку: {key}")
         self.settings.set(key, msg.get("value"))
+        if key == "music_accessibility":
+            from desktop.core import app_launch
+            app_launch.PREFS["yandex_music"] = bool(msg.get("value"))
         snap = self.settings_snapshot()
         self._emit({"type": "settings", "settings": snap})
         return {"settings": snap}
