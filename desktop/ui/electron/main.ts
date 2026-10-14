@@ -107,13 +107,7 @@ function buildTrayMenu(): void {
       ...(coreState === "failed"
         ? [{ label: "Ядро не запустилось: открыть журнал", click: openCoreLog }] : []),
       { type: "separator" },
-      {
-        label: "Выход",
-        click: () => {
-          quitting = true;
-          app.quit();
-        },
-      },
+      { label: "Выход", click: quitAll },
     ]),
   );
 }
@@ -128,6 +122,12 @@ function onCoreState(state: CoreState): void {
   win?.webContents.send("core:state", state);
   tray?.setToolTip(state === "failed" ? "Sakura — ядро не запустилось" : "Sakura");
   buildTrayMenu();
+}
+
+/** «Выход» из трея и `electron . --quit`: закрыть окно, ядро (деревом процессов) и всё остальное. */
+function quitAll(): void {
+  quitting = true;
+  app.quit();
 }
 
 function createTray(): void {
@@ -391,7 +391,8 @@ async function takeScreenshots(specs: ShotSpec[], outDir: string): Promise<void>
 if (!process.env.SAKURA_E2E && !app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on("second-instance", showWindow);
+  // Повторный запуск показывает окно; с --quit — тот же «Выход», что в трее (остановка из скриптов).
+  app.on("second-instance", (_e, argv) => (argv.includes("--quit") ? quitAll() : showWindow()));
   app.whenReady().then(async () => {
     const specs = process.env.SAKURA_SCREENSHOT_SPECS;
     if (specs) {
