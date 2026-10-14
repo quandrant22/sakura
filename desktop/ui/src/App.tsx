@@ -76,9 +76,9 @@ function PowerToast() {
   );
 }
 
-const SECTIONS: Section[] = ["home", "devices", "scenarios", "memory", "settings"];
+const SECTIONS: readonly Section[] = SECTION_ORDER;
 
-// ?screen=devices|scenarios|memory|settings — стартовый экран (снимки экранов, отладка).
+// ?screen=devices|scenarios|memory|profile|settings — стартовый экран (снимки экранов, отладка).
 function initialSection(): Section {
   const s = new URLSearchParams(window.location.search).get("screen") as Section | null;
   return s && SECTIONS.includes(s) ? s : "home";

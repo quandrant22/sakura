@@ -20,6 +20,9 @@ const screens = {
   home: ["home", "", modes, ["night", "sketch"]],
   settings: ["settings", "settings", [["normal", "norm"]], ["night"]],
   devices: ["devices", "devices", [["normal", "norm"]], ["night"]],
+  scenarios: ["scenarios", "scenarios", [["normal", "norm"]], ["night"]],
+  memory: ["memory", "memory", [["normal", "norm"], ["unsupported", "unsupported"]], ["night"]],
+  profile: ["profile", "profile", [["normal", "norm"]], ["night", "sketch"]],
 };
 const specs = wanted.flatMap((key) => {
   const [prefix, screen, ms, themes] = screens[key];

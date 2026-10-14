@@ -147,6 +147,19 @@ export class DemoClient implements CoreClient {
       }
       case "scenario_run":
         return { type: "scenario_run_started", run_id: "r1", id: message.id } as T;
+      case "memory_list":
+      case "memory_search": {
+        const items = this.mode === "empty" ? [] : [
+          { id: "k1", category: "preferences", text: "Любит лоу-фай по утрам", ts: 1760000000 },
+          { id: "k2", category: "facts", text: "Работает из дома по средам", ts: 1760000100 },
+          { id: "k3", category: "bookmarks", text: "Идея: сценарий для тренировок", ts: 1760000200 }];
+        return { type: "memory_items", items, total: items.length,
+                 counts: { preferences: 1, facts: 1, bookmarks: 1 } } as T;
+      }
+      case "profile_get":
+      case "profile_set":
+        return { type: "profile", profile: { name: "Хозяин", address_as: "ты", quiet_hours: "23:00-07:00",
+                                             voice: "Leda", tone: "calm", notifications: { telegram: true, sound: true } } } as T;
       default:
         throw new CoreError("bad_request", `демо: ${message.type}`);
     }
