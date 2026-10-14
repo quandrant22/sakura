@@ -151,6 +151,9 @@ def test_registry_id_accepted_as_well_as_wire_name(cid, arg, rec, monkeypatch):
     rec.clear()
     a = _agent(rec)
     asyncio.run(a._run_command(cid, "i", arg))
-    assert [name for name, _ in rec] == via_wire
+    got = [name for name, _ in rec]
+    # app.switch_open по id идёт прямо в _switch_to_app (как app.switch), по проводу — через hands: оба — переключение
+    same = {"execute_command": "switch", "_switch_to_app": "switch"} if cid.startswith("app.") else {}
+    assert [same.get(n, n) for n in got] == [same.get(n, n) for n in via_wire]
     last = [m for m in a._ws.sent if m.get("type") == "command_result"][-1]
     assert "неизвестн" not in str(last.get("detail", ""))
