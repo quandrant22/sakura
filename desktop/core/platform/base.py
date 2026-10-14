@@ -111,6 +111,11 @@ class Platform(ABC):
         """Wi-Fi или Bluetooth (kind: wifi | bluetooth) вкл/выкл без прав администратора."""
 
     @abstractmethod
+    def restore_from_recycle(self, path: str) -> bool:
+        """Вернуть файл из корзины на прежнее место."""
+        raise NotImplementedError
+
+    @abstractmethod
     def recycle(self, path: str) -> bool:
         """Удалить файл или папку только в корзину (с возможностью вернуть)."""
 

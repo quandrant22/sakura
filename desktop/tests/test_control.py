@@ -171,25 +171,16 @@ def test_media_keys():
     assert run("keys.media", "launch", c=c)["status"] == "failed"
 
 
-# ── файлы ────────────────────────────────────────────────────────────
-def test_files():
+# ── файлы: подробно — test_files_safe.py ──
+def test_files_open_recent():
     c = ctx()
     assert run("files.open", "отчёт", c=c)["ok"] is True
-    assert run("files.reveal", "отчёт", c=c)["ok"] is True
     assert run("files.recent", c=c)["files"] == ["отчёт", "фото"]
-    assert run("files.copy", "отчёт|D:/копия", c=c)["ok"] is True
-    assert c.extra["clip"]["copied"] == ("C:/x/отчёт", "D:/копия")
-    assert run("files.copy", "отчёт", c=c)["status"] == "failed"
-    assert run("files.move", "отчёт|D:/", c=c)["detail"] == "нужно подтверждение"
-    assert run("files.delete", "отчёт", c=c)["detail"] == "нужно подтверждение"
-    # удаление по имени запрещено — только полный существующий путь
-    assert run("files.delete", "отчёт", confirmed=True, c=c)["status"] == "failed"
-    assert not any(call[0] == "recycle" for call in c.platform.calls)
 
 
 # ── общие правила ────────────────────────────────────────────────────
 def test_destructive_need_confirm_and_flags():
-    destructive = {"power.sleep", "process.kill", "net.wifi", "files.move", "files.delete"}
+    destructive = {"power.sleep", "process.kill", "net.wifi", "files.move", "files.delete"}  # undelete — без
     assert {k for k, a in reg.ACTIONS.items() if a.confirm} == destructive
     assert all(not reg.ACTIONS[k].reversible for k in ("process.kill", "files.move", "keys.type"))
 
@@ -448,17 +439,3 @@ def test_core_exits_when_parent_window_gone():
 
 
 
-def test_delete_never_by_fuzzy_index_match(tmp_path):
-    """Живая проверка 14.10: индекс на «copy.txt» вернул cpu.txt — удаляться должен только точный путь."""
-    real = tmp_path / "copy.txt"
-    real.write_text("x")
-    c = ctx()
-    c.files = SimpleNamespace(find=lambda n: r"C:\\sakura-tmp\\cpu.txt", open_file=lambda n: "", recent=lambda: [])
-    assert run("files.delete", "copy.txt", confirmed=True, c=c)["status"] == "failed"
-    assert run("files.reveal", "copy.txt", c=c)["status"] == "failed"
-    assert run("files.copy", f"copy.txt|{tmp_path / 'b.txt'}", c=c)["status"] == "failed"
-    assert run("files.move", f"copy.txt|{tmp_path / 'b.txt'}", confirmed=True, c=c)["status"] == "failed"
-    assert not any(call[0] == "recycle" for call in c.platform.calls)
-    out = run("files.delete", str(real), confirmed=True, c=c)
-    assert out["ok"] is True and out["detail"] == "удалила в корзину: copy.txt"
-    assert ("recycle", (str(real),)) in c.platform.calls

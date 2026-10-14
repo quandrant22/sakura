@@ -298,28 +298,39 @@ def files_open(arg, ctx):
     return R.from_legacy(ctx.files.open_file(arg or ""))
 
 
-def _find_exact(ctx, name: str) -> str | None:
-    """Находка индекса — только если имя файла совпадает в точности (индекс ищет неточно:
-    на «copy.txt» он вернул cpu.txt — живая проверка 14.10)."""
-    name = (name or "").strip()
-    if not name:
-        return None
-    path = ctx.files.find(name)
-    if not path:
-        return None
-    return path if os.path.basename(path).lower() == os.path.basename(name).lower() else None
+def _env(ctx):
+    return ctx.extra.get("env") or os.environ
 
 
-def _full_path(name: str) -> str | None:
-    """Удаление и перенос — только по полному существующему пути, без поиска по индексу."""
-    name = (name or "").strip().strip('"')
-    return name if os.path.isabs(name) and os.path.isfile(name) else None
+def _checked(ctx, path, **kw) -> str:
+    from desktop.core.control import files_safe as F
+    return F.check_path(path, env=_env(ctx), **kw)
+
+
+def _refused(e) -> dict:
+    return R.unsupported(str(e))
+
+
+def files_find(arg, ctx):
+    """Поиск по имени (только чтение): «имя» или «имя|папка»; до 3 кандидатов с полным путём."""
+    from desktop.core.control import files_safe as F
+    name, _, folder = (arg or "").partition("|")
+    try:
+        found = F.find(name, folder.strip() or None, env=_env(ctx))
+    except F.PathRefused as e:
+        return _refused(e)
+    if not found:
+        return R.failed("файл не найден в Загрузках, Документах, на Рабочем столе, в Изображениях, Видео и Музыке")
+    lines = "; ".join(f"{c['path']} ({c['size']} байт)" for c in found)
+    return R.done(f"Нашла: {lines}", files=found)
 
 
 def files_reveal(arg, ctx):
-    path = _find_exact(ctx, arg)
-    if not path:
-        return R.failed("файл не найден")
+    from desktop.core.control import files_safe as F
+    try:
+        path = _checked(ctx, arg, allow_exec=True)
+    except F.PathRefused as e:
+        return _refused(e)
     return R.done("показала файл в проводнике") if ctx.platform.reveal(path) else R.failed("не удалось")
 
 
@@ -333,35 +344,97 @@ def _two_paths(arg: str) -> tuple[str, str] | None:
     return (src.strip(), dst.strip()) if sep and src.strip() and dst.strip() else None
 
 
+def _dest(ctx, dst: str, src: str) -> str:
+    """Куда копировать/переносить: полный путь (папка — тогда то же имя); существующий файл не перезаписывается."""
+    from desktop.core.control import files_safe as F
+    raw = (dst or "").strip().strip('"')
+    if os.path.isdir(raw):
+        raw = os.path.join(raw, os.path.basename(src))
+    full = F.check_path(raw, env=_env(ctx), must_exist=False)
+    if os.path.exists(full):
+        raise F.PathRefused("по этому пути уже есть файл — не перезаписываю")
+    if not os.path.isdir(os.path.dirname(full)):
+        raise F.PathRefused("папки назначения нет")
+    return full
+
+
 def files_copy(arg, ctx):
+    from desktop.core.control import files_safe as F
     pair = _two_paths(arg)
     if not pair:
-        return R.failed("нужно «откуда|куда»")
-    src = _find_exact(ctx, pair[0])
-    if not src:
-        return R.failed("файл не найден")
-    ctx.fs.copy(src, pair[1])
-    return R.done("скопировала")
+        return R.failed("нужно «полный путь откуда|куда»")
+    try:
+        src = _checked(ctx, pair[0])
+        dst = _dest(ctx, pair[1], src)
+    except F.PathRefused as e:
+        return _refused(e)
+    ctx.fs.copy(src, dst)
+    return R.done(f"скопировала в {dst}")
 
 
 def files_move(arg, ctx):
+    from desktop.core.control import files_safe as F
     pair = _two_paths(arg)
     if not pair:
-        return R.failed("нужно «откуда|куда»")
-    src = _full_path(pair[0])
-    if not src:
-        return R.failed("для переноса нужен полный путь к файлу — по имени не переношу")
-    ctx.fs.move(src, pair[1])
-    return R.done("переместила")
+        return R.failed("нужно «полный путь откуда|куда»")
+    try:
+        src = _checked(ctx, pair[0])
+        dst = _dest(ctx, pair[1], src)
+    except F.PathRefused as e:
+        return _refused(e)
+    ctx.fs.move(src, dst)
+    return R.done(f"переместила в {dst}")
+
+
+def files_delete_preview(arg, ctx):
+    """Что будет удалено — без выполнения."""
+    from desktop.core.control import files_safe as F
+    try:
+        path = _checked(ctx, arg)
+    except F.PathRefused as e:
+        return _refused(e)
+    size = os.path.getsize(path)
+    return R.done(f"Будет удалено в корзину: {path} ({size} байт)", path=path, size=size)
 
 
 def files_delete(arg, ctx):
-    src = _full_path(arg)
-    if not src:
-        return R.failed("для удаления нужен полный путь к файлу — по имени не удаляю")
-    if not ctx.platform.recycle(src):
+    from desktop.core.control import files_safe as F
+    try:
+        path = _checked(ctx, arg)
+    except F.PathRefused as e:
+        return _refused(e)
+    if not ctx.platform.recycle(path):
         return R.failed("не удалось удалить в корзину")
-    return R.done(f"удалила в корзину: {os.path.basename(src)}")
+    journal = ctx.extra.get("journal") or F.default_journal()
+    journal.add(path)
+    return R.done(f"удалила в корзину: {path}")
+
+
+def files_undelete(arg, ctx):
+    """Вернуть удалённое Сакурой: последние 5 за 24 часа (или одно — по полному пути)."""
+    from desktop.core.control import files_safe as F
+    journal = ctx.extra.get("journal") or F.default_journal()
+    items = journal.recent()
+    want = (arg or "").strip().strip('"')
+    if want:
+        items = [e for e in items if os.path.normcase(e["path"]) == os.path.normcase(want)]
+    if not items:
+        return R.noop("этого файла нет в журнале удалений" if want else "за последние сутки Сакура ничего не удаляла")
+    restored, failed = [], []
+    for e in reversed(items if not want else items[-1:]):
+        if os.path.exists(e["path"]):
+            failed.append(e["path"])
+            continue
+        if ctx.platform.restore_from_recycle(e["path"]):
+            journal.mark_restored(e["path"])
+            restored.append(e["path"])
+        else:
+            failed.append(e["path"])
+        if not want:
+            break  # «верни удалённый файл» — последний; список — через files.undelete с путём
+    if restored:
+        return R.done(f"вернула: {'; '.join(restored)}", files=restored)
+    return R.failed("не удалось вернуть из корзины — возможно, корзину очистили")
 
 
 # ── UI Automation (п. 3.3): только активное окно, не в чёрном списке ──
@@ -452,9 +525,12 @@ ACTIONS: dict[str, Action] = {
     "files.open": Action(files_open, True, False),
     "files.reveal": Action(files_reveal, True, False),
     "files.recent": Action(files_recent, True, False),
+    "files.find": Action(files_find, True, False),
     "files.copy": Action(files_copy, True, False),
     "files.move": Action(files_move, False, True),
+    "files.delete_preview": Action(files_delete_preview, True, False),
     "files.delete": Action(files_delete, True, True),
+    "files.undelete": Action(files_undelete, True, False),
 }
 
 _limiter = safety.RateLimiter()

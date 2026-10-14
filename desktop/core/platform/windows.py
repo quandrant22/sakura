@@ -305,6 +305,26 @@ class WindowsPlatform(make_stub("windows")):
             return True
         return bool(_aio.run(go()))
 
+    def restore_from_recycle(self, path: str) -> bool:
+        """Корзина (Shell, папка 10): элемент с тем же исходным местом и именем — «Восстановить»."""
+        import comtypes.client
+        sh = comtypes.client.CreateObject("Shell.Application", dynamic=True)
+        bin_ = sh.Namespace(10)
+        folder, name = os.path.dirname(path), os.path.basename(path)
+        stem = os.path.splitext(name)[0]
+        items = bin_.Items()
+        for i in range(items.Count):
+            it = items.Item(i)
+            if (os.path.normcase(str(bin_.GetDetailsOf(it, 1))) == os.path.normcase(folder)
+                    and str(it.Name) in (name, stem)):
+                it.InvokeVerb("undelete")
+                for _ in range(20):
+                    if os.path.exists(path):
+                        return True
+                    time.sleep(0.1)
+                return os.path.exists(path)
+        return False
+
     def recycle(self, path: str) -> bool:
         # SHFileOperationW + FOF_ALLOWUNDO — только в корзину, без окна подтверждения Windows.
         from ctypes import wintypes
