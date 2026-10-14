@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { type CoreState, CoreSupervisor, coreAutostartEnabled } from "./coreProcess.js";
+import { coreAlready, type CoreState, CoreSupervisor, coreAutostartEnabled, pidAlive, readLockPid } from "./coreProcess.js";
 import { readLayout, writeLayout } from "./layoutFile.js";
 import {
   clampToArea, minSize, type Preset, presetSize, readBounds, snapToCorner, VIDEO_ASPECT, writeBounds,
@@ -400,15 +400,19 @@ if (!process.env.SAKURA_E2E && !app.requestSingleInstanceLock()) {
     }
     // SAKURA_CORE_AUTOSTART=1 — ядро запускается вместе с окном (Python — SAKURA_PYTHON).
     if (coreAutostartEnabled(process.env)) {
+      const lockFile = path.join(dataDir, "core.lock");
       core = new CoreSupervisor({
-        python: process.env.SAKURA_PYTHON ?? (process.platform === "win32" ? "python.exe" : "python3"),
+        // Только SAKURA_PYTHON (venv агента): запасной системный python запустил бы ядро без зависимостей.
+        python: process.env.SAKURA_PYTHON ?? "",
+        probeExisting: () => coreAlready(lockFile, tokenFile),
+        lockOwnerAlive: () => pidAlive(readLockPid(lockFile)),
         cwd: repoDir,
         logDir,
         tokenFile,
         log: (line) => console.log(`[core] ${line}`),
         onState: onCoreState,
       });
-      core.start();
+      void core.launch();
       // Окно не ждёт ядро: до готовности оно само покажет «нет связи с ядром» и переподключится.
       void core.waitReady().then((ok) => console.log(`[core] ${ok ? "готово" : "не ответило вовремя"}`));
     }

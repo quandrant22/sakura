@@ -67,6 +67,17 @@ if ($old.Count) {
     Start-Sleep -Seconds 2
 }
 
+# ── 2а. Лишние ядра: окна Сакуры нет, значит любое desktop.core — осиротевшее (закрыть деревом) ──
+$cores = @(Get-CimInstance Win32_Process -Filter "Name like 'python%'" | Where-Object { $_.CommandLine -match '-m\s+desktop\.core' })
+# venv\Scripts\python.exe — запускатель: настоящий интерпретатор — его дочерний процесс; закрываем корни.
+$roots = @($cores | Where-Object { $cores.ProcessId -notcontains $_.ParentProcessId })
+foreach ($c in $roots) {
+    if ($CheckOnly) { Log "найдено лишнее ядро pid $($c.ProcessId) (-CheckOnly: не закрываю)"; continue }
+    & taskkill.exe /PID $c.ProcessId /T /F | Out-Null
+    Log "закрыто лишнее ядро pid $($c.ProcessId) (запущено $($c.CreationDate)): $($c.CommandLine)"
+}
+if ($roots.Count -and -not $CheckOnly) { Start-Sleep -Seconds 1 }
+
 # ── 3. Зависимости и сборка (один раз; повторно — если исходники новее сборки) ──
 function Newest($paths) {
     $t = [datetime]::MinValue

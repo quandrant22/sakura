@@ -4,6 +4,7 @@
 // Вывод консоли ядра — в logs/core-console.log; свой sakura.log ядро пишет само в ту же папку.
 import { type ChildProcess, spawn as nodeSpawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 
 /** desktop/core/__main__.py: второй экземпляр ядра выходит с этим кодом — его не перезапускаем. */
@@ -28,6 +29,60 @@ export interface CoreOptions {
   onState?: (state: CoreState) => void;
   /** Закрыть ядро вместе с дочерними процессами (Windows: taskkill /T /F). */
   killTree?: (pid: number) => void;
+  /** Живо ли уже ядро (блокировка core.lock + ответ локального API) — тогда не запускать второе. */
+  probeExisting?: () => Promise<boolean>;
+  /** pid владельца core.lock, если он жив (для ожидания прежнего ядра при перезапуске). */
+  lockOwnerAlive?: () => boolean;
+}
+
+/** pid из core.lock (с позиции 1: байт 0 заблокирован ядром). */
+export function readLockPid(lockFile: string): number | null {
+  try {
+    const fd = fs.openSync(lockFile, "r");
+    try {
+      const buf = Buffer.alloc(16);
+      const n = fs.readSync(fd, buf, 0, 16, 1);
+      const pid = Number.parseInt(buf.subarray(0, n).toString("utf8").trim(), 10);
+      return Number.isFinite(pid) && pid > 0 ? pid : null;
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
+}
+
+export function pidAlive(pid: number | null): boolean {
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/** Отвечает ли локальный API ядра на порту из ui.token (TCP-подключение к 127.0.0.1). */
+export function apiAlive(tokenFile: string, timeoutMs = 800): Promise<boolean> {
+  let port = 0;
+  try {
+    port = Number((JSON.parse(fs.readFileSync(tokenFile, "utf8")) as { port?: number }).port) || 0;
+  } catch {
+    return Promise.resolve(false);
+  }
+  if (!port) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const sock = net.connect({ host: "127.0.0.1", port });
+    const done = (ok: boolean) => { sock.destroy(); resolve(ok); };
+    sock.setTimeout(timeoutMs, () => done(false));
+    sock.once("connect", () => done(true));
+    sock.once("error", () => done(false));
+  });
+}
+
+/** Ядро уже работает: владелец core.lock жив и API отвечает. */
+export async function coreAlready(lockFile: string, tokenFile: string): Promise<boolean> {
+  return pidAlive(readLockPid(lockFile)) && apiAlive(tokenFile);
 }
 
 /** Windows: дерево процессов ядра целиком — без осиротевших python. */
@@ -62,6 +117,31 @@ export class CoreSupervisor {
     } catch {
       // лог надзора необязателен
     }
+  }
+
+  /** Запуск с проверкой: живое ядро уже есть — подключаемся к нему, второе не запускаем. */
+  async launch(): Promise<void> {
+    if (this.state === "stopped") return;
+    if (!this.o.python) {
+      this.state = "failed";
+      this.note("SAKURA_PYTHON не задан — ядро не запускаю (запускайте Сакуру ярлыком или Sakura.bat)");
+      return;
+    }
+    if (this.o.probeExisting && await this.o.probeExisting()) {
+      this.state = "external";
+      this.note("ядро уже работает (core.lock и локальный API) — подключаюсь к нему");
+      return;
+    }
+    this.start();
+  }
+
+  /** Перед перезапуском — дождаться, пока прежнее ядро отпустит core.lock (до 10 с). */
+  private async restartAfterOldGone(): Promise<void> {
+    const deadline = this.now() + 10_000;
+    while (this.o.lockOwnerAlive?.() && this.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    if (this.state !== "stopped") this.start();
   }
 
   start(): void {
@@ -106,7 +186,7 @@ export class CoreSupervisor {
     this.restarts.push(now);
     this.state = "restarting";
     this.note(`ядро завершилось (код ${code}); перезапуск ${this.restarts.length}`);
-    this.timer = setTimeout(() => this.start(), this.o.restartDelayMs ?? 2000);
+    this.timer = setTimeout(() => void this.restartAfterOldGone(), this.o.restartDelayMs ?? 2000);
   }
 
   /** Готово, когда ядро записало ui.token после своего старта (локальный API поднят). */

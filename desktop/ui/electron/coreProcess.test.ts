@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { CoreSupervisor, coreAutostartEnabled, EXIT_ALREADY_RUNNING } from "./coreProcess";
+import { CoreSupervisor, coreAutostartEnabled, EXIT_ALREADY_RUNNING, pidAlive, readLockPid } from "./coreProcess";
 
 class FakeChild extends EventEmitter {
   pid = 4242;
@@ -140,4 +140,47 @@ test("смена состояния уходит в onState: starting → restar
   vi.advanceTimersByTime(20);
   children[1]!.exit(1);
   expect(states).toEqual(["starting", "restarting", "failed"]);
+});
+
+test("живое ядро уже есть (core.lock + API) — второе не запускается, окно подключается к нему", async () => {
+  const s = make({ probeExisting: async () => true });
+  await s.launch();
+  expect(spawn).not.toHaveBeenCalled();
+  expect(s.state).toBe("external");
+});
+
+test("ядра нет — launch запускает одно", async () => {
+  const s = make({ probeExisting: async () => false });
+  await s.launch();
+  expect(spawn).toHaveBeenCalledTimes(1);
+});
+
+test("без SAKURA_PYTHON — громкая ошибка, без запасного системного python", async () => {
+  const states: string[] = [];
+  const s = make({ python: "", onState: (st) => states.push(st) });
+  await s.launch();
+  expect(spawn).not.toHaveBeenCalled();
+  expect(states).toEqual(["failed"]);
+  expect(fs.readFileSync(path.join(dir, "logs", "core-console.log"), "utf8")).toContain("SAKURA_PYTHON не задан");
+});
+
+test("перезапуск ждёт, пока прежнее ядро отпустит core.lock", async () => {
+  let oldAlive = true;
+  const s = make({ lockOwnerAlive: () => oldAlive });
+  s.start();
+  children[0]!.exit(1);
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(spawn).toHaveBeenCalledTimes(1); // прежнее ещё держит блокировку
+  oldAlive = false;
+  await vi.advanceTimersByTimeAsync(300);
+  expect(spawn).toHaveBeenCalledTimes(2);
+});
+
+test("readLockPid читает pid с позиции 1; pidAlive — свой процесс жив, несуществующий нет", () => {
+  const lock = path.join(dir, "core.lock");
+  fs.writeFileSync(lock, "\0" + "4321\n".padEnd(16));
+  expect(readLockPid(lock)).toBe(4321);
+  expect(readLockPid(path.join(dir, "нет"))).toBeNull();
+  expect(pidAlive(process.pid)).toBe(true);
+  expect(pidAlive(null)).toBe(false);
 });

@@ -41,27 +41,45 @@ def setup_logging(log_dir: str) -> None:
 
 
 class SingleInstance:
-    """Файловая блокировка в DATA_DIR: второй экземпляр ядра не стартует."""
+    """Блокировка core.lock в DATA_DIR: второй экземпляр ядра не стартует.
+
+    Блокируется всегда байт 0 (раньше — байт в конце файла открытого в «a+»: стоило файлу
+    вырасти, и второй экземпляр блокировал другой байт). С позиции 1 записан pid владельца.
+    Блокировку держит ОС: если владелец умер, она снята — «протухшая» перехватывается сама.
+    """
 
     def __init__(self, path: str):
         self.path = path
-        self._fh = None
+        self._fd = None
 
     def acquire(self) -> bool:
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
-        self._fh = open(self.path, "a+")  # держим открытым всю жизнь процесса
+        fd = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600)  # держим открытым всю жизнь процесса
         try:
+            os.lseek(fd, 0, os.SEEK_SET)
             if os.name == "nt":
                 import msvcrt
-                msvcrt.locking(self._fh.fileno(), msvcrt.LK_NBLCK, 1)
+                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
             else:
                 import fcntl
-                fcntl.flock(self._fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return True
+                fcntl.lockf(fd, fcntl.LOCK_EX | fcntl.LOCK_NB, 1, 0)
         except OSError:
-            self._fh.close()
-            self._fh = None
+            os.close(fd)
             return False
+        self._fd = fd
+        os.lseek(fd, 1, os.SEEK_SET)
+        os.write(fd, f"{os.getpid()}\n".encode().ljust(16))
+        return True
+
+    def owner_pid(self) -> int | None:
+        """pid ядра, которое держит блокировку (читается с позиции 1 — байт 0 заблокирован)."""
+        try:
+            with open(self.path, "rb") as f:
+                f.seek(1)
+                raw = f.read(16).strip()
+            return int(raw) if raw.isdigit() else None
+        except (OSError, ValueError):
+            return None
 
 
 def watch_parent(parent_pid: int, pid_exists=None, exit_fn=os._exit, interval: float = 2.0,
@@ -127,7 +145,7 @@ def main(argv=None) -> int:
 
     guard = SingleInstance(os.path.join(config.DATA_DIR, "core.lock"))
     if not guard.acquire():
-        log.warning("Ядро Сакуры уже запущено.")
+        log.warning("[core] уже запущено (pid %s)", guard.owner_pid() or "?")
         return EXIT_ALREADY_RUNNING
     log.info("[core] старт: device=%s env=%s data=%s headless=%s offline=%s", config.DEVICE_ID,
              "найден" if config.ENV_FILE else "нет", config.DATA_DIR, args.headless, config.OFFLINE)

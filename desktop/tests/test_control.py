@@ -407,7 +407,7 @@ def test_no_server_flag_sets_offline(monkeypatch):
     monkeypatch.setenv("SAKURA_OFFLINE", "0")  # monkeypatch вернёт окружение после main()
     monkeypatch.setattr(config, "OFFLINE", False)
     monkeypatch.setattr(entry, "setup_logging", lambda d: None)
-    monkeypatch.setattr(entry, "SingleInstance", lambda p: SimpleNamespace(acquire=lambda: False))
+    monkeypatch.setattr(entry, "SingleInstance", lambda p: SimpleNamespace(acquire=lambda: False, owner_pid=lambda: 1))
     import desktop.core.exception_hooks as hooks
     monkeypatch.setattr(hooks, "install_exception_hooks", lambda log: None)
     assert entry.main(["--no-server"]) == entry.EXIT_ALREADY_RUNNING
