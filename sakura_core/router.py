@@ -45,6 +45,9 @@ class Decision:
     verdict: Optional[str] = None        # confirm | deny — только для source="session"
     pending_kind: Optional[str] = None   # confirm | plan | clarify — для session
     reply: Optional[object] = None       # Reply разговорного слоя (этап 5, 3/3)
+    # Подтверждённое «да» действие: payload ожидания (готовая команда агенту,
+    # параметр, исходная фраза) — исполнить ровно то, о чём спрашивали.
+    pending_payload: Optional[dict] = None
 
 
 def _norm_context(context) -> Optional[str]:
@@ -143,11 +146,14 @@ class Router:
                     param=verdict,
                     pending_kind=kind,
                 )
+            payload = dict(pending.payload or {})
             return Decision(
                 action=pending.action if verdict == "confirm" else None,
                 source="session",
                 verdict=verdict,
                 pending_kind=kind,
+                param=payload.get("param") if verdict == "confirm" else None,
+                pending_payload=payload or None,
             )
 
         # «Не забудь …» — просьба помнить, а не удалить память. Не отдаём

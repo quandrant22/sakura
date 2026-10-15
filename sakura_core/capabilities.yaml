@@ -319,12 +319,32 @@
 
 - id: music.prev
   legacy: [music:prev, music_prev]
-  desc: 'Предыдущий трек/песня'
+  desc: 'Предыдущий трек/песня (двойной шаг назад: одиночный «назад» в плеере лишь начинает текущий трек сначала)'
   executor: agent
   reversible: true
   confirm: false
   followup: ack
-  triggers: ['назад трек', 'предыдущий', 'предыдущий трек', 'прошлый трек']
+  triggers: ['назад трек', 'предыдущий', 'предыдущий трек', 'прошлый трек', 'предыдущая песня', 'верни прошлый трек', 'включи предыдущую']
+
+- id: music.restart
+  desc: 'Текущий трек сначала, перезапустить трек (не предыдущий трек)'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['трек сначала', 'включи сначала', 'перезапусти трек', 'начни трек заново']
+
+# Алиас music.restart для голых «заново» / «с начала»: context задаётся на
+# декларацию, а вне музыки эти слова — разговор («объясни заново»).
+# Агенту уходит тот же music.restart (capabilities/music.py).
+- id: music.restart_playing
+  desc: 'Трек сначала (короткие «заново», «с начала» — только когда играет музыка)'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['с начала', 'заново']
+  context: playing:music
 
 - id: music.repeat
   legacy: [music:repeat]
@@ -888,3 +908,339 @@
              'расписание на сегодня', 'что сегодня по расписанию',
              'покажи ближайшие события']
 
+
+# ── Управление компьютером (feat/pc-control) ─────────────────────────
+# Источник правды — настольный клиент: desktop/docs/CONTROL.md («Справочник
+# новых действий») и desktop/core/control/registry.py (ACTIONS: reversible,
+# confirm). Формат arg — capabilities/pc_control.py. confirm: true — сервер
+# сначала спрашивает, после «да» шлёт команду с "confirmed": true.
+# Старые system.lock / system.sleep остаются для agent/ (свои фразы).
+
+- id: window.minimize
+  desc: 'Свернуть окно (активное или по названию)'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['сверни окно', 'спрячь окно', 'убери окно', 'сверни это окно']
+  param:
+    name: window
+    pattern: '(?:сверни|спрячь|убери) окно\s+(.+)'
+    required: false
+
+- id: window.maximize
+  desc: 'Развернуть окно на весь экран'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['разверни окно', 'на весь экран', 'максимизируй окно', 'окно побольше']
+  param:
+    name: window
+    pattern: 'разверни\s+(?!окно\b|на весь)(.+?)\s+на весь экран'
+    required: false
+
+- id: window.restore
+  desc: 'Вернуть окну прежний размер'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['восстанови окно', 'верни окно как было', 'верни размер окна', 'обычный размер окна']
+
+- id: window.snap
+  desc: 'Прижать окно к краю экрана: влево, вправо, вверх'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['прижми окно', 'окно влево', 'окно вправо', 'окно наверх', 'окно к краю']
+  param:
+    name: side
+    pattern: '(влево|налево|вправо|направо|вверх|наверх)'
+    required: ask
+
+- id: window.move_monitor
+  desc: 'Перенести окно на другой монитор'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['перекинь окно', 'перенеси окно', 'окно на другой монитор', 'окно на второй монитор']
+
+- id: window.focus
+  desc: 'Вывести окно вперёд по названию'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['покажи окно', 'активируй окно', 'выведи окно', 'переключи окно на']
+  param:
+    name: window
+    pattern: '(?:покажи окно|активируй окно|выведи окно|переключи окно на)\s+(.+)'
+    required: ask
+
+- id: window.list
+  desc: 'Какие окна открыты'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: llm
+  triggers: ['какие окна открыты', 'список окон', 'открытые окна', 'сколько окон открыто']
+
+- id: power.lock
+  desc: 'Заблокировать сеанс Windows'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['заблокируй сессию', 'заблокируй ноутбук', 'блокировка компьютера', 'заблокируй сеанс']
+
+- id: power.display_off
+  desc: 'Погасить экран (компьютер не спит)'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['выключи экран', 'погаси экран', 'выключи монитор', 'погаси монитор']
+
+- id: power.sleep
+  desc: 'Усыпить компьютер'
+  executor: agent
+  reversible: false
+  confirm: true
+  confirm_prompt: 'Усыпить компьютер. Точно? Скажи «да».'
+  followup: ack
+  triggers: ['усыпи компьютер', 'усыпи ноутбук', 'отправь компьютер в сон', 'переведи компьютер в сон']
+
+- id: process.list
+  desc: 'Какие процессы больше всего едят память'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: llm
+  triggers: ['что жрёт память', 'что жрет память', 'список процессов', 'какие процессы запущены', 'что грузит компьютер', 'топ процессов']
+
+- id: process.kill
+  desc: 'Завершить процесс по имени или pid'
+  executor: agent
+  reversible: false
+  confirm: true
+  confirm_prompt: 'Завершить процесс. Точно? Скажи «да».'
+  followup: ack
+  triggers: ['закрой процесс', 'убей процесс', 'заверши процесс', 'останови процесс']
+  param:
+    name: process
+    pattern: '(?:закрой|убей|заверши|останови) процесс\s+(.+)'
+    required: ask
+
+- id: clipboard.read
+  desc: 'Прочитать буфер обмена'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: llm
+  triggers: ['что в буфере обмена', 'что в буфере', 'прочитай буфер обмена', 'покажи буфер обмена']
+
+- id: clipboard.write
+  desc: 'Положить текст в буфер обмена'
+  executor: agent
+  reversible: false
+  confirm: false
+  followup: ack
+  triggers: ['скопируй в буфер', 'положи в буфер обмена', 'запиши в буфер обмена']
+  param:
+    name: text
+    pattern: '(?:скопируй в буфер(?: обмена)?|положи в буфер обмена|запиши в буфер обмена)\s+(.+)'
+    required: ask
+
+- id: clipboard.clear
+  desc: 'Очистить буфер обмена'
+  executor: agent
+  reversible: false
+  confirm: false
+  followup: ack
+  triggers: ['очисти буфер обмена', 'очисти буфер', 'сотри буфер обмена']
+
+- id: display.brightness
+  desc: 'Яркость экрана, 0–100'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['яркость', 'яркость на', 'поставь яркость', 'сделай яркость']
+  param:
+    name: level
+    pattern: 'яркост\w*\s+(?:на\s+)?(100|\d{1,2})'
+    required: ask
+
+- id: display.night_light
+  desc: 'Ночной свет (открывает настройки Windows)'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['ночной свет', 'включи ночной свет', 'выключи ночной свет', 'ночной режим экрана']
+
+- id: audio.mic_mute
+  desc: 'Выключить или включить микрофон'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['выключи микрофон', 'включи микрофон', 'заглуши микрофон', 'отключи микрофон']
+
+- id: net.wifi
+  desc: 'Включить или выключить Wi-Fi'
+  executor: agent
+  reversible: true
+  confirm: true
+  confirm_prompt: 'Переключить Wi-Fi — связь может пропасть. Точно? Скажи «да».'
+  followup: ack
+  triggers: ['выключи вайфай', 'включи вайфай', 'отключи вайфай', 'выключи wi-fi', 'включи wi-fi']
+
+- id: net.bluetooth
+  desc: 'Включить или выключить Bluetooth'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['включи блютуз', 'выключи блютуз', 'отключи блютуз', 'включи bluetooth', 'выключи bluetooth']
+
+- id: keys.type
+  desc: 'Напечатать текст в активное окно'
+  executor: agent
+  reversible: false
+  confirm: false
+  followup: ack
+  triggers: ['напечатай', 'набери текст', 'введи текст']
+  param:
+    name: text
+    pattern: '(?:напечатай|набери текст|введи текст)\s+(.+)'
+    required: ask
+
+- id: keys.hotkey
+  desc: 'Нажать сочетание клавиш (из разрешённых)'
+  executor: agent
+  reversible: false
+  confirm: false
+  followup: ack
+  triggers: ['нажми сочетание', 'нажми клавиши', 'нажми контрол', 'нажми альт', 'нажми шифт']
+  param:
+    name: keys
+    pattern: 'нажми\s+(?:сочетание\s+|клавиши\s+)?((?:контрол|контрл|альт|шифт|вин|ctrl|alt|shift|win)\b.*)'
+    required: ask
+
+- id: keys.media
+  desc: 'Медиаклавиша: пауза, следующий, предыдущий, громче, тише, без звука'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['медиаклавиша', 'следующий трек клавишей', 'предыдущий трек клавишей', 'пауза клавишей', 'громче клавишей', 'тише клавишей']
+
+- id: files.reveal
+  desc: 'Показать файл в проводнике'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['покажи где лежит', 'где лежит файл', 'в проводнике', 'открой папку с файлом']
+  param:
+    name: file
+    pattern: '(?:где лежит(?: файл)?|покажи файл|папку с файлом)\s+(.+?)(?:\s+в проводнике)?$'
+    required: ask
+
+- id: files.recent
+  desc: 'Недавние файлы'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: llm
+  triggers: ['недавние файлы', 'последние файлы', 'какие файлы я открывал', 'что я недавно открывал']
+
+- id: files.copy
+  desc: 'Скопировать файл: что и куда'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['скопируй файл', 'скопируй документ', 'сделай копию файла']
+
+- id: files.move
+  desc: 'Переместить файл: что и куда'
+  executor: agent
+  reversible: false
+  confirm: true
+  confirm_prompt: 'Переместить файл. Точно? Скажи «да».'
+  followup: ack
+  triggers: ['перенеси файл', 'перемести файл', 'перенеси документ', 'перемести документ']
+
+- id: files.delete
+  desc: 'Удалить файл в корзину'
+  executor: agent
+  reversible: true
+  confirm: true
+  confirm_prompt: 'Удалить файл в корзину. Точно? Скажи «да».'
+  followup: ack
+  triggers: ['удали файл', 'удали документ', 'сотри файл', 'отправь в корзину']
+  param:
+    name: file
+    pattern: '(?:удали|сотри) (?:файл|документ)\s+(.+)|отправь в корзину (?:файл\s+)?(.+)'
+    required: ask
+
+- id: ui.click
+  desc: 'Нажать кнопку или элемент в активном окне'
+  executor: agent
+  reversible: false
+  confirm: false
+  followup: ack
+  triggers: ['нажми кнопку', 'нажми на кнопку', 'кликни на', 'кликни по']
+  param:
+    name: element
+    pattern: '(?:нажми(?: на)? кнопку|кликни (?:на|по))\s+(.+)'
+    required: ask
+
+- id: ui.type
+  desc: 'Вписать текст в поле активного окна'
+  executor: agent
+  reversible: false
+  confirm: false
+  followup: ack
+  triggers: ['впиши', 'введи в поле', 'заполни поле']
+  param:
+    name: text
+    pattern: '(?:впиши|введи в поле|заполни поле)\s+(.+)'
+    required: ask
+
+- id: ui.scroll
+  desc: 'Прокрутить активное окно'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['прокрути окно', 'пролистай окно', 'прокрути список', 'пролистай список']
+
+- id: ui.read
+  desc: 'Прочитать текст активного окна'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: llm
+  triggers: ['прочитай окно', 'что написано в окне', 'прочитай что написано', 'прочитай текст окна']
+
+# computer.do — агент сам выполняет задачу по шагам (computer_step на
+# сервере: кадр → одно действие). Только при COMPUTER_USE=1: иначе
+# декларация не попадает в роутер (sakura_core/bridge.py).
+- id: computer.do
+  desc: 'Выполнить задачу на компьютере по шагам (сама кликает и печатает)'
+  executor: agent
+  reversible: false
+  confirm: true
+  confirm_prompt: 'Буду сама управлять компьютером, пока не сделаю. Точно? Скажи «да».'
+  followup: ack
+  triggers: ['сделай на компьютере', 'сделай сама на компьютере', 'выполни на компьютере', 'сделай за меня на компьютере']
+  param:
+    name: goal
+    pattern: '(?:сделай(?: сама| за меня)?|выполни) на компьютере\s*:?\s*(.+)'
+    required: ask

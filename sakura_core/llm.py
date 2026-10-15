@@ -720,10 +720,8 @@ async def ask_gemini_voice(
     if not key:
         if websocket:
             try:
-                import json as _json
-                await websocket.send(_json.dumps({
-                    "type": "reply", "device_id": device_id, "text": "Все ключи исчерпаны.",
-                }))
+                from sakura_core.voice_turns import send_reply
+                await send_reply(websocket, device_id, "Все ключи исчерпаны.", kind="error")
                 from modules.tts_server import _send_end
                 await _send_end(websocket, device_id)
             except Exception as e:
@@ -731,7 +729,8 @@ async def ask_gemini_voice(
         return ("Все ключи исчерпаны.", "neutral")
 
     _t_build = __import__("time").monotonic()
-    full_system = await _build_system(query=user_message)
+    full_system = await _build_system(query=user_message,
+                                      profile=config.VOICE_PROMPT_PROFILE)
     len_hint = _LEN_HINT.get(length, "")
     if len_hint:
         full_system = f"{full_system}\n\n{len_hint}"
@@ -828,13 +827,10 @@ async def ask_gemini_voice(
     clean_text = clean_reply(full_text.strip()) if full_text else ""
 
     if clean_text and websocket:
-        try:
-            import json as _json
-            await websocket.send(_json.dumps({
-                "type": "reply", "device_id": device_id, "text": clean_text,
-            }))
-        except Exception as e:
-            log.debug(f"[llm] ask_gemini_voice: {type(e).__name__}: {e}")
+        # Текст ответа в окно клиента — до tts_end хода (его шлёт
+        # handle_voice_command в finally), с turn_id хода.
+        from sakura_core.voice_turns import send_reply
+        await send_reply(websocket, device_id, clean_text)
 
     add_to_history("user",  user_message)
     add_to_history("model", clean_text)

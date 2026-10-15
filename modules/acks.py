@@ -7,8 +7,9 @@
 «Выполняю.». Ход закрывает tts_end самой фразы (tts_cache.play), поэтому
 голосовой обработчик свой tts_end в этом ходе не шлёт (closes_turn).
 
-Ждать command_result внутри голосового хода нельзя: обработчики сокета
-вызываются последовательно, и ответ агента пришёл бы только после хода.
+Ждать command_result внутри голосового хода не нужно: ход закончится
+раньше, а фраза несёт turn_id своего хода (voice_turns) и молчит, если
+устройство уже начало новый ход.
 """
 
 from __future__ import annotations
@@ -45,6 +46,8 @@ CATEGORY: dict[str, str] = {
     "music.play_pause": "music",
     "music.next": "music",
     "music.prev": "music",
+    "music.restart": "music",
+    "music.restart_playing": "music",
 }
 
 _DEVICE_ERR = ("оффлайн", "недоступ", "offline", "not connected", "нет подключения")
@@ -134,6 +137,7 @@ class _Pending:
     armed_at: float = field(default_factory=time.monotonic)
     timer: asyncio.Task | None = None
     pending_said: bool = False     # «Выполняю.» уже прозвучало
+    turn: object = None            # голосовой ход (voice_turns.Turn): turn_id фразы
     speaking: bool = False         # таймер сейчас озвучивает «Выполняю.»
 
 
@@ -152,7 +156,9 @@ def arm(cmd_id: str | None, *, ws, device_id: str, action: str,
     from sakura_core.registry import followup_for
     if followup_for(action) != "ack":
         return False
-    p = _Pending(ws=ws, device_id=device_id, action=action, param=param)
+    from sakura_core import voice_turns
+    p = _Pending(ws=ws, device_id=device_id, action=action, param=param,
+                 turn=voice_turns.current())
     _pending[cmd_id] = p
     _armed_at[device_id] = p.armed_at
     p.timer = asyncio.get_running_loop().create_task(
@@ -166,11 +172,19 @@ def closes_turn(device_id: str, since: float) -> bool:
     return _armed_at.get(device_id, 0.0) >= since
 
 
-async def _say(p: _Pending, phrase: str, t_ref: float | None = None) -> str:
+async def _say(p: _Pending, phrase: str, t_ref: float | None = None,
+               kind: str = "ack") -> str:
     from modules import tts_cache
+    from sakura_core import voice_turns
     lock = _speak_locks.setdefault(p.device_id, asyncio.Lock())
     async with lock:
-        return await tts_cache.play(phrase, p.ws, p.device_id, t_ref=t_ref)
+        # Фраза — часть своего хода: его turn_id, вытеснен ход — молчит.
+        tok = voice_turns.use(p.turn)
+        try:
+            return await tts_cache.play(phrase, p.ws, p.device_id, t_ref=t_ref,
+                                        reply_kind=kind)
+        finally:
+            voice_turns.reset(tok)
 
 
 async def _pending_timer(cmd_id: str) -> None:
@@ -190,10 +204,31 @@ async def _pending_timer(cmd_id: str) -> None:
     _pending.pop(cmd_id, None)
 
 
-async def on_result(cmd_id: str | None, ok: bool, detail: str | None = "") -> bool:
+# Статусы результата команды от агента (desktop: {ok, status, detail}).
+RESULT_STATUSES = ("done", "noop", "failed", "unsupported")
+
+
+def status_phrase(detail: str | None) -> str:
+    """«Не получилось: <detail>.» — при status != done (контракт desktop)."""
+    reason = (detail or "").strip().rstrip(".")
+    if len(reason) > _REASON_MAX:
+        reason = reason[:_REASON_MAX].rsplit(" ", 1)[0]
+    return ERROR_REASON.format(reason=reason) if reason else ERROR_NO_REASON
+
+
+def is_armed(cmd_id: str | None) -> bool:
+    return bool(cmd_id) and cmd_id in _pending
+
+
+async def on_result(cmd_id: str | None, ok: bool, detail: str | None = "",
+                    status: str | None = None) -> bool:
     """command_result по вооружённой команде: сказать подтверждение или ошибку.
 
+    status (desktop: done|noop|failed|unsupported) главнее ok: «Готово» —
+    только при done, иначе «Не получилось: <detail>» (reply kind=error).
     False — команда не ждала подтверждения (не голос, followup=llm, выключено)."""
+    if status is not None:
+        ok = status == "done"
     t_result = time.monotonic()
     p = _pending.pop(cmd_id, None) if cmd_id else None
     if p is None:
@@ -204,10 +239,11 @@ async def on_result(cmd_id: str | None, ok: bool, detail: str | None = "") -> bo
         if p.pending_said or p.speaking:
             log.info(f"[ack] cmd={cmd_id}: успех после «Выполняю.» — молча")
             return True
-        phrase = choose(p.action, p.device_id, p.param)
+        phrase, kind = choose(p.action, p.device_id, p.param), "ack"
     else:
-        phrase = error_phrase(detail)
-    source = await _say(p, phrase, t_ref=t_result)
+        phrase = status_phrase(detail) if status is not None else error_phrase(detail)
+        kind = "error"
+    source = await _say(p, phrase, t_ref=t_result, kind=kind)
     log.info(f"[ack] cmd={cmd_id} action={p.action} ok={ok} → {phrase!r} ({source}), "
              f"от arm до result {(t_result - p.armed_at) * 1000:.0f}мс")
     return True

@@ -43,11 +43,46 @@ CONFIRM_LISTEN_SEC = float(os.getenv("CONFIRM_LISTEN_SEC", "10"))
 VOICE_GATE_WAIT_S = float(os.getenv("VOICE_GATE_WAIT_S", "4.0"))
 # Голосовые подтверждения команд агента (modules/acks.py): включены,
 # доля «сухих» реплик, через сколько без command_result сказать «Выполняю.».
+# computer.do / computer_step (агент сам управляет компьютером по шагам):
+# 1 — включено; по умолчанию выключено. До 20 шагов на задачу, кадр ≤ 400 КБ.
+COMPUTER_USE = os.getenv("COMPUTER_USE", "0").strip().lower() in ("1", "true", "yes")
+COMPUTER_MAX_STEPS = 20
+COMPUTER_MAX_SHOT_BYTES = 400 * 1024
+# Протокол v2 настольного клиента (sakura_core/proto_v2.py): 0 — сервер
+# ведёт себя как v1 (нет registered, запросы v2 — error/unsupported).
+PROTO_V2 = os.getenv("PROTO_V2", "1").strip().lower() not in ("0", "false", "no", "")
+# Сторож зависшего голосового хода (sakura_core/voice_turns.py): не
+# завершился за TURN_TIMEOUT_S — «Не получилось ответить, повтори» и
+# tts_end; пока звук идёт (сообщения моложе TURN_ACTIVE_GRACE_S) — не
+# зависание, но не дольше TURN_TIMEOUT_MAX_S. 0 — сторож выключен.
+TURN_TIMEOUT_S = float(os.getenv("TURN_TIMEOUT_S", "30"))
+TURN_ACTIVE_GRACE_S = 5.0
+TURN_TIMEOUT_MAX_S = 120.0
+# «на рабочем ноутбуке» в команде → это устройство (feat/pc-control).
+WORK_LAPTOP_DEVICE = os.getenv("WORK_LAPTOP_DEVICE", "mostech").strip()
 ACKS_ENABLED = os.getenv("ACKS_ENABLED", "1").strip().lower() not in ("0", "false", "no", "")
 ACK_WIT_PROB = float(os.getenv("ACK_WIT_PROB", "0.1"))
 ACK_PENDING_S = float(os.getenv("ACK_PENDING_S", "2.0"))
 # Кэш озвученных фраз (modules/tts_cache.py), вне git.
 TTS_CACHE_DIR = os.getenv("TTS_CACHE_DIR", "memory/tts_cache")
+
+# ── perf/voice-2: скорость голосового ответа ─────────────────────────
+def _flag(name: str, default: str) -> bool:
+    return os.getenv(name, default).strip().lower() not in ("0", "false", "no", "")
+
+# Предсинтез: стадия TTS синтезируется сразу, звук держится до вердикта.
+VOICE_PRESYNTH = _flag("VOICE_PRESYNTH", "1")
+# Ранний шлюз: вопрос без командных глаголов — звук не ждёт вердикта.
+VOICE_EARLY_GATE = _flag("VOICE_EARLY_GATE", "1")
+# Профиль системного промпта голоса: light — без тяжёлых контекстных
+# блоков (персона не меняется; блоки возвращаются по словам запроса),
+# full — как в чате. По умолчанию full, пока brain_eval --online не
+# покажет, что light не хуже (docs/perf-voice-2.md).
+VOICE_PROMPT_PROFILE = os.getenv("VOICE_PROMPT_PROFILE", "full").strip().lower()
+# Предел длины голосового ответа (символов, по границе предложения); 0 — нет.
+VOICE_MAX_CHARS = max(0, int(os.getenv("VOICE_MAX_CHARS", "320") or 0))
+# Сводка [turn] p50/p90 — раз в столько секунд.
+TURN_STATS_PERIOD_S = float(os.getenv("TURN_STATS_PERIOD_S", "3600"))
 
 def _history_limit(name, default):
     try:

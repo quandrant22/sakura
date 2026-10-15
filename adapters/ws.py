@@ -14,6 +14,7 @@ import uuid
 import random
 
 from modules.state import _pending_commands, connected_devices, _plan_cancel
+from sakura_core import turn_timing, voice_turns
 from sakura_core.tasks import spawn
 
 log = logging.getLogger("sakura.ws")
@@ -31,6 +32,8 @@ def _register_command(action: str, device: str) -> str:
     _pending_commands[cmd_id] = {
         "action": action, "device": device,
         "ts": time.monotonic(), "status": "sent",
+        # Голосовой ход команды: ответ по command_result — с его turn_id.
+        "turn": voice_turns.current(),
     }
     _cleanup_pending_commands()
     return cmd_id
@@ -220,7 +223,29 @@ async def ws_handler(websocket):
                     "voice_command": handle_voice_command,
                 }
                 handler = HANDLERS.get(msg_type)
-                if handler:
+                from sakura_core import proto_v2
+                if proto_v2.is_v2(msg_type):
+                    await proto_v2.handle(websocket, data, _ctx)
+                elif msg_type == "vision_request":
+                    # «Спросить про окно»: модель думает секунды — задачей,
+                    # цикл сокета читает дальше.
+                    from sakura_core import vision_request
+                    spawn(vision_request.handle(websocket, data),
+                          name=f"vision-request-{dev_from_msg}")
+                elif msg_type == "computer_step":
+                    # Шаг computer.do: модель смотрит кадр — задачей, цикл
+                    # сокета читает дальше.
+                    from sakura_core import computer_use
+                    spawn(computer_use.handle(websocket, data),
+                          name=f"computer-step-{dev_from_msg}")
+                elif msg_type == "voice_command":
+                    # Голосовой ход — задачей (voice_turns): цикл сокета
+                    # читает дальше, новый запрос того же устройства
+                    # вытесняет незавершённый ход, а не ждёт его.
+                    voice_turns.start(
+                        dev_from_msg or "laptop", websocket,
+                        lambda d=data, c=_ctx: handler(websocket, d, c))
+                elif handler:
                     await handler(websocket, data, _ctx)
                 else:
                     log.warning(f"unknown msg_type: {msg_type}")
@@ -247,6 +272,9 @@ async def ws_handler(websocket):
                      f"(активен другой)")
         elif device_id:
             connected_devices.pop(device_id, None)
+            from sakura_core import proto_devices, proto_v2
+            proto_v2.forget(device_id)
+            await proto_devices.on_disconnect(device_id)
             set_device_offline(device_id)
             await asyncio.to_thread(ps_offline, device_id)
             log.info(f"Устройство отключено: {device_id}")
@@ -391,9 +419,24 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
                                                device_id or "laptop", literal=True)
                 else:
                     await bot.send_message(MASTER_ID, "Хорошо, отменила.")
+            async def _v3_ws_exec_decision(dec):
+                from sakura_core.bridge import execute_decision
+                if not ws_dev:
+                    await bot.send_message(MASTER_ID, "Устройство отключилось, не могу выполнить.")
+                    return
+                _ok, _cmd_id = await execute_decision(
+                    dec, device_ws=ws_dev, device_id=device_id,
+                    register_command=ctx.get("_register_command"),
+                    text=text, source=device_id)
+                if isinstance(_cmd_id, str) and _cmd_id:
+                    # Результат агента озвучит подтверждение: «Готово» при
+                    # status=done, иначе «Не получилось: …».
+                    acks.arm(_cmd_id, ws=ws_dev, device_id=device_id or "laptop",
+                             action=dec.action, param=dec.param)
             if await handle_v3_confirm(text, source=device_id,
                                        on_execute=_v3_ws_execute,
-                                       on_cancel=_v3_ws_cancel):
+                                       on_cancel=_v3_ws_cancel,
+                                       on_execute_decision=_v3_ws_exec_decision):
                 return
     except Exception as _v3_conf_err:
         log.debug(f"[ws] v3 confirm: {type(_v3_conf_err).__name__}: {_v3_conf_err}")
@@ -420,7 +463,8 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
 
         async def _speak(phrase):
             if ws_dev:
-                await stream_tts_to_device(phrase, ws_dev, device_id or "laptop", literal=True)
+                await stream_tts_to_device(phrase, ws_dev, device_id or "laptop", literal=True,
+                                           reply_kind="llm")
         await resolve_conv_reply(
             _r, text=text,
             deliver=_speak,
@@ -446,6 +490,14 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
         voice_gate = VoiceGate()
         log.info(f"[voice] prefetch старт +{(time.monotonic()-t_recv)*1000:.0f}мс "
                  f"от приёма (параллельно классификатору)")
+        # Ранний шлюз (perf/voice-2): вопрос без командных глаголов —
+        # звук не ждёт вердикта; «команда» всё равно снимет поток.
+        import config as _cfg
+        from sakura_core.early_gate import opens_early
+        if _cfg.VOICE_EARLY_GATE and opens_early(text):
+            voice_gate.open()
+            turn_timing.flag("early_gate")
+            log.info("[voice] ранний шлюз: вопрос без командных глаголов — звук не ждёт вердикта")
         voice_task = asyncio.create_task(ask_gemini_voice(
             user_message  = text + ctx_str,
             websocket     = ws_dev,
@@ -456,6 +508,17 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
         ))
 
     prefetch_closed = False
+
+    async def _on_command_verdict():
+        """Вердикт «команда» (или готовый ответ разговорного слоя)."""
+        turn_timing.mark("verdict")
+        turn_timing.set_kind("command")
+        turn = voice_turns.current()
+        if turn is not None and "first_audio" in turn.marks and voice_task is not None:
+            # Ранний шлюз уже отдал звук ответа — отмена после первого звука.
+            turn_timing.flag("verdict_after_audio")
+            log.warning("[voice] ранний шлюз: вердикт «команда» пришёл после первого звука")
+        await _cancel_voice_prefetch()
 
     async def _cancel_voice_prefetch():
         """Команда подтверждена — стрим ответа отменяется, TTS не зван.
@@ -517,7 +580,7 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
                                   speak=_v3_speak,
                                   resolve_reply=_ws_resolve_reply,
                                   on_llm=_prefetch_voice,
-                                  on_command=_cancel_voice_prefetch,
+                                  on_command=_on_command_verdict,
                                   on_agent_command=_arm_ack,
                                   source=device_id):
                 await _cancel_voice_prefetch()
@@ -568,7 +631,8 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
             if _lr:
                 _active_ws, _ad = _get_active_ws()
                 if _active_ws:
-                    await stream_tts_to_device(_lr, _active_ws, _ad or 'laptop', literal=True)
+                    await stream_tts_to_device(_lr, _active_ws, _ad or 'laptop', literal=True,
+                                               reply_kind="llm")
             return
         _teaching = parse_teaching(text)
         if _teaching:
@@ -584,7 +648,8 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
             if _tr:
                 _active_ws, _ad = _get_active_ws()
                 if _active_ws:
-                    await stream_tts_to_device(_tr, _active_ws, _ad or 'laptop', literal=True)
+                    await stream_tts_to_device(_tr, _active_ws, _ad or 'laptop', literal=True,
+                                               reply_kind="llm")
             return
 
         # ── ПОЛЬЗОВАТЕЛЬСКИЕ ЦЕПОЧКИ ────────────────────
@@ -601,7 +666,8 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
                 history_limit=VOICE_HISTORY_LIMIT, chain=VOICE_MODEL_CHAIN,
             )
             if _chain_reply and ws_dev:
-                await stream_tts_to_device(_chain_reply, ws_dev, device_id or "laptop", literal=True)
+                await stream_tts_to_device(_chain_reply, ws_dev, device_id or "laptop",
+                                           literal=True, reply_kind="llm")
             return
 
         if any(w in text.lower() for w in ("цепочки", "список цепочек", "мои цепочки")):
@@ -626,7 +692,8 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
                 history_limit=VOICE_HISTORY_LIMIT, chain=VOICE_MODEL_CHAIN,
             )
             if _trig_reply and ws_dev:
-                await stream_tts_to_device(_trig_reply, ws_dev, device_id or "laptop", literal=True)
+                await stream_tts_to_device(_trig_reply, ws_dev, device_id or "laptop",
+                                           literal=True, reply_kind="llm")
             return
 
         if any(w in text.lower() for w in ("триггеры", "список триггеров", "мои триггеры")):
@@ -644,9 +711,10 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
             await _cancel_voice_prefetch()
             payload = _strip_payload_words(text_lower)
 
-            async def _say(phrase):
+            async def _say(phrase, kind="template"):
                 if ws_dev:
-                    await stream_tts_to_device(phrase, ws_dev, device_id or "laptop", literal=True)
+                    await stream_tts_to_device(phrase, ws_dev, device_id or "laptop",
+                                               literal=True, reply_kind=kind)
 
             if not payload:
                 await _say("Что прислать в телеграм, Мастер?")
@@ -658,7 +726,7 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
                 ask_gemini, send_safe, search_image, download_bytes,
                 search_and_fetch, needs_search, _translate_en, bot, MASTER_ID,
             )
-            await _say("Готово, Мастер.")
+            await _say("Готово, Мастер.", kind="ack")
             return
 
         active_win = data.get("active_window", "")
@@ -669,9 +737,11 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
         except Exception as e:
             log.debug(f"[voice] game_hub ctx: {e}")
         log.info(f"[voice] → ask_gemini_voice ws_dev={ws_dev is not None} device={device_id}")
+        turn_timing.mark("verdict")
+        turn_timing.set_kind("conversation")
         if voice_task is not None:
             # Классификатор вернул «не команда» (и ветки-команды выше не
-            # сработали): накопленный буфер отдаём в TTS и дожидаемся стрима.
+            # сработали): удержанный звук — на устройство, ждём стрим.
             voice_gate.open()
             handed_off = True
             await voice_task

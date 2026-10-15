@@ -52,9 +52,11 @@ def index(registry):
 # --- загрузка и валидация -------------------------------------------------
 
 
-def test_load_returns_88_declarations(registry):
-    # system.volume was intentionally added in commit 5fe1b3f.
-    assert len(registry) == 88
+def test_load_returns_123_declarations(registry):
+    # system.volume was intentionally added in commit 5fe1b3f,
+    # music.restart и алиас music.restart_playing — fix/music-restart,
+    # 32 действия управления компьютером и computer.do — feat/pc-control.
+    assert len(registry) == 123
 
 
 def test_validate_passes_on_real_registry(registry):
