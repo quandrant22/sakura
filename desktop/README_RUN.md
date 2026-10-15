@@ -1,5 +1,7 @@
 # Как запускать Сакуру
 
+[![desktop-ci](https://github.com/quandrant22/sakura/actions/workflows/desktop-ci.yml/badge.svg?branch=feat/desktop-rewrite)](https://github.com/quandrant22/sakura/actions/workflows/desktop-ci.yml)
+
 ## Запуск
 
 Дважды щёлкните ярлык **Sakura** на рабочем столе или в меню «Пуск».

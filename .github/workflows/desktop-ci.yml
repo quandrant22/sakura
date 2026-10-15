@@ -1,0 +1,68 @@
+# CI клиента Сакуры (desktop/): ядро на Python и интерфейс на Electron/React. Сервер (sakura_core/) — отдельно.
+name: desktop-ci
+
+on:
+  push:
+    branches: [feat/desktop-rewrite, "feat/securechannel-client"]
+    paths: ["desktop/**", "agent/requirements.lock.txt", ".github/workflows/desktop-ci.yml"]
+  pull_request:
+    paths: ["desktop/**", ".github/workflows/desktop-ci.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: Ядро (pytest, ruff)
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      SAKURA_NO_DOTENV: "1"
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            agent/requirements.lock.txt
+            desktop/requirements.txt
+      - name: Зависимости
+        run: >
+          python -m pip install -r agent/requirements.lock.txt -r desktop/requirements.txt pytest ruff
+          --extra-index-url https://download.pytorch.org/whl/cpu
+      - name: ruff
+        run: python -m ruff check desktop
+      - name: pytest
+        run: python -m pytest desktop/tests -q
+
+  ui:
+    name: Интерфейс (tsc, eslint, vitest, сборка, e2e)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: desktop/ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: desktop/ui/package-lock.json
+      - run: npm ci
+      - name: tsc
+        run: npx tsc --noEmit -p . && npx tsc -p tsconfig.electron.json --noEmit
+      - name: eslint
+        run: npx eslint src electron scripts
+      - name: vitest
+        run: npx vitest run
+      - name: Сборка
+        run: npm run build
+      - name: e2e (Playwright в Electron)
+        # Electron на раннере без интерактивного рабочего стола может не стартовать — не блокирует CI.
+        continue-on-error: true
+        run: npm run e2e
