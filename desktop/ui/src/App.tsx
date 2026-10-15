@@ -9,6 +9,7 @@ import { WidgetBoard } from "./board/WidgetBoard";
 import { bridge } from "./bridge";
 import { Chat, ChatStrip } from "./components/Chat";
 import { CoreFailedBanner } from "./components/CoreFailedBanner";
+import { ConfirmDialog, ControlBanner } from "./components/ControlSafety";
 import { OfflineBanner } from "./components/OfflineBanner";
 import { Memory } from "./screens/Memory";
 import { Profile } from "./screens/Profile";
@@ -228,6 +229,8 @@ function Shell() {
       <TitleBar center={section === "home" && loaded ? <BoardBar galleryOpen={gallery} onGallery={() => setGallery(!gallery)} /> : undefined} />
       <CoreFailedBanner />
       <OfflineBanner />
+      <ControlBanner />
+      <ConfirmDialog />
       <div className="flex min-h-0 flex-1 gap-gap px-edge pb-edge pt-gap">
         <aside className="flex w-[300px] shrink-0 flex-col gap-gap">
           <CoreCard />

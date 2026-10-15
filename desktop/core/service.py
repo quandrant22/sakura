@@ -167,6 +167,8 @@ class CoreService:
                             kind="proactive")
         elif event == "power_cancelled":
             self._emit({"type": "power_cancelled"})
+        elif event in ("confirm_request", "confirm_done"):
+            self._emit({"type": event, **data})
         elif event == "pc_action":
             # Индикатор в трее на время действия с компьютером.
             self._emit({"type": "pc_action", "active": bool(data.get("active"))})
@@ -200,6 +202,9 @@ class CoreService:
         c("music_ui_ack", self.cmd_music_ui_ack)
         c("ym_token_check", self.cmd_ym_token_check)
         c("logs_tail", self.cmd_logs_tail)
+        c("panic", self.cmd_panic)
+        c("actions_recent", self.cmd_actions_recent)
+        c("confirm_answer", self.cmd_confirm_answer)
         c("diagnostics", self.cmd_diagnostics)
         c("update_status", self.cmd_update_status)
         c("update_pull", self.cmd_update_pull)
@@ -445,6 +450,37 @@ class CoreService:
         """«Проверить токен» (Настройки → Секреты): что доступно по токену — только статусы и счётчики."""
         from desktop.core.media.yandex_api import YandexApi
         return await YandexApi().inventory()
+
+    # ── Безопасность управления: аварийная остановка, последние действия, подтверждения ──
+    async def cmd_panic(self, msg: dict):
+        """PANIC_HOTKEY / кнопка: остановить речь, отменить выключение, приостановить управление ПК."""
+        from desktop.core.control import safety
+        on = msg.get("on", True) is not False
+        safety.panic(on)
+        if on:
+            agent = self._agent
+            player = getattr(agent, "player", None)
+            if player is not None:
+                player.interrupt()
+            try:
+                from desktop.core.platform import get_platform
+                await asyncio.to_thread(get_platform().power, "shutdown_cancel")
+            except Exception:  # noqa: BLE001
+                pass
+        self._emit({"type": "control_paused", "on": on})
+        return {"paused": on}
+
+    async def cmd_actions_recent(self, msg: dict):
+        from desktop.core.control import safety
+        asker = getattr(self._agent, "confirmations", None)
+        return {"actions": safety.recent(), "pending": asker.pending() if asker else [],
+                "paused": safety.PAUSED["on"]}
+
+    async def cmd_confirm_answer(self, msg: dict):
+        asker = getattr(self._agent, "confirmations", None)
+        if asker is None or not asker.answer(str(msg.get("id")), msg.get("yes") is True):
+            raise ApiError("not_found", "запрос подтверждения уже закрыт")
+        return {"ok": True}
 
     # ── Диагностика, журнал, обновление ──
     LOG_HIDE = ("token", "key", "secret", "password", "пароль")

@@ -33,6 +33,11 @@ const api = {
       return () => ipcRenderer.removeListener("core:state", h);
     },
     openLog: (): Promise<void> => ipcRenderer.invoke("core:open-log"),
+    onPanic: (cb: () => void): (() => void) => {
+      const h = () => cb();
+      ipcRenderer.on("control:panic", h);
+      return () => ipcRenderer.removeListener("control:panic", h);
+    },
   },
   tray: {
     onAction: (cb: (id: string) => void): (() => void) => {

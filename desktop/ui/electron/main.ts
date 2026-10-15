@@ -2,7 +2,7 @@
 // С ядром (Python) общается только окно — по локальному API; main лишь читает
 // файл с портом и токеном (ui.token) и отдаёт его окну через preload-мост.
 import {
-  BrowserWindow, Menu, Tray, app, desktopCapturer, dialog, ipcMain, nativeImage, screen, session, shell,
+  BrowserWindow, Menu, Tray, app, desktopCapturer, dialog, globalShortcut, ipcMain, nativeImage, screen, session, shell,
 } from "electron";
 import fs from "node:fs";
 import os from "node:os";
@@ -418,6 +418,15 @@ if (!process.env.SAKURA_E2E && !app.requestSingleInstanceLock()) {
       void core.waitReady().then((ok) => console.log(`[core] ${ok ? "готово" : "не ответило вовремя"}`));
     }
     installDisplayMediaHandler();
+    // Аварийная остановка управления ПК: PANIC_HOTKEY (по умолчанию Ctrl+Alt+End) — из любого окна.
+    const panicKey = process.env.PANIC_HOTKEY || "Control+Alt+End";
+    try {
+      if (!globalShortcut.register(panicKey, () => win?.webContents.send("control:panic"))) {
+        console.log(`[panic] сочетание ${panicKey} занято другой программой`);
+      }
+    } catch {
+      console.log(`[panic] неверное сочетание PANIC_HOTKEY: ${panicKey}`);
+    }
     win = createWindow();
     win.once("ready-to-show", () => win?.show());
     createTray();

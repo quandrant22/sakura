@@ -22,6 +22,8 @@ export interface Slice<T> {
   error?: string;
 }
 
+export interface ConfirmRequest { id: string; action: string; label: string; ts: number; expires: number }
+
 export interface AppState {
   link: LinkState;
   server: { online: boolean; proto: number | null };
@@ -38,8 +40,14 @@ export interface AppState {
   toast: { text: string; level: "info" | "warn" | "error" } | null;
   /** Запланировано выключение/перезагрузка: до какого момента (мс) — для тоста с отсчётом и «Отмена». */
   power: { action: "shutdown" | "restart"; until: number } | null;
-  /** Сакура выполняет действие с компьютером — индикатор в трее. */
+  /** Сакура выполняет действие с компьютером — индикатор в трее и окне. */
   pcAction: boolean;
+  /** Аварийная остановка: управление ПК приостановлено. */
+  controlPaused: boolean;
+  /** Опасные действия, ждущие «Разрешить?» в окне. */
+  confirms: ConfirmRequest[];
+  panic(on?: boolean): Promise<void>;
+  answerConfirm(id: string, yes: boolean): Promise<void>;
   /** «Отмена» в тосте выключения. */
   cancelPower(): Promise<void>;
   /** Последние уведомления (виджет «Уведомления»); в файл не пишутся. */
@@ -217,6 +225,17 @@ export function createAppStore(client: CoreClient) {
         case "power_cancelled":
           set({ power: null });
           break;
+        case "control_paused":
+          set({ controlPaused: Boolean((ev as { on?: boolean }).on) });
+          break;
+        case "confirm_request": {
+          const r = ev as unknown as ConfirmRequest;
+          set({ confirms: [...get().confirms.filter((c) => c.id !== r.id), r] });
+          break;
+        }
+        case "confirm_done":
+          set({ confirms: get().confirms.filter((c) => c.id !== (ev as { id?: string }).id) });
+          break;
         case "pc_action":
           set({ pcAction: Boolean((ev as { active?: boolean }).active) });
           break;
@@ -246,6 +265,20 @@ export function createAppStore(client: CoreClient) {
       notifications: [],
       power: null,
       pcAction: false,
+      controlPaused: false,
+      confirms: [],
+      async panic(on = true) {
+        try {
+          await client.call("panic", { on });
+          set({ controlPaused: on });
+        } catch {
+          // ядро недоступно — кнопка останется видимой
+        }
+      },
+      async answerConfirm(id, yes) {
+        set({ confirms: get().confirms.filter((c) => c.id !== id) });
+        try { await client.call("confirm_answer", { id, yes }); } catch { /* запрос уже закрыт */ }
+      },
 
       async cancelPower() {
         try {

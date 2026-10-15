@@ -542,7 +542,9 @@ def execute(action: str, arg: str = "", confirmed: bool = False, ctx: Ctx | None
     a = ACTIONS.get(action)
     if a is None:
         return R.unsupported(f"неизвестное действие: {action}")
-    if a.confirm and not confirmed:
+    if safety.PAUSED["on"]:
+        res = R.unsupported("управление компьютером остановлено аварийной кнопкой — нажми «Возобновить»")
+    elif a.confirm and not confirmed:
         res = R.unsupported("нужно подтверждение")
     elif not (limiter or _limiter).allow():
         res = R.failed("слишком много действий подряд — не больше 5 в секунду")

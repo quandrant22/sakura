@@ -33,6 +33,8 @@ export interface SakuraBridge {
     state(): Promise<CoreProcessState | null>;
     onState(cb: (state: CoreProcessState) => void): () => void;
     openLog(): Promise<void>;
+    /** Аварийная остановка по глобальной клавише (PANIC_HOTKEY). */
+    onPanic(cb: () => void): () => void;
   };
   tray: {
     onAction(cb: (id: string) => void): () => void;
@@ -89,7 +91,7 @@ const fallback: SakuraBridge = {
   layout: memoryLayout(),
   widgets: { popout: async () => {} },
   openLogs: async () => "",
-  core: { connection: async () => null, state: async () => null, onState: () => () => {}, openLog: async () => {} },
+  core: { connection: async () => null, state: async () => null, onState: () => () => {}, openLog: async () => {}, onPanic: () => () => {} },
   tray: { onAction: () => () => {}, setState: async () => {} },
   autostart: { get: async () => false, set: async (v) => v },
   capture: {

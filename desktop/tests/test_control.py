@@ -438,4 +438,69 @@ def test_core_exits_when_parent_window_gone():
     assert exited == [0]
 
 
+# ── безопасность управления: аварийная остановка, последние действия, подтверждения ──
+def test_panic_blocks_actions_until_resumed():
+    safety.panic(True)
+    try:
+        out = run("window.list")
+        assert out["status"] == "unsupported" and "аварийной" in out["detail"]
+    finally:
+        safety.panic(False)
+    assert run("window.list")["ok"] is True
 
+
+def test_recent_actions_without_content():
+    safety.RECENT.clear()
+    run("keys.type", "секретный текст")
+    run("clipboard.write", "тайна")
+    rec = safety.recent()
+    assert [r["action"] for r in rec[:2]] == ["clipboard.write", "keys.type"]
+    assert "секретный" not in repr(rec) and "тайна" not in repr(rec)
+
+
+def test_confirmations_yes_no_timeout():
+    from desktop.core.control.confirm import Confirmations
+    events = []
+
+    async def go(answer, timeout=1.0):
+        c = Confirmations(lambda ev, **k: events.append((ev, k)), timeout=timeout)
+        task = asyncio.ensure_future(c.ask("files.delete", r"C:\\x\\a.txt"))
+        await asyncio.sleep(0.01)
+        req = [k for ev, k in events if ev == "confirm_request"][-1]
+        assert req["label"] == r"Удалить в корзину: C:\\x\\a.txt" and c.pending()[0]["id"] == req["id"]
+        if answer is not None:
+            c.answer(req["id"], answer)
+        return await task, c.pending()
+    assert asyncio.run(go(True)) == (True, [])
+    assert asyncio.run(go(False))[0] is False
+    assert asyncio.run(go(None, timeout=0.05))[0] is False
+    assert ("confirm_done", {"id": "c1"}) in events
+
+
+def test_agent_asks_window_when_server_did_not_confirm(monkeypatch):
+    from desktop.core import agent as agent_mod
+    from desktop.core import control
+    sent, asked = [], []
+
+    class WS:
+        async def send(self, raw):
+            sent.append(json.loads(raw))
+
+    class Asker:
+        def __init__(self, yes):
+            self.yes = yes
+
+        async def ask(self, action, arg):
+            asked.append(action)
+            return self.yes
+    def fake_execute(a, arg, confirmed):
+        return {"ok": confirmed, "status": "done", "detail": "ok"}
+    monkeypatch.setattr(control, "execute", fake_execute)
+    for yes, expect in ((True, True), (False, False)):
+        a = agent_mod.Agent.__new__(agent_mod.Agent)
+        a._ws, a.bus, a.media, a.server_link = WS(), None, None, None
+        a.confirmations = Asker(yes)
+        asyncio.run(a._run_command("files.delete", "c1", "C:\\x\\a.txt"))
+        assert sent[-1]["ok"] is expect
+    assert asked == ["files.delete", "files.delete"]
+    assert "не подтвердил" in sent[-1]["detail"]

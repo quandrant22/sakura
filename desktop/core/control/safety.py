@@ -62,6 +62,23 @@ class RateLimiter:
         return True
 
 
-def journal(action: str, status: str) -> None:
+# Последние действия (окно «Последние действия», центр действий): id, статус, время — без содержимого.
+RECENT: collections.deque = collections.deque(maxlen=20)
+# Аварийная остановка (PANIC_HOTKEY или кнопка): управление ПК приостановлено до «Возобновить».
+PAUSED = {"on": False, "since": None}
+
+
+def journal(action: str, status: str, clock=time.time) -> None:
     """Журнал действий: только id и итог — без текстов ввода, путей к файлам и изображений."""
     log.info("[action] %s → %s", action, status)
+    RECENT.append({"action": action, "status": status, "ts": clock()})
+
+
+def recent() -> list[dict]:
+    return list(reversed(RECENT))
+
+
+def panic(on: bool = True, clock=time.time) -> None:
+    PAUSED["on"] = bool(on)
+    PAUSED["since"] = clock() if on else None
+    log.warning("[action] аварийная остановка: %s", "управление приостановлено" if on else "возобновлено")

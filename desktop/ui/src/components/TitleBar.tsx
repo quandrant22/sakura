@@ -1,4 +1,5 @@
 // Верхняя панель 84 px по наброску: логотип 300x45 слева, три кнопки 45x45 справа, в центре — перетаскивание окна.
+import { ActionCenter } from "./ControlSafety";
 import { Copy, Minus, Square, X } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 
@@ -25,6 +26,7 @@ export function TitleBar({ center }: { center?: ReactNode }) {
       {center ?? <div className="h-full flex-1" />}
 
       <div className="no-drag flex items-center gap-gap">
+        <ActionCenter />
         <WinButton label="Свернуть" onClick={() => void bridge().window.minimize()}>
           <Minus size={18} />
         </WinButton>

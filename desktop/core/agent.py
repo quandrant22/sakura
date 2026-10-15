@@ -639,6 +639,13 @@ class Agent:
         from desktop.core import control
         if action in control.ACTIONS:
             bus = getattr(self, "bus", None)
+            # Опасное действие без подтверждения сервера — видимый запрос в окне (до 60 с).
+            asker = getattr(self, "confirmations", None)
+            if control.ACTIONS[action].confirm and not confirmed and asker is not None:
+                confirmed = await asker.ask(action, arg)
+                if not confirmed:
+                    await _send_ack(R.unsupported("пользователь не подтвердил действие"))
+                    return
             if bus is not None:
                 bus.emit("pc_action", active=True)
             try:
@@ -911,6 +918,8 @@ class Agent:
         self._loop = asyncio.get_running_loop()
         from desktop.core.app_launch import AppLauncher
         self.app_launcher = AppLauncher()
+        from desktop.core.control.confirm import Confirmations
+        self.confirmations = Confirmations(lambda ev, **k: self.bus.emit(ev, **k))
         from desktop.core.presence import prime_system_info
         prime_system_info()
         # Запускаем локальный WS сервер для расширения браузера
