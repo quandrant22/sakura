@@ -122,6 +122,12 @@ export function DiagnosticsSection() {
   const loadLog = async () => {
     try { setLines((await client.call<{ lines: string[] }>("logs_tail", { n: 200 })).lines); } catch (e) { setMsg(errorText(e)); }
   };
+  const report = async () => {
+    try {
+      const r = await client.call<{ path: string }>("problem_report");
+      setMsg(`Отчёт сохранён: ${r.path} — журналы и версии без токенов и без содержимого разговоров`);
+    } catch (e) { setMsg(errorText(e)); }
+  };
   const music = diag?.music as { count?: number; p50?: number; p95?: number } | undefined;
   return (
     <div className="px-4 pb-3">
@@ -129,6 +135,7 @@ export function DiagnosticsSection() {
         <button type="button" className={btn} onClick={() => void loadDiag()}><RefreshCw size={13} /> Проверить</button>
         <button type="button" className={btn} onClick={() => void loadLog()}><FileText size={13} /> Журнал</button>
         <button type="button" className={btn} onClick={() => void bridge().openLogs()}><FolderOpen size={13} /> Папка журналов</button>
+        <button type="button" className={btn} onClick={() => void report()}><FileText size={13} /> Отчёт о проблеме</button>
       </div>
       {diag && (
         <dl aria-label="Диагностика" className="grid grid-cols-[180px_1fr] gap-y-1 text-xs">
@@ -144,14 +151,14 @@ export function DiagnosticsSection() {
           {lines.join("\n") || "журнал пуст"}
         </pre>
       )}
-      {msg && <div className="text-xs text-warn">{msg}</div>}
+      {msg && <div role="status" className="mt-1 break-all text-xs text-ink">{msg}</div>}
     </div>
   );
 }
 
 export function UpdateSection() {
   const client = useMediaClient();
-  const [st, setSt] = useState<{ branch: string; behind: number; ahead: number; dirty: boolean } | null>(null);
+  const [st, setSt] = useState<{ branch: string; behind: number; ahead: number; dirty: boolean; news?: string[] } | null>(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const check = async () => {
@@ -176,7 +183,12 @@ export function UpdateSection() {
           ветка {st.branch}: {st.behind ? `доступно коммитов: ${st.behind}` : "обновлений нет"}{st.dirty ? " · есть локальные изменения — обновление по кнопке недоступно" : ""}
         </span>}
       </div>
-      <div className="text-xs text-ink-dim">Только перемотка вперёд (git pull --ff-only); после обновления перезапустите Сакуру.</div>
+      {st?.news && st.news.length > 0 && (
+        <ul aria-label="Что нового" className="mb-2 list-disc pl-5 text-xs text-ink">
+          {st.news.map((n) => <li key={n}>{n}</li>)}
+        </ul>
+      )}
+      <div className="text-xs text-ink-dim">Если новая версия не соберётся или не запустится, Сакура вернёт прежнюю. Только перемотка вперёд (git pull --ff-only); после обновления перезапустите Сакуру.</div>
       {msg && <div role="status" className="mt-1 text-xs text-ink">{msg}</div>}
     </div>
   );

@@ -1,5 +1,6 @@
 """Диагностика, просмотр журнала и обновление через git (на подставном git и временном журнале)."""
 import asyncio
+import json
 import os
 
 import pytest
@@ -51,9 +52,13 @@ def test_update_status_and_pull_ff_only(monkeypatch):
     g = Git(behind=2)
     monkeypatch.setattr(CoreService, "_git", staticmethod(g))
     st = asyncio.run(svc().cmd_update_status({}))
-    assert st == {"branch": "feat/desktop-rewrite", "behind": 2, "ahead": 0, "dirty": False}
+    assert {k: st[k] for k in ("branch", "behind", "ahead", "dirty")} == {
+        "branch": "feat/desktop-rewrite", "behind": 2, "ahead": 0, "dirty": False}
+    from desktop.core import support
+    seen = []
+    monkeypatch.setattr(support, "update_with_rollback", lambda branch, d: seen.append(branch) or {"updated": True})
     out = asyncio.run(svc().cmd_update_pull({}))
-    assert out["updated"] is True and ("pull", "--ff-only", "origin", "feat/desktop-rewrite") in g.calls
+    assert out["updated"] is True and seen == ["feat/desktop-rewrite"]
 
 
 def test_update_refuses_with_local_changes(monkeypatch):
@@ -73,3 +78,56 @@ def test_update_nothing_to_pull(monkeypatch):
 def test_diagnostics_no_secrets(monkeypatch):
     out = asyncio.run(svc().cmd_diagnostics({}))
     assert out["pid"] == os.getpid() and "token" not in repr(out).lower()
+
+
+# ── обновление с откатом и отчёт о проблеме (support) ──
+class FakeGit:
+    def __init__(self):
+        self.head, self.calls = "aaa", []
+
+    def __call__(self, *args, **k):
+        self.calls.append(args)
+        if args[0] == "rev-parse":
+            return 0, self.head
+        if args[0] == "pull":
+            self.head = "bbb"
+        if args[:2] == ("reset", "--keep"):
+            self.head = args[2]
+        return 0, ""
+
+
+def test_update_rollback_when_build_fails(tmp_path):
+    from desktop.core import support
+    g, builds = FakeGit(), []
+    def build():  # первая сборка (новая версия) падает, вторая (прежняя) — проходит
+        builds.append(1)
+        return len(builds) > 1
+    out = support.update_with_rollback("b", str(tmp_path), git_fn=g, build_fn=build)
+    assert out["rolled_back"] is True and g.head == "aaa" and ("reset", "--keep", "aaa") in g.calls
+    assert not any(c[:2] == ("reset", "--hard") for c in g.calls)
+    assert not (tmp_path / "update_pending.json").exists()
+
+
+def test_update_success_leaves_marker_then_confirmed(tmp_path):
+    from desktop.core import support
+    out = support.update_with_rollback("b", str(tmp_path), git_fn=FakeGit(), build_fn=lambda: True)
+    marker = json.loads((tmp_path / "update_pending.json").read_text(encoding="utf-8"))
+    assert out["updated"] and marker["prev"] == "aaa" and marker["new"] == "bbb"
+    support.confirm_started(str(tmp_path))
+    assert not (tmp_path / "update_pending.json").exists()
+
+
+def test_problem_report_without_secrets_and_chat(tmp_path):
+    import zipfile
+
+    from desktop.core import support
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    (logs / "sakura.log").write_text("старт ядра\nWS_TOKEN=abcdef\n[chat] user: мой пароль от почты\n"
+                                     "[STT] Распознано: позвони маме\nконец\n", encoding="utf-8")
+    path = support.problem_report(str(logs), str(tmp_path / "out"), {"device_id": "pc"})
+    with zipfile.ZipFile(path) as z:
+        text = z.read("sakura.log").decode("utf-8")
+        assert "versions.json" in z.namelist()
+    assert "старт ядра" in text and "конец" in text
+    assert "abcdef" not in text and "почты" not in text and "маме" not in text

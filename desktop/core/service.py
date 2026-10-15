@@ -208,6 +208,7 @@ class CoreService:
         c("diagnostics", self.cmd_diagnostics)
         c("update_status", self.cmd_update_status)
         c("update_pull", self.cmd_update_pull)
+        c("problem_report", self.cmd_problem_report)
         c("music_metrics", self.cmd_music_metrics)
         c("app_restart", self.cmd_app_restart)
         c("secrets_status", self.cmd_secrets_status)
@@ -527,7 +528,11 @@ class CoreService:
         _, counts = await asyncio.to_thread(self._git, "rev-list", "--left-right", "--count", f"HEAD...origin/{branch}")
         ahead, behind = (int(x) for x in (counts.split() + ["0", "0"])[:2])
         _, dirty = await asyncio.to_thread(self._git, "status", "--porcelain", "--untracked-files=no")
-        return {"branch": branch, "behind": behind, "ahead": ahead, "dirty": bool(dirty)}
+        news: list[str] = []
+        if behind:
+            _, out = await asyncio.to_thread(self._git, "log", "--format=%s", "-10", f"HEAD..origin/{branch}")
+            news = [ln[:140] for ln in out.splitlines() if ln.strip()]
+        return {"branch": branch, "behind": behind, "ahead": ahead, "dirty": bool(dirty), "news": news}
 
     async def cmd_update_pull(self, msg: dict):
         """Обновить по кнопке: только перемотка вперёд (git pull --ff-only), без локальных изменений."""
@@ -536,11 +541,21 @@ class CoreService:
             raise ApiError("conflict", "есть несохранённые изменения в коде — обновление не выполняю")
         if not st["behind"]:
             return {"updated": False, "detail": "обновлений нет"}
-        code, out = await asyncio.to_thread(self._git, "pull", "--ff-only", "origin", st["branch"])
-        if code:
-            raise ApiError("failed", "обновление не прошло (не перемотка вперёд) — нужна ручная проверка")
-        log.info("[update] git pull --ff-only: %s коммит(ов)", st["behind"])
-        return {"updated": True, "detail": f"получено коммитов: {st['behind']}. Перезапустите Сакуру.", "restart": True}
+        from desktop.core import support
+        out = await asyncio.to_thread(support.update_with_rollback, st["branch"], config.DATA_DIR)
+        log.info("[update] %s", out.get("detail"))
+        if not out.get("updated") and not out.get("rolled_back"):
+            raise ApiError("failed", out["detail"])
+        return out
+
+    async def cmd_problem_report(self, msg: dict):
+        """«Отчёт о проблеме»: архив журналов и версий без секретов и без содержимого разговора."""
+        from desktop.core import support
+        diag = await self.cmd_diagnostics({})
+        path = await asyncio.to_thread(support.problem_report, config.LOG_DIR,
+                                       os.path.join(config.DATA_DIR, "reports"),
+                                       {"device_id": diag.get("device_id"), "server": diag.get("server")})
+        return {"path": path}
 
     async def cmd_music_metrics(self, msg: dict):
         vals = sorted(getattr(self, "_music_ms", []))
@@ -561,6 +576,8 @@ class CoreService:
 
     async def run(self, api_port: int = 0):
         await self.api.start(api_port)
+        from desktop.core import support
+        support.confirm_started(config.DATA_DIR)  # ядро после обновления поднялось — откат не нужен
         asyncio.ensure_future(self._start_music_watch())
         if self.media is not None:
             self.media.start()

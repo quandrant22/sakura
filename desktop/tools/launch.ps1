@@ -128,8 +128,29 @@ $env:SAKURA_PYTHON = $Python
 $env:SAKURA_ENV_FILE = $EnvFile
 $env:SAKURA_REPO_DIR = $Repo
 if (Test-Path (Join-Path $AgentDir "vosk-model-small-ru-0.22")) { $env:SAKURA_MODELS_DIR = $AgentDir }
+$marker = Join-Path $DataDir "update_pending.json"
+$started = Get-Date
 $app = Start-Process -FilePath $Electron -ArgumentList "." -WorkingDirectory $Ui -PassThru
 Log "окно запущено: pid $($app.Id)"
+
+# ── Первый запуск после обновления: ядро не поднялось за 90 с — откат на прежнюю версию ──
+if (Test-Path $marker) {
+    $tokenFile = Join-Path $DataDir "ui.token"
+    $deadline = $started.AddSeconds(90)
+    while ((Test-Path $marker) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
+    if (Test-Path $marker) {
+        $prev = (Get-Content $marker -Raw -Encoding UTF8 | ConvertFrom-Json).prev
+        Log "после обновления ядро не поднялось за 90 с — откат на $prev"
+        & $Electron "." "--quit" | Out-Null
+        Start-Sleep -Seconds 5
+        & git -C $Repo reset --keep $prev 2>&1 | ForEach-Object { Log "git: $_" }
+        Push-Location $Ui; & cmd /c "npm run build >> `"$(Join-Path $LogDir 'build.log')`" 2>&1"; Pop-Location
+        Remove-Item $marker -ErrorAction SilentlyContinue
+        [System.Windows.Forms.MessageBox]::Show("Новая версия Сакуры не запустилась — вернула прежнюю.`n`nПодробности: $LauncherLog", "Сакура", "OK", "Warning") | Out-Null
+        $app = Start-Process -FilePath $Electron -ArgumentList "." -WorkingDirectory $Ui -PassThru
+        Log "прежняя версия запущена: pid $($app.Id)"
+    }
+}
 Start-Sleep -Seconds 5
 if ($app.HasExited -and $app.ExitCode -ne 0) { Fail "Окно Сакуры закрылось сразу после запуска (код $($app.ExitCode))." }
 exit 0
