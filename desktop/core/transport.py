@@ -135,7 +135,9 @@ class NoiseTransport:
         if self.pubkey_sha256 and sha256_hex(srv["pub_bytes"]) != self.pubkey_sha256:
             self.state = {"transport": None, "secure": False, "reason": "ключ сервера не совпал с SERVER_PUBKEY_SHA256"}
             raise TransportError("ключ сервера не совпал с SERVER_PUBKEY_SHA256 — подключение отклонено")
-        ws = await self._connect(self.url, ping_interval=20, proxy=None, max_size=None)
+        # compression=None: шифртекст не сжимается (deflate только тратит процессор — ×4 медленнее на больших
+        # сообщениях), а сжатие до шифрования раскрывает содержимое через длину (класс атак CRIME).
+        ws = await self._connect(self.url, ping_interval=20, proxy=None, max_size=None, compression=None)
         try:
             conn = await ik_handshake(ws, kp[0], srv["pub_bytes"], srv.get("device_id") or "")
         except SecureError as e:

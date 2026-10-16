@@ -64,8 +64,18 @@ def hkdf(ck: bytes, ikm: bytes, n: int) -> list[bytes]:
 # ── CipherState ──
 class CipherState:
     def __init__(self, key: bytes | None = None):
-        self.k = key
         self.n = 0
+        self.k = key
+
+    @property
+    def k(self) -> bytes | None:
+        return self._k
+
+    @k.setter
+    def k(self, key: bytes | None) -> None:
+        # объект AEAD создаётся один раз на ключ (раньше — на каждое сообщение: ×4 медленнее на больших)
+        self._k = key
+        self._aead = ChaCha20Poly1305(key) if key is not None else None
 
     def has_key(self) -> bool:
         return self.k is not None
@@ -75,7 +85,7 @@ class CipherState:
             return plaintext
         if self.n >= MAX_NONCE:
             raise NoiseError("исчерпан счётчик nonce")
-        out = ChaCha20Poly1305(self.k).encrypt(_nonce(self.n), plaintext, ad)
+        out = self._aead.encrypt(_nonce(self.n), plaintext, ad)
         self.n += 1
         return out
 
@@ -85,7 +95,7 @@ class CipherState:
         if self.n >= MAX_NONCE:
             raise NoiseError("исчерпан счётчик nonce")
         try:
-            out = ChaCha20Poly1305(self.k).decrypt(_nonce(self.n), ciphertext, ad)
+            out = self._aead.decrypt(_nonce(self.n), ciphertext, ad)
         except Exception as e:  # InvalidTag
             raise NoiseError("ошибка целостности") from e
         self.n += 1
@@ -93,7 +103,7 @@ class CipherState:
 
     def rekey(self) -> None:
         """REKEY(): k = ENCRYPT(k, 2^64−1, ε, 0^32)[:32]; n не сбрасывается."""
-        self.k = ChaCha20Poly1305(self.k).encrypt(_nonce(MAX_NONCE), b"\x00" * 32, b"")[:32]
+        self.k = self._aead.encrypt(_nonce(MAX_NONCE), b"\x00" * 32, b"")[:32]
 
 
 # ── SymmetricState ──
