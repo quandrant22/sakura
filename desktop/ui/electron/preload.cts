@@ -24,6 +24,7 @@ const api = {
     popout: (type: string, id: string): Promise<void> => ipcRenderer.invoke("widget:popout", type, id),
   },
   openLogs: (): Promise<string> => ipcRenderer.invoke("app:open-logs"),
+  exportChat: (text: string): Promise<boolean> => ipcRenderer.invoke("chat:export", text),
   core: {
     connection: (): Promise<{ port: number; token: string } | null> => ipcRenderer.invoke("core:connection"),
     state: (): Promise<string | null> => ipcRenderer.invoke("core:state"),

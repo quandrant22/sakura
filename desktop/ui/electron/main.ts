@@ -153,6 +153,14 @@ ipcMain.handle("core:state", () => coreState);
 ipcMain.handle("core:open-log", () => openCoreLog());
 ipcMain.handle("layout:get", (_e, deviceId: unknown) => readLayout(layoutFile, deviceId));
 ipcMain.handle("layout:set", (_e, deviceId: unknown, entry: unknown) => writeLayout(layoutFile, deviceId, entry));
+ipcMain.handle("chat:export", async (_e, text: unknown) => {
+  if (!win || typeof text !== "string" || text.length > 20_000_000) return false;
+  const r = await dialog.showSaveDialog(win, { title: "Экспорт переписки", defaultPath: "sakura-chat.txt",
+                                               filters: [{ name: "Текст", extensions: ["txt"] }, { name: "JSON", extensions: ["json"] }] });
+  if (r.canceled || !r.filePath) return false;
+  fs.writeFileSync(r.filePath, text, "utf-8");
+  return true;
+});
 ipcMain.handle("layout:export", async (_e, json: unknown) => {
   if (!win || typeof json !== "string" || json.length > 1_000_000) return false;
   const r = await dialog.showSaveDialog(win, { title: "Экспорт раскладки", defaultPath: "sakura-layout.json",

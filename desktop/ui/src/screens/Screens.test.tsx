@@ -60,14 +60,14 @@ test("Память: список, категория, поиск, правка �
   await waitFor(() => expect(screen.queryByText("Работает из офиса")).toBeNull());
 });
 
-test("Память и Профиль: сервер без поддержки — честное «Сервер не поддерживает»", async () => {
+test("Память и Профиль: сервер без поддержки — «Сервер ещё не поддерживает»", async () => {
   const c = new ServerClient("normal");
   c.unsupported = true;
   mount(<Memory />, c);
-  await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Сервер не поддерживает"));
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Сервер ещё не поддерживает"));
   cleanup();
   mount(<Profile />, c);
-  await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Сервер не поддерживает"));
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Сервер ещё не поддерживает"));
 });
 
 test("Профиль: правка и сохранение", async () => {
@@ -84,4 +84,21 @@ test("i18n: английский — меню и баннеры, неизвес�
   expect(translate("Настройки", "en")).toBe("Settings");
   expect(translate("Настройки", "ru")).toBe("Настройки");
   expect(translate("Нечто новое", "en")).toBe("Нечто новое");
+});
+
+test("ошибки сервера различаются: не поддерживает, нужен защищённый канал, не отвечает", async () => {
+  const { errorKind, errorText } = await import("../store");
+  expect(errorText(new CoreError("unknown_type", "x"))).toBe("Сервер ещё не поддерживает");
+  expect(errorKind(new CoreError("secure_channel_required", "x"))).toBe("secure");
+  expect(errorText(new CoreError("secure_channel_required", "x"))).toContain("Настройки → Безопасность");
+  expect(errorText(new CoreError("timeout", "x"))).toBe("Сервер не отвечает");
+  expect(errorKind(new CoreError("not_found", "запись не найдена"))).toBe("error");
+});
+
+test("Память: сервер требует защищённый канал — подсказка про VPN и «Безопасность»", async () => {
+  class Secure extends ServerClient {
+    override async server<T>(): Promise<T> { throw new CoreError("secure_channel_required", "подключитесь через защищённый канал"); }
+  }
+  mount(<Memory />, new Secure("normal"));
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("включи VPN или подключи устройство"));
 });

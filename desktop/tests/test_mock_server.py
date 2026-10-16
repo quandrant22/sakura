@@ -68,10 +68,11 @@ def test_all_v2_requests_answered():
         "scenario_run": {"id": "focus"}, "scenario_from_text": {"text": "Создай сценарий сна"},
         "scenario_save": {"scenario": {"name": "Новый", "conditions": [], "actions": []}},
         "memory_search": {"q": "лоу"}, "memory_update": {"id": "k1", "text": "x"},
-        "memory_delete": {"id": "k2"},
+        "memory_delete": {"id": "k2"}, "history_search": {"q": "а"}, "history_delete": {"id": "m1"},
     }
     expected = {
-        "history_request": "history", "devices_request": "devices", "status_request": "status",
+        "history_request": "history", "history_search": "history", "history_delete": "history_deleted",
+        "devices_request": "devices", "status_request": "status",
         "scenarios_list": "scenarios", "scenario_get": "scenario", "scenario_save": "scenario",
         "scenario_delete": "scenarios", "scenario_from_text": "scenario_preview",
         "memory_list": "memory_items", "memory_search": "memory_items",

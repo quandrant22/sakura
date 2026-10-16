@@ -27,6 +27,8 @@ export interface SakuraBridge {
   /** Виджет в отдельном окне. */
   widgets: { popout(type: string, id: string): Promise<void> };
   openLogs(): Promise<string>;
+  /** Сохранить переписку в файл (диалог); false — отменено. */
+  exportChat(text: string): Promise<boolean>;
   core: {
     connection(): Promise<CoreConnection | null>;
     /** Состояние ядра, запущенного окном; null — ядро запущено отдельно. */
@@ -91,6 +93,7 @@ const fallback: SakuraBridge = {
   layout: memoryLayout(),
   widgets: { popout: async () => {} },
   openLogs: async () => "",
+  exportChat: async () => false,
   core: { connection: async () => null, state: async () => null, onState: () => () => {}, openLog: async () => {}, onPanic: () => () => {} },
   tray: { onAction: () => () => {}, setState: async () => {} },
   autostart: { get: async () => false, set: async (v) => v },
