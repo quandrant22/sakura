@@ -137,7 +137,6 @@ class Bench:
 async def main():
     b = Bench()
     await b.start()
-    proc = psutil.Process()
     res = {"handshake_ms": {}, "throughput": {}, "memory_kib": {}, "env": {
         "python": os.sys.version.split()[0], "websockets": websockets.__version__, "cpu": psutil.cpu_count(),
         "when": time.strftime("%Y-%m-%d %H:%M")}}
@@ -177,8 +176,8 @@ def plot(res):
     med = [res["handshake_ms"][k]["median"] for k in kinds]
     p95 = [res["handshake_ms"][k]["p95"] for k in kinds]
     ax.bar(kinds, med, color=[colors[k] for k in kinds], label="медиана")
-    ax.errorbar(kinds, med, yerr=[[0] * len(kinds), [p - m for p, m in zip(p95, med, strict=True)]], fmt="none", ecolor="#333",
-                capsize=5, label="до p95")
+    up = [p - m for p, m in zip(p95, med, strict=True)]
+    ax.errorbar(kinds, med, yerr=[[0] * len(kinds), up], fmt="none", ecolor="#333", capsize=5, label="до p95")
     ax.set_ylabel("мс")
     ax.set_title("Установление соединения до первого ответа (127.0.0.1)")
     ax.legend()
