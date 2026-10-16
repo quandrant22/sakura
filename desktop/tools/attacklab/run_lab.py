@@ -7,7 +7,6 @@ python -m desktop.tools.attacklab.run_lab — пишет docs/security/lab/*.md 
 import asyncio
 import json
 import os
-import statistics
 import time
 
 import websockets
@@ -16,7 +15,7 @@ from desktop.core import transport as T
 from desktop.core.securechannel import noise as N
 from desktop.core.securechannel.client import SecureError, ik_handshake
 from desktop.core.securechannel.frames import FrameType, decode_frame
-from desktop.core.securechannel.keys import KeyStore, fingerprint
+from desktop.core.securechannel.keys import KeyStore
 from desktop.tools.securelab.server import LabServer
 
 OUT = os.path.join(os.path.dirname(__file__), "..", "..", "docs", "security", "lab")
@@ -274,7 +273,8 @@ async def scenario_stolen(tmp):
         await noise_client_exchange(url, ks, [{"type": "ping", "request_id": "2"}])
         res = "работает после отзыва (ПЛОХО)"
     except SecureError as e:
-        res = f"после /revoke: отказ {e.code} через {time.monotonic() - t0:.2f} с (дедлайн), остальные устройства работают"
+        res = (f"после /revoke: отказ {e.code} через {time.monotonic() - t0:.2f} с (дедлайн), "
+               "остальные устройства работают")
     rows.append({"атака": "кража ключа + отзыв", "канал": "noise", "итог": res})
     s.close()
     return rows
@@ -367,9 +367,11 @@ async def main():
     lengths = await scenario_lengths(tmp)
     flood = await scenario_flood()
     md = [f"# Стенд атак — результаты ({time.strftime('%Y-%m-%d %H:%M')})\n",
-          "Запуск: `python -m desktop.tools.attacklab.run_lab`. Токен стенда учебный (`lab-token`), ключи одноразовые.\n",
-          "## 1. Перехват (прокси-дамп)\n", table([intercept["ws"], intercept["noise"]],
-                                                  ["канал", "кадров", "видно токен", "видно текст команды", "что видно"]),
+          "Запуск: `python -m desktop.tools.attacklab.run_lab`. "
+          "Токен стенда учебный (`lab-token`), ключи одноразовые.\n",
+          "## 1. Перехват (прокси-дамп)\n",
+          table([intercept["ws"], intercept["noise"]],
+                ["канал", "кадров", "видно токен", "видно текст команды", "что видно"]),
           "\nДамп ws (первые кадры):\n\n```\n" + "\n".join(f"{d['dir']} {d['kind']} {d['len']}: {d['preview']}"
                                                    for d in intercept["ws_dump"][:4]) + "\n```\n",
           "Дамп noise (первые кадры, hex заголовка):\n\n```\n" + "\n".join(
@@ -378,8 +380,10 @@ async def main():
           "\n## 3. Подмена сервера\n", table(fake, ["атака", "канал", "итог"]),
           "\n## 4. Кража токена против кражи ключа и отзыв\n", table(stolen, ["атака", "канал", "итог"]),
           "\n## 5. Понижение до ws\n", table(downgrade, ["атака", "сервер", "клиент", "итог"]),
-          "\n## 6. Анализ длин (без padding)\n", table(lengths, ["фраза (символов)", "канал", "длина кадра команды, Б"]),
-          "\nNoise скрывает содержимое, но не длину: длина кадра растёт вместе с фразой (+16 тег, +2 заголовок, +8 кадр). "
+          "\n## 6. Анализ длин (без padding)\n",
+          table(lengths, ["фраза (символов)", "канал", "длина кадра команды, Б"]),
+          "\nNoise скрывает содержимое, но не длину: длина кадра растёт вместе с фразой "
+          "(+16 тег, +2 заголовок, +8 кадр). "
           "Спецификация padding не задаёт — см. выводы в ATTACK_LAB.md.\n",
           "\n## 7. Флуд рукопожатий\n", table([flood], ["атака", "итог"]),
           f"\nВремя прогона: {time.time() - t0:.1f} с.\n"]
