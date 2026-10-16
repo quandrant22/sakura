@@ -110,6 +110,10 @@ async def handle(websocket, data: dict) -> None:
     if not is_master_device(device_id):
         await error("not_master", "computer_step: только для master-устройств")
         return
+    from sakura_core.proto_v2 import connection_secure
+    if not connection_secure(websocket) and getattr(config, "PRIVATE_REQUIRES_SECURE", True):
+        await error("secure_channel_required", "кадр экрана — только по защищённому каналу")
+        return
     goal = str(data.get("goal") or "").strip()[:GOAL_MAX]
     history = data.get("history") or []
     if not goal or not isinstance(history, list):

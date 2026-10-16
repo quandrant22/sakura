@@ -845,3 +845,45 @@ def purge_intimate(dry_run: bool = True) -> list[dict]:
     else:
         log.info(f"[db] purge_intimate: удалено {sum(1 for i in result if i['deleted'])}")
     return result
+
+
+def list_memories(category: str | None = None, offset: int = 0,
+                  limit: int = 50) -> tuple[list[dict], int, dict]:
+    """Записи памяти Мастера для окна клиента (протокол v2 memory_list):
+    (записи [{id, category, text, created_at}], всего по фильтру, счётчики
+    по категориям)."""
+    conn = _conn()
+    where, args = ("WHERE category = ?", (category,)) if category else ("", ())
+    rows = conn.execute(
+        f"SELECT id, category, text, created_at FROM master_memory {where} "
+        f"ORDER BY id DESC LIMIT ? OFFSET ?", (*args, int(limit), int(offset))).fetchall()
+    total = conn.execute(f"SELECT COUNT(*) FROM master_memory {where}", args).fetchone()[0]
+    counts = {r["category"]: r["n"] for r in conn.execute(
+        "SELECT category, COUNT(*) AS n FROM master_memory GROUP BY category").fetchall()}
+    return [dict(r) for r in rows], int(total), counts
+
+
+def update_memory(row_id: int, text: str) -> dict | None:
+    """Исправить текст записи. Старый вектор удаляется (поиск по смыслу не
+    найдёт устаревший текст); новый не строится — это сетевой вызов
+    встраивания, запись остаётся в выдаче по важности и подстроке."""
+    text = (text or "").strip()
+    if not text:
+        return None
+    conn = _conn()
+    row = conn.execute("SELECT id, vec_rowid FROM master_memory WHERE id = ?",
+                       (row_id,)).fetchone()
+    if row is None:
+        return None
+    if row["vec_rowid"]:
+        try:
+            conn.execute("DELETE FROM vec_master WHERE rowid = ?", (row["vec_rowid"],))
+        except Exception as e:
+            log.debug(f"[db] update vec row: {type(e).__name__}: {e}")
+    conn.execute("UPDATE master_memory SET text = ?, vec_rowid = NULL WHERE id = ?",
+                 (text, row_id))
+    conn.commit()
+    _cache_clear("mem_ctx")
+    out = conn.execute("SELECT id, category, text, created_at FROM master_memory WHERE id = ?",
+                       (row_id,)).fetchone()
+    return dict(out)

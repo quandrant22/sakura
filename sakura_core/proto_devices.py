@@ -39,8 +39,7 @@ STATS_KEYS = ("cpu", "ram", "gpu", "battery", "charging", "wifi", "signal")
 LOAD_STEP = 10
 PUSH_EVERY_S = 60.0
 
-TONE_IDS = {"нейтрально": "neutral", "тепло": "warm", "сухо-иронично": "dry",
-            "серьёзно": "serious", "тихо": "quiet", "бодро": "cheerful"}
+from sakura_core.tones import TONE_IDS  # noqa: E402
 CONTEXT_BY_CATEGORY = {"call": "Созвон", "game": "Игра", "code": "Работа с кодом",
                        "browser": "Браузер", "media": "Музыка или видео",
                        "other": "Работа за компьютером"}

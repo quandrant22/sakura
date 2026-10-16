@@ -29,6 +29,14 @@ class WS:
         self.sent.append(json.loads(raw))
 
 
+
+@pytest.fixture(autouse=True)
+def _secure_connection(monkeypatch):
+    """Кадры экрана — приватный класс; здесь соединение считается защищённым
+    (отказ без защиты — tests/test_proto_rest.py)."""
+    import sakura_core.proto_v2 as pv2
+    monkeypatch.setattr(pv2, "connection_secure", lambda ws: True)
+
 def _step(monkeypatch=None, **over):
     data = {"type": "computer_step", "request_id": "s1", "device_id": "laptop",
             "goal": "открой почту", "history": [], "screenshot": B64, **over}

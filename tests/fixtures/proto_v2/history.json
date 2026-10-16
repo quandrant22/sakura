@@ -1,0 +1,9 @@
+{
+  "messages": [
+    {"id": "m1", "ts": 1760090000.0, "role": "user", "text": "Сакура, что у меня сегодня?", "channel": "voice", "device": "mostech"},
+    {"id": "m2", "ts": 1760090002.5, "role": "assistant", "text": "Сегодня у тебя:\n1. Созвон в 11:00\n2. Тренировка в 19:00\nХорошего дня! 🌸", "channel": "voice", "device": "mostech"},
+    {"id": "m3", "ts": 1760090100.0, "role": "user", "text": "Включи музыку", "channel": "text", "device": "mostech"},
+    {"id": "m4", "ts": 1760090101.2, "role": "assistant", "text": "Включаю «Мою волну».", "channel": "text", "device": "mostech"},
+    {"id": "m5", "ts": 1760090300.0, "role": "system", "text": "Телефон подключился", "channel": "telegram", "device": "phone"}
+  ]
+}

@@ -156,11 +156,11 @@ def test_errors_not_master_unsupported_and_disabled(server, monkeypatch):
         g = await connect(uri, GUEST)
         e1 = await g.request({"type": "devices_request"})
         m = await connect(uri, MASTER)
-        e2 = await m.request({"type": "history_request"})       # порция 1 — не здесь
+        e2 = await m.request({"type": "history_request"})       # приватное, без защиты
         return e1, e2
     e1, e2 = run(sc)
     assert (e1["type"], e1["code"]) == ("error", "not_master")
-    assert (e2["type"], e2["code"]) == ("error", "unsupported")
+    assert (e2["type"], e2["code"]) == ("error", "secure_channel_required")
 
     monkeypatch.setattr(config, "PROTO_V2", False)
 
