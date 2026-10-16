@@ -153,6 +153,9 @@ async def ws_handler(websocket):
     from sakura_core.llm import ask_gemini, ask_gemini_voice
     from adapters.voice import _get_active_ws
 
+    from sakura_core import secure_policy
+    from securechannel.frames import is_secure_frame
+
     device_id = None
     log.info(f"[ws] connection open {_peer(websocket)}")
     try:
@@ -164,12 +167,49 @@ async def ws_handler(websocket):
             await reject(websocket, reason="authentication timeout")
             return
 
+        # ── защищённый канал (docs/security/PROTOCOL.md) ─────────────
+        # Первое сообщение — кадр Noise: рукопожатие, дальше websocket —
+        # обёртка, которая сама шифрует и расшифровывает JSON.
+        sc_mode = secure_policy.mode()
+        noise_device = None
+        if is_secure_frame(first_raw):
+            if sc_mode == "off":
+                log.info(f"[ws] transport=noise secure=false {_peer(websocket)} — "
+                         f"SECURE_CHANNEL=off, закрытие 4400")
+                await websocket.close(4400, "secure channel disabled")
+                return
+            from securechannel.server import accept
+            conn = await accept(websocket, bytes(first_raw), secure_policy.context())
+            if conn is None:
+                return                      # спаривание или отказ — уже закрыто
+            websocket, noise_device = conn, conn.device_id
+            try:
+                first_raw = await asyncio.wait_for(websocket.recv(),
+                                                   timeout=WS_AUTH_TIMEOUT_SECONDS)
+            except asyncio.TimeoutError:
+                await websocket.close(4408, "no register")
+                return
+        elif sc_mode == "required":
+            log.info(f"[ws] transport=ws secure=false {_peer(websocket)} — "
+                     f"SECURE_CHANNEL=required, закрытие 4412")
+            await websocket.close(4412, "secure channel required")
+            return
+        conn_secure = noise_device is not None or secure_policy.is_local_peer(
+            secure_policy.peer_ip(websocket))
+        log.info(f"[ws] transport={'noise' if noise_device else 'ws'} "
+                 f"secure={str(conn_secure).lower()} {_peer(websocket)}"
+                 + (f" device={noise_device}" if noise_device else ""))
+
+        def _authorized(msg: dict) -> bool:
+            # Noise: устройство уже доказало ключ — токен не нужен.
+            return noise_device is not None or check_token(msg)
+
         try:
             first_data = json.loads(first_raw)
         except (TypeError, ValueError):
             await reject(websocket, reason="invalid authentication message")
             return
-        if not isinstance(first_data, dict) or not check_token(first_data):
+        if not isinstance(first_data, dict) or not _authorized(first_data):
             await reject(websocket, reason="invalid token on first message")
             return
 
@@ -183,9 +223,22 @@ async def ws_handler(websocket):
                 data     = json.loads(raw)
                 msg_type = data.get("type")
 
-                if not check_token(data):
+                if not _authorized(data):
                     await reject(websocket, reason=f"invalid token on '{msg_type}'")
                     return
+                if noise_device is not None:
+                    # device_id — из реестра по ключу Noise, не из сообщения.
+                    if data.get("device_id") not in (None, noise_device):
+                        log.warning(f"[ws] transport=noise device={noise_device}: "
+                                    f"в сообщении device_id={data.get('device_id')!r} — заменён")
+                    data["device_id"] = noise_device
+                if (secure_policy.is_private(msg_type) and not conn_secure
+                        and secure_policy.requires_secure()):
+                    log.info(f"[ws] transport=ws secure=false {_peer(websocket)}: "
+                             f"'{msg_type}' только по защищённому каналу")
+                    await websocket.send(json.dumps(
+                        secure_policy.secure_error(data.get("request_id")), ensure_ascii=False))
+                    continue
 
                 dev_from_msg = data.get("device_id")
                 if msg_type in ("voice_command", "apps_list"):
