@@ -39,6 +39,8 @@ VPS_WS_URL   = os.getenv("VPS_WS_URL",   "ws://31.76.80.5:8765")
 SERVER_TRANSPORT = os.getenv("SERVER_TRANSPORT", "")
 # Закрепление сертификата для wss: SHA-256 отпечаток DER (hex, двоеточия допустимы).
 SERVER_CERT_SHA256 = os.getenv("SERVER_CERT_SHA256", "")
+# securechannel: SHA-256 открытого ключа сервера (hex) — дополнительная проверка ключа из спаривания.
+SERVER_PUBKEY_SHA256 = os.getenv("SERVER_PUBKEY_SHA256", "")
 # SAKURA_DEVICE_ID — переменная процесса для проверочного запуска: .env грузится с override
 # и перезаписал бы DEVICE_ID, а сервер не должен принять проверочное ядро за рабочее устройство.
 DEVICE_ID    = os.getenv("SAKURA_DEVICE_ID") or os.getenv("DEVICE_ID", "laptop")

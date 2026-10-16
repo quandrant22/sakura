@@ -70,6 +70,7 @@ class SecureConnection:
         self.remote_address = getattr(ws, "remote_address", None)
         self.transport_obj = getattr(ws, "transport", None)
         self._lock = asyncio.Lock()
+        self.on_server_key = None  # ротация ключа сервера (§8.2): сохранить для следующего соединения
 
     async def send(self, message: str | bytes) -> None:
         async with self._lock:
@@ -90,7 +91,10 @@ class SecureConnection:
                 raise SecureError(CLOSE_TEXT[4409], 4409) from None
             for inner, payload in items:
                 if inner == InnerType.DATA:
-                    return payload.decode("utf-8")
+                    text = payload.decode("utf-8")
+                    if '"secure_server_key"' in text and self._server_key(text):
+                        continue
+                    return text
                 if inner == InnerType.PING:
                     async with self._lock:
                         await self._ws.send(self._ch._seal_inner(encode_inner(InnerType.PONG, 0, payload)))
@@ -98,6 +102,19 @@ class SecureConnection:
                     code = int.from_bytes(payload[:2], "big") if len(payload) >= 2 else 1000
                     await self._ws.close(code, payload[2:].decode("utf-8", "replace"))
                     raise SecureError(CLOSE_TEXT.get(code, "сервер закрыл соединение"), code)
+
+    def _server_key(self, text: str) -> bool:
+        try:
+            msg = json.loads(text)
+        except ValueError:
+            return False
+        if msg.get("type") != "secure_server_key":
+            return False
+        from desktop.core.securechannel.pairing import unb64u
+        if self.on_server_key and msg.get("pub"):
+            self.on_server_key(unb64u(msg["pub"]))
+            log.info("[secure] сервер сообщил новый ключ — со следующего соединения")
+        return True
 
     def __aiter__(self):
         return self

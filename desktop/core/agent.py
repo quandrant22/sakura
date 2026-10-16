@@ -971,7 +971,9 @@ class Agent:
         log.info("[agent] Запускаю подключение к VPS: %s", config.VPS_WS_URL)
         from desktop.core import transport as _tr
         try:
-            _transport = _tr.make_transport(config.SERVER_TRANSPORT, config.VPS_WS_URL, config.SERVER_CERT_SHA256)
+            _transport = _tr.make_transport(config.SERVER_TRANSPORT, config.VPS_WS_URL, config.SERVER_CERT_SHA256,
+                                            pubkey_sha256=config.SERVER_PUBKEY_SHA256)
+            self.transport = _transport
         except _tr.TransportError as e:
             log.error("[agent] транспорт: %s", e)
             self.bus.emit("agent_alert", text=f"Не удалось подключиться к серверу: {e}")
@@ -981,6 +983,7 @@ class Agent:
             try:
                 log.info("[agent] Подключаюсь к %s (%s)...", config.VPS_WS_URL, _transport.kind)
                 async with _tr.session(_transport) as ws:
+                    self.bus.emit("transport_state", **dict(getattr(_transport, "state", {}) or {}))
                     await ws.send(json.dumps(self._payload("register")))
                     self._ws = ws
                     if self.server_link is not None:

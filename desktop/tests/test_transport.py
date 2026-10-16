@@ -1,6 +1,7 @@
 """Подключаемый транспорт до сервера: выбор, проверка отпечатка, откат с noise."""
 import asyncio
 import hashlib
+import os
 import ssl
 
 import pytest
@@ -70,14 +71,6 @@ def test_bad_pin_format_rejected():
         T.verify_fingerprint(DER, "abcd")
 
 
-def test_noise_falls_back_to_ws_or_wss(caplog):
-    assert T.make_transport("noise", "ws://h").kind == "ws"
-    assert T.make_transport("noise", "wss://h").kind == "wss"
-    assert "noise ещё не реализован" in caplog.text
-    with pytest.raises(NotImplementedError):
-        asyncio.run(T.NoiseTransport("tcp://h").connect())
-
-
 def test_session_closes_connection():
     conn = FakeConn()
 
@@ -87,3 +80,103 @@ def test_session_closes_connection():
             assert c is conn
     asyncio.run(go())
     assert conn.closed is True
+
+
+# ── защищённый канал (noise) против учебного сервера ──
+def _lab(fn, **kw):
+    import websockets as W
+
+    from desktop.tools.securelab.server import LabServer
+
+    async def go():
+        lab = LabServer(deadline=0.3, **kw)
+        server = await lab.serve()
+        url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}"
+        try:
+            return await fn(lab, url, W.connect)
+        finally:
+            server.close()
+            await server.wait_closed()
+    return asyncio.run(go())
+
+
+def _paired_store(tmp_path, lab, url, device_id="pc"):
+    from desktop.core.securechannel.keys import KeyStore
+    ks = KeyStore(str(tmp_path), protect=lambda b: b, unprotect=lambda b: b)
+    _, pub = ks.device_keypair()
+    lab.add_device(pub, device_id)
+    ks.save_server(lab.pub, device_id, url)
+    return ks
+
+
+def test_noise_unpaired_falls_back_to_ws_marked_insecure(tmp_path):
+    from desktop.core.securechannel.keys import KeyStore
+
+    async def fn(lab, url, connect):
+        t = T.make_transport("noise", url, connect_fn=connect, keystore=KeyStore(str(tmp_path)))
+        conn = await t.connect()
+        await conn.close()
+        return t.state
+    st = _lab(fn)
+    assert st["transport"] == "ws" and st["secure"] is False and "не подключено" in st["reason"]
+
+
+def test_noise_only_unpaired_refuses(tmp_path):
+    from desktop.core.securechannel.keys import KeyStore
+
+    async def fn(lab, url, connect):
+        t = T.make_transport("noise-only", url, connect_fn=connect, keystore=KeyStore(str(tmp_path)))
+        with pytest.raises(T.TransportError, match="защищённый канал недоступен"):
+            await t.connect()
+    _lab(fn)
+
+
+def test_noise_paired_secure_session_and_server_key_rotation(tmp_path):
+    import json
+
+    async def fn(lab, url, connect):
+        ks = _paired_store(tmp_path, lab, url)
+        t = T.make_transport("noise", url, connect_fn=connect, keystore=ks)
+        conn = await t.connect()
+        await conn.send(json.dumps({"type": "ping", "request_id": "1"}))
+        reply = json.loads(await conn.recv())
+        new_pub = os.urandom(32)
+        conn.on_server_key(new_pub)
+        await conn.close()
+        return t.state, reply, ks.server()["pub_bytes"] == new_pub
+    st, reply, rotated = _lab(fn)
+    assert st["transport"] == "noise" and st["secure"] is True and reply["secure"] is True and rotated
+
+
+def test_noise_pin_mismatch_refuses_without_fallback(tmp_path):
+    async def fn(lab, url, connect):
+        ks = _paired_store(tmp_path, lab, url)
+        t = T.make_transport("noise", url, connect_fn=connect, keystore=ks, pubkey_sha256="00" * 32)
+        with pytest.raises(T.TransportError, match="SERVER_PUBKEY_SHA256"):
+            await t.connect()
+    _lab(fn)
+
+
+def test_noise_unknown_key_falls_back_or_refuses(tmp_path):
+    from desktop.core.securechannel.keys import KeyStore
+
+    async def fn(lab, url, connect):
+        ks = KeyStore(str(tmp_path), protect=lambda b: b, unprotect=lambda b: b)
+        ks.device_keypair()
+        ks.save_server(lab.pub, "pc", url)  # спарено «у себя», но сервер ключа не знает (отозван)
+        t = T.make_transport("noise", url, connect_fn=connect, keystore=ks)
+        conn = await t.connect()
+        await conn.close()
+        strict = T.make_transport("noise-only", url, connect_fn=connect, keystore=ks)
+        with pytest.raises(T.TransportError):
+            await strict.connect()
+        return t.state
+    st = _lab(fn)
+    assert st["transport"] == "ws" and "не узнал" in st["reason"]
+
+
+def test_kinds_and_default_unchanged():
+    assert T.make_transport(None, "ws://h").kind == "ws"
+    assert T.make_transport("noise-only", "ws://h").required is True
+    with pytest.raises(T.TransportError):
+        T.make_transport("tls", "ws://h")

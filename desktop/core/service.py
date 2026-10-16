@@ -167,6 +167,9 @@ class CoreService:
                             kind="proactive")
         elif event == "power_cancelled":
             self._emit({"type": "power_cancelled"})
+        elif event == "transport_state":
+            self._channel = dict(data)
+            self._emit({"type": "channel", **self._channel})
         elif event in ("confirm_request", "confirm_done"):
             self._emit({"type": event, **data})
         elif event == "pc_action":
@@ -506,7 +509,19 @@ class CoreService:
                 "device_id": config.DEVICE_ID, "offline": bool(config.OFFLINE),
                 "server": {"online": self.link.state_event().get("server") == "online",
                            "proto": self.link.state_event().get("proto")},
-                "music": await self.cmd_music_metrics({}), "data_dir": config.DATA_DIR, "log_dir": config.LOG_DIR}
+                "music": await self.cmd_music_metrics({}), "data_dir": config.DATA_DIR, "log_dir": config.LOG_DIR,
+                "channel": self.channel_state()}
+
+    def channel_state(self) -> dict:
+        """Канал до сервера: транспорт, защищён ли, причина отката, возраст сеанса и rekey (без ключей)."""
+        st = dict(getattr(self, "_channel", None) or {"transport": None, "secure": False})
+        agent = getattr(self, "_agent", None)
+        ws = getattr(agent, "_ws", None) if agent is not None else None
+        stats = getattr(ws, "stats", None)
+        if callable(stats):
+            st.update({k: v for k, v in stats().items() if k in ("age_s", "rekeys", "session")})
+        st["proto"] = self.link.state_event().get("proto")
+        return st
 
     @staticmethod
     def _repo_dir() -> str:

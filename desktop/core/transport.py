@@ -5,8 +5,10 @@ SERVER_TRANSPORT выбирает реализацию (по умолчанию 
   wss   — только wss:// (ws:// отклоняется: соединение было бы без шифрования);
           SERVER_CERT_SHA256 — закрепление отпечатка сертификата сервера (SHA-256 DER, hex,
           двоеточия и регистр не важны); несовпадение — отказ, отката нет;
-  noise — Noise-протокол поверх TCP: пока заглушка (интерфейс и TODO), при выборе — откат
-          на ws/wss по схеме URL с предупреждением в журнале.
+  noise — защищённый канал securechannel/1 (Noise IK поверх WebSocket, docs/security/PROTOCOL.md);
+          устройство не подключено или сервер не принял канал — откат на ws с токеном и пометкой
+          «не защищено» (state); несовпадение SERVER_PUBKEY_SHA256 — отказ без отката (подмена);
+  noise-only — то же без отката (сервер в режиме required или нужна гарантия шифрования).
 Соединение, которое отдаёт connect(), умеет send(), recv(), close() и async for — как websockets.
 """
 import contextlib
@@ -19,7 +21,7 @@ import websockets
 
 log = logging.getLogger("sakura.transport")
 
-KINDS = ("ws", "wss", "noise")
+KINDS = ("ws", "wss", "noise", "noise-only")
 
 
 class TransportError(ConnectionError):
@@ -87,29 +89,81 @@ class WsTransport:
 
 
 class NoiseTransport:
-    """Noise (XX/IK поверх TCP) — заглушка.
+    """securechannel/1: сеанс IK по ключу устройства; required=False — откат на ws с токеном."""
 
-    TODO: выбрать библиотеку (dissononce / noiseprotocol), рукопожатие по статическому ключу
-    сервера (SERVER_NOISE_PUBKEY), кадрирование сообщений длиной, тот же интерфейс Connection.
-    """
-    kind = "noise"
-
-    def __init__(self, url: str):
+    def __init__(self, url: str, required: bool = False, keystore=None, pubkey_sha256: str = "",
+                 connect_fn=None, fallback: Transport | None = None):
         self.url = url
+        self.required = required
+        self.kind = "noise-only" if required else "noise"
+        self._keystore = keystore
+        self.pubkey_sha256 = normalize_fp(pubkey_sha256)
+        self._connect = connect_fn or websockets.connect
+        self._fallback = fallback
+        self.state: dict = {"transport": None, "secure": False, "reason": None}
+
+    @property
+    def keystore(self):
+        if self._keystore is None:
+            import os
+
+            from desktop.core import config
+            from desktop.core.securechannel.keys import KeyStore
+            restrict = None
+            if os.name == "nt":
+                from desktop.core.platform import get_platform
+                restrict = get_platform().restrict_to_current_user
+            self._keystore = KeyStore(os.path.join(config.DATA_DIR, "secure"), restrict=restrict)
+        return self._keystore
+
+    async def _fallback_or_raise(self, reason: str) -> Connection:
+        if self.required or self._fallback is None:
+            self.state = {"transport": None, "secure": False, "reason": reason}
+            raise TransportError(f"защищённый канал недоступен: {reason}")
+        log.warning("[transport] защищённый канал недоступен (%s) — подключаюсь без защиты (ws)", reason)
+        conn = await self._fallback.connect()
+        self.state = {"transport": "ws", "secure": False, "reason": reason}
+        return conn
 
     async def connect(self) -> Connection:
-        raise NotImplementedError("транспорт noise ещё не реализован")
+        from desktop.core.securechannel.client import SecureError, ik_handshake
+        from desktop.core.securechannel.keys import sha256_hex
+        ks = self.keystore
+        srv, kp = ks.server(), ks.device_keypair(create=False)
+        if not srv or not kp:
+            return await self._fallback_or_raise("устройство не подключено (Настройки → Безопасность)")
+        if self.pubkey_sha256 and sha256_hex(srv["pub_bytes"]) != self.pubkey_sha256:
+            self.state = {"transport": None, "secure": False, "reason": "ключ сервера не совпал с SERVER_PUBKEY_SHA256"}
+            raise TransportError("ключ сервера не совпал с SERVER_PUBKEY_SHA256 — подключение отклонено")
+        ws = await self._connect(self.url, ping_interval=20, proxy=None, max_size=None)
+        try:
+            conn = await ik_handshake(ws, kp[0], srv["pub_bytes"], srv.get("device_id") or "")
+        except SecureError as e:
+            with contextlib.suppress(Exception):
+                await ws.close()
+            if e.code == 4408:  # ключ не узнан или отозван — откат на ws не спасёт доверие, но сохраняет связь
+                log.warning("[transport] сервер не узнал ключ устройства")
+            return await self._fallback_or_raise(str(e))
+        conn.on_server_key = ks.rotate_server_key
+        self.state = {"transport": "noise", "secure": True, "reason": None, "server_fp": srv.get("fp")}
+        return conn
 
 
-def make_transport(kind: str | None, url: str, cert_sha256: str = "", connect_fn=None) -> Transport:
-    """Транспорт по настройке; noise пока откатывается на ws/wss по схеме URL."""
+def make_transport(kind: str | None, url: str, cert_sha256: str = "", connect_fn=None,
+                   pubkey_sha256: str = "", keystore=None) -> Transport:
+    """Транспорт по настройке SERVER_TRANSPORT; по умолчанию — по схеме URL (ws или wss)."""
     kind = (kind or "").strip().lower() or ("wss" if url.startswith("wss://") else "ws")
     if kind not in KINDS:
-        raise TransportError(f"SERVER_TRANSPORT: неизвестный транспорт «{kind}» (ws, wss, noise)")
-    if kind == "noise":
-        log.warning("[transport] noise ещё не реализован — использую %s", "wss" if url.startswith("wss://") else "ws")
-        kind = "wss" if url.startswith("wss://") else "ws"
-    return WsTransport(url, kind=kind, cert_sha256=cert_sha256, connect_fn=connect_fn)
+        raise TransportError(f"SERVER_TRANSPORT: неизвестный транспорт «{kind}» (ws, wss, noise, noise-only)")
+    if kind in ("noise", "noise-only"):
+        ws_url = url.replace("wss://", "ws://", 1) if url.startswith("wss://") else url
+        fallback = None if kind == "noise-only" else WsTransport(url, kind="wss" if url.startswith("wss://") else "ws",
+                                                                    cert_sha256=cert_sha256, connect_fn=connect_fn)
+        return NoiseTransport(ws_url if not url.startswith("wss://") else url, required=kind == "noise-only",
+                              keystore=keystore, pubkey_sha256=pubkey_sha256, connect_fn=connect_fn, fallback=fallback)
+    t = WsTransport(url, kind=kind, cert_sha256=cert_sha256, connect_fn=connect_fn)
+    t.state = {"transport": kind, "secure": url.startswith("wss://"), "reason": None}
+    return t
 
 
 @contextlib.asynccontextmanager
