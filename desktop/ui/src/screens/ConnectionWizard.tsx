@@ -92,9 +92,10 @@ export function ConnectionWizard() {
     ymToken: Boolean(ymSet), secure });
 
   const field = (key: string, label: string, hint: string) => (
-    <label className="grid grid-cols-[180px_1fr_auto] items-center gap-3 py-2">
-      <span><span className="block text-sm text-ink">{label}</span><span className="text-xs text-ink-dim">{hint}</span></span>
-      <input aria-label={label} value={form[key] ?? ""} onChange={(e) => setForm({ ...form, [key]: e.target.value })} className={input} />
+    <label className="grid grid-cols-[minmax(0,160px)_minmax(0,1fr)_auto] items-center gap-3 py-2">
+      <span className="min-w-0"><span className="block text-sm text-ink">{label}</span><span className="text-xs text-ink-dim">{hint}</span></span>
+      <input aria-label={label} value={form[key] ?? ""} onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+             className={input + " min-w-0 w-full"} />
       <button type="button" className={btn} onClick={() => void save(key)}>Сохранить</button>
     </label>
   );
