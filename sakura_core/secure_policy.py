@@ -53,8 +53,19 @@ def context():
             _ctx = SecureContext(keys=ServerKeys.load_or_create(d),
                                  registry=DeviceRegistry.open(d),
                                  pairing=PairingManager(),
-                                 backend=getattr(config, "SECURE_BACKEND", "lib"))
+                                 backend=getattr(config, "SECURE_BACKEND", "lib"),
+                                 on_paired=_notify_paired)
         return _ctx
+
+
+async def _notify_paired(device: dict) -> None:
+    """Мастеру в Telegram: какое устройство спарено (без секретов)."""
+    try:
+        from adapters.telegram import send_to_master
+        await send_to_master(f"Спарено устройство {device['name']} ({device['id']}), "
+                             f"отпечаток ключа {device['fp']}. Не вы? — /revoke {device['id']}")
+    except Exception as e:
+        log.debug(f"[secure] уведомление о спаривании: {type(e).__name__}")
 
 
 def reset_context() -> None:

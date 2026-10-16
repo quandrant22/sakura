@@ -54,6 +54,8 @@ COMPUTER_MAX_SHOT_BYTES = 400 * 1024
 SECURE_CHANNEL = os.getenv("SECURE_CHANNEL", "off").strip().lower()
 SECURE_DIR = os.getenv("SECURE_DIR", "memory/secure")
 SECURE_BACKEND = os.getenv("SECURE_BACKEND", "lib").strip().lower()   # lib | edu
+# Адрес сервера для QR спаривания (клиент подключается к нему).
+SECURE_PUBLIC_URL = os.getenv("SECURE_PUBLIC_URL", "ws://31.76.80.5:8765")
 # Чат, история, память, профиль, кадры экрана — только по secure-соединению.
 PRIVATE_REQUIRES_SECURE = os.getenv("PRIVATE_REQUIRES_SECURE", "1").strip().lower() not in ("0", "false", "no")
 # Протокол v2 настольного клиента (sakura_core/proto_v2.py): 0 — сервер

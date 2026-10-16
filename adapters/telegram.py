@@ -120,6 +120,7 @@ def _register_commands():
         cmd_status_impl, cmd_memory_impl, cmd_tasks_impl, cmd_clear_impl,
         cmd_clean_slate_impl, cmd_guests_impl, cmd_vip_impl, cmd_trusted_impl,
         cmd_users_impl, cmd_unvip_impl, cmd_block_impl,
+        cmd_pair_impl, cmd_devices_impl, cmd_revoke_impl,
     )
     dp.message(Command("помощь"))(_master_only(cmd_help_impl))
     dp.message(Command("health"))(_master_only(cmd_health_impl))
@@ -136,6 +137,9 @@ def _register_commands():
     dp.message(Command("users"))(_master_only(cmd_users_impl))
     dp.message(Command("unvip"))(_master_only(cmd_unvip_impl))
     dp.message(Command("block"))(_master_only(cmd_block_impl))
+    dp.message(Command("pair"))(_master_only(cmd_pair_impl))
+    dp.message(Command("devices"))(_master_only(cmd_devices_impl))
+    dp.message(Command("revoke"))(_master_only(cmd_revoke_impl))
 
 _register_commands()
 

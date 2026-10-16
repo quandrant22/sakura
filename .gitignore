@@ -132,3 +132,4 @@ memory/tts_cache/
 
 # Защищённый канал: ключ сервера и реестр устройств (600)
 memory/secure/
+.coverage
