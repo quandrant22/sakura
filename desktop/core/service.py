@@ -212,6 +212,10 @@ class CoreService:
         c("music_metrics", self.cmd_music_metrics)
         c("app_restart", self.cmd_app_restart)
         c("secrets_status", self.cmd_secrets_status)
+        c("config_values", self.cmd_config_values)
+        c("config_set", self.cmd_config_set)
+        c("sound_test", self.cmd_sound_test)
+        c("mic_level", self.cmd_mic_level)
         c("secrets_set", self.cmd_secrets_set)
         c("core_restart", self.cmd_core_restart)
         if os.getenv("SAKURA_LIVECHECK") == "1":
@@ -316,6 +320,42 @@ class CoreService:
         except envfile.SecretError as e:
             raise ApiError("bad_request", str(e)) from None
         return {"keys": envfile.status(path), "restart_suggested": True}
+
+    # ── мастер «Подключение» ──
+    async def cmd_config_values(self, msg: dict):
+        from desktop.core import envfile
+        return {"values": envfile.config_values(envfile.env_path()), "running": {
+            "DEVICE_ID": config.DEVICE_ID, "VPS_WS_URL": config.VPS_WS_URL,
+            "SERVER_TRANSPORT": config.SERVER_TRANSPORT or "ws"}}
+
+    async def cmd_config_set(self, msg: dict):
+        from desktop.core import envfile
+        key = str(msg.get("key") or "")
+        if key not in envfile.CONFIG_KEYS:
+            raise ApiError("bad_request", "этот ключ нельзя менять в мастере")
+        return await self.cmd_secrets_set(msg)
+
+    async def cmd_sound_test(self, msg: dict):
+        """Тестовый звук на устройство вывода голоса: 0.6 с, 440→660 Гц, негромко."""
+        try:
+            import numpy as np
+            import sounddevice as sd
+        except ImportError:
+            raise ApiError("unavailable", "звуковая библиотека недоступна") from None
+        rate = 24000
+        t = np.arange(int(rate * 0.6)) / rate
+        f = np.where(t < 0.3, 440.0, 660.0)
+        wave = (0.15 * np.sin(2 * np.pi * f * t) * np.minimum(1, (0.6 - t) * 20)).astype("float32")
+        device = self.settings.items().get("output_device")
+        await asyncio.to_thread(lambda: (sd.play(wave, rate, device=device), sd.wait()))
+        return {"ok": True}
+
+    async def cmd_mic_level(self, msg: dict):
+        """Уровень фона микрофона (dBFS) по оценке слуха — для индикатора в мастере."""
+        hearing = getattr(self._agent, "hearing", None)
+        noise = getattr(hearing, "noise", None)
+        return {"db": round(noise.db, 1) if noise is not None else None,
+                "mic_enabled": bool(getattr(hearing, "mic_enabled", False))}
 
     async def cmd_core_restart(self, msg: dict):
         """Перезапуск ядра (новые значения .env): окно (CoreSupervisor) запустит ядро заново."""

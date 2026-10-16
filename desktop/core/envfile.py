@@ -15,6 +15,8 @@ log = logging.getLogger("sakura.secrets")
 
 # Ключи, которые раздел «Секреты» показывает и даёт записать.
 SECRET_KEYS = ("WS_TOKEN", "YANDEX_MUSIC_TOKEN")
+# Не секреты (мастер «Подключение»): значения можно показывать.
+CONFIG_KEYS = ("DEVICE_ID", "VPS_WS_URL", "SERVER_TRANSPORT")
 MAX_LEN = 4096
 
 
@@ -55,16 +57,33 @@ def status(path: str | None, keys=SECRET_KEYS) -> dict[str, bool]:
 
 
 def _check(key: str, value: str) -> str:
-    if key not in SECRET_KEYS:
+    if key not in SECRET_KEYS + CONFIG_KEYS:
         raise SecretError("этот ключ нельзя менять из Настроек")
     if not isinstance(value, str):
         raise SecretError("значение должно быть строкой")
     value = value.strip()
+    if key == "VPS_WS_URL" and not value.startswith(("ws://", "wss://")):
+        raise SecretError("адрес сервера должен начинаться с ws:// или wss://")
+    if key == "SERVER_TRANSPORT" and value not in ("ws", "wss", "noise", "noise-only"):
+        raise SecretError("режим канала: ws, wss, noise или noise-only")
+    if key == "DEVICE_ID" and not re.fullmatch(r"[A-Za-z0-9_.-]{2,40}", value):
+        raise SecretError("имя устройства: латиница, цифры, «-», «_», «.» (2–40 знаков)")
     if not value:
         raise SecretError("пустое значение")
     if len(value) > MAX_LEN or any(c in value for c in "\r\n\0"):
         raise SecretError("значение слишком длинное или содержит перевод строки")
     return value
+
+
+def config_values(path: str | None) -> dict[str, str]:
+    """Значения не секретных ключей (CONFIG_KEYS) — для мастера «Подключение»."""
+    out = {k: "" for k in CONFIG_KEYS}
+    for line in _read_lines(path) if path else []:
+        for k in CONFIG_KEYS:
+            m = _key_re(k).match(line.rstrip("\r\n"))
+            if m:
+                out[k] = m.group(1).strip().strip('"').strip("'")
+    return out
 
 
 def set_secret(path: str, key: str, value: str, restrict=None) -> None:
@@ -111,4 +130,4 @@ def set_secret(path: str, key: str, value: str, restrict=None) -> None:
             restrict(path)
         except Exception as e:  # noqa: BLE001
             log.warning("[secrets] не удалось ограничить права на .env: %s", type(e).__name__)
-    log.info("[secrets] %s обновлён в .env (значение не журналируется)", key)
+    log.info("[secrets] %s обновлён в .env%s", key, "" if key in CONFIG_KEYS else " (значение не журналируется)")
