@@ -186,3 +186,38 @@ def test_required_mode_refuses_plain_text():
                 await ws.recv()
         return e.value.rcvd.code
     assert asyncio.run(_with_server(go, mode="required")) == 4412
+
+
+# ── Настройки → «Безопасность» (команды ядра) ──
+def _svc(tmp_path, monkeypatch):
+    from desktop.core import config
+    from desktop.core.service import CoreService
+    monkeypatch.setattr(config, "DATA_DIR", str(tmp_path))
+    svc = CoreService.__new__(CoreService)
+    svc._restrict = lambda p: None
+    svc.link = type("L", (), {"state_event": lambda self: {"server": "online", "proto": 2}})()
+    return svc
+
+
+def test_secure_pair_by_words_and_qr_status_reset(tmp_path, monkeypatch):
+    from desktop.core.api.server import ApiError
+
+    async def go(lab, url):
+        svc = _svc(tmp_path, monkeypatch)
+        monkeypatch.setattr(svc, "_keystore", lambda: KeyStore(str(tmp_path / "secure"), protect=lambda b: b,
+                                                                unprotect=lambda b: b))
+        lab.start_pairing(WORDS)
+        out = await svc.cmd_secure_pair({"words": WORDS, "url": url, "name": "Ноутбук"})
+        assert out["server_fp"] == fingerprint(lab.pub)
+        st = await svc.cmd_secure_status({})
+        assert st["keys"]["paired"] and st["keys"]["server_fp"] == out["server_fp"]
+        # QR с подменённым ключом сервера — спаривание остановлено до отправки XX_3
+        lab.start_pairing(WORDS)
+        bad = make_qr_uri(url, os.urandom(32), WORDS, time.time() + 600)
+        with pytest.raises(ApiError, match="подмена"):
+            await svc.cmd_secure_pair({"uri": bad})
+        good = make_qr_uri(url, lab.pub, WORDS, time.time() + 600)
+        lab.start_pairing(WORDS)
+        assert (await svc.cmd_secure_pair({"uri": good}))["server_fp"] == fingerprint(lab.pub)
+        assert (await svc.cmd_secure_reset({}))["keys"]["paired"] is False
+    asyncio.run(_with_server(go))

@@ -206,6 +206,10 @@ class CoreService:
         c("ym_token_check", self.cmd_ym_token_check)
         c("logs_tail", self.cmd_logs_tail)
         c("panic", self.cmd_panic)
+        c("secure_status", self.cmd_secure_status)
+        c("secure_pair", self.cmd_secure_pair)
+        c("secure_reset", self.cmd_secure_reset)
+        c("secure_devices", self.cmd_secure_devices)
         c("actions_recent", self.cmd_actions_recent)
         c("confirm_answer", self.cmd_confirm_answer)
         c("diagnostics", self.cmd_diagnostics)
@@ -454,6 +458,63 @@ class CoreService:
         """«Проверить токен» (Настройки → Секреты): что доступно по токену — только статусы и счётчики."""
         from desktop.core.media.yandex_api import YandexApi
         return await YandexApi().inventory()
+
+    # ── Настройки → «Безопасность»: защищённый канал (securechannel/1) ──
+    def _keystore(self):
+        import os as _os
+
+        from desktop.core.securechannel.keys import KeyStore
+        restrict = self._restrict if _os.name == "nt" else None
+        return KeyStore(_os.path.join(config.DATA_DIR, "secure"), restrict=restrict)
+
+    async def cmd_secure_status(self, msg: dict):
+        ks = self._keystore()
+        return {"keys": await asyncio.to_thread(ks.status), "channel": self.channel_state(),
+                "mode": config.SERVER_TRANSPORT or "ws", "pinned": bool(config.SERVER_PUBKEY_SHA256)}
+
+    async def cmd_secure_pair(self, msg: dict):
+        """Спаривание по 8 словам или QR (текст sakura-pair://1): XXpsk3, сохранение ключей."""
+        import websockets
+
+        from desktop.core.securechannel.client import SecureError, xx_pair
+        from desktop.core.securechannel.keys import fingerprint
+        from desktop.core.securechannel.pairing import PairingError, parse_qr_uri, words_to_psk
+        try:
+            if msg.get("uri"):
+                qr = parse_qr_uri(str(msg["uri"]))
+                url, words, expected = qr["url"], qr["words"], qr["server_pub"]
+            else:
+                url, words, expected = str(msg.get("url") or config.VPS_WS_URL), str(msg.get("words") or ""), None
+            psk = words_to_psk(words)
+        except PairingError as e:
+            raise ApiError("bad_request", str(e)) from None
+        ks = self._keystore()
+        priv, pub = await asyncio.to_thread(ks.device_keypair)
+        info = {"name": str(msg.get("name") or config.DEVICE_ID)[:40], "kind": "pc", "device_id_hint": config.DEVICE_ID}
+        try:
+            async with websockets.connect(url, open_timeout=10, max_size=None, proxy=None) as ws:
+                res = await xx_pair(ws, priv, psk, info, expected_server_pub=expected)
+        except SecureError as e:
+            raise ApiError("failed", str(e)) from None
+        except OSError:
+            raise ApiError("failed", "сервер недоступен — проверьте адрес и интернет") from None
+        await asyncio.to_thread(ks.save_server, res["server_pub"], res["device_id"] or config.DEVICE_ID, url)
+        return {"device_id": res["device_id"], "server_fp": res["server_fp"], "device_fp": fingerprint(pub),
+                "restart_suggested": True}
+
+    async def cmd_secure_reset(self, msg: dict):
+        ks = self._keystore()
+        await asyncio.to_thread(ks.reset)
+        return {"keys": await asyncio.to_thread(ks.status)}
+
+    async def cmd_secure_devices(self, msg: dict):
+        """Список устройств сервера (когда сервер отдаёт); сейчас — честное «сервер ещё не поддерживает»."""
+        try:
+            return await self.link.request({"type": "secure_devices"})
+        except ApiError:
+            raise
+        except Exception:  # noqa: BLE001
+            raise ApiError("unsupported", "сервер ещё не поддерживает список устройств") from None
 
     # ── Безопасность управления: аварийная остановка, последние действия, подтверждения ──
     async def cmd_panic(self, msg: dict):
