@@ -37,6 +37,10 @@ export interface SakuraBridge {
     openLog(): Promise<void>;
     /** Аварийная остановка по глобальной клавише (PANIC_HOTKEY). */
     onPanic(cb: () => void): () => void;
+    /** «Говорить» по глобальной клавише (push-to-talk). */
+    onTalk(cb: () => void): () => void;
+    /** Сменить сочетание «говорить»; false — занято или неверно. */
+    setTalkHotkey(combo: string): Promise<boolean>;
   };
   tray: {
     onAction(cb: (id: string) => void): () => void;
@@ -94,7 +98,7 @@ const fallback: SakuraBridge = {
   widgets: { popout: async () => {} },
   openLogs: async () => "",
   exportChat: async () => false,
-  core: { connection: async () => null, state: async () => null, onState: () => () => {}, openLog: async () => {}, onPanic: () => () => {} },
+  core: { connection: async () => null, state: async () => null, onState: () => () => {}, openLog: async () => {}, onPanic: () => () => {}, onTalk: () => () => {}, setTalkHotkey: async () => false },
   tray: { onAction: () => () => {}, setState: async () => {} },
   autostart: { get: async () => false, set: async (v) => v },
   capture: {

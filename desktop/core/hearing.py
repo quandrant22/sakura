@@ -715,6 +715,10 @@ class Hearing(threading.Thread):
         # поток читает звук, но не слушает слово и не записывает фразы.
         # SAKURA_MIC_OFF=1 — выключен с самого старта (живая проверка: не слушать до подключения).
         self.mic_enabled   = os.getenv("SAKURA_MIC_OFF") != "1"
+        # Чувствительность слова «Сакура»: auto (по шуму) | low | normal | high (Настройки → Голос).
+        self.wake_sensitivity = "auto"
+        from desktop.core.voice_tuning import NoiseFloor
+        self.noise = NoiseFloor()
         self._timeline_sequence = 0
         self.vad           = None
         self.recognizer    = None
@@ -783,6 +787,9 @@ class Hearing(threading.Thread):
             return
 
         wake = KaldiRecognizer(model, config.MIC_RATE)
+        # Перебивание во время озвучки: узкая грамматика — только стоп-слова (собственная речь не совпадает).
+        from desktop.core import voice_tuning as VT
+        stop_rec = KaldiRecognizer(model, config.MIC_RATE, json.dumps(VT.STOP_GRAMMAR, ensure_ascii=False))
         _last_reset   = time.monotonic()
         _WAKE_MAX_AGE = 60.0  # секунд без сброса до принудительного пересоздания
         _last_warn    = 0.0   # троттлинг предупреждений о бюджете блока
@@ -821,7 +828,13 @@ class Hearing(threading.Thread):
 
                     if self.tts_muted():
                         wake = _fresh_wake()
+                        if self.mic_enabled and self._tts_active():
+                            heard = (stop_rec.Result() if stop_rec.AcceptWaveform(data) else stop_rec.PartialResult())
+                            if VT.is_stop(heard):
+                                stop_rec.Reset()
+                                self._barge_in()
                         continue
+                    stop_rec.Reset()
 
                     if not self.mic_enabled:
                         wake = _fresh_wake()
@@ -836,8 +849,10 @@ class Hearing(threading.Thread):
 
                     # Бюджет вейк-блока: WAKE_BLOCK=1024 при 16000 Гц — 64 мс звука.
                     _t0 = time.monotonic()
+                    self.noise.feed(VT.rms_db(data))
+                    final = ""
                     if wake.AcceptWaveform(data):  # True — фраза завершена
-                        wake.Result()              # внутреннее состояние сброшено
+                        final = json.loads(wake.Result()).get("text", "")  # внутреннее состояние сброшено
                         _last_reset = time.monotonic()
                         partial = ""
                     else:
@@ -852,7 +867,8 @@ class Hearing(threading.Thread):
                     if _dt > _budget_ms and time.monotonic() - _last_warn >= 5.0:
                         _last_warn = time.monotonic()
                         log.warning(f"[hearing] блок обработан за {_dt:.0f}мс при бюджете {_budget_ms:.0f}мс — поток отстаёт")
-                    if any(w in partial for w in config.WAKE_WORDS):
+                    mode = VT.choose_mode(self.wake_sensitivity, self.noise.db)
+                    if VT.wake_hit(tuple(config.WAKE_WORDS), mode, partial, final):
                         self._timeline_sequence += 1
                         timeline = {
                             "id": self._timeline_sequence,
@@ -864,6 +880,20 @@ class Hearing(threading.Thread):
                         wake = _fresh_wake()
         except Exception as e:
             log.error(f"Слух упал: {e}")
+
+    def _barge_in(self):
+        """«Стоп» во время озвучки: остановить речь и очередь ответа, снять хвост глушения."""
+        log.info("[hearing] перебивание: «стоп» во время озвучки")
+        try:
+            self.agent.player.interrupt()
+        except Exception:  # noqa: BLE001
+            pass
+        self._mute_until = 0.0
+        self.agent.set_state("idle")
+        try:
+            self.agent.bus.emit("barge_in")
+        except Exception:  # noqa: BLE001
+            pass
 
     def _capture(self, stream, timeline: dict | None = None):
         self.agent.set_state("listening")

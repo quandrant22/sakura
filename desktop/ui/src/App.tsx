@@ -11,6 +11,12 @@ import { Chat, ChatStrip } from "./components/Chat";
 import { CoreFailedBanner } from "./components/CoreFailedBanner";
 import { ConfirmDialog, ControlBanner } from "./components/ControlSafety";
 import { OfflineBanner } from "./components/OfflineBanner";
+import { useTalkHotkey } from "./screens/VoiceSection";
+
+function TalkHotkey() {
+  useTalkHotkey();
+  return null;
+}
 import { Memory } from "./screens/Memory";
 import { Profile } from "./screens/Profile";
 import { CoreCard, MenuCard, type Section, SECTION_ORDER } from "./components/LeftColumn";
@@ -231,6 +237,7 @@ function Shell() {
       <OfflineBanner />
       <ControlBanner />
       <ConfirmDialog />
+      <TalkHotkey />
       <div className="flex min-h-0 flex-1 gap-gap px-edge pb-edge pt-gap">
         <aside className="flex w-[300px] shrink-0 flex-col gap-gap">
           <CoreCard />

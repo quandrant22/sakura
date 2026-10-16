@@ -254,6 +254,9 @@ class Agent:
                          source: str = "mic"):
         """source — откуда фраза: mic (голос), ui (окно чата), e2e (проверка), api (прочие клиенты)."""
         text = text.strip()
+        if source == "mic":  # таблица замен распознанного (Настройки → Голос): «вал хейм» → «Valheim»
+            from desktop.core.voice_tuning import apply_replacements
+            text = apply_replacements(text, getattr(self, "stt_replacements", None)).strip()
         if not text:
             return
         self.bus.emit("user_text", text=text, source=source)

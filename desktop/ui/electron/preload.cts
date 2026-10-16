@@ -34,6 +34,12 @@ const api = {
       return () => ipcRenderer.removeListener("core:state", h);
     },
     openLog: (): Promise<void> => ipcRenderer.invoke("core:open-log"),
+    onTalk: (cb: () => void): (() => void) => {
+      const h = () => cb();
+      ipcRenderer.on("control:talk", h);
+      return () => ipcRenderer.removeListener("control:talk", h);
+    },
+    setTalkHotkey: (combo: string): Promise<boolean> => ipcRenderer.invoke("talk:set-hotkey", combo),
     onPanic: (cb: () => void): (() => void) => {
       const h = () => cb();
       ipcRenderer.on("control:panic", h);

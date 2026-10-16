@@ -12,6 +12,7 @@ import { TOKEN_STEPS } from "../board/widgets/music/barLogic";
 import { errorText } from "../store";
 import { AppsSection } from "./AppsSection";
 import { SecretsSection } from "./SecretsSection";
+import { VoiceSection } from "./VoiceSection";
 import {
   DiagnosticsSection, ExtensionSection, GameModeSection, LanguageSection, NetworkSection, SoundSection, UpdateSection,
 } from "./SettingsExtra";
@@ -179,6 +180,7 @@ export function Settings() {
       <Card title="Интерфейс"><InterfaceSection /><LanguageSection /></Card>
       <Card title="Медиа"><MediaSection /></Card>
       <Card title="Звук"><SoundSection /></Card>
+      <Card title="Голос"><VoiceSection /></Card>
       <Card title="Сеть"><NetworkSection /></Card>
       <Card title="Расширение браузера"><ExtensionSection /></Card>
       <Card title="Игровой режим"><GameModeSection /></Card>

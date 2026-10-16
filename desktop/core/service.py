@@ -24,7 +24,7 @@ DEFAULT_SETTINGS = {
 # Ключи настроек, которые интерфейс может менять (остальное — через .env).
 SETTINGS_KEYS = frozenset(DEFAULT_SETTINGS) | {"autostart", "game_processes", "wake_sensitivity",
                                                "stt_model", "hotkey_talk", "input_device",
-                                               "output_device", "music_accessibility"}
+                                               "output_device", "music_accessibility", "stt_replacements"}
 # Встроенный сценарий «Фокус» на сервере.
 FOCUS_SCENARIO_ID = "focus"
 
@@ -372,12 +372,24 @@ class CoreService:
         if key not in SETTINGS_KEYS:
             raise ApiError("bad_request", f"нельзя менять настройку: {key}")
         self.settings.set(key, msg.get("value"))
+        self._apply_voice_settings()
         if key == "music_accessibility":
             from desktop.core import app_launch
             app_launch.PREFS["yandex_music"] = bool(msg.get("value"))
         snap = self.settings_snapshot()
         self._emit({"type": "settings", "settings": snap})
         return {"settings": snap}
+
+    def _apply_voice_settings(self):
+        """Голос: чувствительность «Сакура» — в слух, таблица замен — в агента."""
+        items = self.settings.items()
+        agent = getattr(self, "_agent", None)
+        hearing = getattr(agent, "hearing", None)
+        if hearing is not None:
+            hearing.wake_sensitivity = str(items.get("wake_sensitivity") or "auto")
+        if agent is not None:
+            pairs = items.get("stt_replacements") or []
+            agent.stt_replacements = [p for p in pairs if isinstance(p, (list, tuple)) and len(p) == 2][:200]
 
     async def cmd_game_mode(self, msg: dict):
         # Тот же путь, что команда сервера game_mode:on/off — событие шины (оверлей, трей).
@@ -588,5 +600,6 @@ class CoreService:
             # Конструктор тяжёлый (модели STT) — в потоке, чтобы API отвечал.
             self._agent = await asyncio.to_thread(factory, self.bus, server_link=self.link)
             self._agent.media = self.media
+            self._apply_voice_settings()
             self._emit({"type": "settings", "settings": self.settings_snapshot()})
         await self._agent.run()

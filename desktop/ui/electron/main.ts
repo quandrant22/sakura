@@ -112,6 +112,23 @@ function buildTrayMenu(): void {
   );
 }
 
+// «Говорить» (push-to-talk): глобальная клавиша → окно → listen_now; сочетание — Настройки → Голос.
+const DEFAULT_TALK_HOTKEY = "Control+Alt+Space";
+let talkHotkey: string | null = null;
+function registerTalkHotkey(combo: string): boolean {
+  if (talkHotkey) globalShortcut.unregister(talkHotkey);
+  talkHotkey = null;
+  try {
+    if (combo && globalShortcut.register(combo, () => win?.webContents.send("control:talk"))) {
+      talkHotkey = combo;
+      return true;
+    }
+  } catch {
+    // неверное сочетание — вернём false
+  }
+  return false;
+}
+
 function openCoreLog(): void {
   const log = path.join(logDir, "sakura.log");
   void shell.openPath(fs.existsSync(log) ? log : logDir);
@@ -150,6 +167,7 @@ ipcMain.handle("window:close", () => win?.close());
 ipcMain.handle("window:is-maximized", () => win?.isMaximized() ?? false);
 ipcMain.handle("app:version", () => app.getVersion());
 ipcMain.handle("core:state", () => coreState);
+ipcMain.handle("talk:set-hotkey", (_e, combo: unknown) => registerTalkHotkey(typeof combo === "string" ? combo : ""));
 ipcMain.handle("core:open-log", () => openCoreLog());
 ipcMain.handle("layout:get", (_e, deviceId: unknown) => readLayout(layoutFile, deviceId));
 ipcMain.handle("layout:set", (_e, deviceId: unknown, entry: unknown) => writeLayout(layoutFile, deviceId, entry));
@@ -426,6 +444,7 @@ if (!process.env.SAKURA_E2E && !app.requestSingleInstanceLock()) {
       void core.waitReady().then((ok) => console.log(`[core] ${ok ? "готово" : "не ответило вовремя"}`));
     }
     installDisplayMediaHandler();
+    registerTalkHotkey(process.env.PTT_HOTKEY || DEFAULT_TALK_HOTKEY);
     // Аварийная остановка управления ПК: PANIC_HOTKEY (по умолчанию Ctrl+Alt+End) — из любого окна.
     const panicKey = process.env.PANIC_HOTKEY || "Control+Alt+End";
     try {
