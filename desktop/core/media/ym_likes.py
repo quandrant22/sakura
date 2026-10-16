@@ -99,6 +99,26 @@ class YmLikes:
         return R.done("текст песни", lyrics=text[:6000]) if text.strip() else \
             R.unsupported("У этой песни в Яндекс.Музыке нет текста")
 
+    def queue(self, limit: int = 30) -> dict:
+        """Очередь, которую Яндекс синхронизирует между устройствами: [{title, artist, current}]."""
+        try:
+            c = self._c()
+            items = c.queues_list() or []
+            if not items:
+                return R.noop("Очередь пуста — включите что-нибудь в Яндекс.Музыке")
+            q = c.queue(items[0].id)
+            ids = list(getattr(q, "tracks", None) or [])
+            cur = getattr(q, "current_index", None) or 0
+            start = max(0, cur - 2)
+            window = ids[start:start + limit]
+            tracks = c.tracks([f"{t.track_id}:{t.album_id}" if t.album_id else str(t.track_id) for t in window]) or []
+        except Exception as e:  # noqa: BLE001
+            log.info("[yandex] очередь: %s", type(e).__name__)
+            return R.failed(API_DOWN)
+        rows = [{"title": t.title or "", "artist": ", ".join(a.name for a in (t.artists or []) if a.name),
+                 "current": start + i == cur} for i, t in enumerate(tracks)]
+        return R.done(f"в очереди {len(ids)}", queue=rows)
+
     def dislike(self, title: str, artist: str) -> dict:
         try:
             tid = self.track_id(title, artist)
