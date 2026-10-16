@@ -1,0 +1,80 @@
+(* securechannel/1 — Noise_IK, символьная модель для ProVerif 2.x.
+   Упрощение: DH как примитив с уравнением, AEAD как symenc с ad, HKDF как
+   две проекции хеша. Запуск: proverif docs/security/proverif/ik.pv
+   Модель НЕ запускалась на сервере (ProVerif не установлен) — см. FORMAL.md. *)
+
+type key. type pkey.
+fun g(key): pkey.
+fun dh(key, pkey): key.
+equation forall a: key, b: key; dh(a, g(b)) = dh(b, g(a)).
+
+fun h(bitstring): bitstring.
+fun hk1(key, key): key.          (* HKDF: новый ck *)
+fun hk2(key, key): key.          (* HKDF: ключ шифра *)
+fun k2b(key): bitstring [data].
+fun p2b(pkey): bitstring [data].
+
+fun aenc(key, bitstring, bitstring): bitstring.                 (* k, ad, m *)
+reduc forall k: key, ad: bitstring, m: bitstring; adec(k, ad, aenc(k, ad, m)) = m.
+
+free c: channel.
+const prologue, proto: bitstring.
+const ck0: key.
+
+free payload_s: bitstring [private].      (* транспорт сервер → клиент *)
+free payload_c: bitstring [private].      (* транспорт клиент → сервер *)
+
+event ClientStarted(pkey, pkey).          (* клиент, сервер *)
+event ServerAccepted(pkey, pkey).
+event ClientDone(pkey, pkey, key).
+event ServerDone(pkey, pkey, key).
+
+(* Ключи сервера и устройства — долговременные; LeakS/LeakC моделируют
+   компрометацию ПОСЛЕ сеанса (для прямой секретности). *)
+
+let client(sc: key, ss_pub: pkey) =
+  new e: key;
+  event ClientStarted(g(sc), ss_pub);
+  let h0 = h((proto, prologue, p2b(ss_pub))) in
+  let ck1 = hk1(ck0, dh(e, ss_pub)) in let k1 = hk2(ck0, dh(e, ss_pub)) in      (* es *)
+  let enc_s = aenc(k1, h((h0, p2b(g(e)))), p2b(g(sc))) in                       (* s *)
+  let ck2 = hk1(ck1, dh(sc, ss_pub)) in let k2 = hk2(ck1, dh(sc, ss_pub)) in    (* ss *)
+  out(c, (g(e), enc_s, aenc(k2, h(enc_s), proto)));                             (* IK_INIT: только идентификация *)
+  in(c, (re: pkey, m2: bitstring));
+  let ck3 = hk1(ck2, dh(e, re)) in                                               (* ee *)
+  let ck4 = hk1(ck3, dh(sc, re)) in let k4 = hk2(ck3, dh(sc, re)) in            (* se *)
+  let x = adec(k4, h(m2), m2) in
+  event ClientDone(g(sc), ss_pub, ck4);
+  out(c, aenc(ck4, proto, payload_c));
+  in(c, t: bitstring);
+  let y = adec(ck4, prologue, t) in 0.
+
+let server(ss: key, sc_pub_known: pkey) =
+  in(c, (re: pkey, enc_s: bitstring, m1tail: bitstring));
+  let h0 = h((proto, prologue, p2b(g(ss)))) in
+  let ck1 = hk1(ck0, dh(ss, re)) in let k1 = hk2(ck0, dh(ss, re)) in
+  let p2b(rs) = adec(k1, h((h0, p2b(re))), enc_s) in
+  if rs = sc_pub_known then                                    (* реестр устройств *)
+  let ck2 = hk1(ck1, dh(ss, rs)) in let k2 = hk2(ck1, dh(ss, rs)) in
+  let z = adec(k2, h(enc_s), m1tail) in
+  new e: key;
+  let ck3 = hk1(ck2, dh(e, re)) in
+  let ck4 = hk1(ck3, dh(e, rs)) in let k4 = hk2(ck3, dh(e, rs)) in
+  let m2 = aenc(k4, prologue, proto) in
+  event ServerAccepted(rs, g(ss));
+  out(c, (g(e), m2));
+  event ServerDone(rs, g(ss), ck4);
+  in(c, t: bitstring);
+  let q = adec(ck4, proto, t) in
+  out(c, aenc(ck4, prologue, payload_s)).
+
+(* Свойства *)
+query attacker(payload_c).                                     (* G1 *)
+query attacker(payload_s).
+query a: pkey, b: pkey, k: key; event(ClientDone(a, b, k)) ==> event(ServerAccepted(a, b)).   (* G4 *)
+query a: pkey, b: pkey, k: key; inj-event(ServerDone(a, b, k)) ==> inj-event(ClientStarted(a, b)).  (* G3; inj — повтор IK_INIT не даёт второго ServerDone с тем же ключом? см. FORMAL.md *)
+
+process
+  new ss: key; new sc: key;
+  out(c, (g(ss), g(sc)));
+  ( !client(sc, g(ss)) | !server(ss, g(sc)) )

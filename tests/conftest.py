@@ -74,3 +74,17 @@ def no_tts_preconnect_network(monkeypatch):
     monkeypatch.setattr(wh, "tts_preconnect", AsyncMock(return_value=False))
     monkeypatch.setattr(wh, "tts_release_preconnect", AsyncMock())
 
+
+
+@pytest.fixture(autouse=True)
+def isolated_secure_dir(monkeypatch, tmp_path):
+    """Защищённый канал: ключи и реестр — во временном каталоге теста."""
+    import config
+    monkeypatch.setattr(config, "SECURE_DIR", str(tmp_path / "secure"), raising=False)
+    try:
+        from sakura_core import secure_policy
+        secure_policy.reset_context()
+        yield
+        secure_policy.reset_context()
+    except ImportError:
+        yield
