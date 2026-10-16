@@ -26,9 +26,12 @@ _CAPS_TEXT = (ROOT / "sakura_core" / "capabilities.yaml").read_text(encoding="ut
 AGENT_CAPS = [c for c in yaml.safe_load(_CAPS_TEXT) if c.get("executor") == "agent"]
 WIRE = json.loads((Path(__file__).parent / "fixtures" / "agent_wire_actions.json")
                   .read_text(encoding="utf-8"))["wire"]
+# computer.do — только вместе с серверным computer_step (решение владельца).
+KNOWN_UNSUPPORTED = {"computer.do"}
 EXPECTED_DOMAINS = {"browser": 10, "app": 2, "close_window": 1, "ext": 2, "game_mode": 2,
-                    "music": 18, "system": 6, "open": 1, "screenshot": 2, "youtube": 12,
-                    "kettle": 5, "files": 1}
+                    "music": 20, "system": 6, "open": 1, "screenshot": 2, "youtube": 12,
+                    "kettle": 5, "files": 6, "window": 7, "power": 3, "process": 2, "clipboard": 3,
+                    "display": 2, "audio": 1, "net": 2, "keys": 3, "ui": 4, "computer": 1}
 
 
 class FakeWS:
@@ -71,6 +74,13 @@ def rec(monkeypatch):
             calls.append(("yandex_remote." + op, (value,)))
             return {"ok": True, "status": "done", "detail": op}
     monkeypatch.setattr(agent_module, "_yamusic_remote", Remote)
+    # Управление ПК (control) — только запись: тест не должен ничего делать с компьютером (power.lock и т.п.).
+    from desktop.core import control
+
+    def fake_execute(action, arg="", confirmed=False):
+        calls.append(("control.execute", (action, arg, confirmed)))
+        return {"ok": True, "status": "done", "detail": "ok"}
+    monkeypatch.setattr(control, "execute", fake_execute)
     ext = SimpleNamespace(is_connected=lambda: True, send_command=_async(calls, "extension.send_command"))
     monkeypatch.setitem(sys.modules, "desktop.core.extension_server", ext)
     return calls
@@ -106,7 +116,7 @@ def _agent(calls):
 
 
 def test_registry_has_62_agent_actions_and_wire_for_each():
-    assert len(AGENT_CAPS) == 62
+    assert len(AGENT_CAPS) == 97
     assert dict(Counter(c["id"].split(".")[0] for c in AGENT_CAPS)) == EXPECTED_DOMAINS
     assert sorted(WIRE) == sorted(c["id"] for c in AGENT_CAPS)
 
@@ -120,6 +130,9 @@ def test_action_reaches_executor(cid, rec):
     results = [m for m in a._ws.sent if m.get("type") == "command_result"]
     assert results and results[-1]["id"] == "c1", f"{cid}: нет command_result"
     last = results[-1]
+    if cid in KNOWN_UNSUPPORTED:  # осознанно не делается — честный отказ, а не ошибка
+        assert last["status"] == "unsupported", f"{cid}: ожидался честный отказ, пришло {last}"
+        return
     assert last.get("ok", True) is not False and "error" not in str(last.get("detail", "")), \
         f"{cid}: ошибка исполнения {last}"
 

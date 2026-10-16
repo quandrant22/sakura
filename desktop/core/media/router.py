@@ -79,6 +79,8 @@ def canonical(action: str) -> tuple[str, str] | None:
             pre = dom + sep
             if action.startswith(pre):
                 verb = action[len(pre):].split(":", 1)[0]
+                if dom == "music" and verb == "restart_playing":  # «с начала» во время музыки — то же, что restart
+                    verb = "restart"
                 if dom == "music" and verb in MUSIC_ACTIONS:
                     return dom, verb
                 if dom == "youtube" and verb in YOUTUBE_ACTIONS:

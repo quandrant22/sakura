@@ -248,6 +248,146 @@
   "files.open": [
    "open_file:отчёт",
    ""
+  ],
+  "music.restart": [
+   "music.restart",
+   ""
+  ],
+  "music.restart_playing": [
+   "music.restart_playing",
+   ""
+  ],
+  "window.minimize": [
+   "window.minimize",
+   ""
+  ],
+  "window.maximize": [
+   "window.maximize",
+   ""
+  ],
+  "window.restore": [
+   "window.restore",
+   ""
+  ],
+  "window.snap": [
+   "window.snap",
+   "left"
+  ],
+  "window.move_monitor": [
+   "window.move_monitor",
+   "next"
+  ],
+  "window.focus": [
+   "window.focus",
+   "блокнот"
+  ],
+  "window.list": [
+   "window.list",
+   ""
+  ],
+  "power.lock": [
+   "power.lock",
+   ""
+  ],
+  "power.display_off": [
+   "power.display_off",
+   ""
+  ],
+  "power.sleep": [
+   "power.sleep",
+   ""
+  ],
+  "process.list": [
+   "process.list",
+   ""
+  ],
+  "process.kill": [
+   "process.kill",
+   "notepad"
+  ],
+  "clipboard.read": [
+   "clipboard.read",
+   ""
+  ],
+  "clipboard.write": [
+   "clipboard.write",
+   "текст"
+  ],
+  "clipboard.clear": [
+   "clipboard.clear",
+   ""
+  ],
+  "display.brightness": [
+   "display.brightness",
+   "50"
+  ],
+  "display.night_light": [
+   "display.night_light",
+   "on"
+  ],
+  "audio.mic_mute": [
+   "audio.mic_mute",
+   "on"
+  ],
+  "net.wifi": [
+   "net.wifi",
+   "off"
+  ],
+  "net.bluetooth": [
+   "net.bluetooth",
+   "off"
+  ],
+  "keys.type": [
+   "keys.type",
+   "привет"
+  ],
+  "keys.hotkey": [
+   "keys.hotkey",
+   "ctrl+c"
+  ],
+  "keys.media": [
+   "keys.media",
+   "next"
+  ],
+  "files.reveal": [
+   "files.reveal",
+   "C:\\x\\a.txt"
+  ],
+  "files.recent": [
+   "files.recent",
+   ""
+  ],
+  "files.copy": [
+   "files.copy",
+   "C:\\x\\a.txt|C:\\y"
+  ],
+  "files.move": [
+   "files.move",
+   "C:\\x\\a.txt|C:\\y"
+  ],
+  "files.delete": [
+   "files.delete",
+   "C:\\x\\a.txt"
+  ],
+  "ui.click": [
+   "ui.click",
+   "OK"
+  ],
+  "ui.type": [
+   "ui.type",
+   "поле|текст"
+  ],
+  "ui.scroll": [
+   "ui.scroll",
+   "down"
+  ],
+  "ui.read": [
+   "ui.read",
+   ""
+  ],
+  "computer.do": [
+   "computer.do",
+   "открой блокнот"
   ]
  }
 }

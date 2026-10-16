@@ -171,6 +171,8 @@ def _legacy_action(action: str, arg: str = "") -> str:
         return f"system:{verb}"
     # Сервер шлёт громкость legacy-именем «volume» + число; id реестра system.volume — синоним.
     # «+N»/«-N» — относительно текущей (hands: volume_up/volume_down).
+    if action == "music.restart_playing":
+        return "music.restart"
     if action == "system.volume":
         a = (arg or "").strip()
         if a[:1] in ("+", "-") and a[1:].isdigit():
@@ -602,6 +604,11 @@ class Agent:
         async def _send_ack(res: dict, extra: dict | None = None):
             """command_result по контракту {ok, status, detail} (desktop.core.results)."""
             await self._send_result(cmd_id, res, extra)
+
+        # computer.do (выполнение задачи по шагам) — только вместе с серверным computer_step (решение владельца).
+        if action == "computer.do":
+            await _send_ack(R.unsupported("пока не поддерживается: нужен серверный computer_step"))
+            return
 
         # «Включи музыку» (шаг Ж): запустить Яндекс.Музыку и начать воспроизведение.
         if action == "music.autoplay":
