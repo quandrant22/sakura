@@ -27,6 +27,8 @@ export interface SakuraBridge {
   /** Виджет в отдельном окне. */
   widgets: { popout(type: string, id: string): Promise<void> };
   openLogs(): Promise<string>;
+  /** Сохранить переписку в файл (диалог); false — отменено. */
+  exportChat(text: string): Promise<boolean>;
   core: {
     connection(): Promise<CoreConnection | null>;
     /** Состояние ядра, запущенного окном; null — ядро запущено отдельно. */
@@ -35,6 +37,10 @@ export interface SakuraBridge {
     openLog(): Promise<void>;
     /** Аварийная остановка по глобальной клавише (PANIC_HOTKEY). */
     onPanic(cb: () => void): () => void;
+    /** «Говорить» по глобальной клавише (push-to-talk). */
+    onTalk(cb: () => void): () => void;
+    /** Сменить сочетание «говорить»; false — занято или неверно. */
+    setTalkHotkey(combo: string): Promise<boolean>;
   };
   tray: {
     onAction(cb: (id: string) => void): () => void;
@@ -91,7 +97,8 @@ const fallback: SakuraBridge = {
   layout: memoryLayout(),
   widgets: { popout: async () => {} },
   openLogs: async () => "",
-  core: { connection: async () => null, state: async () => null, onState: () => () => {}, openLog: async () => {}, onPanic: () => () => {} },
+  exportChat: async () => false,
+  core: { connection: async () => null, state: async () => null, onState: () => () => {}, openLog: async () => {}, onPanic: () => () => {}, onTalk: () => () => {}, setTalkHotkey: async () => false },
   tray: { onAction: () => () => {}, setState: async () => {} },
   autostart: { get: async () => false, set: async (v) => v },
   capture: {

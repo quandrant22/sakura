@@ -29,7 +29,7 @@ PROTO = 2
 CLOSE_UNAUTHORIZED = 4401
 
 V2_REQUESTS = {
-    "history_request", "devices_request", "status_request",
+    "history_request", "history_search", "history_delete", "devices_request", "status_request",
     "scenarios_list", "scenario_get", "scenario_save", "scenario_delete",
     "scenario_run", "scenario_from_text",
     "memory_list", "memory_search", "memory_update", "memory_delete",
@@ -159,6 +159,19 @@ class MockServer:
         items = [m for m in self.state["history"]["messages"]
                  if before is None or m["ts"] < before]
         return {"type": "history", "messages": items[-limit:]}
+
+    async def _history_search(self, ws, msg):
+        q = str(msg.get("q") or "").lower()
+        items = [m for m in self.state["history"]["messages"] if q and q in str(m.get("text", "")).lower()]
+        return {"type": "history", "messages": items[-int(msg.get("limit") or 50):]}
+
+    async def _history_delete(self, ws, msg):
+        msgs = self.state["history"]["messages"]
+        before = len(msgs)
+        self.state["history"]["messages"] = [m for m in msgs if m.get("id") != msg.get("id")]
+        if len(self.state["history"]["messages"]) == before:
+            return self._err(msg, "not_found", "сообщение не найдено")
+        return {"type": "history_deleted", "id": msg.get("id")}
 
     async def _devices_request(self, ws, msg):
         return {"type": "devices", "devices": self.state["devices"]["devices"]}

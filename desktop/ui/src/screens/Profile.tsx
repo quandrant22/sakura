@@ -2,10 +2,9 @@
 import { UserRound } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { CoreError } from "../api/types";
 import { Card } from "../components/ui";
 import { useMediaClient } from "../media/MediaContext";
-import { errorText } from "../store";
+import { errorKind, errorText } from "../store";
 
 export interface ProfileData {
   name: string; address_as: string; quiet_hours: string; voice: string; tone: string;
@@ -26,9 +25,9 @@ export function Profile() {
       (r) => { if (alive) { setP(r.profile); setState("ready"); } },
       (e: unknown) => {
         if (!alive) return;
-        const un = e instanceof CoreError && (e.code === "unsupported" || e.code === "unknown_type");
-        setState(un ? "unsupported" : "error");
-        setMsg(un ? "Сервер не поддерживает «Профиль»" : errorText(e));
+        const kind = errorKind(e);
+        setState(kind === "unsupported" ? "unsupported" : "error");
+        setMsg(kind === "unsupported" ? "Сервер ещё не поддерживает «Профиль»" : errorText(e));
       },
     );
     return () => { alive = false; };

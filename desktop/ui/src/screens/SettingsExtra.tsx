@@ -113,6 +113,15 @@ export function GameModeSection() {
   );
 }
 
+/** «Канал: защищён / нет» и версия протокола для Диагностики. */
+export function channelLine(diag: Record<string, unknown>): string {
+  const ch = (diag.channel ?? {}) as { transport?: string | null; secure?: boolean };
+  const server = (diag.server ?? {}) as { online?: boolean; proto?: number | null };
+  const secure = ch.secure ? "защищён" : "не защищён";
+  const t = ch.transport ?? (server.online ? "ws" : "нет связи");
+  return `${secure} (${t})${server.proto ? `, протокол v${server.proto}` : ""}`;
+}
+
 export function DiagnosticsSection() {
   const client = useMediaClient();
   const [diag, setDiag] = useState<Record<string, unknown> | null>(null);
@@ -142,6 +151,8 @@ export function DiagnosticsSection() {
           <dt className="text-ink-dim">Устройство</dt><dd className="text-ink">{String(diag.device_id)}</dd>
           <dt className="text-ink-dim">Ядро</dt><dd className="text-ink">pid {String(diag.pid)}, Python {String(diag.python)}</dd>
           <dt className="text-ink-dim">Система</dt><dd className="text-ink">{String(diag.os)}</dd>
+          <dt className="text-ink-dim">Канал</dt>
+          <dd className="text-ink">{channelLine(diag)}</dd>
           <dt className="text-ink-dim">Трек: событие → окно</dt>
           <dd className="text-ink">{music?.count ? `p50 ${music.p50} мс, p95 ${music.p95} мс (${music.count})` : "замеров пока нет"}</dd>
         </dl>

@@ -85,3 +85,18 @@ def test_not_found_and_api_down():
     y = YmLikes(client_factory=boom)
     assert y.toggle_like("Песня", "Певица")["detail"] == API_DOWN
     assert y.dislike("Песня", "Певица")["detail"] == API_DOWN
+
+
+def test_queue_window_around_current():
+    y, c, _ = make()
+    ids = [NS(track_id=str(i), album_id="9") for i in range(50)]
+    c.queues_list = lambda: [NS(id="q1")]
+    c.queue = lambda qid: NS(tracks=ids, current_index=10)
+    c.tracks = lambda tids: [NS(title=f"T{t.split(':')[0]}", artists=[NS(name="A")]) for t in tids]
+    out = y.queue()
+    assert out["ok"] and out["detail"] == "в очереди 50" and len(out["queue"]) == 30
+    assert out["queue"][0]["title"] == "T8" and out["queue"][2] == {"title": "T10", "artist": "A", "current": True}
+    c.queues_list = lambda: []
+    assert y.queue()["status"] == "noop"
+    c.queues_list = lambda: 1 / 0
+    assert y.queue()["detail"] == API_DOWN

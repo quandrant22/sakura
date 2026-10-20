@@ -33,9 +33,13 @@ export interface ControlResult {
   /** Повторить действие через столько мс (звук приложения ещё не появился). */
   retry_ms?: number;
   lyrics?: string;
+  /** Очередь из облака Яндекса (op «queue»). */
+  queue?: QueueRow[];
   liked?: boolean;
   volume?: number;
 }
+
+export interface QueueRow { title: string; artist: string; current: boolean }
 
 export interface Hint {
   text: string;

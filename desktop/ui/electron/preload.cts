@@ -24,6 +24,7 @@ const api = {
     popout: (type: string, id: string): Promise<void> => ipcRenderer.invoke("widget:popout", type, id),
   },
   openLogs: (): Promise<string> => ipcRenderer.invoke("app:open-logs"),
+  exportChat: (text: string): Promise<boolean> => ipcRenderer.invoke("chat:export", text),
   core: {
     connection: (): Promise<{ port: number; token: string } | null> => ipcRenderer.invoke("core:connection"),
     state: (): Promise<string | null> => ipcRenderer.invoke("core:state"),
@@ -33,6 +34,12 @@ const api = {
       return () => ipcRenderer.removeListener("core:state", h);
     },
     openLog: (): Promise<void> => ipcRenderer.invoke("core:open-log"),
+    onTalk: (cb: () => void): (() => void) => {
+      const h = () => cb();
+      ipcRenderer.on("control:talk", h);
+      return () => ipcRenderer.removeListener("control:talk", h);
+    },
+    setTalkHotkey: (combo: string): Promise<boolean> => ipcRenderer.invoke("talk:set-hotkey", combo),
     onPanic: (cb: () => void): (() => void) => {
       const h = () => cb();
       ipcRenderer.on("control:panic", h);

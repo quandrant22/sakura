@@ -133,3 +133,17 @@ test("процесс есть, сессии нет — «Запускается�
   await waitFor(() => expect(screen.getByText("Запускается…")).toBeTruthy());
   expect(screen.queryByText(/Открыть Яндекс.Музыку/)).toBeNull();
 });
+
+test("очередь: с токеном — список, текущий трек отмечен", async () => {
+  const c = setup({ ...new RemoteClient("normal").state, can_like: true, like_hint: null });
+  await waitFor(() => expect(screen.getByLabelText("Очередь")).toBeTruthy());
+  const orig = c.call.bind(c);
+  c.call = async <T,>(type: string, payload: Record<string, unknown> = {}): Promise<T> =>
+    (payload.op === "queue" ? { ok: true, status: "done", detail: "в очереди 2",
+      queue: [{ title: "Песня", artist: "Певица", current: true }, { title: "Дальше", artist: "Б", current: false }] } as T
+      : orig<T>(type, payload));
+  fireEvent.click(screen.getByLabelText("Очередь"));
+  const dlg = await screen.findByRole("dialog", { name: "Очередь" });
+  expect(dlg.textContent).toContain("Дальше");
+  expect(dlg.querySelector("[aria-current]")?.textContent).toContain("Песня");
+});

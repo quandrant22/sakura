@@ -14,6 +14,8 @@ import {
   type Status,
 } from "./api/types";
 
+export const HISTORY_PAGE = 50;
+
 export type LoadStatus = "idle" | "loading" | "ready" | "error" | "unsupported";
 
 export interface Slice<T> {
@@ -21,6 +23,8 @@ export interface Slice<T> {
   status: LoadStatus;
   error?: string;
 }
+
+export interface ScenarioEvent { run_id: string; step: number; status: string; detail: string }
 
 export interface ConfirmRequest { id: string; action: string; label: string; ts: number; expires: number }
 
@@ -55,9 +59,19 @@ export interface AppState {
 
   init(): () => void;
   loadHistory(): Promise<void>;
+  /** История: есть ли сообщения раньше загруженных (подгрузка вверх). */
+  chatMore: boolean;
+  loadOlder(): Promise<void>;
+  searchHistory(q: string): Promise<Message[]>;
+  /** Удалить сообщение из истории на сервере (после подтверждения в окне). */
+  deleteMessage(id: string): Promise<void>;
   loadDevices(): Promise<void>;
   loadStatus(): Promise<void>;
   loadScenarios(): Promise<void>;
+  /** Журнал запусков сценариев (события scenario_event сервера). */
+  scenarioLog: (ScenarioEvent & { ts: number })[];
+  runScenario(id: string): Promise<void>;
+  deleteScenario(id: string): Promise<void>;
   sendText(text: string): Promise<void>;
   quickAction(id: string, arg?: string): Promise<void>;
   listApps(): Promise<string[]>;
@@ -92,8 +106,32 @@ export function insertInTurn(msgs: Message[], m: Message): Message[] {
 }
 
 /** Понятный текст ошибки для пользователя. */
+/** Вид ошибки ответа сервера: экраны различают «ещё не поддерживает», «нужен защищённый канал», «не отвечает». */
+export type ErrorKind = "unsupported" | "secure" | "timeout" | "offline" | "error";
+
+export const SECURE_HINT = "Нужен защищённый канал: включи VPN или подключи устройство (Настройки → Безопасность)";
+
+export function errorKind(e: unknown): ErrorKind {
+  if (!(e instanceof CoreError)) return "error";
+  if (["unsupported", "unknown_type", "unknown_command", "not_supported"].includes(e.code)) return "unsupported";
+  if (e.code === "secure_channel_required") return "secure";
+  if (e.code === "timeout") return "timeout";
+  if (e.code === "offline" || e.code === "core_offline") return "offline";
+  return "error";
+}
+
 export function errorText(e: unknown): string {
   if (e instanceof CoreError) {
+    switch (errorKind(e)) {
+      case "unsupported":
+        return "Сервер ещё не поддерживает";
+      case "secure":
+        return SECURE_HINT;
+      case "timeout":
+        return "Сервер не отвечает";
+      default:
+        break;
+    }
     switch (e.code) {
       case "offline":
         return "Нет связи с сервером";
@@ -225,6 +263,11 @@ export function createAppStore(client: CoreClient) {
         case "power_cancelled":
           set({ power: null });
           break;
+        case "scenario_event": {
+          const e = ev as unknown as ScenarioEvent;
+          set({ scenarioLog: [...get().scenarioLog.slice(-99), { ...e, ts: Date.now() / 1000 }] });
+          break;
+        }
         case "control_paused":
           set({ controlPaused: Boolean((ev as { on?: boolean }).on) });
           break;
@@ -302,9 +345,36 @@ export function createAppStore(client: CoreClient) {
 
       loadHistory: () =>
         load("chat", async () => {
-          const r = await client.server<{ messages: Message[] }>({ type: "history_request", limit: 50 });
+          const r = await client.server<{ messages: Message[] }>({ type: "history_request", limit: HISTORY_PAGE });
+          set({ chatMore: r.messages.length >= HISTORY_PAGE });
           return r.messages;
         }),
+      chatMore: false,
+      scenarioLog: [],
+      async runScenario(id) {
+        const r = await client.server<{ run_id: string }>({ type: "scenario_run", id });
+        set({ scenarioLog: [...get().scenarioLog, { run_id: r.run_id, step: -1, status: "started", detail: id, ts: Date.now() / 1000 }] });
+      },
+      async deleteScenario(id) {
+        const r = await client.server<{ scenarios: Scenario[] }>({ type: "scenario_delete", id });
+        set({ scenarios: { ...get().scenarios, data: r.scenarios ?? get().scenarios.data.filter((s) => s.id !== id) } });
+      },
+      async loadOlder() {
+        const first = get().chat.data[0];
+        if (!first) return;
+        const r = await client.server<{ messages: Message[] }>({ type: "history_request", limit: HISTORY_PAGE,
+                                                                 before_ts: first.ts });
+        const have = new Set(get().chat.data.map((m) => m.id));
+        set({ chat: { ...get().chat, data: [...r.messages.filter((m) => !have.has(m.id)), ...get().chat.data] },
+              chatMore: r.messages.length >= HISTORY_PAGE });
+      },
+      async searchHistory(q) {
+        return (await client.server<{ messages: Message[] }>({ type: "history_search", q, limit: 50 })).messages;
+      },
+      async deleteMessage(id) {
+        await client.server({ type: "history_delete", id });
+        set({ chat: { ...get().chat, data: get().chat.data.filter((m) => m.id !== id) } });
+      },
       loadDevices: () =>
         load("devices", async () => (await client.server<{ devices: Device[] }>({ type: "devices_request" })).devices),
       loadStatus: () =>

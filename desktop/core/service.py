@@ -24,7 +24,7 @@ DEFAULT_SETTINGS = {
 # Ключи настроек, которые интерфейс может менять (остальное — через .env).
 SETTINGS_KEYS = frozenset(DEFAULT_SETTINGS) | {"autostart", "game_processes", "wake_sensitivity",
                                                "stt_model", "hotkey_talk", "input_device",
-                                               "output_device", "music_accessibility"}
+                                               "output_device", "music_accessibility", "stt_replacements"}
 # Встроенный сценарий «Фокус» на сервере.
 FOCUS_SCENARIO_ID = "focus"
 
@@ -219,6 +219,10 @@ class CoreService:
         c("music_metrics", self.cmd_music_metrics)
         c("app_restart", self.cmd_app_restart)
         c("secrets_status", self.cmd_secrets_status)
+        c("config_values", self.cmd_config_values)
+        c("config_set", self.cmd_config_set)
+        c("sound_test", self.cmd_sound_test)
+        c("mic_level", self.cmd_mic_level)
         c("secrets_set", self.cmd_secrets_set)
         c("core_restart", self.cmd_core_restart)
         if os.getenv("SAKURA_LIVECHECK") == "1":
@@ -324,6 +328,42 @@ class CoreService:
             raise ApiError("bad_request", str(e)) from None
         return {"keys": envfile.status(path), "restart_suggested": True}
 
+    # ── мастер «Подключение» ──
+    async def cmd_config_values(self, msg: dict):
+        from desktop.core import envfile
+        return {"values": envfile.config_values(envfile.env_path()), "running": {
+            "DEVICE_ID": config.DEVICE_ID, "VPS_WS_URL": config.VPS_WS_URL,
+            "SERVER_TRANSPORT": config.SERVER_TRANSPORT or "ws"}}
+
+    async def cmd_config_set(self, msg: dict):
+        from desktop.core import envfile
+        key = str(msg.get("key") or "")
+        if key not in envfile.CONFIG_KEYS:
+            raise ApiError("bad_request", "этот ключ нельзя менять в мастере")
+        return await self.cmd_secrets_set(msg)
+
+    async def cmd_sound_test(self, msg: dict):
+        """Тестовый звук на устройство вывода голоса: 0.6 с, 440→660 Гц, негромко."""
+        try:
+            import numpy as np
+            import sounddevice as sd
+        except ImportError:
+            raise ApiError("unavailable", "звуковая библиотека недоступна") from None
+        rate = 24000
+        t = np.arange(int(rate * 0.6)) / rate
+        f = np.where(t < 0.3, 440.0, 660.0)
+        wave = (0.15 * np.sin(2 * np.pi * f * t) * np.minimum(1, (0.6 - t) * 20)).astype("float32")
+        device = self.settings.items().get("output_device")
+        await asyncio.to_thread(lambda: (sd.play(wave, rate, device=device), sd.wait()))
+        return {"ok": True}
+
+    async def cmd_mic_level(self, msg: dict):
+        """Уровень фона микрофона (dBFS) по оценке слуха — для индикатора в мастере."""
+        hearing = getattr(self._agent, "hearing", None)
+        noise = getattr(hearing, "noise", None)
+        return {"db": round(noise.db, 1) if noise is not None else None,
+                "mic_enabled": bool(getattr(hearing, "mic_enabled", False))}
+
     async def cmd_core_restart(self, msg: dict):
         """Перезапуск ядра (новые значения .env): окно (CoreSupervisor) запустит ядро заново."""
         log.info("[core] перезапуск по запросу интерфейса")
@@ -379,12 +419,24 @@ class CoreService:
         if key not in SETTINGS_KEYS:
             raise ApiError("bad_request", f"нельзя менять настройку: {key}")
         self.settings.set(key, msg.get("value"))
+        self._apply_voice_settings()
         if key == "music_accessibility":
             from desktop.core import app_launch
             app_launch.PREFS["yandex_music"] = bool(msg.get("value"))
         snap = self.settings_snapshot()
         self._emit({"type": "settings", "settings": snap})
         return {"settings": snap}
+
+    def _apply_voice_settings(self):
+        """Голос: чувствительность «Сакура» — в слух, таблица замен — в агента."""
+        items = self.settings.items()
+        agent = getattr(self, "_agent", None)
+        hearing = getattr(agent, "hearing", None)
+        if hearing is not None:
+            hearing.wake_sensitivity = str(items.get("wake_sensitivity") or "auto")
+        if agent is not None:
+            pairs = items.get("stt_replacements") or []
+            agent.stt_replacements = [p for p in pairs if isinstance(p, (list, tuple)) and len(p) == 2][:200]
 
     async def cmd_game_mode(self, msg: dict):
         # Тот же путь, что команда сервера game_mode:on/off — событие шины (оверлей, трей).
@@ -664,5 +716,6 @@ class CoreService:
             # Конструктор тяжёлый (модели STT) — в потоке, чтобы API отвечал.
             self._agent = await asyncio.to_thread(factory, self.bus, server_link=self.link)
             self._agent.media = self.media
+            self._apply_voice_settings()
             self._emit({"type": "settings", "settings": self.settings_snapshot()})
         await self._agent.run()

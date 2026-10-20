@@ -81,3 +81,20 @@ def test_api_secrets_status_and_set(tmp_path, monkeypatch):
     with pytest.raises(ApiError) as e:
         asyncio.run(svc.cmd_secrets_set({"key": "DEVICE_ID", "value": "z"}))
     assert e.value.code == "bad_request"
+
+
+def test_config_keys_validated_and_readable(tmp_path):
+    p = write(tmp_path, "WS_TOKEN=x\nDEVICE_ID=mostech\n")
+    E.set_secret(p, "VPS_WS_URL", "ws://31.76.80.5:8765")
+    E.set_secret(p, "SERVER_TRANSPORT", "noise")
+    assert E.config_values(p) == {"DEVICE_ID": "mostech",
+                                  "VPS_WS_URL": "ws://31.76.80.5:8765", "SERVER_TRANSPORT": "noise"}
+    for key, bad in (("VPS_WS_URL", "http://x"), ("SERVER_TRANSPORT", "tls"), ("DEVICE_ID", "мой пк!")):
+        with pytest.raises(E.SecretError):
+            E.set_secret(p, key, bad)
+    assert "x" not in json_dump(E.config_values(p))  # секретов среди значений нет
+
+
+def json_dump(d):
+    import json
+    return json.dumps(d)

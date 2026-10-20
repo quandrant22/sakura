@@ -11,8 +11,10 @@ import type { MediaSettings } from "../media/types";
 import { TOKEN_STEPS } from "../board/widgets/music/barLogic";
 import { errorText } from "../store";
 import { AppsSection } from "./AppsSection";
+import { ConnectionWizard } from "./ConnectionWizard";
 import { SecretsSection } from "./SecretsSection";
 import { SecuritySection } from "./SecuritySection";
+import { VoiceSection } from "./VoiceSection";
 import {
   DiagnosticsSection, ExtensionSection, GameModeSection, LanguageSection, NetworkSection, SoundSection, UpdateSection,
 } from "./SettingsExtra";
@@ -177,9 +179,11 @@ function AutostartRow() {
 export function Settings() {
   return (
     <div className="flex h-full min-h-0 flex-col gap-gap overflow-y-auto pr-1">
+      <Card title="Подключение"><ConnectionWizard /></Card>
       <Card title="Интерфейс"><InterfaceSection /><LanguageSection /></Card>
       <Card title="Медиа"><MediaSection /></Card>
       <Card title="Звук"><SoundSection /></Card>
+      <Card title="Голос"><VoiceSection /></Card>
       <Card title="Сеть"><NetworkSection /></Card>
       <Card title="Расширение браузера"><ExtensionSection /></Card>
       <Card title="Игровой режим"><GameModeSection /></Card>

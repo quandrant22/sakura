@@ -217,9 +217,11 @@ class YandexRemote:
                 return R.noop(NO_SOUND, retry_ms=RETRY_MS)
             got = self.platform.app_volume_set(APP_NAMES, 0 if cur > 0 else int(value or 50))
             return R.done("звук Яндекс.Музыки выключен" if got == 0 else f"звук Яндекс.Музыки {got}%")
-        if op in ("like", "dislike", "lyrics"):
+        if op in ("like", "dislike", "lyrics", "queue"):
             if not self.has_token():
                 return R.unsupported(TOKEN_HINT, help="token")
+            if op == "queue":
+                return await asyncio.to_thread(self.likes.queue)
             title, artist = self._track
             if not title:
                 info = await s._smtc_get_info() or {}

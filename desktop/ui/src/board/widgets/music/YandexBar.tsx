@@ -10,7 +10,8 @@ import { type MouseEvent, type PointerEvent, type ReactNode, useCallback, useEff
 import { usePrefs } from "../../../layout/prefs";
 import { useMediaClient } from "../../../media/MediaContext";
 import {
-  type ControlResult, dominantColor, extrapolate, fmt, type Hint, hintFor, prevAction, type RemoteState, TOKEN_STEPS,
+  type ControlResult, dominantColor, extrapolate, fmt, type Hint, hintFor, prevAction, type QueueRow, type RemoteState,
+  TOKEN_STEPS,
   visibleControls,
 } from "./barLogic";
 
@@ -119,6 +120,7 @@ export function YandexBar({ onMenu }: { onMenu?(): void }) {
   const [hint, setHint] = useState<Hint | null>(null);
   const [help, setHelp] = useState(false);
   const [lyrics, setLyrics] = useState<string | null>(null);
+  const [queue, setQueue] = useState<QueueRow[] | null>(null);
   const [drag, setDrag] = useState<number | null>(null); // доля 0..1 во время перетаскивания
   const bg = useCoverColor(st?.cover);
   const show = visibleControls(width);
@@ -129,6 +131,7 @@ export function YandexBar({ onMenu }: { onMenu?(): void }) {
       const r = await client.call<ControlResult>("media_ymremote", { op, value });
       setHint(hintFor(r));
       if (r?.lyrics) setLyrics(r.lyrics);
+      if (r?.queue) setQueue(r.queue);
       // Звук приложения ещё не появился (трек не играет) — один повтор через 2 с.
       if (r && !r.ok && r.retry_ms && !retried) setTimeout(() => void control(op, value, true), r.retry_ms);
     } catch (e) {
@@ -186,6 +189,16 @@ export function YandexBar({ onMenu }: { onMenu?(): void }) {
              className="absolute inset-x-3 bottom-2 top-2 z-20 overflow-auto whitespace-pre-wrap rounded-btn bg-panel2 p-3 text-xs leading-relaxed text-ink shadow-soft">
           <button type="button" aria-label="Закрыть текст" onClick={() => setLyrics(null)} className="float-right"><X size={14} /></button>
           {lyrics}
+        </div>
+      )}
+      {queue && (
+        <div role="dialog" aria-label="Очередь"
+             className="absolute inset-x-3 bottom-2 top-2 z-20 overflow-auto rounded-btn bg-panel2 p-3 text-xs text-ink shadow-soft">
+          <button type="button" aria-label="Закрыть очередь" onClick={() => setQueue(null)} className="float-right"><X size={14} /></button>
+          <ol>{queue.map((q, i) => (
+            <li key={i} aria-current={q.current || undefined} className={"truncate py-0.5 " + (q.current ? "text-ym-yellow" : "")}>
+              {q.title} <span className="text-ink-dim">— {q.artist}</span>
+            </li>))}</ol>
         </div>
       )}
     </>
@@ -275,6 +288,10 @@ export function YandexBar({ onMenu }: { onMenu?(): void }) {
                     onClick={() => needToken("lyrics")}>Текст</button>
             <IconBtn label="Настройки панели" onClick={onMenu}><Settings2 size={16} /></IconBtn>
           </>
+        )}
+        {show.rating && (
+          <IconBtn label="Очередь" title={st.can_like ? "Очередь" : `Очередь. ${st.like_hint}`} dim={!st.can_like}
+                   onClick={() => needToken("queue")}><ListMusic size={16} /></IconBtn>
         )}
         <IconBtn label={st.volume === 0 ? "Включить звук" : "Выключить звук"} onClick={() => void control("mute")}
                  disabled={st.volume == null}>

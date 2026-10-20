@@ -3,10 +3,9 @@
 import { Brain, Check, Pencil, Search, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
-import { CoreError } from "../api/types";
 import { Card } from "../components/ui";
 import { useMediaClient } from "../media/MediaContext";
-import { errorText } from "../store";
+import { errorKind, errorText } from "../store";
 
 export interface MemoryItem { id: string; category: string; text: string; ts: number }
 interface MemoryReply { items: MemoryItem[]; total: number; counts: Record<string, number> }
@@ -30,9 +29,9 @@ export function Memory() {
       setState("ready");
       return r;
     } catch (e) {
-      const unsupported = e instanceof CoreError && (e.code === "unsupported" || e.code === "unknown_type");
-      setState(unsupported ? "unsupported" : "error");
-      setError(unsupported ? "Сервер не поддерживает «Память»" : errorText(e));
+      const kind = errorKind(e);
+      setState(kind === "unsupported" ? "unsupported" : "error");
+      setError(kind === "unsupported" ? "Сервер ещё не поддерживает «Память»" : errorText(e));
       return null;
     }
   }, [client]);
@@ -44,9 +43,9 @@ export function Memory() {
       (r) => { if (alive) { setData(r); setState("ready"); } },
       (e: unknown) => {
         if (!alive) return;
-        const unsupported = e instanceof CoreError && (e.code === "unsupported" || e.code === "unknown_type");
-        setState(unsupported ? "unsupported" : "error");
-        setError(unsupported ? "Сервер не поддерживает «Память»" : errorText(e));
+        const kind = errorKind(e);
+        setState(kind === "unsupported" ? "unsupported" : "error");
+        setError(kind === "unsupported" ? "Сервер ещё не поддерживает «Память»" : errorText(e));
       },
     );
     return () => { alive = false; };

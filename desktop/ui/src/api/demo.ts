@@ -95,6 +95,10 @@ export class DemoClient implements CoreClient {
         }
         return undefined as T;
       }
+      case "config_values": {
+        const v = { DEVICE_ID: "mostech", VPS_WS_URL: "ws://сервер:8765", SERVER_TRANSPORT: "noise" };
+        return { values: v, running: v } as T;
+      }
       case "list_apps":
         return { apps: APPS.map((name) => ({ name })) } as T;
       case "quick_action":

@@ -256,10 +256,19 @@ class Agent:
                          source: str = "mic"):
         """source — откуда фраза: mic (голос), ui (окно чата), e2e (проверка), api (прочие клиенты)."""
         text = text.strip()
+        if source == "mic":  # таблица замен распознанного (Настройки → Голос): «вал хейм» → «Valheim»
+            from desktop.core.voice_tuning import apply_replacements
+            text = apply_replacements(text, getattr(self, "stt_replacements", None)).strip()
         if not text:
             return
         self.bus.emit("user_text", text=text, source=source)
         self._set_state("thinking")
+        # Нет связи с сервером — локальный разбор команд компьютера (в очередь не ставим: иначе после
+        # переподключения команда выполнилась бы второй раз).
+        loop = getattr(self, "_loop", None)
+        if getattr(self, "_ws", None) is None and loop is not None and loop.is_running():
+            asyncio.run_coroutine_threadsafe(self._offline_text(text), loop)
+            return
         msg = {
             "type":          "voice_command",
             "device_id":     config.DEVICE_ID,
@@ -271,6 +280,36 @@ class Agent:
         if channel:  # протокол v2: voice | text (по умолчанию сервер считает voice)
             msg["channel"] = channel
         self.send_threadsafe(msg, wake_detected_at=wake_detected_at, timeline=timeline)
+
+    async def _offline_text(self, text: str) -> dict:
+        """Офлайн-режим: команда из реестра — выполнить локально и ответить шаблоном; иначе «нужна связь»."""
+        from desktop.core import offline_intent as OI
+        intents = getattr(self, "_offline_intents", None)
+        if intents is None:
+            intents = self._offline_intents = OI.OfflineIntents()
+        hit = intents.match(text)
+        if hit is None:
+            reply = {"ok": False, "status": "unsupported", "detail": OI.REPLY_NEED_SERVER}
+            self.bus.emit("sakura_text", text=OI.REPLY_NEED_SERVER, kind="error")
+        else:
+            action, arg = hit
+            cmd_id = f"offline:{action}"
+            fut = asyncio.get_running_loop().create_future()
+            if not hasattr(self, "_local_results"):
+                self._local_results = {}
+            self._local_results[cmd_id] = fut
+            await self._run_command(action, cmd_id, arg)
+            try:
+                reply = await asyncio.wait_for(fut, 30)
+            except asyncio.TimeoutError:
+                reply = {"ok": False, "status": "failed", "detail": "нет ответа от действия"}
+            finally:
+                self._local_results.pop(cmd_id, None)
+            tpl = OI.REPLY_DONE if reply.get("ok") else OI.REPLY_FAIL
+            self.bus.emit("sakura_text", text=tpl.format(detail=reply.get("detail", "")), kind="template")
+            log.info("[offline] %s → %s", action, reply.get("status"))
+        self._set_state("idle")
+        return reply
 
     def send_threadsafe(self, obj: dict, wake_detected_at: float | None = None,
                         timeline: dict | None = None):
