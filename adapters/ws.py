@@ -146,6 +146,8 @@ async def ws_handler(websocket):
     from modules.ws_auth import WS_AUTH_TIMEOUT_SECONDS
     from modules.device_manager import set_device_offline
     from modules.presence_sync import set_offline as ps_offline
+    from modules import presence_sync
+    from sakura_core.ws_protocol import announce_presence_transfer
     from modules.rituals import should_farewell, get_farewell_prompt
     from modules.app_mapping import find_vip_by_name
     from sakura_core.memory_tasks import clean_slate
@@ -245,6 +247,11 @@ async def ws_handler(websocket):
                     if not is_master_device(dev_from_msg):
                         await reject(websocket, reason=f"'{msg_type}' denied: not master device ({dev_from_msg!r})")
                         return
+
+                if msg_type in presence_sync.INPUT_TYPES and is_master_device(dev_from_msg):
+                    # Голос или текст с устройства → оно активное сразу.
+                    await asyncio.to_thread(presence_sync.note_input, dev_from_msg)
+                    await announce_presence_transfer()
 
                 _ctx = {
                     "ask_gemini": ask_gemini,

@@ -28,7 +28,9 @@ def get_capabilities_block() -> str:
         online = [did for did in get_online_devices() if _is_device_fresh(did)]
 
         if online:
-            device_id = online[0]
+            from modules.presence_sync import get_active_device
+            active = get_active_device()
+            device_id = active if active in online else online[0]
             device_name = KNOWN_DEVICES.get(device_id, {}).get("name", device_id)
             return (
                 "ЧТО ТЫ УМЕЕШЬ СЕЙЧАС\n"

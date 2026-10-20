@@ -251,7 +251,7 @@ WebSocket (ФИКС):
 
 ### 5.1 Приватные классы
 
-`chat_*`, `history_*`, `memory_*`, `profile_*`, `vision_request`,
+`chat_*`, `history_*`, `memory_*`, `profile_*`, `secure_*`, `vision_request`,
 `computer_step` разрешены только на **secure**-соединении
 (`PRIVATE_REQUIRES_SECURE=1`, по умолчанию):
 
@@ -340,3 +340,65 @@ WebSocket (ФИКС):
 Обёртка `SecureConnection` выглядит для `ws_handler` как обычный
 websocket: `recv()`, асинхронная итерация, `send(text)`, `close(code,
 reason)`, `remote_address`, плюс `secure`, `transport`, `device_id`.
+
+## 10. Несколько устройств (server/multidevice)
+
+Известные устройства — `DEVICES` в конфиге (по умолчанию `pc, laptop,
+mostech, phone`); неизвестный `device_id` не ошибка — показывается как есть.
+Права master по-прежнему только из `MASTER_DEVICES`.
+
+### 10.1 Активное устройство
+
+Одно на сервер: `presence_sync.get_active_device()` (старый «последний
+ping» в `device_manager` убран, тот делегирует сюда). Правила:
+
+1. Голос (`voice_command`) или текст (`chat_send`) с master-устройства →
+   оно активное **сразу**, без порогов.
+2. Иначе активно устройство с последним вводом. Клиент присылает в `ping`
+   (и `register`) поле `input_idle_s` — секунд с последнего ввода (число ≥ 0).
+3. Переключение только если на новом ввод был **≤ 5 с** назад, а на текущем
+   **≥ 30 с** назад. Ping без ввода активное не меняет.
+4. Нет `input_idle_s` ни у кого → прежняя оценка по `input_score`. Если у
+   текущего поля нет, а у другого ввод ≤ 5 с назад, переключаем.
+5. Устройство без ping > 120 с или отключившееся выбывает; активным станет
+   то, где ввод был позже.
+
+### 10.2 Текущий трек
+
+В `ping` поле `current_track` хранится **по устройствам**
+(`device_id → запись`), новая запись заменяет старую целиком. В промпт идёт
+трек активного ПК; если он там не играет (`status != "играет"`), берётся самый
+свежий играющий трек любого ПК не старше 60 с. Запись старше 60 с не
+учитывается.
+
+### 10.3 Запрос `secure_devices`
+
+`{"type": "secure_devices", "request_id": …}` → только master и **только**
+secure-соединение (Noise или локальный источник, §5.1); независимо от
+`PRIVATE_REQUIRES_SECURE`. Иначе `error` с `code`: `not_master` /
+`secure_channel_required`. Ответ:
+
+```json
+{"type": "secure_devices", "request_id": "…", "devices": [
+  {"device_id": "mostech", "name": "Рабочий ноутбук",
+   "fingerprint": "3f9a1c0277de0b41", "paired_at": 1791900000.0,
+   "last_seen": 1791903600.0, "online": true, "secure_now": true,
+   "revoked": false, "current": true}]}
+```
+
+`fingerprint` — первые 16 символов отпечатка (без пробелов); `secure_now` —
+сейчас подключено по Noise; `current` — это устройство, приславшее запрос.
+Ключи (`pub`) и PSK не отдаются.
+
+### 10.4 Переходы между ПК и настроение
+
+При смене активного устройства сервер сообщает двум устройствам:
+
+- proto 2: `{"type": "presence", "event": "arrival"|"departure",
+  "from": "<id>|null", "to": "<id>"}` (arrival — новому, departure — прежнему);
+  `mood_update` такие клиенты не получают.
+- proto 1: `{"type": "mood_update", "params": {"is_arrival": true}}` /
+  `{"is_departure": true}` — только флаг, без параметров настроения.
+
+Общая рассылка настроения (`mood_update` с параметрами орба) выключена
+флагом `MOOD_BROADCAST=off` (по умолчанию); код сохранён, `on` возвращает её.

@@ -25,7 +25,7 @@ def test_ws_registry_dispatch(monkeypatch, text, expected):
     monkeypatch.setattr(bridge, "_router", Router())
     monkeypatch.setattr(bridge, "_executor", None)
     monkeypatch.setattr(ws.st, "connected_devices", {"test": device})
-    monkeypatch.setattr(ws.st, "_current_track", None)
+    monkeypatch.setattr(ws.st, "device_tracks", {})
     monkeypatch.setattr(ws, "_im_mark", lambda _: None)
     monkeypatch.setattr(ws, "pending_forget_active", lambda: False)
     monkeypatch.setattr(ws, "stream_tts_to_device", speak)

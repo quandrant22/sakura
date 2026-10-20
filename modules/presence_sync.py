@@ -7,34 +7,56 @@ modules/presence_sync.py — Бесшовное присутствие (бэкл
 №30: Бесшовный перенос разговора — начал на ноуте, продолжил
      на ПК без потери контекста (память централизована — почти бесплатно).
 
-Логика:
-  - Каждое устройство при ping шлёт active_window и last_input_time
-  - VPS определяет АКТИВНОЕ устройство — то, где последний ввод был недавно
-  - При смене активного устройства VPS шлёт mood_update с флагом device_switch
-  - Агент на новом устройстве получает это и анимирует «переезд» орба
-
-Интеграция в ws_handler:
-  При каждом ping вызвать presence_sync.update(device_id, data)
-  После — presence_sync.get_active_device() для маршрутизации TTS
+Логика (одно активное устройство — get_active_device):
+  - голос или текст с устройства (note_input) → оно активное сразу;
+  - иначе активно то, где был последний ввод: ping несёт input_idle_s —
+    секунд с последнего ввода на этом ПК;
+  - переключаем только если на новом ввод был ≤ SWITCH_NEW_IDLE_S назад,
+    а на текущем ≥ SWITCH_CUR_IDLE_S назад (три ПК с пингами без ввода
+    активное не меняют);
+  - input_idle_s не пришло — прежняя оценка по input_score (ниже).
+  - О смене активного клиенты узнают через check_device_transfer +
+    broadcast_transfer: proto 2 — событие presence, proto 1 — mood_update
+    только с is_arrival/is_departure.
 
 Хранение: таблица device_presence в sakura.db.
 """
 
 import json
 import logging
+import threading
 import time
 from datetime import datetime, timedelta
 from typing import Optional
 
 log = logging.getLogger("sakura.presence_sync")
 
-# Устройство считается активным если последний ввод был не далее ACTIVE_WINDOW секунд назад
+# Устройство считается живым, если ping/ввод был не далее ACTIVE_WINDOW секунд назад
 ACTIVE_WINDOW_SEC  = 120
-# После TRANSFER_COOLDOWN не переключаем снова (чтобы не мелькало)
-TRANSFER_COOLDOWN  = 30.0
+# Переключение по input_idle_s: на новом ввод ≤ NEW, на текущем ≥ CUR секунд назад
+SWITCH_NEW_IDLE_S  = 5.0
+SWITCH_CUR_IDLE_S  = 30.0
+# Сообщения, после которых устройство активно сразу (голос или текст)
+INPUT_TYPES = frozenset({"voice_command", "chat_send"})
 
-_last_transfer_at: float = 0.0
-_current_active:   str   = ""
+_lock = threading.RLock()
+_announced:   str = ""       # кого последним объявили клиентам (check_device_transfer)
+_active:      str = ""       # решение: текущее активное устройство
+# device_id → {"seen": monotonic последнего ping/ввода, "input_at": monotonic
+# последнего ввода или None, если клиент input_idle_s не присылает}
+_devs: dict[str, dict] = {}
+
+
+def _now() -> float:
+    return time.monotonic()
+
+
+def reset() -> None:
+    """Сбросить состояние (тесты)."""
+    global _announced, _active
+    with _lock:
+        _devs.clear()
+        _announced = _active = ""
 
 
 def _ensure_table():
@@ -55,10 +77,18 @@ def _ensure_table():
 
 # ── Обновление состояния устройства ──────────────────────────────────
 
+def _idle_value(data: dict) -> Optional[float]:
+    v = data.get("input_idle_s")
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or v != v or v < 0:
+        return None
+    return float(v)
+
+
 def update(device_id: str, data: dict):
     """
     Вызывать при каждом ping/register от устройства.
-    data: словарь из WS-сообщения (active_window, system_info, context).
+    data: словарь из WS-сообщения (active_window, system_info, context,
+    input_idle_s — секунд с последнего ввода на этом устройстве).
     """
     _ensure_table()
     from memory.db import _conn
@@ -67,8 +97,8 @@ def update(device_id: str, data: dict):
     active_window = data.get("active_window", "")
     now           = str(datetime.now())
 
-    # input_score: оцениваем насколько активно устройство
-    # (пришёл voice_command — высокий score, просто ping — низкий)
+    # input_score (прежняя оценка, когда input_idle_s нет):
+    # voice_command — высокий score, просто ping — низкий
     msg_type    = data.get("type", "ping")
     input_score = 1.0 if msg_type == "voice_command" else 0.3
 
@@ -88,9 +118,36 @@ def update(device_id: str, data: dict):
           active_window, input_score))
     conn.commit()
 
+    t = _now()
+    with _lock:
+        rec = _devs.setdefault(device_id, {"seen": t, "input_at": None})
+        rec["seen"] = t
+        idle = _idle_value(data)
+        if idle is not None:
+            rec["input_at"] = t - idle
+        if msg_type in INPUT_TYPES:
+            note_input(device_id)
+        else:
+            _decide(t)
+
+
+def note_input(device_id: str) -> None:
+    """Голос или текст с устройства → оно активное сразу (без порогов)."""
+    global _active
+    if not device_id:
+        return
+    t = _now()
+    with _lock:
+        rec = _devs.setdefault(device_id, {"seen": t, "input_at": None})
+        rec["seen"] = rec["input_at"] = t
+        if _active != device_id:
+            log.info(f"[presence_sync] ввод на {device_id}: активное {_active or 'none'} → {device_id}")
+        _active = device_id
+
 
 def set_offline(device_id: str):
     """Вызывать в ws_handler finally."""
+    global _active
     _ensure_table()
     from memory.db import _conn
     _conn().execute(
@@ -98,15 +155,18 @@ def set_offline(device_id: str):
         (device_id,)
     )
     _conn().commit()
+    with _lock:
+        _devs.pop(device_id, None)
+        if _active == device_id:
+            _active = ""
+        _decide(_now())
 
 
 # ── Определение активного устройства ─────────────────────────────────
 
-def get_active_device() -> Optional[str]:
-    """
-    Возвращает device_id наиболее активного онлайн-устройства.
-    Критерии: недавний ввод + высокий input_score.
-    """
+def _legacy_active() -> Optional[str]:
+    """Прежняя оценка (клиенты без input_idle_s): онлайн, недавний ping,
+    ORDER BY input_score DESC, last_input DESC."""
     _ensure_table()
     from memory.db import _conn
 
@@ -121,6 +181,56 @@ def get_active_device() -> Optional[str]:
     """, (cutoff,)).fetchall()
 
     return rows[0]["device_id"] if rows else None
+
+
+def _decide(now: float) -> None:
+    """Единственное место, где выбирается активное устройство (под _lock)."""
+    global _active
+    for d in [d for d, r in _devs.items() if now - r["seen"] > ACTIVE_WINDOW_SEC]:
+        del _devs[d]
+    if not _devs:
+        _active = ""
+        return
+
+    def idle(d):
+        at = _devs[d]["input_at"]
+        return None if at is None else max(0.0, now - at)
+
+    known = {d: idle(d) for d in _devs if idle(d) is not None}
+    cur = _active if _active in _devs else ""
+
+    if not cur:
+        if known:
+            _active = min(known, key=known.get)
+        else:
+            try:
+                legacy = _legacy_active()
+            except Exception as e:
+                log.debug(f"[presence_sync] legacy: {type(e).__name__}: {e}")
+                legacy = None
+            _active = legacy if legacy in _devs else max(_devs, key=lambda d: _devs[d]["seen"])
+        return
+
+    _active = cur
+    rivals = {d: i for d, i in known.items() if d != cur}
+    if not rivals:
+        return
+    best = min(rivals, key=rivals.get)
+    if rivals[best] > SWITCH_NEW_IDLE_S:
+        return
+    # на текущем нет данных о вводе — других свидетельств нет
+    if cur not in known or known[cur] >= SWITCH_CUR_IDLE_S:
+        log.info(f"[presence_sync] ввод на {best} ({rivals[best]:.0f} с назад), "
+                 f"на {cur} {'нет данных' if cur not in known else f'{known[cur]:.0f} с'}: "
+                 f"активное → {best}")
+        _active = best
+
+
+def get_active_device() -> Optional[str]:
+    """Единственное «активное устройство» сервера (см. docstring модуля)."""
+    with _lock:
+        _decide(_now())
+        return _active or None
 
 
 def get_all_online() -> list[dict]:
@@ -140,30 +250,24 @@ def get_all_online() -> list[dict]:
 
 def check_device_transfer(connected_devices: dict) -> Optional[dict]:
     """
-    Проверяет, сменилось ли активное устройство.
-    Если да — возвращает {"from": str, "to": str} для отправки mood_update.
+    Проверяет, сменилось ли активное устройство с прошлого объявления.
+    Если да — возвращает {"from": str, "to": str} для broadcast_transfer.
     Если нет — None.
 
-    Вызывать из proactive_loop или ws_handler каждые 10-15 секунд.
+    Вызывать после каждого ping и после голоса/текста. Дребезга нет:
+    пороги переключения — в _decide, отдельной паузы не нужно.
     """
-    global _last_transfer_at, _current_active
+    global _announced
 
-    now    = time.monotonic()
     active = get_active_device()
-
-    if not active or active == _current_active:
-        return None
-
-    if now - _last_transfer_at < TRANSFER_COOLDOWN:
-        return None
-
-    # Проверяем что оба устройства в connected_devices
-    if active not in connected_devices:
-        return None
-
-    prev              = _current_active
-    _current_active   = active
-    _last_transfer_at = now
+    with _lock:
+        if not active or active == _announced:
+            return None
+        # Проверяем что устройство в connected_devices
+        if active not in connected_devices:
+            return None
+        prev      = _announced
+        _announced = active
 
     log.info(f"[presence_sync] Фокус переехал: {prev or 'none'} → {active}")
     return {"from": prev, "to": active}
@@ -172,38 +276,38 @@ def check_device_transfer(connected_devices: dict) -> Optional[dict]:
 async def broadcast_transfer(
     transfer: dict,
     connected_devices: dict,
-    mood_params: dict,
+    mood_params: Optional[dict] = None,
 ):
     """
-    Рассылает уведомление о переносе фокуса.
-    Новое устройство получает mood_update с флагом is_arrival=True —
-    орб анимирует «прилёт».
-    Старое устройство получает is_departure=True — орб «тускнеет».
+    Сообщает о переносе фокуса двум устройствам.
+    proto 2: {"type": "presence", "event": "arrival"|"departure",
+              "from": ..., "to": ...};
+    proto 1: mood_update только с is_arrival / is_departure (без параметров
+    настроения; mood_params оставлен для совместимости вызова и не шлётся).
     """
-    # json импортирован на уровне модуля — локальный дубль убран
+    import modules.state as st
 
     to_dev   = transfer["to"]
     from_dev = transfer.get("from", "")
 
-    # Новое устройство — «прилёт»
-    if to_dev in connected_devices:
-        arrive_params = {**mood_params, "is_arrival": True}
+    async def _tell(dev: str, event: str):
+        ws = connected_devices.get(dev)
+        if ws is None:
+            return
+        if st.device_proto.get(dev) == 2:
+            msg = {"type": "presence", "event": event,
+                   "from": from_dev or None, "to": to_dev}
+        else:
+            msg = {"type": "mood_update",
+                   "params": {"is_arrival" if event == "arrival" else "is_departure": True}}
         try:
-            await connected_devices[to_dev].send(
-                json.dumps({"type": "mood_update", "params": arrive_params})
-            )
+            await ws.send(json.dumps(msg, ensure_ascii=False))
         except Exception as e:
-            log.debug(f"[presence_sync] arrival send: {e}")
+            log.debug(f"[presence_sync] {event} send {dev}: {e}")
 
-    # Старое устройство — «уход»
-    if from_dev and from_dev in connected_devices:
-        depart_params = {**mood_params, "is_departure": True, "bright": 0.3}
-        try:
-            await connected_devices[from_dev].send(
-                json.dumps({"type": "mood_update", "params": depart_params})
-            )
-        except Exception as e:
-            log.debug(f"[presence_sync] departure send: {e}")
+    await _tell(to_dev, "arrival")
+    if from_dev and from_dev != to_dev:
+        await _tell(from_dev, "departure")
 
 
 # ── №30 Контекстный мост (бесшовный перенос разговора) ───────────────

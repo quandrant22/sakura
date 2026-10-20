@@ -31,7 +31,7 @@ PROTO = 2
 V2_REQUESTS = frozenset({
     "chat_send", "history_request", "chat_read", "chat_search",
     "chat_delete", "chat_clear",
-    "devices_request", "status_request",
+    "devices_request", "status_request", "secure_devices",
     "scenarios_list", "scenario_get", "scenario_save", "scenario_delete",
     "scenario_run", "scenario_from_text",
     "memory_list", "memory_search", "memory_update", "memory_delete",
@@ -42,7 +42,7 @@ Handler = Callable[[object, dict, dict], Awaitable[dict | None]]
 
 # Приватные классы (чат, история, память, профиль): только secure-соединение
 # (docs/security/PROTOCOL.md §5.1). Второй рубеж после adapters/ws.
-PRIVATE_PREFIXES = ("chat_", "history_", "memory_", "profile_")
+PRIVATE_PREFIXES = ("chat_", "history_", "memory_", "profile_", "secure_")
 
 
 def is_private(kind: str | None) -> bool:

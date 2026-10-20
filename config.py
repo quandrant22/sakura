@@ -37,6 +37,11 @@ WS_SECRET = os.getenv("WS_SECRET", "")
 MASTER_DEVICES = set(
     d.strip() for d in os.getenv("MASTER_DEVICES", "laptop,pc").split(",") if d.strip()
 )
+# Известные устройства (modules/device_manager.KNOWN_DEVICES): список id через запятую.
+DEVICES = [d.strip() for d in os.getenv("DEVICES", "pc,laptop,mostech,phone").split(",") if d.strip()]
+# Рассылка вектора настроения всем клиентам (mood_update). По умолчанию выключена;
+# переходы между ПК (presence) от флага не зависят.
+MOOD_BROADCAST = os.getenv("MOOD_BROADCAST", "off").strip().lower() in ("1", "true", "yes", "on")
 CONFIRM_LISTEN_SEC = float(os.getenv("CONFIRM_LISTEN_SEC", "10"))
 # Шлюз «классификатор ∥ голосовой стрим»: без вердикта дольше этого —
 # считаем «не команда» (adapters/voice.py VoiceGate).

@@ -229,5 +229,38 @@ async def _status_request(websocket, data: dict, ctx: dict) -> dict:
     return {"type": "status", **await asyncio.to_thread(status)}
 
 
+def secure_devices() -> list[dict]:
+    """Реестр securechannel для master: без ключей и PSK."""
+    from sakura_core import secure_policy
+    if secure_policy.mode() == "off":
+        return []
+    out = []
+    for d in secure_policy.context().registry.list():
+        ws = st.connected_devices.get(d["id"])
+        out.append({
+            "device_id": d["id"],
+            "name": d.get("name"),
+            "fingerprint": str(d.get("fp") or "").replace(" ", "")[:16],
+            "paired_at": d.get("created"),
+            "last_seen": d.get("last_seen"),
+            "online": ws is not None,
+            "secure_now": ws is not None and getattr(ws, "transport", None) == "noise",
+            "revoked": bool(d.get("revoked")),
+        })
+    return out
+
+
+async def _secure_devices(websocket, data: dict, ctx: dict) -> dict:
+    # Всегда только secure — независимо от PRIVATE_REQUIRES_SECURE.
+    if not proto_v2.connection_secure(websocket):
+        raise proto_v2.V2Error("secure_channel_required", "нужен защищённый канал")
+    me = data.get("device_id")
+    devs = await asyncio.to_thread(secure_devices)
+    for d in devs:
+        d["current"] = d["device_id"] == me
+    return {"type": "secure_devices", "devices": devs}
+
+
 proto_v2.register("devices_request", _devices_request)
 proto_v2.register("status_request", _status_request)
+proto_v2.register("secure_devices", _secure_devices)
