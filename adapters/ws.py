@@ -140,6 +140,18 @@ def _peer(websocket) -> str:
     return str(addr)
 
 
+async def _presence_input(device_id: str) -> None:
+    """Ввод на устройстве → оно активное; сменилось — сообщить клиентам.
+    Ошибки только в лог."""
+    try:
+        from modules import presence_sync
+        from sakura_core.ws_protocol import announce_presence_transfer
+        await asyncio.to_thread(presence_sync.note_input, device_id)
+        await announce_presence_transfer()
+    except Exception as e:
+        log.warning(f"[ws] presence-input {device_id}: {type(e).__name__}: {e}")
+
+
 async def ws_handler(websocket):
     from adapters.telegram import bot, send_to_master, send_safe
     from modules.ws_auth import check_token, is_master_device, reject
@@ -147,7 +159,6 @@ async def ws_handler(websocket):
     from modules.device_manager import set_device_offline
     from modules.presence_sync import set_offline as ps_offline
     from modules import presence_sync
-    from sakura_core.ws_protocol import announce_presence_transfer
     from modules.rituals import should_farewell, get_farewell_prompt
     from modules.app_mapping import find_vip_by_name
     from sakura_core.memory_tasks import clean_slate
@@ -250,8 +261,8 @@ async def ws_handler(websocket):
 
                 if msg_type in presence_sync.INPUT_TYPES and is_master_device(dev_from_msg):
                     # Голос или текст с устройства → оно активное сразу.
-                    await asyncio.to_thread(presence_sync.note_input, dev_from_msg)
-                    await announce_presence_transfer()
+                    # Фоном: голосовой ход не ждёт присутствие.
+                    spawn(_presence_input(dev_from_msg), name="presence-input")
 
                 _ctx = {
                     "ask_gemini": ask_gemini,
