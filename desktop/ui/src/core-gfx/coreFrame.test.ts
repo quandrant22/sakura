@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { coreFrame, DROP_R, SATELLITES, VIEWBOX, type CoreVisualState, type Mobility } from "./coreFrame";
+import { blendFrames, coreFrame, DROP_R, ease, SATELLITES, VIEWBOX, type CoreVisualState, type Mobility } from "./coreFrame";
 
 const STATES: CoreVisualState[] = ["idle", "listening", "thinking", "speaking", "offline"];
 const MOBILITIES: Mobility[] = ["low", "normal", "high"];
@@ -83,5 +83,28 @@ describe("coreFrame", () => {
     const a = coreFrame(0, "offline", 0), b = coreFrame(5, "offline", 0);
     expect(a.opacity).toBeLessThan(0.6);
     a.satellites.forEach((s, i) => expect(Math.abs(s.cx - b.satellites[i]!.cx)).toBeLessThan(3));
+  });
+});
+
+describe("переход между состояниями", () => {
+  const a = coreFrame(2, "idle", 0);
+  const b = coreFrame(2, "listening", 0.5);
+  it("k=0 — исходный кадр, k=1 — целевой, кольца появляются из нуля", () => {
+    expect(blendFrames(a, b, 0).satellites).toEqual(a.satellites);
+    expect(blendFrames(a, b, 1)).toBe(b);
+    const half = blendFrames(a, b, 0.5);
+    expect(half.rings).toHaveLength(2);
+    expect(half.rings[0]!.opacity).toBeCloseTo(b.rings[0]!.opacity / 2, 5);
+    expect(half.rings[0]!.r).toBeCloseTo(b.rings[0]!.r, 5);
+  });
+  it("ease: 0 → 0, 1 → 1, монотонно, без выхода за границы", () => {
+    let prev = -1;
+    for (let p = -0.2; p <= 1.2; p += 0.05) {
+      const v = ease(p);
+      expect(v).toBeGreaterThanOrEqual(prev);
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThanOrEqual(1);
+      prev = v;
+    }
   });
 });

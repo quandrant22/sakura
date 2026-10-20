@@ -4,10 +4,7 @@ import asyncio
 import json
 import threading
 
-import pytest
-
 from desktop.core import agent as agent_module
-from desktop.core import tasks as tasks_module
 
 
 class FakeBus:
@@ -30,17 +27,20 @@ class FakePlayer:
     def buffer_bytes(self):
         return self.buf
 
-    def feed(self, pcm):
-        self.buf += len(pcm)
-
     def feed_binary(self, data):
         self.buf += len(data)
 
     def flush(self):
         pass
 
+    interrupts = 0
+
     def interrupt(self):
         self.buf = 0
+        self.interrupts += 1
+
+    def feed(self, pcm, rate=None, fmt=""):
+        self.buf += len(pcm)
 
 
 class FakeHearing:
@@ -100,14 +100,7 @@ def test_public_set_state_goes_through_single_point():
     assert a._turn_gen == 1
 
 
-# ── tts_end → idle после опустошения буфера ─────────────────────────────
-
-@pytest.fixture
-def fast_drain(monkeypatch):
-    monkeypatch.setattr(agent_module, "_DRAIN_POLL_SEC", 0.001)
-    monkeypatch.setattr(agent_module, "_DRAIN_TAIL_SEC", 0.001)
-    monkeypatch.setattr(agent_module, "_DRAIN_MAX_SEC", 5.0)
-
+# ── speaking — по началу звука, idle — по концу (события плеера) ────────
 
 class FakeWS:
     def __init__(self, messages):
@@ -125,71 +118,87 @@ class FakeWS:
         pass
 
 
-async def _drain_spawned():
-    pending = [t for t in tasks_module._tasks if not t.done()]
-    if pending:
-        await asyncio.gather(*pending)
-
-
-def test_tts_end_waits_for_drain_then_idle_then_followup(fast_drain):
-    a = make_agent()
-    seen_while_playing = []
-
-    class Draining(FakePlayer):
-        polls = 0
-
-        def is_drained(self):
-            self.polls += 1
-            if self.polls < 5:
-                seen_while_playing.append(a.state)
-                return False
-            return True
-
-    a.player = Draining()
-
+def _recv(a, messages):
     async def main():
-        a._ws = FakeWS([
-            b"\x00\x00\x00\x00" + b"\x01\x00" * 8,
-            json.dumps({"type": "tts_end", "listen": 6}),
-        ])
+        a._ws = FakeWS(messages)
         await a._recv_loop()
-        assert a.state == "speaking"      # tts_end сам не ставит idle
-        await _drain_spawned()
-
     asyncio.run(main())
-    assert seen_while_playing == ["speaking"] * 4
+
+
+def test_speaking_not_before_sound_starts():
+    a = make_agent()
+    a._set_state("thinking")
+    _recv(a, [b"\x00\x00\x00\x00" + b"\x01\x00" * 8,
+              json.dumps({"type": "tts_chunk", "audio": "AQABAA=="})])
+    assert a.state == "thinking"          # чанки пришли, звука ещё нет
+    assert "speaking" not in a.bus.states
+    a._on_audio_start(1)                  # звук дошёл до колонок
+    assert a.state == "speaking"
+
+
+def test_tts_end_then_sound_end_gives_idle_then_followup():
+    a = make_agent()
+    a._set_state("thinking")
+    _recv(a, [b"\x00\x00\x00\x00" + b"\x01\x00" * 8, json.dumps({"type": "tts_end", "listen": 6})])
+    a._on_audio_start(1)
+    assert a.state == "speaking"          # tts_end сам не ставит idle
+    a._on_audio_end(1)
     assert a.state == "idle"
     assert a.bus.states[-1] == "idle"
     # окно дослушивания открыто ПОСЛЕ idle
     assert a.hearing.followups == [(6.0, "idle")]
 
 
-def test_stale_idle_does_not_override_new_turn(fast_drain):
+def test_end_of_old_reply_does_not_override_new_turn():
     a = make_agent()
-    a._set_state("speaking")
-
-    class Draining(FakePlayer):
-        polls = 0
-
-        def is_drained(self):
-            self.polls += 1
-            if self.polls == 2:
-                a._set_state("thinking")   # пользователь начал новую реплику
-            return self.polls >= 4
-
-    a.player = Draining()
-    asyncio.run(a._idle_after_playback(a._turn_gen, listen=5))
+    a._set_state("thinking")
+    _recv(a, [b"\x00\x00\x00\x00" + b"\x01\x00" * 8, json.dumps({"type": "tts_end", "listen": 5})])
+    a._on_audio_start(1)
+    a._set_state("thinking")              # пользователь начал новую реплику
+    a._on_audio_end(1)
     assert a.state == "thinking"
     assert a.hearing.followups == []
 
 
-def test_tts_end_without_listen_does_not_open_followup(fast_drain):
+def test_end_ignored_while_next_reply_streams():
     a = make_agent()
-    a._set_state("speaking")
-    asyncio.run(a._idle_after_playback(a._turn_gen))
+    _recv(a, [b"\x00\x00\x00\x00" + b"\x01\x00" * 8, json.dumps({"type": "tts_end"})])
+    a._on_audio_start(1)
+    _recv(a, [b"\x00\x00\x00\x00" + b"\x01\x00" * 8])   # следующий ответ уже идёт
+    a._on_audio_end(1)
+    assert a.state == "speaking"
+
+
+def test_tts_end_without_listen_and_without_audio():
+    a = make_agent()
+    a._set_state("thinking")
+    _recv(a, [json.dumps({"type": "tts_end"})])
+    a._on_audio_end(0)                    # плеер: звука не было, конец сразу
     assert a.state == "idle"
     assert a.hearing.followups == []
 
+
+def test_first_json_chunk_drops_old_tail_once():
+    a = make_agent()
+    a.player.buf = 100                    # хвост прошлого ответа, уже не звучит
+    _recv(a, [json.dumps({"type": "tts_chunk", "audio": "AQABAA=="}),
+              json.dumps({"type": "tts_chunk", "audio": "AQABAA=="})])
+    assert a.player.interrupts == 1       # второй чанк до начала звука не сбрасывает первый
+    assert a.player.buf == 8
+
+
+def test_player_callbacks_hop_into_loop():
+    a = make_agent()
+    a._bind_player()
+
+    async def main():
+        a._loop = asyncio.get_running_loop()
+        t = threading.Thread(target=lambda: a.player.on_start(1))
+        t.start()
+        t.join()
+        await asyncio.sleep(0.01)
+    asyncio.run(main())
+    assert a.state == "speaking"
 
 
 # ── страховки watchdog ──────────────────────────────────────────────────
@@ -242,13 +251,4 @@ def test_watchdog_sees_state_set_by_hearing(monkeypatch):
     monkeypatch.setattr(agent_module.time, "monotonic", lambda: 0.0)
     a.set_state("thinking")                # путь hearing.py
     a._check_state_stall(now=30.0)
-    assert a.state == "idle"
-
-
-def test_drain_wait_is_bounded(monkeypatch, fast_drain):
-    monkeypatch.setattr(agent_module, "_DRAIN_MAX_SEC", 0.02)
-    a = make_agent()
-    a._set_state("speaking")
-    a.player.buf = 100                     # буфер так и не опустел
-    asyncio.run(a._idle_after_playback(a._turn_gen))
     assert a.state == "idle"

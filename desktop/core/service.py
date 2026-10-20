@@ -148,6 +148,9 @@ class CoreService:
             self._emit({"type": "state", "value": self._state, "level": 0})
             if self._state == "speaking":
                 self.chat.audio()
+        elif event == "level":
+            # Уровень звука ядра (≤ 30 раз в секунду, agent._level_loop) — окно пишет его в level.value.
+            self._emit({"type": "level", "value": data.get("value", 0.0)})
         elif event == "user_text":
             source = data.get("source", "mic")
             self._emit({"type": "transcript", "text": data.get("text", ""), "final": True, "source": source})

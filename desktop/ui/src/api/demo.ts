@@ -6,7 +6,7 @@ import historyFx from "../../../tools/fixtures/history.json";
 import scenariosFx from "../../../tools/fixtures/scenarios.json";
 import statusFx from "../../../tools/fixtures/status.json";
 import type { CoreClient, LinkState, Listener } from "./client";
-import { CoreError, type CoreEvent, type Device, type Message, type Scenario, type Settings } from "./types";
+import { CoreError, type CoreEvent, type CoreState, type Device, type Message, type Scenario, type Settings } from "./types";
 
 export type DemoMode = "normal" | "empty" | "offline" | "unsupported";
 
@@ -44,7 +44,13 @@ export class DemoClient implements CoreClient {
     const serverOnline = this.mode !== "offline";
     this.emit({ type: "connection", server: serverOnline ? "online" : "offline",
                 proto: this.mode === "unsupported" ? 1 : serverOnline ? 2 : null });
-    this.emit({ type: "state", value: "idle", level: 0 });
+    // ?corestate=speaking — состояние ядра для стендов (scripts/core-frames.mjs); уровень звука — синусом 30 раз в секунду.
+    const coreState = typeof location !== "undefined" ? new URLSearchParams(location.search).get("corestate") : null;
+    this.emit({ type: "state", value: (coreState as CoreState | null) ?? "idle", level: 0 });
+    if (coreState === "speaking" || coreState === "listening") {
+      const t0 = Date.now();
+      setInterval(() => this.emit({ type: "level", value: 0.5 + 0.45 * Math.sin((Date.now() - t0) / 180) }), 33);
+    }
     this.emit({ type: "settings", settings: SETTINGS });
     this.emit({ type: "media_settings", settings: {
       music_folders: this.mode === "empty" ? [] : ["C:\\Users\\me\\Music"], video_folders: [],

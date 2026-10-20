@@ -9,6 +9,11 @@ import json
 import math
 import re
 
+try:
+    import numpy as _np
+except ImportError:  # pragma: no cover
+    _np = None
+
 STOP_GRAMMAR = ["стоп", "сакура стоп", "хватит", "сакура хватит", "замолчи", "[unk]"]
 STOP_WORDS = ("стоп", "хватит", "замолчи")
 
@@ -17,6 +22,24 @@ STOP_WORDS = ("стоп", "хватит", "замолчи")
 MODES = ("low", "normal", "high")
 NOISE_HIGH_DB = -35.0   # громкий фон (музыка, ТВ) → low
 NOISE_LOW_DB = -55.0    # тихо → high
+
+
+# Уровень для ядра-графики: 0 — тише LEVEL_FLOOR_DB, 1 — от LEVEL_FLOOR_DB + LEVEL_SPAN_DB.
+LEVEL_FLOOR_DB = -50.0
+LEVEL_SPAN_DB = 40.0
+
+
+def pcm_level(pcm16: bytes) -> float:
+    """Громкость блока PCM 16 бит 0..1 (numpy, без журнала и I/O — годится для колбэка звука)."""
+    if _np is None:
+        db = rms_db(pcm16)
+    else:
+        a = _np.frombuffer(pcm16[: len(pcm16) // 2 * 2], dtype="<i2")
+        if not a.size:
+            return 0.0
+        ms = float(_np.mean(_np.square(a, dtype=_np.float32)))
+        db = 10 * math.log10(ms) - 90.309 if ms > 0 else -120.0  # 90.309 = 20·lg 32768
+    return min(1.0, max(0.0, (db - LEVEL_FLOOR_DB) / LEVEL_SPAN_DB))
 
 
 def rms_db(pcm16: bytes) -> float:

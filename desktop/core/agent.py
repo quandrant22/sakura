@@ -37,10 +37,11 @@ from desktop.core.voice import Player
 
 log = logging.getLogger("sakura.agent")
 
-# Возврат в idle после tts_end: ждём опустошения буфера плеера
-_DRAIN_POLL_SEC = 0.08   # опрос буфера
-_DRAIN_MAX_SEC  = 15.0   # дольше не ждём
-_DRAIN_TAIL_SEC = 0.15   # хвост в звуковой карте после пустого буфера
+# speaking и idle задаёт плеер: Player.on_start — звук ответа пошёл из колонок, Player.on_end — доиграл
+# (флаг из колбэка звука + задержка устройства), без опроса буфера.
+# Уровень звука для ядра-графики — не чаще 30 раз в секунду.
+LEVEL_PERIOD_SEC = 1 / 30
+_LEVEL_STEP = 0.02       # меньшие изменения уровня окну не шлём
 
 # Страховка от зависших состояний (сервер не прислал tts_end / ответ)
 _WATCH_PERIOD_SEC   = 0.5
@@ -234,6 +235,7 @@ class Agent:
         self._seen_kinds: set = set()  # типы сообщений сервера, уже записанные в лог
         self._state_lock  = threading.Lock()
         self.player  = Player(config.TTS_RATE)
+        self._bind_player()
         self.hearing = Hearing(self)
         self._ws     = None
         self._loop   = None
@@ -265,6 +267,64 @@ class Agent:
     def set_state(self, state: str):
         # Публичное имя для hearing.py / presence.py
         self._set_state(state)
+
+    # ── озвучка: состояние по реальному звуку ─────────────────────────
+    def _bind_player(self):
+        """Колбэки плеера приходят из его потока-уведомителя — переносим в цикл событий."""
+        def hop(fn):
+            def call(seq):
+                loop = getattr(self, "_loop", None)
+                if loop is not None and loop.is_running():
+                    loop.call_soon_threadsafe(fn, seq)
+            return call
+        self.player.on_start = hop(self._on_audio_start)
+        self.player.on_end = hop(self._on_audio_end)
+
+    def _tts_chunk(self, interrupt_old: bool = False):
+        """Пришёл чанк озвучки. speaking здесь не ставится — только когда звук пошёл (_on_audio_start)."""
+        if not getattr(self, "_tts_open", False):
+            # Первый чанк нового ответа: хвост прошлого ответа сбрасываем, если он уже не звучит.
+            if interrupt_old and self._state != "speaking":
+                self.player.interrupt()
+            self._tts_open = True
+
+    def _on_audio_start(self, seq: int):
+        self._set_state("speaking")
+
+    def _on_audio_end(self, seq: int):
+        """Звук ответа доиграл (после tts_end): idle, затем окно дослушивания."""
+        if getattr(self, "_tts_open", False):
+            return  # уже звучит или пришёл следующий ответ
+        state = self._state
+        if state != "speaking" and not (state == "thinking"
+                                        and self._turn_gen == getattr(self, "_tts_end_gen", None)):
+            return  # пользователь уже начал новую реплику
+        listen, self._tts_listen = getattr(self, "_tts_listen", None), None
+        self._set_state("idle")
+        if listen is not None and self._media_playing():
+            log.info("[voice] окно дослушивания не открываю: играет музыка или видео")
+        elif listen is not None:
+            try:
+                self.hearing.open_followup(float(listen))
+            except (TypeError, ValueError):
+                log.warning("Некорректное окно прослушивания: %r", listen)
+
+    async def _level_loop(self):
+        """Уровень звука окну (ядро-графика): озвучка — громкость выведенного звука, listening — микрофон."""
+        last = -1.0
+        while True:
+            await asyncio.sleep(LEVEL_PERIOD_SEC)
+            state = self._state
+            if state == "speaking":
+                value = getattr(self.player, "level", 0.0)
+            elif state == "listening":
+                value = getattr(self.hearing, "level", 0.0)
+            else:
+                value = 0.0
+            value = round(min(1.0, max(0.0, float(value))), 2)
+            if abs(value - last) >= _LEVEL_STEP or (value == 0.0 and last != 0.0):
+                last = value
+                self.bus.emit("level", value=value)
 
     def submit_user_text(self, text: str, wake_detected_at: float | None = None,
                          timeline: dict | None = None, channel: str | None = None,
@@ -486,7 +546,7 @@ class Agent:
             try:
                 # ── Бинарный TTS-чанк (новый формат) ──────────────────────
                 if isinstance(raw, bytes):
-                    self._set_state("speaking")
+                    self._tts_chunk()
                     self.player.feed_binary(raw)
                     continue
 
@@ -510,19 +570,17 @@ class Agent:
                           name="command-execution")
 
                 elif kind == "tts_chunk":
-                    # При первом чанке нового ответа — сбрасываем буфер
-                    if self._state != "speaking":
-                        self.player.interrupt()
-                    self._set_state("speaking")
+                    self._tts_chunk(interrupt_old=True)
                     self.player.feed(base64.b64decode(data["audio"]), data.get("sample_rate"), fmt="tts_chunk")
 
                 elif kind == "tts_end":
-                    # idle — только когда буфер плеера доиграет
+                    # idle — когда звук реально доиграет (Player.on_end), окно дослушивания — после idle
                     log.info(f"[state] tts_end получен (буфер {self.player.buffer_bytes()} байт)")
                     self.bus.emit("tts_end")
+                    self._tts_open = False
+                    self._tts_listen = data.get("listen")
+                    self._tts_end_gen = self._turn_gen
                     self.player.flush()
-                    spawn(self._idle_after_playback(self._turn_gen, data.get("listen")),
-                          name="idle-after-playback")
 
                 elif kind == "reply":
                     text = (data.get("text") or "").strip()
@@ -561,28 +619,6 @@ class Agent:
         except Exception:
             return False
 
-    async def _idle_after_playback(self, gen: int, listen=None):
-        """После tts_end: дождаться опустошения буфера, затем idle.
-
-        Если за время ожидания началась новая реплика (_turn_gen
-        изменился) — ничего не делаем. Окно дослушивания открываем
-        только после idle.
-        """
-        deadline = time.monotonic() + _DRAIN_MAX_SEC
-        while not self.player.is_drained() and time.monotonic() < deadline:
-            await asyncio.sleep(_DRAIN_POLL_SEC)
-        await asyncio.sleep(_DRAIN_TAIL_SEC)
-        if self._turn_gen != gen:
-            return
-        self._set_state("idle")
-        if listen is not None and self._media_playing():
-            log.info("[voice] окно дослушивания не открываю: играет музыка или видео")
-        elif listen is not None:
-            try:
-                self.hearing.open_followup(float(listen))
-            except (TypeError, ValueError):
-                log.warning("Некорректное окно прослушивания: %r", listen)
-
     def _check_state_stall(self, now: float | None = None):
         """Сбросить в idle зависшие speaking/thinking (с WARNING)."""
         now = time.monotonic() if now is None else now
@@ -593,6 +629,7 @@ class Agent:
                 log.warning("[state] speaking без tts_end -> idle "
                             f"(последний чанк {now - self.player.last_feed_ts:.1f} с назад, "
                             f"буфер {self.player.buffer_bytes()} байт)")
+                self._tts_open = False
                 self.player.flush()
                 self._set_state("idle")
         elif state == "thinking":
@@ -969,6 +1006,7 @@ class Agent:
         if not offline:
             spawn(self._heartbeat(), name="agent-heartbeat")
         spawn(self._state_watchdog(), name="state-watchdog")
+        spawn(self._level_loop(), name="core-level")
         if not offline:
             spawn(self._screen_analysis_loop(), name="screen-analysis-loop")
         self.hearing.start()

@@ -41,6 +41,9 @@ def test_underrun_counted_and_logged(monkeypatch, caplog):
     p.feed(b"\x01\x00" * FRAMES)
     p.flush()                      # tts_end
     pull(p)                        # доиграл — итог
+    # Колбэк звука в журнал не пишет: итог пишет поток-уведомитель.
+    assert not [r for r in caplog.records if "underrun" in r.getMessage()]
+    p._dispatch()
     msgs = [r.getMessage() for r in caplog.records if "underrun" in r.getMessage()]
     assert msgs == ["[voice] underrun: 2 раз, всего 50 мс, макс. пауза 30 мс"]
 

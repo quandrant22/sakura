@@ -85,3 +85,31 @@ export function coreFrame(t: number, state: CoreVisualState, level: number, mobi
 
   return { drop: { cx: 0, cy: 0, r: dropR }, satellites, rings, opacity: state === "offline" ? 0.45 : 1 };
 }
+
+/** Длительность перехода между состояниями, мс. */
+export const TRANSITION_MS = 250;
+
+const mix = (a: number, b: number, k: number) => a + (b - a) * k;
+const mixCircle = (a: Circle, b: Circle, k: number): Circle => ({ cx: mix(a.cx, b.cx, k), cy: mix(a.cy, b.cy, k), r: mix(a.r, b.r, k) });
+
+/** Плавное «сглаженное» k (0..1) от доли перехода. */
+export const ease = (p: number) => { const x = clamp(finite(p), 0, 1); return x * x * (3 - 2 * x); };
+
+/** Смесь кадров: k=0 — from, k=1 — to. Недостающее кольцо гаснет/появляется на месте второго. */
+export function blendFrames(from: CoreFrame, to: CoreFrame, k: number): CoreFrame {
+  k = clamp(finite(k), 0, 1);
+  if (k >= 1) return to;
+  const n = Math.max(from.rings.length, to.rings.length);
+  const rings: Ring[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = from.rings[i], b = to.rings[i];
+    const ra = a ?? { r: b!.r, opacity: 0 }, rb = b ?? { r: a!.r, opacity: 0 };
+    rings.push({ r: mix(ra.r, rb.r, k), opacity: mix(ra.opacity, rb.opacity, k) });
+  }
+  return {
+    drop: mixCircle(from.drop, to.drop, k),
+    satellites: to.satellites.map((s, i) => mixCircle(from.satellites[i] ?? s, s, k)),
+    rings,
+    opacity: mix(from.opacity, to.opacity, k),
+  };
+}

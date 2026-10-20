@@ -1,8 +1,9 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import {
-  coreFrame, MERGE_PRESETS, VIEWBOX,
+  blendFrames, coreFrame, ease, MERGE_PRESETS, TRANSITION_MS, VIEWBOX,
   type CoreFrame, type CoreVisualState, type MergePreset, type Mobility,
 } from "./coreFrame";
+import { FrameStats, frameStatsEnabled } from "./frameStats";
 
 interface Props {
   state: CoreVisualState;
@@ -70,40 +71,84 @@ export function SakuraCore({
   const satRefs = useRef<SVGCircleElement[]>([]);
   const ringRefs = useRef<SVGCircleElement[]>([]);
 
-  const frameFps = fps ?? DEFAULT_FPS[state];
+  // Цикл анимации живёт всё время компонента: состояние, подвижность и частота читаются из ref,
+  // время отсчитывается от одного начала (смена состояния его не сбрасывает), а переход —
+  // смесь последнего нарисованного кадра с кадром нового состояния за TRANSITION_MS.
+  const stateRef = useRef(state);
+  const mobilityRef = useRef(mobility);
+  const fpsRef = useRef(fps);
+  const startRef = useRef<number | null>(null);
+  const lastFrameRef = useRef<CoreFrame | null>(null);
+  const transRef = useRef<{ from: CoreFrame; at: number } | null>(null);
+
+  useLayoutEffect(() => {
+    if ((stateRef.current !== state || mobilityRef.current !== mobility) && lastFrameRef.current) {
+      transRef.current = { from: lastFrameRef.current, at: performance.now() };
+    }
+    stateRef.current = state;
+    mobilityRef.current = mobility;
+    fpsRef.current = fps;
+  }, [state, mobility, fps]);
+
+  // reducedMotion: один статичный кадр на состояние, цикла нет.
+  useEffect(() => {
+    const group = groupRef.current, drop = dropRef.current;
+    if (!reduced || !group || !drop) return;
+    const f = coreFrame(0, state, 0, mobility);
+    lastFrameRef.current = f;
+    apply(f, group, satRefs.current, drop, ringRefs.current);
+  }, [reduced, state, mobility]);
 
   useEffect(() => {
     const group = groupRef.current, drop = dropRef.current;
-    if (!group || !drop) return;
-    const draw = (t: number, lv: number) => apply(coreFrame(t, state, lv, mobility), group, satRefs.current, drop, ringRefs.current);
+    if (reduced || !group || !drop) return;
+    if (startRef.current === null) startRef.current = performance.now();
+    const start = startRef.current;
+    const stats = frameStatsEnabled()
+      ? new FrameStats((s) => console.debug(`[core] кадры за 10 с: ${s.drawn}, пропущено ${s.missed} (${s.pct}%)`))
+      : null;
 
-    // reducedMotion: один статичный кадр, цикла нет.
-    if (reduced) { draw(0, 0); return; }
+    const frameAt = (now: number): CoreFrame => {
+      const target = coreFrame((now - start) / 1000, stateRef.current, levelRef.current(), mobilityRef.current);
+      const tr = transRef.current;
+      if (!tr) return target;
+      const p = (now - tr.at) / TRANSITION_MS;
+      if (p >= 1) { transRef.current = null; return target; }
+      return blendFrames(tr.from, target, ease(p));
+    };
+    const draw = (now: number) => {
+      const f = frameAt(now);
+      lastFrameRef.current = f;
+      apply(f, group, satRefs.current, drop, ringRefs.current);
+    };
 
-    const interval = 1000 / Math.max(1, frameFps);
-    const start = performance.now();
     let raf = 0;
     let last = -Infinity;
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
+      // Во время перехода — с частотой более быстрого состояния, чтобы смесь не дёргалась.
+      const target = fpsRef.current ?? (transRef.current ? 60 : DEFAULT_FPS[stateRef.current]);
+      const interval = 1000 / Math.max(1, target);
       // Допуск 2 мс, чтобы 60 fps не проседали до 30 из-за дрожания rAF.
       if (now - last < interval - 2) return;
       last = now;
-      draw((now - start) / 1000, levelRef.current());
+      draw(now);
+      stats?.frame(now, interval);
     };
     const run = () => { if (!raf && !document.hidden) raf = requestAnimationFrame(tick); };
-    const stop = () => { cancelAnimationFrame(raf); raf = 0; };
+    const stop = () => { cancelAnimationFrame(raf); raf = 0; stats?.pause(); };
     // Окно свёрнуто или скрыто — цикл полностью останавливается.
     const onVisibility = () => (document.hidden ? stop() : run());
 
-    draw(0, 0);
+    draw(performance.now());
     run();
     document.addEventListener("visibilitychange", onVisibility);
     return () => { stop(); document.removeEventListener("visibilitychange", onVisibility); };
-  }, [state, mobility, frameFps, reduced]);
+  }, [reduced]);
 
-  // Начальная разметка — кадр t=0; дальше атрибуты обновляет цикл.
-  const f0 = coreFrame(0, state, 0, mobility);
+  // Начальная разметка — кадр t=0 первого состояния, один раз: иначе при смене состояния React
+  // вернул бы атрибуты к t=0 нового состояния (скачок до следующего кадра цикла).
+  const [f0] = useState(() => coreFrame(0, state, 0, mobility));
   const m = MERGE_PRESETS[preset];
   const { x, y, w, h } = VIEWBOX;
 

@@ -19,6 +19,7 @@ import time
 import warnings
 
 from desktop.core import config
+from desktop.core.voice_tuning import pcm_level
 
 try:    import sounddevice as sd
 except ImportError: sd = None
@@ -703,6 +704,8 @@ def apply_voice_emotion(prosody: dict):
 class Hearing(threading.Thread):
     """Vosk ловит «Сакура». Фразу режет Silero, распознаёт GigaAM (Vosk — фолбэк)."""
 
+    level = 0.0   # громкость микрофона 0..1, пока идёт запись фразы (listening)
+
     def __init__(self, agent):
         super().__init__(daemon=True)
         self.agent         = agent
@@ -896,6 +899,12 @@ class Hearing(threading.Thread):
             pass
 
     def _capture(self, stream, timeline: dict | None = None):
+        try:
+            return self._capture_phrase(stream, timeline)
+        finally:
+            self.level = 0.0
+
+    def _capture_phrase(self, stream, timeline: dict | None = None):
         self.agent.set_state("listening")
         self.vad.reset()
         pcm       = bytearray()
@@ -915,6 +924,7 @@ class Hearing(threading.Thread):
 
             data    = bytes(stream.read(config.MIC_BLOCK)[0])
             elapsed = time.monotonic() - start
+            self.level = pcm_level(data)   # для ядра-графики (agent._level_loop)
 
             speech_probability = self.vad.speech_prob(data)
             frame_checked_at = time.monotonic()

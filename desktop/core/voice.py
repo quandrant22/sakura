@@ -17,6 +17,7 @@ try:    import numpy as np
 except ImportError: np = None
 
 from desktop.core import config
+from desktop.core.voice_tuning import pcm_level
 
 _BLOCKSIZE = 2048   # ~85мс при 24кГц — стабильнее на Windows
 _PREROLL_MAX_WAIT = 0.6   # сек с первого чанка — дальше предзаполнения не ждём
@@ -97,6 +98,19 @@ class Player:
     _ended = False
     _format_logged = False
     _ur_count = _ur_total = _ur_max = _ur_cur = 0
+    # Колбэк звука не пишет в журнал и не вызывает чужой код: он отмечает события, а поток-уведомитель
+    # (_notify_loop) пишет итог разрывов и зовёт on_start/on_end, когда звук дошёл до колонок / доиграл.
+    level = 0.0              # громкость реально выведенного звука 0..1 (последний блок)
+    _latency = 0.0           # задержка устройства вывода, с (если time_info её не даёт)
+    _resp_seq = 0            # номер ответа: растёт с первым чанком и при interrupt()
+    _sound_seq = 0           # ответ, чей звук уже пошёл в устройство
+    _last_sound_at = 0.0     # когда доиграет последний выведенный звук (monotonic)
+    _pending_start = None    # (seq, когда звук дойдёт до колонок)
+    _pending_end = None      # (seq, когда звук доиграет)
+    _pending_report = None   # итог разрывов для журнала
+    _notify = None
+    on_start = None          # on_start(seq) — звук ответа пошёл из колонок
+    on_end = None            # on_end(seq) — звук ответа доиграл (после tts_end)
 
     def __init__(self, rate: int):
         self._rate   = rate
@@ -109,8 +123,10 @@ class Player:
         # (или пришёл tts_end, или прошло _PREROLL_MAX_WAIT с первого чанка)
         self._preroll_bytes = int(getattr(config, "PLAYER_PREROLL_MS", 0) * rate / 1000) * 2
         self._reset_response()
+        self._notify = threading.Event()
         self._open_stream()
         threading.Thread(target=self._watchdog, daemon=True).start()
+        threading.Thread(target=self._notify_loop, daemon=True, name="player-notify").start()
 
     def _open_stream(self):
         dev_id, name = find_output_device()
@@ -136,6 +152,10 @@ class Player:
                     )
                     s.start()
                     self._stream = s
+                    try:
+                        self._latency = max(0.0, float(s.latency))
+                    except (TypeError, ValueError):
+                        self._latency = 0.0
                     log.info(f"[voice] Аудио-выход открыт: {name if dev == dev_id else 'дефолт'}")
                     log.info(f"[voice] Все устройства вывода:\n{list_output_devices()}")
                     break
@@ -169,16 +189,35 @@ class Player:
     def _bytes_ms(self, n: int) -> int:
         return int(n / 2 / self._rate * 1000)
 
-    def _finish_response(self):
-        """Конец ответа: один INFO о разрывах, сброс счётчиков (под self._lock)."""
+    def _finish_response(self, quiet: bool = False):
+        """Конец ответа: итог разрывов, сброс счётчиков (под self._lock). quiet — из колбэка звука:
+        итог пишет в журнал уведомитель, а не колбэк."""
         if self._started and self._ur_count:
-            log.info(f"[voice] underrun: {self._ur_count} раз, всего "
-                     f"{self._bytes_ms(self._ur_total)} мс, макс. пауза "
-                     f"{self._bytes_ms(self._ur_max)} мс")
+            report = (self._ur_count, self._bytes_ms(self._ur_total), self._bytes_ms(self._ur_max))
+            if quiet:
+                self._pending_report = report
+            else:
+                self._log_underrun(report)
         self._reset_response()
+
+    @staticmethod
+    def _log_underrun(report):
+        log.info(f"[voice] underrun: {report[0]} раз, всего {report[1]} мс, макс. пауза {report[2]} мс")
+
+    def _out_delay(self, time_info) -> float:
+        """Сколько звук идёт от колбэка до колонок: из time_info, иначе задержка потока."""
+        try:
+            d = float(time_info.outputBufferDacTime - time_info.currentTime)
+            if time_info.currentTime > 0 and 0.0 <= d < 1.0:
+                return d
+        except (AttributeError, TypeError, ValueError):
+            pass
+        return self._latency
 
     def _callback(self, outdata, frames, time_info, status):
         need = frames * 2
+        chunk = b""
+        signal = False
         with self._lock:
             n = 0
             if not self._started and self._buf:
@@ -189,8 +228,16 @@ class Player:
             if self._started:
                 n = min(need, len(self._buf))
                 if n:
-                    outdata[:n] = bytes(self._buf[:n])
+                    chunk = bytes(self._buf[:n])
+                    outdata[:n] = chunk
                     del self._buf[:n]
+                    out_at = time.monotonic() + self._out_delay(time_info)
+                    self._last_sound_at = out_at + n / 2 / self._rate
+                    if self._sound_seq != self._resp_seq:
+                        # Первый звук ответа: speaking — когда он дойдёт до колонок, а не при приходе чанка.
+                        self._sound_seq = self._resp_seq
+                        self._pending_start = (self._resp_seq, out_at)
+                        signal = True
                 if n < need and not self._ended:
                     # Звук шёл, а данных не хватило — разрыв
                     if self._ur_cur == 0:
@@ -201,9 +248,55 @@ class Player:
                 elif n == need:
                     self._ur_cur = 0
                 if self._ended and not self._buf:
-                    self._finish_response()
+                    # Доиграл: idle — когда последний блок выйдет из устройства.
+                    self._pending_end = (self._resp_seq, self._last_sound_at)
+                    self._finish_response(quiet=True)
+                    signal = True
         if n < need:
             outdata[n:] = b"\x00" * (need - n)
+        self.level = pcm_level(chunk) if chunk else 0.0
+        if signal and self._notify is not None:
+            self._notify.set()
+
+    # ── уведомления (поток player-notify) ──────────────────────────────
+    @property
+    def resp_seq(self) -> int:
+        return self._resp_seq
+
+    def _notify_loop(self):
+        while True:
+            self._notify.wait()
+            self._notify.clear()
+            try:
+                self._dispatch(wait=True)
+            except Exception:  # noqa: BLE001
+                log.exception("[voice] уведомление плеера")
+
+    def _dispatch(self, wait: bool = False):
+        """Итог разрывов — в журнал; on_start/on_end — в момент выхода звука (wait=False — только наступившие)."""
+        with self._lock:
+            report, self._pending_report = self._pending_report, None
+        if report:
+            self._log_underrun(report)
+        for kind in ("start", "end"):
+            attr = "_pending_" + kind
+            with self._lock:
+                ev = getattr(self, attr)
+            if ev is None:
+                continue
+            delay = ev[1] - time.monotonic()
+            if delay > 0:
+                if not wait:
+                    continue
+                time.sleep(delay)
+            with self._lock:
+                if getattr(self, attr) != ev:
+                    continue  # снято interrupt() или заменено
+                setattr(self, attr, None)
+                current = ev[0] == self._resp_seq
+            cb = self.on_start if kind == "start" else self.on_end
+            if current and cb is not None:
+                cb(ev[0])
 
     def feed(self, pcm: bytes, rate: int | None = None, fmt: str = "json"):
         """Добавляет PCM (16 бит, моно) в буфер. rate — частота чанка: если она не совпадает
@@ -223,6 +316,7 @@ class Player:
                 self._finish_response()
             if not self._started and not self._first_chunk_ts:
                 self._first_chunk_ts = time.monotonic()
+                self._resp_seq += 1   # первый чанк нового ответа
             self._buf.extend(pcm)
             self.last_feed_ts = time.monotonic()
 
@@ -233,17 +327,24 @@ class Player:
             self.feed(pcm, rate, fmt="binary")
 
     def flush(self):
-        """Конец фразы (tts_end): буфер доиграет сам, затем итог по разрывам."""
+        """Конец фразы (tts_end): буфер доиграет сам (конец отметит колбэк), затем итог по разрывам.
+        Буфер уже пуст — звук доиграл раньше (или его не было): конец — когда доиграет хвост в устройстве."""
         with self._lock:
             self._ended = True
             if not self._buf:
+                self._pending_end = (self._resp_seq, max(time.monotonic(), self._last_sound_at))
                 self._finish_response()
+        if self._notify is not None:
+            self._notify.set()
 
     def interrupt(self):
-        """Баржинг — очищаем буфер."""
+        """Баржинг — очищаем буфер; отложенные «звук пошёл/доиграл» прерванного ответа не придут."""
         with self._lock:
             self._buf.clear()
             self._finish_response()
+            self._resp_seq += 1
+            self._pending_start = self._pending_end = None
+            self.level = 0.0
 
     def buffer_bytes(self) -> int:
         with self._lock:

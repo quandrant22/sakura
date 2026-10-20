@@ -1,5 +1,4 @@
 """Озвучка: глушение микрофона на время речи и 700 мс после; частота чанков; окно дослушивания и музыка."""
-import asyncio
 import struct
 from types import SimpleNamespace
 
@@ -69,12 +68,14 @@ def test_followup_not_opened_while_media_plays():
     a = Agent.__new__(Agent)
     opened = []
     a.hearing = SimpleNamespace(open_followup=lambda s: opened.append(s))
-    a.player = SimpleNamespace(is_drained=lambda: True)
     a._turn_gen = 1
+    a._state = "speaking"
     a._set_state = lambda s: None
     a.media = SimpleNamespace(audio=SimpleNamespace(playing={"music": True, "video": False}))
-    asyncio.run(a._idle_after_playback(1, listen=4))
+    a._tts_listen = 4
+    a._on_audio_end(1)
     assert opened == []
     a.media.audio.playing["music"] = False
-    asyncio.run(a._idle_after_playback(1, listen=4))
+    a._tts_listen = 4
+    a._on_audio_end(1)
     assert opened == [4.0]
