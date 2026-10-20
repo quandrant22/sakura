@@ -510,6 +510,11 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
             pass
         return
 
+    # ── Подтверждение выключения/перезагрузки/сна: «да»/«нет» откуда угодно ──
+    from sakura_core import power_confirm
+    if await power_confirm.handle_answer(text, device_id):
+        return
+
     # ── v3 (этап 5): confirm-диалог реестра проверяется ДО v2 _pending_system:
     try:
         from sakura_core.bridge import get_router as _v3_get_router

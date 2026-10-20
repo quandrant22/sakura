@@ -119,6 +119,10 @@ class Executor:
         # придёт следующим ходом — «да» роутер разрешит в Decision(source
         # ="session"), мост передаст confirmed=True. Ответ — (текст, ok):
         # та же форма, что у vps-хендлеров, мост доставит его как есть.
+        from sakura_core import power_confirm
+        if action_id in power_confirm.POWER_IDS and not ctx.extra.get("confirmed"):
+            # выключение/перезагрузка/сон: свой вопрос с названием ПК, ответ откуда угодно
+            return await power_confirm.request(action_id, ctx, param)
         if action_id in self._confirm_ids and not ctx.extra.get("confirmed"):
             decl = self._declarations[action_id]
             pending = None

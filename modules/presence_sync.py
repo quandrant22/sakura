@@ -178,9 +178,19 @@ def set_offline(device_id: str):
         _devs.pop(device_id, None)
         prev = _bye.get(device_id) or (_offline.get(device_id) or {}).get("reason")
         _offline[device_id] = {"wall": _wall(), "reason": prev}
+        _drop_power(device_id)
         if _active == device_id:
             _active = ""
         _decide(_now())
+
+
+def _drop_power(device_id: str) -> None:
+    """Висящий вопрос о выключении/сне для ушедшего ПК снимается."""
+    try:
+        from sakura_core import power_confirm
+        power_confirm.on_device_gone(device_id)
+    except Exception as e:
+        log.debug(f"[presence_sync] power: {type(e).__name__}: {e}")
 
 
 def mark_bye(device_id: str, reason: str = "exit") -> None:
@@ -192,6 +202,7 @@ def mark_bye(device_id: str, reason: str = "exit") -> None:
     with _lock:
         _bye[device_id] = reason
         _offline[device_id] = {"wall": _wall(), "reason": reason}
+        _drop_power(device_id)
         _devs.pop(device_id, None)
         if _active == device_id:
             _active = ""

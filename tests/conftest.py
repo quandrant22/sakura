@@ -108,3 +108,12 @@ def isolated_secure_dir(monkeypatch, tmp_path):
         secure_policy.reset_context()
     except ImportError:
         yield
+
+
+@pytest.fixture(autouse=True)
+def clean_pending_power():
+    """Висящий вопрос о выключении ПК не переживает тест."""
+    import modules.state as st
+    st._pending_power = {}
+    yield
+    st._pending_power = {}

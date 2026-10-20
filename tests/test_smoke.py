@@ -242,10 +242,12 @@ class Test11_WsHandlers(unittest.TestCase):
         pending = self._run_voice_command("выключи компьютер", ws_dev)
 
         self.assertEqual(self._agent_sends(ws_dev), [])
-        v3_pending = get_router().session.pending
-        self.assertIsNotNone(v3_pending)
-        self.assertEqual(v3_pending.action, "system.shutdown")
-        get_router().session.cancel()
+        # выключение/перезагрузка/сон спрашивает sakura_core/power_confirm, не Session
+        import modules.state as _st
+        self.assertIsNone(get_router().session.pending)
+        self.assertEqual(_st._pending_power["action"], "system.shutdown")
+        self.assertEqual(_st._pending_power["targets"], ["laptop"])
+        _st._pending_power = {}
 
     def test_confirm_yes_sends_command_to_agent(self):
         """Ответ «да» в пределах TTL → команда уходит на агент, запись очищается."""
@@ -317,16 +319,16 @@ class Test11_WsHandlers(unittest.TestCase):
         message = self._make_tg_message("выключи компьютер", master_id)
         get_router().session.cancel()
 
-        with patch.object(_tg, "bot", MagicMock()), \
+        with patch.object(_tg, "bot", MagicMock(send_message=AsyncMock())), \
              patch.object(_tg, "_get_active_ws", return_value=(laptop_ws, "laptop")), \
+             patch.object(_st, "connected_devices", {"laptop": laptop_ws}), \
              patch.object(_st, "_pending_system", {}):
             asyncio.run(_tg.handle_message(message))
 
         laptop_ws.send.assert_not_awaited()
-        v3_pending = get_router().session.pending
-        self.assertIsNotNone(v3_pending)
-        self.assertEqual(v3_pending.action, "system.shutdown")
-        get_router().session.cancel()
+        self.assertIsNone(get_router().session.pending)
+        self.assertEqual(_st._pending_power["action"], "system.shutdown")
+        _st._pending_power = {}
 
     def test_tg_confirm_yes_sends_command_to_agent(self):
         """Ответ «да» в Telegram в пределах TTL → команда уходит на агент через execute_critical_action."""

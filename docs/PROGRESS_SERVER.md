@@ -59,3 +59,17 @@ venv/bin/python scripts/cleanup_tasks.py               # копия в memory/ba
 Клиентам: `bye` (shutdown/sleep/exit) и `input_idle_s` в ping шлёт агент — `agent/`
 не менялся, до обновления агента действует запасная логика (последний голос/текст).
 
+## server/power (2026-10-20)
+
+| блок | состояние |
+|---|---|
+| 1 реестр | `system.shutdown`, `system.restart`, `power.sleep` — confirm: true; `system.sleep` → legacy `power.sleep`, фразы слиты |
+| 2–3 вопрос и ответ | `sakura_core/power_confirm.py`: явный вопрос с названием ПК, `reply kind=confirm`, ответ голосом/текстом/кнопками Telegram, срок 60 с |
+| 4 выбор ПК | по названию в фразе, «все компы», активный; офлайн — «уже выключен» |
+| 5 исполнение | команда с `confirmed: true` целевому ПК |
+| 6 bye/офлайн | висящий вопрос сбрасывается |
+| тесты | tests/test_power_confirm.py (12); обновлены устаревшие; весь набор зелёный |
+
+Перед выкаткой: проверить на старом `agent/`, что `power.sleep` и `system.shutdown` с `confirmed`
+исполняются (до этого он получал `system:shutdown`/`system:sleep`).
+

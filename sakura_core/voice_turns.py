@@ -136,7 +136,8 @@ def reply_text(text: str) -> str:
 #   template  — готовые и кэшированные фразы, ответы реестра
 #   error     — «Не получилось: <detail>»
 #   proactive — напоминания, брифинги, уведомления (всем master-устройствам)
-REPLY_KINDS = ("llm", "ack", "template", "error", "proactive")
+#   confirm   — вопрос «Выключить …? Да или нет?» (sakura_core/power_confirm.py)
+REPLY_KINDS = ("llm", "ack", "template", "error", "proactive", "confirm")
 
 
 async def send_reply(websocket, device_id: str, text: str, kind: str = "llm") -> bool:

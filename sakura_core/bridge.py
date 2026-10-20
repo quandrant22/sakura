@@ -214,6 +214,9 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
     )
     if not executed:
         return False
+    from sakura_core import power_confirm
+    if result is power_confirm.DELIVERED:
+        return True                        # вопрос о питании уже задан там, где Мастер
     if on_agent_command is not None and isinstance(result, str) and result:
         await on_agent_command(decision, result)
 

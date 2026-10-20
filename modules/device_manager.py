@@ -9,9 +9,12 @@ DEVICES_FILE = "memory/devices.json"
 
 # Описания известных id; для остальных из DEVICES имя — сам id.
 _DEVICE_INFO = {
-    "pc":      {"name": "Игровой ПК",      "type": "pc"},
-    "laptop":  {"name": "Ноутбук",         "type": "laptop"},
-    "mostech": {"name": "Рабочий ноутбук", "type": "laptop"},
+    "pc":      {"name": "Игровой ПК",      "type": "pc",
+                "acc": "игровой компьютер", "short": "игровой"},
+    "laptop":  {"name": "Ноутбук",         "type": "laptop",
+                "acc": "ноутбук", "short": "ноутбук"},
+    "mostech": {"name": "Рабочий ноутбук", "type": "laptop",
+                "acc": "рабочий ноутбук", "short": "рабочий"},
     "phone":   {"name": "Телефон",         "type": "phone", "always_notify": True},
 }
 
@@ -34,6 +37,21 @@ KNOWN_DEVICES = build_known_devices()
 def device_name(device_id: str | None) -> str:
     """Имя для показа; неизвестный id показываем как есть."""
     return (KNOWN_DEVICES.get(device_id) or {}).get("name") or str(device_id)
+
+
+def device_acc(device_id: str | None) -> str:
+    """Название в винительном падеже для вопроса («игровой компьютер»)."""
+    info = KNOWN_DEVICES.get(device_id) or {}
+    return info.get("acc") or (info.get("name") or str(device_id)).lower()
+
+
+def device_short(device_id: str | None) -> str:
+    info = KNOWN_DEVICES.get(device_id) or {}
+    return info.get("short") or device_acc(device_id)
+
+
+def WORK_DEVICE_ID() -> str:
+    return getattr(config, "WORK_LAPTOP_DEVICE", "mostech")
 
 
 def _blank() -> dict:

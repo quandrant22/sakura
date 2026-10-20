@@ -16,6 +16,7 @@ _pending_clarify: dict[str, dict] = {}   # master_key → {"text", "main", "alt"
 _last_executed: dict[str, dict] = {}     # master_key → {"text", "action", "ts"}
 _pending_plan: dict[str, dict] = {}      # master_key → {"text", "plan", "ts"}
 _pending_system: dict[str, dict] = {}    # master_key → {"action", "device", "ts"} — подтверждение опасных system:* команд, TTL 60с
+_pending_power: dict = {}                # подтверждение выключения/перезагрузки/сна ПК (sakura_core/power_confirm.py)
 _plan_cancel: dict[str, bool] = {}       # master_key → True если отмена
 _last_command_ts: float = 0.0   # время последней выполненной команды
 # Трек — отдельно по устройствам; новая запись заменяет старую целиком.

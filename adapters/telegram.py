@@ -151,6 +151,16 @@ def _register_commands():
             await cb_forget_tasks_impl(callback)
     dp.callback_query(F.data.in_({"forget_tasks:yes", "forget_tasks:no"}))(_forget_tasks_cb)
 
+    async def _power_cb(callback):
+        if not is_master(callback.from_user.id):
+            return
+        from sakura_core import power_confirm
+        _, verdict, pid = (callback.data or "power:no:").split(":", 2)
+        reply = await power_confirm.resolve("confirm" if verdict == "yes" else "deny", pid)
+        await callback.message.edit_text(reply or "Этот вопрос уже неактуален.")
+        await callback.answer()
+    dp.callback_query(F.data.startswith("power:"))(_power_cb)
+
 _register_commands()
 
 
@@ -255,6 +265,10 @@ async def handle_message(message: Message):
                 await bot.send_message(MASTER_ID, "Хорошо, остановилась.")
         except Exception:
             pass
+        return
+
+    from sakura_core import power_confirm
+    if await power_confirm.handle_answer(text, "telegram"):
         return
 
     from sakura_core.bridge import handle_v3_confirm
