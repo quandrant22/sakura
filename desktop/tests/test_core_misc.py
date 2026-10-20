@@ -1,4 +1,4 @@
-"""Мелкие части ядра без тестов в старом агенте: config, dep_check, LocalMood,
+"""Мелкие части ядра без тестов в старом агенте: config, dep_check,
 список устройств вывода, Settings, EventBus."""
 import importlib.util
 import logging
@@ -61,18 +61,6 @@ def test_dep_check_logs_missing(monkeypatch, caplog):
     assert missing == ["definitely_not_a_module_xyz"]
     assert "definitely_not_a_module_xyz" in caplog.text
     assert dep_check.check_critical_packages() == []  # повторный вызов — no-op
-
-
-def test_local_mood_params_shape_and_bounds():
-    from desktop.core.local_mood import LocalMood
-    m = LocalMood()
-    for _ in range(5):
-        m.update(track={"title": "x", "artist": "y"}, activity=0.9, cpu_temp=50)
-    p = m.get_orb_params()
-    assert {"pulse_amp", "petal_speed", "inner_weather"} <= set(p)
-    cur = m.get_current()
-    assert -1.0 <= cur["valence"] <= 1.0 and 0.0 <= cur["arousal"] <= 1.0
-    assert m.get_color().startswith("#")
 
 
 def test_list_output_devices_marks_default(monkeypatch):

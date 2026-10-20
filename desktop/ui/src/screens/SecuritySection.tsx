@@ -13,6 +13,11 @@ interface Keys { device_key: boolean; device_fp: string | null; storage: string 
 interface Channel { transport: string | null; secure: boolean; reason?: string | null; age_s?: number; rekeys?: number;
                     proto?: number | null }
 export interface SecureStatus { keys: Keys; channel: Channel; mode: string; pinned: boolean }
+/** Устройство реестра канала (ответ secure_devices, PROTOCOL.md сервера §10.3). */
+export interface SecureDevice { device_id: string; name?: string | null; fingerprint: string; paired_at?: number | null;
+                                last_seen?: number | null; online: boolean; secure_now: boolean; revoked: boolean; current: boolean }
+
+const dateText = (ts: number) => new Date(ts * 1000).toLocaleString().slice(0, 17);
 
 const btn = "flex items-center gap-1 rounded-full border border-line px-3 py-1 text-xs text-ink-dim hover:text-ink disabled:opacity-40";
 
@@ -61,7 +66,7 @@ export function SecuritySection() {
   const [msg, setMsg] = useState<{ text: string; warn: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
-  const [devices, setDevices] = useState<string | null>(null);
+  const [devices, setDevices] = useState<SecureDevice[] | string | null>(null);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -113,8 +118,7 @@ export function SecuritySection() {
     setTick((t) => t + 1);
   };
   const loadDevices = async () => {
-    try { const r = await client.call<{ devices?: { name: string; fp: string }[] }>("secure_devices");
-          setDevices((r.devices ?? []).map((d) => `${d.name} · ${d.fp}`).join("\n") || "устройств нет"); }
+    try { const r = await client.call<{ devices?: SecureDevice[] }>("secure_devices"); setDevices(r.devices ?? []); }
     catch (e) { setDevices(errorText(e)); }
   };
 
@@ -158,7 +162,24 @@ export function SecuritySection() {
       </Row>
       <Row label="Устройства" hint="Какие устройства подключены к серверу">
         <button type="button" onClick={() => void loadDevices()} className={btn}><Link2 size={13} /> Показать</button>
-        {devices && <pre className="mt-1 whitespace-pre-wrap text-xs text-ink-dim">{devices}</pre>}
+        {typeof devices === "string" && <div className="mt-1 text-xs text-ink-dim">{devices}</div>}
+        {Array.isArray(devices) && (devices.length === 0 ? <div className="mt-1 text-xs text-ink-dim">устройств нет</div> : (
+          <ul aria-label="Устройства канала" className="mt-1 space-y-1 text-xs">
+            {devices.map((d) => (
+              <li key={d.device_id} aria-current={d.current || undefined} className={d.revoked ? "text-ink-dim line-through" : "text-ink"}>
+                <span className={"mr-1.5 inline-block h-2 w-2 rounded-full " + (d.online ? "bg-online" : "bg-ink-dim")} />
+                {d.name || d.device_id} <span className="text-ink-dim">({d.device_id})</span>
+                {d.current && <span className="ml-1 text-accent">· это устройство</span>}
+                <div className="pl-3.5 text-ink-dim">
+                  <span className="font-mono">{d.fingerprint}</span>
+                  {" · "}{d.revoked ? "отозвано" : d.secure_now ? "защищено сейчас" : d.online ? "онлайн без защиты" : "не в сети"}
+                  {d.paired_at ? ` · подключено ${dateText(d.paired_at)}` : ""}
+                  {d.last_seen ? ` · был ${dateText(d.last_seen)}` : ""}
+                </div>
+              </li>
+            ))}
+          </ul>
+        ))}
       </Row>
       <Row label="Сбросить ключи" hint="Удалит ключ устройства и данные подключения; потом — заново /pair">
         {confirmReset ? (

@@ -68,11 +68,13 @@ def test_all_v2_requests_answered():
         "scenario_run": {"id": "focus"}, "scenario_from_text": {"text": "Создай сценарий сна"},
         "scenario_save": {"scenario": {"name": "Новый", "conditions": [], "actions": []}},
         "memory_search": {"q": "лоу"}, "memory_update": {"id": "k1", "text": "x"},
-        "memory_delete": {"id": "k2"}, "history_search": {"q": "а"}, "history_delete": {"id": "m1"},
+        "memory_delete": {"id": "k2"}, "chat_search": {"q": "а"}, "chat_delete": {"id": "m1"},
+        "chat_read": {"last_read_id": "m5"}, "chat_clear": {"confirm": True}, "chat_send": {"text": "привет"},
     }
     expected = {
-        "history_request": "history", "history_search": "history", "history_delete": "history_deleted",
-        "devices_request": "devices", "status_request": "status",
+        "history_request": "history", "chat_search": "chat_search", "chat_delete": "chat_delete",
+        "chat_read": "chat_read", "chat_clear": "chat_clear", "chat_send": "chat_ack",
+        "devices_request": "devices", "status_request": "status", "secure_devices": "secure_devices",
         "scenarios_list": "scenarios", "scenario_get": "scenario", "scenario_save": "scenario",
         "scenario_delete": "scenarios", "scenario_from_text": "scenario_preview",
         "memory_list": "memory_items", "memory_search": "memory_items",
@@ -85,7 +87,9 @@ def test_all_v2_requests_answered():
         async with server:
             ws = await _client(url)
             await _recv(ws)
-            for i, kind in enumerate(sorted(V2_REQUESTS - {"scenario_run"})):
+            # chat_clear — последним: он очищает историю, нужную chat_search/chat_delete.
+            kinds = sorted(V2_REQUESTS - {"scenario_run", "chat_clear"}) + ["chat_clear"]
+            for i, kind in enumerate(kinds):
                 reply = await _request(ws, {"type": kind, "request_id": f"q{i}", **payloads.get(kind, {})})
                 assert reply["type"] == expected[kind], (kind, reply)
             await ws.close()
@@ -192,3 +196,60 @@ def test_state_is_isolated_between_instances():
     a, b = MockServer(token=TOKEN), MockServer(token=TOKEN)
     a.state["scenarios"]["scenarios"].clear()
     assert b.state["scenarios"]["scenarios"]
+
+
+def test_unknown_request_type_answered_unknown_type():
+    """Запрос с request_id вне V2_REQUESTS сервера — error/unknown_type; ping и прочее без request_id — тишина."""
+    async def go():
+        srv, server, url = await _start()
+        async with server:
+            ws = await _client(url)
+            await _recv(ws)
+            e = await _request(ws, {"type": "history_search", "q": "а"})
+            assert (e["type"], e["code"]) == ("error", "unknown_type")
+            await ws.send(json.dumps({"type": "ping", "device_id": "mostech"}))
+            with pytest.raises(asyncio.TimeoutError):
+                await _recv(ws, timeout=0.3)
+            await ws.close()
+    run(go())
+
+
+def test_dangerous_scenario_needs_confirm():
+    async def go():
+        srv, server, url = await _start()
+        srv.state["scenarios"]["scenarios"].append(
+            {"id": "off", "name": "Выключить", "enabled": True, "conditions": [],
+             "actions": [{"type": "system.shutdown", "value": ""}]})
+        async with server:
+            ws = await _client(url)
+            await _recv(ws)
+            e = await _request(ws, {"type": "scenario_run", "id": "off"})
+            assert (e["type"], e["code"]) == ("error", "confirm_required")
+            assert "system.shutdown" in e["message"]
+            await ws.send(json.dumps({"type": "scenario_run", "request_id": "r2", "id": "off", "confirm": True}))
+            assert (await _recv(ws))["type"] == "scenario_run_started"
+            await ws.close()
+    run(go())
+
+
+def test_secure_devices_bye_and_presence():
+    async def go():
+        srv, server, url = await _start()
+        async with server:
+            ws = await _client(url)
+            await _recv(ws)
+            pc = await _client(url, device="pc")
+            await _recv(pc)
+            r = await _request(ws, {"type": "secure_devices"})
+            cur = {d["device_id"]: d["current"] for d in r["devices"]}
+            assert cur["mostech"] is True and cur["pc"] is False
+            assert all("pub" not in d and len(d["fingerprint"]) == 16 for d in r["devices"])
+            await pc.send(json.dumps({"type": "bye", "device_id": "pc", "reason": "sleep"}))
+            await asyncio.sleep(0.05)
+            assert srv.bye == {"pc": "sleep"}
+            await srv.presence("pc", "mostech")
+            assert await _recv(ws) == {"type": "presence", "event": "arrival", "from": "pc", "to": "mostech"}
+            assert (await _recv(pc))["event"] == "departure"
+            await pc.close()
+            await ws.close()
+    run(go())

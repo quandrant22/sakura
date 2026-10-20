@@ -24,6 +24,22 @@ from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any, Optional, Union
 
+# ── Запросы протокола v2 (клиент → сервер, с request_id) ──────────────
+# Единый список всех типов запросов, которые шлёт клиент (ядро и окно через команду server).
+# Сверка: tests/test_protocol_contract.py — с кодом клиента и с V2_REQUESTS сервера
+# (sakura_core/proto_v2.py). Сообщения без ответа (register, ping, bye, voice_command…) сюда не входят.
+CLIENT_REQUESTS = frozenset({
+    "history_request", "chat_search", "chat_delete",
+    "devices_request", "status_request", "secure_devices",
+    "scenarios_list", "scenario_delete", "scenario_run", "scenario_from_text",
+    "memory_list", "memory_search", "memory_update", "memory_delete",
+    "profile_get", "profile_set",
+})
+# Запросы с request_id, которые сервер разбирает вне диспетчера v2 (adapters/ws.py), поэтому их нет
+# в V2_REQUESTS: vision_request — «Спросить про окно» (sakura_core/vision_request.py).
+CLIENT_OTHER_REQUESTS = frozenset({"vision_request"})
+
+
 # ── Enums ──────────────────────────────────────────────────────────────
 
 class DeviceType(str, Enum):

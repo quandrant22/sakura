@@ -101,7 +101,7 @@
 | 13 | Сервер | WebSocket к VPS: register, ping/heartbeat, переподключение с backoff | agent.py `run`, `_heartbeat`, `_payload` | core/agent.py + core/server_link.py (proto 2) | test_server_link.py; ручная проверка на мок-сервере (STATE.md, 2026-10-10) | перенесено |
 | 14 | Сервер | Outbox — очередь исходящих при обрыве | outbox.py `Outbox`, `log_send_result` | core/outbox.py | agent_port/test_outbox.py | перенесено |
 | 15 | Сервер | Обработка command → command_result | agent.py `_recv_loop`, `_run_command` | core/agent.py | test_command_parity.py | перенесено |
-| 16 | Сервер | reply, mood_update, context_transfer | agent.py `_recv_loop` | core/agent.py | test_core_recv.py::test_reply_mood_and_context_transfer | перенесено |
+| 16 | Сервер | reply, mood_update, context_transfer | agent.py `_recv_loop` | core/agent.py: reply, presence (proto 2), из mood_update — только is_arrival/is_departure | test_core_recv.py::test_reply_presence_and_mood_flags | context_transfer и abort_all удалены (сервер их не шлёт; DECISIONS №55) |
 | 17 | Сервер | apps_list после подключения | agent.py `run` → hands.py `scan_apps` | core/agent.py | ручная проверка на мок-сервере (лог «Приложений: 160», STATE.md) | перенесено |
 | 18 | Сервер | screen_context (анализ экрана) | agent.py `_screen_analysis_loop` | core/agent.py `_screen_analysis_loop` | — | в работе |
 | 19 | Сервер | Требование WS_TOKEN (без него не стартует) | config.py, sakura.py | core/config.py, core/agent.py | agent_port/test_ws_token_required.py | перенесено |
@@ -114,7 +114,7 @@
 | 26 | Присутствие | Уровень активности (мышь/клавиатура) | presence.py `ActivityWatcher`, `get_activity_level` | core/presence.py | test_core_recv.py::test_activity_* | перенесено |
 | 27 | Присутствие | Детектор игр и игровой режим | agent.py `game_mode:*`, settings.py, hearing.py | core/agent.py, core/hearing.py | test_command_parity.py (game_mode.*), test_overlay_adapter.py | перенесено |
 | 28 | Присутствие | orb_arrival/orb_departure с защитой по вводу, OVERLAY_* настройки | agent.py `mood_update`, idle.py, ui/overlay.py `animate_departure` | core/agent.py + platform.windows.idle_seconds; оверлей через desktop/overlay | agent_port/test_idle.py, test_overlay_adapter.py, agent/tests/test_overlay_departure.py | перенесено |
-| 29 | Присутствие | Локальное настроение (трек, активность, температура) | local_mood.py `LocalMood` | core/local_mood.py | test_core_misc.py::test_local_mood_params_shape_and_bounds | перенесено |
+| 29 | Присутствие | Локальное настроение (трек, активность, температура) | local_mood.py `LocalMood` | — | — | удалено (DECISIONS №55): сервер рассылку настроения выключил, оверлей двигают arrival/departure |
 | 30 | Приложения | Сканирование меню «Пуск», Steam, игровых папок (GAME_DIRS) | hands.py `_scan_start_menu`, `_scan_steam`, `_scan_game_dirs`, `scan_apps` | core/hands.py (+ platform.steam_path) | agent_port/test_hands.py | перенесено |
 | 31 | Приложения | apps_cache.json, запоминание приложения (remember_app) | hands.py `_load_apps_cache`, `_save_apps_cache`, `remember_app` | core/hands.py (данные в DATA_DIR) | agent_port/test_hands.py | перенесено |
 | 32 | Приложения | Индекс файлов и поиск/открытие | file_index.py `FileIndex`, hands.py `find_file`, `open_file` | core/file_index.py, core/hands.py | agent_port/test_hands.py; test_command_parity.py (files.open) | перенесено |

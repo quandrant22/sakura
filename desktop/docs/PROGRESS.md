@@ -151,3 +151,13 @@ PROTOCOL.md и THREAT_MODEL.md; клиент сделан по специфик�
   Снимки: C:\sakura-tmp\screens\final (26 файлов; home/settings/devices/scenarios/memory/profile, 1440x1024 и 1180x760).
   Холодный старт ярлыком не повторён: уже работает экземпляр Sakura, не запущенный мной (последняя успешная проверка — 14.10, шаг Д).
   Замечание: на «Настройках» при 1180 px остаётся горизонтальная прокрутка у колонки (не от мастера).
+
+## fix/desktop-sync (20.10) — синхронизация клиента с сервером server/presence-memory
+Исходная ветка feat/desktop-integrated (b82d971), проверки до правок: ruff — чисто; pytest desktop/tests — 787 passed,
+75 skipped; tsc (оба проекта), eslint — чисто; vitest — 167/167; npm run build — ок; npm run e2e — 7/7.
+
+**П. 1 — протокол под сервер.** chat_search/chat_delete вместо history_search/history_delete; scenario_run →
+confirm_required → «Разрешить?» и повтор с confirm: true; «Безопасность → Устройства» из secure_devices (текущее
+отмечено); presence → уведомление «Сакура перешла на …» и orb_arrival/orb_departure; удалены context_transfer,
+abort_all, local_mood; мок-сервер по V2_REQUESTS сервера (unknown_type, secure_devices, presence, bye,
+confirm_required); contract-тест; SERVER_FEATURES.md переписан. DECISIONS №54–56.

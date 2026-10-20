@@ -48,7 +48,7 @@ DEVICE_ID    = os.getenv("SAKURA_DEVICE_ID") or os.getenv("DEVICE_ID", "laptop")
 # локальный API, расширение, медиа и слух работают (живая проверка).
 OFFLINE      = os.getenv("SAKURA_OFFLINE") == "1"
 WS_TOKEN     = os.getenv("WS_TOKEN",      "")  # только из .env, без значения по умолчанию
-PING_INTERVAL = int(os.getenv("PING_INTERVAL", "25"))
+PING_INTERVAL = int(os.getenv("PING_INTERVAL", "10"))  # не больше 10 с (agent.PING_MAX_SEC)
 WINDOW_POLL   = int(os.getenv("WINDOW_POLL", "2"))
 RECONNECT_SEC = int(os.getenv("RECONNECT_SEC", "3"))
 

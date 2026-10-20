@@ -136,6 +136,13 @@ export class DemoClient implements CoreClient {
     switch (message.type) {
       case "history_request":
         return { type: "history", messages: this.messages } as T;
+      case "chat_search": {
+        const q = String(message.q ?? "").toLowerCase();
+        return { type: "chat_search", q, messages: this.messages.filter((m) => m.text.toLowerCase().includes(q)) } as T;
+      }
+      case "chat_delete":
+        this.messages = this.messages.filter((m) => m.id !== message.id);
+        return { type: "chat_delete", id: String(message.id) } as T;
       case "devices_request":
         return { type: "devices", devices: this.devices } as T;
       case "status_request":

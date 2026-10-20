@@ -1,4 +1,4 @@
-"""Цикл приёма сообщений сервера (reply, mood_update, context_transfer, ServerLink),
+"""Цикл приёма сообщений сервера (reply, presence, mood_update, ServerLink),
 эмоция голоса, уровень активности, активное окно."""
 import asyncio
 import json
@@ -38,27 +38,31 @@ def _agent(messages, link=None):
     a._state_since = 0.0
     a._turn_gen = 0
     a._state_lock = threading.Lock()
-    a._last_mood_update = None
     a.server_link = link
     return a
 
 
-def test_reply_mood_and_context_transfer(monkeypatch):
-    monkeypatch.setattr("desktop.core.platform.windows.WindowsPlatform.idle_seconds", lambda self: 5.0)
+def test_reply_presence_and_mood_flags():
     a = _agent([
         {"type": "reply", "text": "  привет  "},
+        {"type": "presence", "event": "departure", "from": "mostech", "to": "pc"},
+        {"type": "presence", "event": "arrival", "from": "pc", "to": "mostech"},
+        {"type": "presence", "event": "что-то новое", "from": "pc", "to": "mostech"},
+        # proto 1: от mood_update остались только флаги; параметры настроения не разбираются.
         {"type": "mood_update", "params": {"is_departure": True, "valence": 0.4, "arousal": 0.6}},
         {"type": "mood_update", "params": {"is_arrival": True}},
+        {"type": "mood_update", "params": {"valence": 0.9}},
         {"type": "context_transfer", "text": "продолжи на ноутбуке"},
+        {"type": "command", "action": "abort_all", "id": "x"},
     ])
+    a._run_command = lambda *args, **kw: asyncio.sleep(0)
     asyncio.run(a._recv_loop())
     names = [e for e, _ in a.bus.events]
-    assert names == ["sakura_text", "orb_departure", "mood_update", "orb_arrival", "mood_update",
-                     "context_transfer"]
+    assert names == ["sakura_text", "orb_departure", "presence", "orb_arrival", "presence",
+                     "orb_departure", "orb_arrival"]
     # kind/turn_id/ts — когда сервер их пришлёт (п. 1.2); сервер v1 шлёт только text.
     assert a.bus.events[0][1] == {"text": "привет", "kind": None, "turn_id": None, "ts": None}
-    assert a._last_mood_update == {"valence": 0.0, "arousal": 0.3}  # последний mood без значений
-    assert a.bus.events[-1][1] == {"text": "продолжи на ноутбуке"}
+    assert a.bus.events[2][1] == {"move": {"event": "departure", "from": "mostech", "to": "pc"}}
 
 
 def test_server_link_consumes_v2_messages():

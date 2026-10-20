@@ -18,19 +18,22 @@
 | Направление | type | Поля |
 |---|---|---|
 | ядро → сервер | `register` | `device_id`, `token`, `active_window`, `system_info`, `focus_seconds`, `activity_level`, **новое:** `proto: 2` |
-| ядро → сервер | `ping` | как `register` (heartbeat, раз в `PING_INTERVAL` или при смене окна); `system_info` — CPU, RAM, GPU, температуры, батарея |
+| ядро → сервер | `ping` | как `register` (heartbeat: при смене окна и не реже раза в 10 с); `system_info` — CPU, RAM, GPU, температуры, батарея; **новое (необяз.):** `input_idle_s` — секунд с последнего ввода мыши/клавиатуры (GetLastInputInfo), и в `register` тоже |
 | ядро → сервер | `voice_command` | `device_id`, `token`, `text`, `active_window`, `context`; **новое (необяз.):** `channel: voice\|text` |
 | ядро → сервер | `apps_list` | `device_id`, `token`, `apps` — только master-устройства |
 | ядро → сервер | `command_result` | `id`, `device_id`, `token`, `ok`, `detail`, … |
 | ядро → сервер | `screen_context`, `kettle_ready` | как сейчас |
-| сервер → ядро | `command` | `id`, `action`, `arg` — выполнить действие из реестра |
-| сервер → ядро | `reply` | `text` |
+| сервер → ядро | `command` | `id`, `action`, `arg` — выполнить действие из реестра; `confirmed: true` — сервер уже спросил Мастера, клиент не переспрашивает |
+| сервер → ядро | `reply` | `text`; необяз. `kind` (`llm`, `ack`, `template`, `error`, `proactive`, `confirm` — вопрос «Да или нет?»), `turn_id`, `ts` |
 | сервер → ядро | `tts_chunk` / бинарные кадры / `tts_end` | озвучка (24 кГц, 16 бит) |
-| сервер → ядро | `mood_update` | `params` (`is_arrival`, `is_departure`, `valence`, `arousal`, …) |
-| сервер → ядро | `context_transfer` | `text` |
+| сервер → ядро | `presence` | proto 2 (сервер §10.4): `event: arrival\|departure`, `from`, `to` — Сакура перешла между ПК |
+| сервер → ядро | `mood_update` | proto 1: разбираются только `params.is_arrival` / `params.is_departure` (параметры настроения сервер больше не шлёт) |
 
 Закрытие с кодом **4401** — авторизация не прошла или действие запрещено для
 устройства (например, `apps_list` с не-master устройства).
+
+Полный список запросов клиента — `desktop/core/protocol.py` (`CLIENT_REQUESTS`); сверка с кодом клиента
+и с `V2_REQUESTS` сервера — `desktop/tests/test_protocol_contract.py`.
 
 ### 1.2 Регистрация v2
 
@@ -52,13 +55,16 @@
 | Запрос | Поля | Ответ |
 |---|---|---|
 | `history_request` | `limit` (по умолч. 50), `before_ts` (необяз.) | `history {messages:[Message]}` — по возрастанию `ts`, последние `limit` до `before_ts` |
+| `chat_search` | `q`, `limit` | `chat_search {q, messages:[Message]}` |
+| `chat_delete` | `id` | `chat_delete {id}` |
+| `secure_devices` | — | `secure_devices {devices:[{device_id, name, fingerprint, paired_at, last_seen, online, secure_now, revoked, current}]}` — только по защищённому каналу (сервер §10.3) |
 | `devices_request` | — | `devices {devices:[Device]}` |
 | `status_request` | — | `status {tone, mode, context, quote}` |
 | `scenarios_list` | — | `scenarios {scenarios:[Scenario]}` |
 | `scenario_get` | `id` | `scenario {scenario}` |
 | `scenario_save` | `scenario` (без `id` — создать) | `scenario {scenario}` |
 | `scenario_delete` | `id` | `scenarios {scenarios}` |
-| `scenario_run` | `id` | `scenario_run_started {run_id, id}`, затем пуши `scenario_event` |
+| `scenario_run` | `id`, `confirm` (необяз.) | `scenario_run_started {run_id, id}`, затем пуши `scenario_event`; опасные шаги без `confirm: true` — ошибка `confirm_required` (окно спрашивает «Разрешить?» и повторяет с `confirm: true`) |
 | `scenario_from_text` | `text` | `scenario_preview {scenario, warnings:[str]}` — не сохраняется |
 | `memory_list` | `category` (необяз.), `offset`, `limit` | `memory_items {items, total, counts}` |
 | `memory_search` | `q`, `limit` | `memory_items` |
@@ -115,6 +121,9 @@
 | `unauthorized` | неверный токен |
 | `not_master` | запрос v2 с не-master устройства |
 | `unsupported` | сервер не поддерживает proto 2 / этот запрос |
+| `unknown_type` | (мок-сервер) запроса нет в V2_REQUESTS сервера |
+| `confirm_required` | `scenario_run` с опасными действиями без `confirm: true` |
+| `secure_channel_required` | приватный запрос (`chat_*`, `memory_*`, `profile_*`, `secure_devices`) не по защищённому каналу |
 | `timeout` | (выставляет ядро) ответа нет за 10 с |
 | `offline` | (выставляет ядро) нет соединения с сервером |
 

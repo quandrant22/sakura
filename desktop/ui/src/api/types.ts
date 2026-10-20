@@ -91,6 +91,10 @@ export type CoreEvent =
   | { type: "game_mode"; on: boolean }
   | { type: "scenario_event"; run_id: string; step: number; status: string; detail: string }
   | { type: "audio_level"; bars: number[] }
+  /** Сакура перешла между ПК (сервер §10.4): arrival — на этот, departure — с этого. */
+  | { type: "presence"; event: "arrival" | "departure"; from: string | null; to: string }
+  /** Уровень звука ядра 0..1 (озвучка или микрофон), не чаще 30 раз в секунду. */
+  | { type: "level"; value: number }
   | { type: string; [key: string]: unknown };
 
 /** Ошибка команды ядра (reply.ok === false). */

@@ -273,3 +273,13 @@ def test_deferred_agent_reports_starting():
             await svc.cmd_send_text({"text": "x"})
         assert e.value.code == "starting"
     run(go())
+
+
+def test_presence_goes_to_window_and_orb_events_to_overlay():
+    svc = make_service()
+    sent = []
+    svc._emit = sent.append
+    svc.bus.emit("orb_arrival")
+    svc.bus.emit("presence", move={"event": "arrival", "from": "pc", "to": "mostech"})
+    assert sent == [{"type": "orb_arrival"},
+                    {"type": "presence", "event": "arrival", "from": "pc", "to": "mostech"}]

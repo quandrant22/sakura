@@ -154,6 +154,14 @@ export function errorText(e: unknown): string {
   return "Что-то пошло не так";
 }
 
+export const isConfirmRequired = (e: unknown): e is CoreError => e instanceof CoreError && e.code === "confirm_required";
+
+/** Встроенный сценарий «Фокус» на сервере (core/service.py FOCUS_SCENARIO_ID). */
+const FOCUS_SCENARIO_ID = "focus";
+
+/** Имена ПК Мастера, если сервер не прислал своё (devices_request). */
+export const PC_NAMES: Record<string, string> = { pc: "игровой компьютер", laptop: "ноутбук", mostech: "рабочий ноутбук" };
+
 const failStatus = (e: unknown): LoadStatus =>
   e instanceof CoreError && e.code === "unsupported" ? "unsupported" : "error";
 
@@ -162,6 +170,29 @@ export function createAppStore(client: CoreClient) {
     // Уровни звука меняются десятки раз в секунду — держим их вне состояния Zustand.
     const level = { value: 0 };
     const musicLevel = { value: 0 };
+
+    // «Разрешить?» самого окна (сервер ответил confirm_required): ответ не уходит в ядро.
+    const localConfirms = new Map<string, (yes: boolean) => void>();
+    let localSeq = 0;
+    function askLocal(label: string, timeoutS = 60): Promise<boolean> {
+      const id = `ui${++localSeq}`;
+      const ts = Date.now() / 1000;
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => void get().answerConfirm(id, false), timeoutS * 1000);
+        localConfirms.set(id, (yes) => { clearTimeout(timer); resolve(yes); });
+        set({ confirms: [...get().confirms, { id, action: "scenario_run", label, ts, expires: ts + timeoutS }] });
+      });
+    }
+    /** scenario_run; confirm_required → «Разрешить?» с текстом сервера, «Да» — повтор с confirm: true, «Нет» — null. */
+    async function runWithConfirm(id: string) {
+      try {
+        return await client.server<{ run_id: string }>({ type: "scenario_run", id });
+      } catch (e) {
+        if (!isConfirmRequired(e)) throw e;
+        if (!(await askLocal(e.message))) return null;
+        return await client.server<{ run_id: string }>({ type: "scenario_run", id, confirm: true });
+      }
+    }
 
     // Загрузка «слайса» с сервера: loading → ready | error | unsupported.
     async function load<K extends "chat" | "devices" | "status" | "scenarios">(
@@ -216,6 +247,20 @@ export function createAppStore(client: CoreClient) {
           if (typeof e.level === "number") level.value = e.level;
           else if (e.value === "idle") level.value = 0;
           set({ coreState: e.value });
+          break;
+        }
+        case "level": {
+          const v = Number((ev as { value?: unknown }).value);
+          if (Number.isFinite(v)) level.value = Math.min(1, Math.max(0, v));
+          break;
+        }
+        case "presence": {
+          const p = ev as { event?: string; to?: string | null };
+          if (!p.to) break;
+          const name = s.devices.data.find((d) => d.id === p.to)?.name || PC_NAMES[p.to] || p.to;
+          set({ notifications: [{ ts: Date.now() / 1000, text: `Сакура перешла на ${name}`, level: "info" as const },
+                                ...s.notifications].slice(0, 50),
+                devices: { ...s.devices, data: s.devices.data.map((d) => ({ ...d, focus: d.id === p.to })) } });
           break;
         }
         case "audio_level": {
@@ -320,6 +365,8 @@ export function createAppStore(client: CoreClient) {
       },
       async answerConfirm(id, yes) {
         set({ confirms: get().confirms.filter((c) => c.id !== id) });
+        const local = localConfirms.get(id);
+        if (local) { localConfirms.delete(id); local(yes); return; }
         try { await client.call("confirm_answer", { id, yes }); } catch { /* запрос уже закрыт */ }
       },
 
@@ -352,7 +399,8 @@ export function createAppStore(client: CoreClient) {
       chatMore: false,
       scenarioLog: [],
       async runScenario(id) {
-        const r = await client.server<{ run_id: string }>({ type: "scenario_run", id });
+        const r = await runWithConfirm(id);
+        if (!r) return;
         set({ scenarioLog: [...get().scenarioLog, { run_id: r.run_id, step: -1, status: "started", detail: id, ts: Date.now() / 1000 }] });
       },
       async deleteScenario(id) {
@@ -369,10 +417,10 @@ export function createAppStore(client: CoreClient) {
               chatMore: r.messages.length >= HISTORY_PAGE });
       },
       async searchHistory(q) {
-        return (await client.server<{ messages: Message[] }>({ type: "history_search", q, limit: 50 })).messages;
+        return (await client.server<{ messages: Message[] }>({ type: "chat_search", q, limit: 50 })).messages;
       },
       async deleteMessage(id) {
-        await client.server({ type: "history_delete", id });
+        await client.server({ type: "chat_delete", id });
         set({ chat: { ...get().chat, data: get().chat.data.filter((m) => m.id !== id) } });
       },
       loadDevices: () =>
@@ -403,7 +451,15 @@ export function createAppStore(client: CoreClient) {
 
       async quickAction(id, arg) {
         try {
-          await client.call("quick_action", arg ? { id, arg } : { id });
+          try {
+            await client.call("quick_action", arg ? { id, arg } : { id });
+          } catch (e) {
+            // «Фокус» и сценарии с опасными шагами: сервер просит подтверждение — спрашиваем и повторяем.
+            const scenario = id === "focus_mode" ? FOCUS_SCENARIO_ID : id === "run_scenario" ? arg : undefined;
+            if (!scenario || !isConfirmRequired(e)) throw e;
+            if (!(await askLocal(e.message))) return;
+            await client.server({ type: "scenario_run", id: scenario, confirm: true });
+          }
           set({ toast: { text: "Готово", level: "info" } });
         } catch (e) {
           set({ toast: { text: errorText(e), level: "error" } });

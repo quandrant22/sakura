@@ -23,8 +23,8 @@ class HistoryClient extends DemoClient {
       const items = this.all.filter((x) => before === undefined || x.ts < before);
       return { messages: items.slice(-HISTORY_PAGE) } as T;
     }
-    if (m.type === "history_search") return { messages: this.all.filter((x) => x.text.includes(String(m.q))) } as T;
-    if (m.type === "history_delete") { this.all = this.all.filter((x) => x.id !== m.id); return { id: m.id } as T; }
+    if (m.type === "chat_search") return { messages: this.all.filter((x) => x.text.includes(String(m.q))) } as T;
+    if (m.type === "chat_delete") { this.all = this.all.filter((x) => x.id !== m.id); return { id: m.id } as T; }
     return super.server<T>(m);
   }
 }
@@ -53,9 +53,9 @@ test("поиск по переписке и удаление только пос
   fireEvent.click(screen.getByText("Найти"));
   await waitFor(() => expect(screen.getByLabelText("Результаты поиска").textContent).toContain("про погоду в Москве"));
   fireEvent.click(screen.getAllByLabelText("Удалить сообщение")[0]!);
-  expect(c.sent.some((m) => m.type === "history_delete")).toBe(false);
+  expect(c.sent.some((m) => m.type === "chat_delete")).toBe(false);
   fireEvent.click(screen.getByText("Да"));
-  await waitFor(() => expect(c.sent.some((m) => m.type === "history_delete" && m.id === "m3")).toBe(true));
+  await waitFor(() => expect(c.sent.some((m) => m.type === "chat_delete" && m.id === "m3")).toBe(true));
   await waitFor(() => expect(screen.queryByText("про погоду в Москве")).toBeNull());
 });
 

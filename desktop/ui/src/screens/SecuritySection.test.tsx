@@ -18,6 +18,7 @@ class C extends DemoClient {
   calls: { type: string; payload: Record<string, unknown> }[] = [];
   st = base;
   fail = false;
+  secureDevices: Record<string, unknown>[] | null = null;
   override async call<T>(type: string, payload: Record<string, unknown> = {}): Promise<T> {
     this.calls.push({ type, payload });
     if (type === "secure_status") return this.st as T;
@@ -27,7 +28,10 @@ class C extends DemoClient {
       return { server_fp: "1111 2222 3333 4444", device_fp: "aaaa bbbb cccc dddd" } as T;
     }
     if (type === "secure_reset") return { keys: {} } as T;
-    if (type === "secure_devices") throw new CoreError("unsupported", "сервер ещё не поддерживает список устройств");
+    if (type === "secure_devices") {
+      if (!this.secureDevices) throw new CoreError("unknown_type", "secure_devices");
+      return { type: "secure_devices", devices: this.secureDevices } as T;
+    }
     return super.call<T>(type, payload);
   }
 }
@@ -59,6 +63,27 @@ test("подключение по 8 словам: отпечаток серве�
   expect(c.calls.find((x) => x.type === "secure_pair")?.payload).toEqual({ words: "лес кот мост елка река гора снег луна" });
 });
 
+test("устройства канала из secure_devices: текущее отмечено, отозванное видно", async () => {
+  const c = new C("normal");
+  c.secureDevices = [
+    { device_id: "mostech", name: "Рабочий ноутбук", fingerprint: "3f9a1c0277de0b41", paired_at: 1791900000, last_seen: 1791903600,
+      online: true, secure_now: true, revoked: false, current: true },
+    { device_id: "pc", name: "Игровой", fingerprint: "aa11bb22cc33dd44", paired_at: 1791800000, last_seen: null,
+      online: false, secure_now: false, revoked: true, current: false },
+  ];
+  setup(c);
+  fireEvent.click(screen.getByText("Показать"));
+  const list = await screen.findByLabelText("Устройства канала");
+  const items = list.querySelectorAll("li");
+  expect(items).toHaveLength(2);
+  expect(items[0]!.getAttribute("aria-current")).toBe("true");
+  expect(items[0]!.textContent).toContain("это устройство");
+  expect(items[0]!.textContent).toContain("3f9a1c0277de0b41");
+  expect(items[0]!.textContent).toContain("защищено сейчас");
+  expect(items[1]!.getAttribute("aria-current")).toBeNull();
+  expect(items[1]!.textContent).toContain("отозвано");
+});
+
 test("неверный код — понятная ошибка; список устройств — «сервер ещё не поддерживает»; сброс с подтверждением", async () => {
   const c = new C("normal");
   c.fail = true;
@@ -68,7 +93,7 @@ test("неверный код — понятная ошибка; список у
   fireEvent.click(screen.getByText("Подключить"));
   await waitFor(() => expect(screen.getByRole("status").textContent).toContain("не подошёл"));
   fireEvent.click(screen.getByText("Показать"));
-  await waitFor(() => expect(screen.getByText(/не поддерживает/)).toBeTruthy());
+  await waitFor(() => expect(screen.getByText("Сервер ещё не поддерживает")).toBeTruthy());
   fireEvent.click(screen.getByText("Сбросить"));
   expect(c.calls.some((x) => x.type === "secure_reset")).toBe(false);
   fireEvent.click(screen.getByText("Да"));

@@ -1,8 +1,10 @@
 """desktop/tools/mock_server.py — мок серверной части Сакуры (протокол v2).
 
-Реализует сообщения из desktop/docs/PROTOCOL.md («Сервер ↔ ядро») на фикстурах
+Реализует сообщения из desktop/docs/PROTOCOL.md («Сервер ↔ ядро») и PROTOCOL.md сервера
+(docs/security/PROTOCOL.md, §10: secure_devices, presence, bye) на фикстурах
 desktop/tools/fixtures/*.json. Состояние живёт в памяти процесса и сбрасывается
-при перезапуске.
+при перезапуске. Список запросов — как V2_REQUESTS сервера (sakura_core/proto_v2.py,
+ветка server/presence-memory); на запрос с request_id вне списка — error/unknown_type.
 
 Режимы (--mode):
   normal  — всё поддерживается;
@@ -14,6 +16,7 @@ desktop/tools/fixtures/*.json. Состояние живёт в памяти п�
 import argparse
 import asyncio
 import copy
+import hashlib
 import itertools
 import json
 import logging
@@ -28,13 +31,19 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures"
 PROTO = 2
 CLOSE_UNAUTHORIZED = 4401
 
-V2_REQUESTS = {
-    "history_request", "history_search", "history_delete", "devices_request", "status_request",
+# Копия V2_REQUESTS сервера; сверка — tests/test_protocol_contract.py.
+V2_REQUESTS = frozenset({
+    "chat_send", "history_request", "chat_read", "chat_search",
+    "chat_delete", "chat_clear",
+    "devices_request", "status_request", "secure_devices",
     "scenarios_list", "scenario_get", "scenario_save", "scenario_delete",
     "scenario_run", "scenario_from_text",
     "memory_list", "memory_search", "memory_update", "memory_delete",
     "profile_get", "profile_set",
-}
+})
+# Действия сценария, для которых сервер требует confirm: true (error/confirm_required).
+DANGEROUS_ACTIONS = frozenset({"system.shutdown", "system.restart", "power.sleep", "process.kill",
+                               "files.delete", "files.move"})
 
 
 def load_fixtures(path: Path = FIXTURES) -> dict:
@@ -56,6 +65,7 @@ class MockServer:
         self.step_delay = step_delay
         self.clients: dict = {}          # ws -> device_id
         self.received: list[dict] = []   # всё, что прислали клиенты (для тестов)
+        self.bye: dict[str, str] = {}    # device_id → причина последнего bye (§10.5)
         self._ids = itertools.count(1)
 
     # ── отправка ───────────────────────────────────────────────────
@@ -112,7 +122,16 @@ class MockServer:
         if kind == "voice_command":
             await self._voice_command(ws, device, msg)
             return
+        if kind == "bye":
+            # §10.5: ответа нет, ПК сразу офлайн с причиной; следующий register/ping снимает пометку.
+            reason = msg.get("reason")
+            self.bye[device] = reason if reason in ("shutdown", "sleep", "exit") else "exit"
+            return
+        if kind == "ping":
+            self.bye.pop(device, None)
         if kind not in V2_REQUESTS:
+            if msg.get("request_id") is not None:
+                await self._send(ws, self._err(msg, "unknown_type", f"{kind}: неизвестный запрос"))
             return  # ping, command_result, apps_list и пр. — только записываем
         if msg.get("token") not in (None, self.token):
             await self._send(ws, self._err(msg, "unauthorized", "неверный токен"))
@@ -160,21 +179,64 @@ class MockServer:
                  if before is None or m["ts"] < before]
         return {"type": "history", "messages": items[-limit:]}
 
-    async def _history_search(self, ws, msg):
-        q = str(msg.get("q") or "").lower()
-        items = [m for m in self.state["history"]["messages"] if q and q in str(m.get("text", "")).lower()]
-        return {"type": "history", "messages": items[-int(msg.get("limit") or 50):]}
+    async def _chat_search(self, ws, msg):
+        q = msg.get("q")
+        if not isinstance(q, str) or not q.strip():
+            return self._err(msg, "bad_request", "q: пустой запрос")
+        items = [m for m in self.state["history"]["messages"] if q.lower() in str(m.get("text", "")).lower()]
+        return {"type": "chat_search", "q": q, "messages": items[-int(msg.get("limit") or 20):]}
 
-    async def _history_delete(self, ws, msg):
+    async def _chat_delete(self, ws, msg):
         msgs = self.state["history"]["messages"]
         before = len(msgs)
         self.state["history"]["messages"] = [m for m in msgs if m.get("id") != msg.get("id")]
         if len(self.state["history"]["messages"]) == before:
             return self._err(msg, "not_found", "сообщение не найдено")
-        return {"type": "history_deleted", "id": msg.get("id")}
+        return {"type": "chat_delete", "id": str(msg.get("id"))}
+
+    async def _chat_read(self, ws, msg):
+        return {"type": "chat_read", "last_read_id": str(msg["last_read_id"])}
+
+    async def _chat_clear(self, ws, msg):
+        if msg.get("confirm") is not True:
+            return self._err(msg, "bad_request", "chat_clear: нужно confirm: true")
+        n = len(self.state["history"]["messages"])
+        self.state["history"]["messages"] = []
+        return {"type": "chat_clear", "deleted": n}
+
+    async def _chat_send(self, ws, msg):
+        text = str(msg.get("text") or "").strip()
+        if not text:
+            return self._err(msg, "bad_request", "пустое сообщение")
+        await self._voice_command(ws, self.clients.get(ws, "unknown"), {**msg, "channel": "text"})
+        return {"type": "chat_ack", "ok": True}
 
     async def _devices_request(self, ws, msg):
-        return {"type": "devices", "devices": self.state["devices"]["devices"]}
+        devices = [dict(d, online=bool(d.get("online")) and d["id"] not in self.bye)
+                   for d in self.state["devices"]["devices"]]
+        return {"type": "devices", "devices": devices}
+
+    async def _secure_devices(self, ws, msg):
+        """§10.3: реестр канала без ключей; current — устройство, приславшее запрос."""
+        me = self.clients.get(ws)
+        online = set(self.clients.values())
+        out = []
+        for d in self.state["devices"]["devices"]:
+            if d.get("kind") != "pc":
+                continue
+            out.append({"device_id": d["id"], "name": d.get("name"),
+                        "fingerprint": hashlib.blake2s(d["id"].encode()).hexdigest()[:16],
+                        "paired_at": 1791900000.0, "last_seen": d.get("last_seen"),
+                        "online": d["id"] in online, "secure_now": False, "revoked": False,
+                        "current": d["id"] == me})
+        return {"type": "secure_devices", "devices": out}
+
+    async def presence(self, frm: str | None, to: str):
+        """§10.4: переход между ПК — arrival новому, departure прежнему."""
+        for ws, dev in list(self.clients.items()):
+            event = "arrival" if dev == to else "departure" if dev == frm else None
+            if event:
+                await self._send(ws, {"type": "presence", "event": event, "from": frm, "to": to})
 
     async def _status_request(self, ws, msg):
         return {"type": "status", **self.state["status"]}
@@ -220,6 +282,10 @@ class MockServer:
         s = self._find_scenario(msg["id"])
         if s is None:
             return self._err(msg, "not_found", "сценарий не найден")
+        danger = [a.get("type") for a in s.get("actions", []) if a.get("type") in DANGEROUS_ACTIONS]
+        if danger and msg.get("confirm") is not True:
+            return self._err(msg, "confirm_required",
+                             f"опасные действия: {', '.join(danger)} — запуск с confirm: true")
         run_id = f"r{next(self._ids)}"
         await self._send(ws, {"type": "scenario_run_started", "request_id": msg.get("request_id"),
                               "run_id": run_id, "id": s["id"]})

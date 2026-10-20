@@ -170,6 +170,25 @@ describe("store", () => {
     expect(store.getState().toast?.text).toBe("Нет связи с ядром Сакуры");
   });
 
+  test("presence: строка «Сакура перешла на …» в уведомлениях, фокус у нового ПК; level — в уровень ядра", () => {
+    const c = new ScriptClient();
+    const store = createAppStore(c);
+    store.getState().init();
+    c.emit({ type: "devices", devices: [
+      { id: "pc", name: "Игровой", kind: "pc", online: true, last_seen: 1, focus: true, stats: {} },
+      { id: "mostech", name: "", kind: "pc", online: true, last_seen: 1, focus: false, stats: {} }] });
+    c.emit({ type: "presence", event: "arrival", from: "pc", to: "mostech" });
+    expect(store.getState().notifications[0]?.text).toBe("Сакура перешла на рабочий ноутбук");
+    expect(store.getState().toast).toBeNull();
+    expect(store.getState().devices.data.map((d) => [d.id, d.focus])).toEqual([["pc", false], ["mostech", true]]);
+    c.emit({ type: "presence", event: "departure", from: "mostech", to: "pc" });
+    expect(store.getState().notifications[0]?.text).toBe("Сакура перешла на Игровой");
+    c.emit({ type: "level", value: 0.42 });
+    expect(store.getState().getLevel()).toBeCloseTo(0.42);
+    c.emit({ type: "level", value: 7 });
+    expect(store.getState().getLevel()).toBe(1);
+  });
+
   test("события state/settings/device_update/status/notify", () => {
     const c = new ScriptClient();
     const store = createAppStore(c);

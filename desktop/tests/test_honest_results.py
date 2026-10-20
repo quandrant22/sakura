@@ -22,7 +22,6 @@ def _agent():
     a = Agent.__new__(Agent)
     a._ws = FakeWS()
     a.bus = SimpleNamespace(emit=lambda *a, **k: None)
-    a._abort_flag = False
     a.media = None
     return a
 

@@ -31,7 +31,6 @@ from desktop.core.hands import powershell as _powershell
 from desktop.core.hands import switch_to_app as _switch_to_app
 from desktop.core.hands import type_text as _type_text
 from desktop.core.hearing import Hearing
-from desktop.core.local_mood import LocalMood
 from desktop.core.outbox import Outbox, log_send_result
 from desktop.core.tasks import spawn
 from desktop.core.voice import Player
@@ -47,6 +46,25 @@ _DRAIN_TAIL_SEC = 0.15   # хвост в звуковой карте после 
 _WATCH_PERIOD_SEC   = 0.5
 _SPEAK_STALL_SEC    = 2.5    # speaking, буфер пуст, звука не было столько
 _THINK_TIMEOUT_SEC  = 25.0   # thinking дольше — ответа не будет
+
+# ping не реже раза в столько секунд, даже без смены окна: сервер судит о присутствии по input_idle_s.
+PING_MAX_SEC = 10
+# «Секунд без ввода» больше суток — платформа не знает (IDLE_UNKNOWN), поле не шлём.
+_IDLE_MAX_SEC = 86400.0
+
+
+def input_idle_seconds(platform=None) -> float | None:
+    """Секунды с последнего ввода мыши/клавиатуры (GetLastInputInfo) с точностью 0,1 с; None — неизвестно."""
+    try:
+        if platform is None:
+            from desktop.core.platform import get_platform
+            platform = get_platform()
+        idle = float(platform.idle_seconds())
+    except Exception:
+        return None
+    if not 0 <= idle < _IDLE_MAX_SEC:
+        return None
+    return round(idle, 1)
 
 
 # ── Музыка (v3, этап 3): канонические имена и явный выбор бэкенда ────────
@@ -224,10 +242,7 @@ class Agent:
         self._last_window    = ""
         self._window_since   = time.monotonic()
         self._activity_level = 0.0
-        self.local_mood = LocalMood()
-        self._last_mood_update = {}  # последний mood_update от сервера
-        self._current_track = {}     # кэш текущего трека (обновляет heartbeat)
-        self._abort_flag = False     # аварийный тормоз (abort_all)
+        self._current_track = {}     # текущий трек (обновляет CoreService._on_music_state)
 
     @property
     def state(self) -> str:
@@ -274,12 +289,22 @@ class Agent:
             "device_id":     config.DEVICE_ID,
             "token":         config.WS_TOKEN.strip(),
             "text":          text,
-            "active_window": get_active_window(),
+            "active_window": self._window_for_send(),
             "context":       [],
         }
         if channel:  # протокол v2: voice | text (по умолчанию сервер считает voice)
             msg["channel"] = channel
         self.send_threadsafe(msg, wake_detected_at=wake_detected_at, timeline=timeline)
+
+    def _window_for_send(self) -> str:
+        """Окно для voice_command: из цикла событий — последнее известное (heartbeat, ≤ 2 с),
+        из потока слуха — свежее (get_active_window — синхронный системный вызов)."""
+        loop = getattr(self, "_loop", None)
+        try:
+            in_loop = loop is not None and asyncio.get_running_loop() is loop
+        except RuntimeError:
+            in_loop = False
+        return getattr(self, "_last_window", "") if in_loop else get_active_window()
 
     async def _offline_text(self, text: str) -> dict:
         """Офлайн-режим: команда из реестра — выполнить локально и ответить шаблоном; иначе «нужна связь»."""
@@ -374,6 +399,10 @@ class Agent:
 
         future.add_done_callback(_on_send_done)
 
+    async def _payload_async(self, kind: str) -> dict:
+        """_payload в потоке: окно, psutil и датчики — синхронные системные вызовы, циклу событий их нельзя."""
+        return await asyncio.to_thread(self._payload, kind)
+
     def _payload(self, kind: str) -> dict:
         # Расширенная системная информация (температуры, диск)
         try:
@@ -410,8 +439,11 @@ class Agent:
         }
         if kind == "register":
             payload["proto"] = 2
-        # Добавляем текущий трек — ТОЛЬКО из кэша heartbeat (не блокируем
-        # loop-поток: SMTC-вызовы из loop давали задержки command_result)
+        # Секунды с последнего ввода мыши/клавиатуры (сервер §10.1, §10.6); неизвестно — поля нет.
+        idle = input_idle_seconds()
+        if idle is not None:
+            payload["input_idle_s"] = idle
+        # Текущий трек — из события SMTC (CoreService._on_music_state), SMTC здесь не читаем.
         track = self._current_track
         # Встроенная музыка играет — её трек в том же формате (контекст playing:music).
         builtin = media.current_track() if media is not None else None
@@ -427,59 +459,24 @@ class Agent:
         if ws is None:
             return
         try:
-            await ws.send(json.dumps(self._payload("ping")))
+            await ws.send(json.dumps(await self._payload_async("ping")))
         except Exception:  # noqa: BLE001
             pass
 
     async def _heartbeat(self):
+        """ping при смене окна и не реже PING_MAX_SEC, даже если окно то же (input_idle_s растёт).
+        SMTC не читается: трек приходит событием в CoreService._on_music_state."""
         last_window, last_ping = None, 0.0
-        last_mood_emit = 0.0
+        every = min(config.PING_INTERVAL, PING_MAX_SEC)
         while True:
-            await asyncio.sleep(config.WINDOW_POLL)
-            if not self._ws:
+            await asyncio.sleep(min(config.WINDOW_POLL, every))
+            ws = self._ws
+            if not ws:
                 continue
-
-            window, now = get_active_window(), time.monotonic()
-
-            # Обновляем локальный mood каждые 2 секунды
-            if (now - last_mood_emit) >= 2.0:
-                last_mood_emit = now
+            window, now = await asyncio.to_thread(get_active_window), time.monotonic()
+            if window != last_window or (now - last_ping) >= every:
                 try:
-                    from desktop.core.music import _smtc_get_info
-                    # await внутри loop'а — НЕ блокируем поток loop'а
-                    # синхронным SMTC-вызовом (прежний вариант
-                    # run_coroutine_threadsafe().result() из loop'а
-                    # взаимоблокировал heartbeat и задерживал
-                    # отправку command_result на сервер)
-                    track = await asyncio.wait_for(_smtc_get_info(), timeout=3.0)
-                    # Кэшируем для _payload("ping") — там SMTC не вызываем
-                    self._current_track = track or {}
-                except Exception:
-                    track = None
-
-                # Температура ноутбука
-                cpu_temp = None
-                try:
-                    from desktop.core.presence import get_extended_system_info
-                    si = get_extended_system_info()
-                    cpu_temp = si.get("cpu_temp")
-                except Exception:
-                    pass
-
-                self.local_mood.update(
-                    track=track,
-                    activity=self._activity_level,
-                    cpu_temp=cpu_temp,
-                    server_mood=self._last_mood_update,
-                )
-
-                # Эмитим mood в орб
-                orb_params = self.local_mood.get_orb_params()
-                self.bus.emit("mood_update", params=orb_params)
-
-            if window != last_window or (now - last_ping) >= config.PING_INTERVAL:
-                try:
-                    await self._ws.send(json.dumps(self._payload("ping")))
+                    await ws.send(json.dumps(await self._payload_async("ping")))
                     last_window, last_ping = window, now
                 except Exception:
                     pass
@@ -507,16 +504,6 @@ class Agent:
                 if kind == "command":
                     _cmd_id = data.get("id")
                     _action = data.get("action", "")
-                    if _action == "abort_all":
-                        self._abort_flag = True
-                        if _cmd_id:
-                            await self._ws.send(json.dumps({
-                                "type": "command_result", "id": _cmd_id,
-                                "device_id": config.DEVICE_ID, "ok": True, "status": "done",
-                                "detail": "abort принят",
-                            }))
-                        continue
-                    self._abort_flag = False
                     _arg = data.get("arg", "")
                     # confirmed — сервер уже спросил подтверждение (действия с confirm в control).
                     spawn(self._run_command(_action, _cmd_id, _arg, confirmed=data.get("confirmed") is True),
@@ -546,29 +533,22 @@ class Agent:
                         self.bus.emit("sakura_text", text=text, kind=data.get("kind"),
                                       turn_id=data.get("turn_id"), ts=data.get("ts"))
 
+                elif kind == "presence":
+                    # proto 2 (сервер §10.4): arrival — Сакура перешла на этот ПК, departure — ушла с него.
+                    event = data.get("event")
+                    if event in ("arrival", "departure"):
+                        log.info("[presence] %s: %s → %s", event, data.get("from"), data.get("to"))
+                        self.bus.emit("orb_" + event)
+                        self.bus.emit("presence", move={"event": event, "from": data.get("from"),
+                                                        "to": data.get("to")})
+
                 elif kind == "mood_update":
-                    params = data.get("params", {})
-                    if params.get("is_arrival") or params.get("is_departure"):
-                        from desktop.core.platform import get_platform
-                        log.info("[overlay] получен %s (ввод %.0f с назад)",
-                                 "is_arrival" if params.get("is_arrival") else "is_departure",
-                                 get_platform().idle_seconds())
+                    # proto 1: от настроения остались только флаги перехода между ПК.
+                    params = data.get("params") or {}
                     if params.get("is_arrival"):
                         self.bus.emit("orb_arrival")
                     elif params.get("is_departure"):
                         self.bus.emit("orb_departure")
-                    if params:
-                        self.bus.emit("mood_update", params=params)
-                        # Сохраняем для микширования с локальным mood
-                        self._last_mood_update = {
-                            "valence": params.get("valence", 0.0),
-                            "arousal": params.get("arousal", 0.3),
-                        }
-
-                elif kind == "context_transfer":
-                    text = data.get("text", "")
-                    if text:
-                        self.bus.emit("context_transfer", text=text)
 
             except Exception as e:
                 log.error(f"recv: {e}")
@@ -733,9 +713,6 @@ class Agent:
             return
 
         if action.startswith("powershell:"):
-            if self._abort_flag:
-                await _send_ack(R.noop("прервано abort_all"))
-                return
             result = await asyncio.to_thread(_powershell, action[11:])
             await _send_ack(R.from_legacy(result))
             return
@@ -967,7 +944,7 @@ class Agent:
         from desktop.core.control.confirm import Confirmations
         self.confirmations = Confirmations(lambda ev, **k: self.bus.emit(ev, **k))
         from desktop.core.presence import prime_system_info
-        prime_system_info()
+        await asyncio.to_thread(prime_system_info)
         # Запускаем локальный WS сервер для расширения браузера
         try:
             import importlib.util as _ilu
@@ -1023,7 +1000,7 @@ class Agent:
                 log.info("[agent] Подключаюсь к %s (%s)...", config.VPS_WS_URL, _transport.kind)
                 async with _tr.session(_transport) as ws:
                     self.bus.emit("transport_state", **dict(getattr(_transport, "state", {}) or {}))
-                    await ws.send(json.dumps(self._payload("register")))
+                    await ws.send(json.dumps(await self._payload_async("register")))
                     self._ws = ws
                     if self.server_link is not None:
                         async def _send_v2(msg, _ws=ws):
@@ -1079,7 +1056,7 @@ class Agent:
                         "device_id": config.DEVICE_ID,
                         "token":     config.WS_TOKEN,
                         "screenshot": result["screenshot"],
-                        "active_window": get_active_window(),
+                        "active_window": await asyncio.to_thread(get_active_window),
                     }))
                     log.debug("[screen] Скриншот отправлен для анализа")
             except Exception as e:

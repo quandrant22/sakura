@@ -181,8 +181,11 @@ class CoreService:
             self._emit({"type": "game_mode", "on": bool(data.get("on"))})
         elif event in ("orb_arrival", "orb_departure"):
             self._emit({"type": event})
-        elif event == "mood_update":
-            self._emit({"type": "mood", "params": data.get("params") or {}})
+        elif event == "presence":
+            # Окно пишет «Сакура перешла на <имя ПК>» в уведомления.
+            move = data.get("move") or {}
+            self._emit({"type": "presence", "event": move.get("event"), "from": move.get("from"),
+                        "to": move.get("to")})
 
     def _on_push(self, msg: dict):
         self._emit(msg)
