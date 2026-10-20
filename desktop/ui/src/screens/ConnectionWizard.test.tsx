@@ -66,3 +66,14 @@ test("слово «Сакура»: слух перешёл в «слушаю» �
   act(() => c.push({ type: "state", value: "listening", level: 0 }));
   await waitFor(() => expect(screen.getByText(/Слышу!/)).toBeTruthy());
 });
+
+test("имя устройства — выбор из списка pc / laptop / mostech, сохраняется в DEVICE_ID", async () => {
+  const c = setup();
+  const select = await screen.findByLabelText("Имя устройства") as HTMLSelectElement;
+  await waitFor(() => expect(select.value).toBe("mostech"));
+  const ids = Array.from(select.options).map((o) => o.value);
+  expect(ids.slice(0, 3)).toEqual(["pc", "laptop", "mostech"]);
+  fireEvent.change(select, { target: { value: "pc" } });
+  fireEvent.click(screen.getAllByText("Сохранить")[0]!);
+  await waitFor(() => expect(c.calls).toContainEqual({ type: "config_set", payload: { key: "DEVICE_ID", value: "pc" } }));
+});

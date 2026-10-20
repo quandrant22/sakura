@@ -23,6 +23,7 @@
 | ядро → сервер | `apps_list` | `device_id`, `token`, `apps` — только master-устройства |
 | ядро → сервер | `command_result` | `id`, `device_id`, `token`, `ok`, `detail`, … |
 | ядро → сервер | `screen_context`, `kettle_ready` | как сейчас |
+| ядро → сервер | `bye` | **новое (необяз.):** `device_id`, `reason: shutdown\|sleep\|exit` — перед выключением/перезагрузкой, сном и выходом, не дольше 1 с; ответа нет (сервер §10.5) |
 | сервер → ядро | `command` | `id`, `action`, `arg` — выполнить действие из реестра; `confirmed: true` — сервер уже спросил Мастера, клиент не переспрашивает |
 | сервер → ядро | `reply` | `text`; необяз. `kind` (`llm`, `ack`, `template`, `error`, `proactive`, `confirm` — вопрос «Да или нет?»), `turn_id`, `ts` |
 | сервер → ядро | `tts_chunk` / бинарные кадры / `tts_end` | озвучка (24 кГц, 16 бит) |

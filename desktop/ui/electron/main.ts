@@ -9,6 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { sayBye } from "./coreBye.js";
 import { coreAlready, type CoreState, CoreSupervisor, coreAutostartEnabled, pidAlive, readLockPid } from "./coreProcess.js";
 import { readLayout, writeLayout } from "./layoutFile.js";
 import {
@@ -459,8 +460,19 @@ if (!process.env.SAKURA_E2E && !process.env.SAKURA_SCREENSHOT_SPECS && !app.requ
     createTray();
     await loadPage(win);
   });
-  app.on("before-quit", () => {
+  // Перед закрытием своего ядра — bye серверу через ядро (не дольше 1 с), затем закрываем как обычно.
+  // Чужое (уже работавшее) ядро окно не закрывает — и bye за него не шлёт.
+  let byeAsked = false;
+  app.on("before-quit", (e) => {
     quitting = true;
+    const own = core && core.state !== "external" && core.state !== "stopped" && core.state !== "failed";
+    if (own && !byeAsked) {
+      byeAsked = true;
+      e.preventDefault();
+      void sayBye(tokenFile, "exit").then((sent) => console.log(`[core] bye ${sent ? "отправлен" : "не отправлен"}`))
+        .finally(() => app.quit());
+      return;
+    }
     core?.stop();
   });
   app.on("window-all-closed", () => {

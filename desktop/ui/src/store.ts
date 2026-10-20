@@ -13,6 +13,7 @@ import {
   type Settings,
   type Status,
 } from "./api/types";
+import { pcName } from "./devices";
 
 export const HISTORY_PAGE = 50;
 
@@ -159,9 +160,6 @@ export const isConfirmRequired = (e: unknown): e is CoreError => e instanceof Co
 /** Встроенный сценарий «Фокус» на сервере (core/service.py FOCUS_SCENARIO_ID). */
 const FOCUS_SCENARIO_ID = "focus";
 
-/** Имена ПК Мастера, если сервер не прислал своё (devices_request). */
-export const PC_NAMES: Record<string, string> = { pc: "игровой компьютер", laptop: "ноутбук", mostech: "рабочий ноутбук" };
-
 const failStatus = (e: unknown): LoadStatus =>
   e instanceof CoreError && e.code === "unsupported" ? "unsupported" : "error";
 
@@ -257,7 +255,7 @@ export function createAppStore(client: CoreClient) {
         case "presence": {
           const p = ev as { event?: string; to?: string | null };
           if (!p.to) break;
-          const name = s.devices.data.find((d) => d.id === p.to)?.name || PC_NAMES[p.to] || p.to;
+          const name = pcName(p.to, s.devices.data);
           set({ notifications: [{ ts: Date.now() / 1000, text: `Сакура перешла на ${name}`, level: "info" as const },
                                 ...s.notifications].slice(0, 50),
                 devices: { ...s.devices, data: s.devices.data.map((d) => ({ ...d, focus: d.id === p.to })) } });

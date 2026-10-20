@@ -50,6 +50,10 @@ _THINK_TIMEOUT_SEC  = 25.0   # thinking дольше — ответа не бу�
 
 # ping не реже раза в столько секунд, даже без смены окна: сервер судит о присутствии по input_idle_s.
 PING_MAX_SEC = 10
+# bye серверу (§10.5) перед выключением, сном и выходом: дольше не ждём, дальше закрываемся как обычно.
+BYE_TIMEOUT_SEC = 1.0
+BYE_REASONS = ("shutdown", "sleep", "exit")
+
 # «Секунд без ввода» больше суток — платформа не знает (IDLE_UNKNOWN), поле не шлём.
 _IDLE_MAX_SEC = 86400.0
 
@@ -522,6 +526,52 @@ class Agent:
             await ws.send(json.dumps(await self._payload_async("ping")))
         except Exception:  # noqa: BLE001
             pass
+
+    # ── bye: ПК уходит (выключение, сон, выход) ───────────────────────
+    async def say_bye(self, reason: str, timeout: float = BYE_TIMEOUT_SEC) -> bool:
+        """{"type": "bye", "device_id", "reason"} — не дольше timeout; на одно соединение — один раз.
+        Старый сервер bye не знает и просто пропускает (поле для него необязательное)."""
+        reason = reason if reason in BYE_REASONS else "exit"
+        ws = getattr(self, "_ws", None)
+        if ws is None or getattr(self, "_bye_ws", None) is ws:
+            return False
+        self._bye_ws = ws
+        msg = {"type": "bye", "device_id": config.DEVICE_ID, "token": config.WS_TOKEN.strip(), "reason": reason}
+        try:
+            await asyncio.wait_for(ws.send(json.dumps(msg)), timeout)
+        except Exception as e:  # noqa: BLE001 — не успели или связи нет: выключению это не мешает
+            log.warning("[bye] %s не отправлен: %s", reason, type(e).__name__)
+            return False
+        log.info("[bye] %s", reason)
+        return True
+
+    def say_bye_blocking(self, reason: str, timeout: float = BYE_TIMEOUT_SEC) -> bool:
+        """bye из чужого потока (окно выключения/сна): ждём не дольше timeout."""
+        loop = getattr(self, "_loop", None)
+        if loop is None or not loop.is_running():
+            return False
+        fut = asyncio.run_coroutine_threadsafe(self.say_bye(reason, timeout), loop)
+        try:
+            return bool(fut.result(timeout + 0.1))
+        except Exception:  # noqa: BLE001
+            fut.cancel()
+            return False
+
+    def _on_session_event(self, kind: str):
+        """Поток окна выключения/сна (platform.session_events): bye, после сна — переподключение."""
+        if kind in ("shutdown", "sleep"):
+            self.say_bye_blocking(kind)
+        elif kind == "resume":
+            loop = getattr(self, "_loop", None)
+            if loop is not None and loop.is_running():
+                loop.call_soon_threadsafe(self._reconnect_after_sleep)
+
+    def _reconnect_after_sleep(self):
+        """Соединение после сна мёртвое — закрываем, цикл run() подключится заново (как при обрыве)."""
+        ws = getattr(self, "_ws", None)
+        if ws is not None:
+            log.info("[agent] проснулись — переподключаюсь")
+            asyncio.ensure_future(ws.close())
 
     async def _heartbeat(self):
         """ping при смене окна и не реже PING_MAX_SEC, даже если окно то же (input_idle_s растёт).
@@ -1006,6 +1056,9 @@ class Agent:
         if not offline:
             spawn(self._heartbeat(), name="agent-heartbeat")
         spawn(self._state_watchdog(), name="state-watchdog")
+        if not offline and _os.name == "nt":
+            from desktop.core.platform.session_events import SessionEvents
+            SessionEvents(self._on_session_event).start()
         spawn(self._level_loop(), name="core-level")
         if not offline:
             spawn(self._screen_analysis_loop(), name="screen-analysis-loop")

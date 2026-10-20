@@ -3,6 +3,7 @@ import { BatteryCharging, BatteryMedium, Cpu, Headphones, Laptop, Monitor, Smart
 
 import type { Device } from "../api/types";
 import { agoText, Card, EmptyState, Loadable } from "../components/ui";
+import { withAllPcs } from "../devices";
 import { useApp } from "../store";
 
 const KIND_ICON = { pc: Laptop, phone: Smartphone, tablet: Tablet, headphones: Headphones, other: Monitor } as const;
@@ -21,14 +22,15 @@ function DeviceRow({ d, thisDevice }: { d: Device; thisDevice: boolean }) {
   const Icon = KIND_ICON[d.kind] ?? Monitor;
   const s = d.stats ?? {};
   return (
-    <li className="flex items-center gap-3 rounded-card px-2 py-2.5 hover:bg-panel2">
+    <li aria-current={d.focus || undefined} className="flex items-center gap-3 rounded-card px-2 py-2.5 hover:bg-panel2">
       <span className={"grid h-9 w-9 shrink-0 place-items-center rounded-card " + (d.online ? "bg-accent-soft text-accent" : "bg-panel2 text-ink-dim")}>
         <Icon size={18} />
       </span>
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm text-ink">
           {d.name} <span className="text-ink-dim">({KIND_LABEL[d.kind] ?? d.kind})</span>
-          {d.focus && <span className="ml-1 text-[10px] uppercase tracking-wide text-accent">в фокусе</span>}
+          {d.focus && <span className="ml-1 text-[10px] uppercase tracking-wide text-accent">активный</span>}
+          {thisDevice && <span className="ml-1 text-[10px] uppercase tracking-wide text-ink-dim">это устройство</span>}
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-ink-dim">
           <span className="flex items-center gap-1">
@@ -56,7 +58,7 @@ function DeviceRow({ d, thisDevice }: { d: Device; thisDevice: boolean }) {
               {s.signal != null && <span>Сеть {s.signal}/4</span>}
             </>
           )}
-          {!d.online && <span>Последняя активность: {agoText(d.last_seen)}</span>}
+          {!d.online && <span>{d.last_seen ? `Последняя активность: ${agoText(d.last_seen)}` : "ещё не подключался"}</span>}
         </div>
       </div>
     </li>
@@ -71,10 +73,11 @@ export function Devices() {
     <Card title="Устройства" icon={<Cpu size={18} />} className="h-full min-h-0">
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
         <Loadable status={devices.status} error={devices.error} onRetry={() => void loadDevices()}>
-          {devices.data.length === 0 ? (
+          {/* Три ПК Мастера видны всегда — и те, что сервер ещё не видел. */}
+          {withAllPcs(devices.data).length === 0 ? (
             <EmptyState text="Пока нет подключённых устройств" />
           ) : (
-            <ul>{devices.data.map((d) => <DeviceRow key={d.id} d={d} thisDevice={d.id === me} />)}</ul>
+            <ul aria-label="Список устройств">{withAllPcs(devices.data).map((d) => <DeviceRow key={d.id} d={d} thisDevice={d.id === me} />)}</ul>
           )}
         </Loadable>
       </div>

@@ -131,6 +131,8 @@ export function createPrefsStore(api: () => SakuraBridge["layout"], saveDelayMs 
     editing: false,
 
     async load(deviceId) {
+      // Смена устройства: несохранённое прежнего пишется под его же id сейчас, а не позже под новым.
+      flush();
       let raw: Record<string, unknown> | null = null;
       try {
         raw = await api().get(deviceId);
@@ -148,14 +150,22 @@ export function createPrefsStore(api: () => SakuraBridge["layout"], saveDelayMs 
   }));
 
   // Сохранение с задержкой: перетаскивание и разделитель чата не пишут файл на каждый кадр.
+  // Запись — под id того устройства, чья раскладка менялась, и с его данными (не с текущими).
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let pending: { id: string; data: Persisted } | null = null;
+  function flush() {
+    clearTimeout(timer);
+    const p = pending;
+    pending = null;
+    if (p) void api().set(p.id, { ...p.data }).catch(() => {});
+  }
   store.subscribe((s, prev) => {
-    // Сама загрузка (prev.loaded = false) и несохраняемые поля (editing) запись не вызывают.
-    if (!s.deviceId || !prev.loaded) return;
+    // Сама загрузка (prev.loaded = false, смена устройства) и несохраняемые поля (editing) запись не вызывают.
+    if (!s.deviceId || !prev.loaded || s.deviceId !== prev.deviceId) return;
     if (JSON.stringify(persisted(s)) === JSON.stringify(persisted(prev))) return;
     clearTimeout(timer);
-    const id = s.deviceId;
-    timer = setTimeout(() => void api().set(id, { ...persisted(store.getState()) }).catch(() => {}), saveDelayMs);
+    pending = { id: s.deviceId, data: persisted(s) };
+    timer = setTimeout(flush, saveDelayMs);
   });
   return store;
 }

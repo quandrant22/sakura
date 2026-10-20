@@ -72,3 +72,20 @@ test("изменения доски сохраняются в layout.json (versi
   expect(saved.version).toBe(2);
   expect(saved.pages[0]!.breakpoints.lg.some((it) => it.type === "notes")).toBe(true);
 });
+
+test("смена DEVICE_ID не затирает раскладку другого устройства", async () => {
+  const { api, mem } = fakeApi({ pc: { theme: "sketch", chatWidth: 420 }, mostech: { theme: "night", chatWidth: 380 } });
+  const s = createPrefsStore(() => api, 100);
+  await s.getState().load("pc");
+  s.getState().set("chatWidth", 500);            // ещё не записано (задержка сохранения)
+  await s.getState().load("mostech");            // DEVICE_ID сменился
+  vi.advanceTimersByTime(500);
+  await Promise.resolve();
+  expect(mem.get("pc")).toMatchObject({ theme: "sketch", chatWidth: 500 });  // своё изменение — себе
+  expect(mem.get("mostech")).toEqual({ theme: "night", chatWidth: 380 });    // чужая раскладка не тронута
+  expect(s.getState()).toMatchObject({ deviceId: "mostech", chatWidth: 380 });
+  s.getState().set("theme", "sketch");
+  vi.advanceTimersByTime(150);
+  expect(mem.get("mostech")).toMatchObject({ theme: "sketch", chatWidth: 380 });
+  expect(mem.get("pc")).toMatchObject({ chatWidth: 500 });
+});

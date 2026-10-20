@@ -231,6 +231,7 @@ class CoreService:
         c("mic_level", self.cmd_mic_level)
         c("secrets_set", self.cmd_secrets_set)
         c("core_restart", self.cmd_core_restart)
+        c("bye", self.cmd_bye)
         if os.getenv("SAKURA_LIVECHECK") == "1":
             c("run_action", self.cmd_run_action)
         if self.media is not None:
@@ -375,6 +376,13 @@ class CoreService:
         log.info("[core] перезапуск по запросу интерфейса")
         asyncio.get_running_loop().call_later(0.3, os._exit, 0)
         return {"restarting": True}
+
+    async def cmd_bye(self, msg: dict):
+        """Окно закрывает Сакуру («Выход» в трее, закрытие приложения): bye серверу не дольше 1 с."""
+        agent = self._agent
+        if agent is None:
+            return {"sent": False}
+        return {"sent": await agent.say_bye(str(msg.get("reason") or "exit"))}
 
     async def cmd_power_cancel(self, msg: dict):
         """Кнопка «Отмена» в тосте выключения — то же, что «отмени выключение»."""

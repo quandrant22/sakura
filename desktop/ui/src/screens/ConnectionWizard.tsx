@@ -3,6 +3,7 @@
 import { CheckCircle2, ChevronLeft, ChevronRight, Circle, Volume2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { pcChoices } from "../devices";
 import { useMediaClient } from "../media/MediaContext";
 import { errorText, useApp } from "../store";
 
@@ -34,6 +35,9 @@ export function ConnectionWizard() {
   const server = useApp((s) => s.server);
   const coreState = useApp((s) => s.coreState);
   const toggleMic = useApp((s) => s.toggleMic);
+  const devices = useApp((s) => s.devices.data);
+  const devicesStatus = useApp((s) => s.devices.status);
+  const loadDevices = useApp((s) => s.loadDevices);
   const [step, setStep] = useState(0);
   const [cfg, setCfg] = useState<Cfg | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
@@ -50,6 +54,11 @@ export function ConnectionWizard() {
       (r) => { if (alive) setYmSet(Boolean(r.keys.YANDEX_MUSIC_TOKEN)); }, () => {});
     return () => { alive = false; };
   }, [client]);
+
+  // Варианты имени устройства — с сервера (devices_request), если он на связи и список ещё не грузили.
+  useEffect(() => {
+    if (server.online && server.proto === 2 && devicesStatus === "idle") void loadDevices();
+  }, [server.online, server.proto, devicesStatus, loadDevices]);
 
   // живой индикатор фона микрофона на шаге «Микрофон и колонки»
   useEffect(() => {
@@ -115,7 +124,15 @@ export function ConnectionWizard() {
       <section aria-label={STEPS[step]} className="min-h-[150px] rounded-btn bg-panel2/50 p-3">
         {step === 0 && (
           <>
-            {field("DEVICE_ID", "Имя устройства", "Латиница: mostech, laptop")}
+            <label className="grid grid-cols-[minmax(0,160px)_minmax(0,1fr)_auto] items-center gap-3 py-2">
+              <span className="min-w-0"><span className="block text-sm text-ink">Имя устройства</span>
+                <span className="text-xs text-ink-dim">Какой это компьютер</span></span>
+              <select aria-label="Имя устройства" value={form.DEVICE_ID ?? ""} onChange={(e) => setForm({ ...form, DEVICE_ID: e.target.value })}
+                      className={input + " min-w-0 w-full"}>
+                {pcChoices(devices, form.DEVICE_ID).map((d) => <option key={d.id} value={d.id}>{d.name} ({d.id})</option>)}
+              </select>
+              <button type="button" className={btn} onClick={() => void save("DEVICE_ID")}>Сохранить</button>
+            </label>
             {field("VPS_WS_URL", "Адрес сервера", "ws://адрес:8765")}
             {field("SERVER_TRANSPORT", "Режим канала", "ws, noise (защищённый с откатом), noise-only")}
             <div className="text-xs text-ink-dim">Сейчас работает: {cfg?.running.DEVICE_ID} · {cfg?.running.VPS_WS_URL} · {cfg?.running.SERVER_TRANSPORT}

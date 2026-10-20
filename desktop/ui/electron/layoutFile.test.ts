@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, test } from "vitest";
 
+import { createPrefsStore } from "../src/layout/prefs";
 import { readLayout, writeLayout } from "./layoutFile";
 
 let dir = "";
@@ -41,4 +42,18 @@ test("повреждённый файл не роняет чтение", () => {
   expect(fs.readFileSync(path.join(path.dirname(file), copies[0]!), "utf-8")).toBe("{не json");
   expect(writeLayout(file, "pc", { theme: "night" })).toBe(true);
   expect(readLayout(file, "pc")).toEqual({ theme: "night" });
+});
+
+test("смена DEVICE_ID в окне не затирает раскладку другого устройства в layout.json", async () => {
+  writeLayout(file, "pc", { theme: "sketch", chatWidth: 420 });
+  const api = { get: async (id: string) => readLayout(file, id), set: async (id: string, e: Record<string, unknown>) => writeLayout(file, id, e),
+                exportFile: async () => false, importFile: async () => null };
+  const s = createPrefsStore(() => api, 20);
+  await s.getState().load("pc");
+  s.getState().set("chatWidth", 444);        // не успело сохраниться
+  await s.getState().load("laptop");         // DEVICE_ID сменился
+  s.getState().set("chatWidth", 333);
+  await new Promise((r) => setTimeout(r, 80));
+  expect(readLayout(file, "pc")).toMatchObject({ theme: "sketch", chatWidth: 444 });
+  expect(readLayout(file, "laptop")).toMatchObject({ chatWidth: 333 });
 });
