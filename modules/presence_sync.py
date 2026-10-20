@@ -47,6 +47,7 @@ _active:      str = ""       # решение: текущее активное �
 _devs: dict[str, dict] = {}
 # Отключения ПК: device_id → {"wall": time.time(), "reason": shutdown|sleep|exit|None}
 _offline: dict[str, dict] = {}
+_idle_seen: set[str] = set()   # устройства, хоть раз приславшие input_idle_s
 _bye: dict[str, str] = {}    # device_id → причина: клиент прислал bye, сокет мог ещё жить
 BYE_REASONS = ("shutdown", "sleep", "exit")
 # Нет ввода столько секунд (при онлайн-ПК) — Мастер отошёл
@@ -67,6 +68,7 @@ def reset() -> None:
     with _lock:
         _devs.clear()
         _offline.clear()
+        _idle_seen.clear()
         _bye.clear()
         _announced = _active = ""
 
@@ -139,6 +141,7 @@ def update(device_id: str, data: dict):
         idle = _idle_value(data)
         if idle is not None:
             rec["input_at"] = t - idle
+            _idle_seen.add(device_id)
         if msg_type in INPUT_TYPES:
             note_input(device_id)
         else:
@@ -221,11 +224,12 @@ def get_master_presence(connected=None) -> dict:
     state:
       at_pc         — ПК онлайн, ввод < 10 мин назад (device — какой ПК);
       at_work       — то же, но активный ПК — WORK_LAPTOP_DEVICE (mostech);
-      away_from_pc  — ПК онлайн, ввода нет ≥ 10 мин (idle_s — сколько);
+      away_from_pc  — ПК онлайн, по input_idle_s ввода нет ≥ 10 мин (idle_s);
       pcs_off       — ни одного ПК онлайн (since — time.time() выключения
                       последнего, reason — shutdown|sleep|exit|None);
-    Клиент без input_idle_s: ввод = последний голос/текст с этого ПК, иначе
-    момент появления. Прислал bye — ПК не считается онлайн сразу.
+    Клиент, ни разу не приславший input_idle_s, away_from_pc не даёт: пока он
+    онлайн — at_pc/at_work. Судим по вводу только тех, кто прислал поле.
+    Прислал bye — ПК не считается онлайн сразу.
     """
     import config
     if connected is None:
@@ -243,20 +247,24 @@ def get_master_presence(connected=None) -> dict:
             return {"state": "pcs_off", "device": None, "idle_s": None,
                     "since": None, "reason": None}
         _decide(now)
+        # idle: None — устройство ни разу не присылало input_idle_s (простой
+        # неизвестен: пока онлайн, Мастер считается на месте).
         idle = {}
         for d in online:
             rec = _devs.get(d)
-            if rec is None:
+            if d not in _idle_seen:
+                idle[d] = None
+            elif rec is None:
                 idle[d] = 0.0               # данных нет — считаем, что Мастер тут
             else:
-                at = rec["input_at"] if rec["input_at"] is not None else rec.get("since", now)
-                idle[d] = max(0.0, now - at)
-        fresh = min(idle, key=idle.get)
-        act = _active if _active in idle else fresh
-        dev = act if idle[act] < AWAY_AFTER_S else fresh
-        if idle[dev] >= AWAY_AFTER_S:
+                idle[d] = max(0.0, now - rec["input_at"]) if rec["input_at"] is not None else 0.0
+        present = [d for d in idle if idle[d] is None or idle[d] < AWAY_AFTER_S]
+        if not present:
+            dev = min(idle, key=idle.get)
             return {"state": "away_from_pc", "device": dev, "idle_s": idle[dev],
                     "since": None, "reason": None}
+        known = [d for d in present if idle[d] is not None]
+        dev = _active if _active in present else (min(known, key=idle.get) if known else present[0])
         work = getattr(config, "WORK_LAPTOP_DEVICE", "mostech")
         return {"state": "at_work" if dev == work else "at_pc", "device": dev,
                 "idle_s": idle[dev], "since": None, "reason": None}

@@ -245,15 +245,52 @@ def test_presence_at_work_on_mostech(clock):
     assert (p["state"], p["device"]) == ("at_work", "mostech")
 
 
-def test_presence_legacy_client_uses_voice_time(clock):
+def test_legacy_client_never_away_and_reminder_spoken(clock):
+    """Клиент без input_idle_s: 15 мин без голоса → всё равно at_pc, напоминание звучит."""
+    from sakura_core import voice_turns
+    sent = []
+
+    class S:
+        async def send(self, raw):
+            sent.append(json.loads(raw))
     online("laptop")
-    ping("laptop")                          # input_idle_s нет
+    st.connected_devices["laptop"] = S()
+    ping("laptop")
+    clock["now"] += 900
+    ping("laptop")
+    p = ps.get_master_presence()
+    assert (p["state"], p["device"], p["idle_s"]) == ("at_pc", "laptop", None)
+    assert ps.pc_voice_allowed()
+    assert asyncio.run(voice_turns.broadcast_reply("Напоминаю", "proactive")) == 1
+    assert sent and sent[0]["kind"] == "proactive"
+    assert context.describe_presence(p) == "Мастер за ноутбуком"      # без минут простоя
+
+
+def test_real_input_idle_gives_away(clock):
+    online("pc")
+    ping("pc", idle=900)
+    p = ps.get_master_presence()
+    assert p["state"] == "away_from_pc" and 899 < p["idle_s"] < 901
+    assert not ps.pc_voice_allowed()
+
+
+def test_device_that_sent_idle_once_is_judged_by_it(clock):
+    online("pc")
+    ping("pc", idle=1)
     assert ps.get_master_presence()["state"] == "at_pc"
     clock["now"] += 700
-    ping("laptop")
+    ping("pc")                              # поле пропало — но раньше присылало
     assert ps.get_master_presence()["state"] == "away_from_pc"
-    ps.note_input("laptop")                 # голос/текст
+    ps.note_input("pc")                     # голос/текст возвращает
     assert ps.get_master_presence()["state"] == "at_pc"
+
+
+def test_mixed_legacy_and_idle_devices(clock):
+    online("pc", "mostech")
+    ping("pc")                              # legacy
+    ping("mostech", idle=2000)              # давно без ввода
+    p = ps.get_master_presence()
+    assert (p["state"], p["device"]) == ("at_pc", "pc")
 
 
 def test_bye_handler_marks_offline(clock, monkeypatch):
