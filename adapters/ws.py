@@ -393,6 +393,34 @@ async def _handle_pending(text, text_lower, _mk, ws_dev, device_id, ctx, data) -
     return await _handle_pending_core(text, text_lower, _mk, ws_dev, device_id, ctx, data)
 
 
+async def _maybe_run_scenario(data, ws_dev, ctx, speak) -> bool:
+    """Фраза-условие сценария (v1): запуск сценария вместо обычного разбора.
+    Сценарий с опасными действиями голосом не запускается."""
+    from sakura_core import scenarios
+    try:
+        s = await asyncio.to_thread(scenarios.match_phrase, data.get("text") or "")
+    except Exception as e:
+        log.debug(f"[scenario] фраза: {type(e).__name__}: {e}")
+        return False
+    if s is None:
+        return False
+    if scenarios.dangerous_actions(s):
+        await speak(f"У сценария «{s['name']}» есть опасные действия — запусти его из приложения.")
+        return True
+    await speak(f"Запускаю сценарий «{s['name']}».")
+
+    async def _emit(event):
+        if ws_dev is not None:
+            try:
+                await ws_dev.send(json.dumps(event, ensure_ascii=False))
+            except Exception:
+                pass
+    spawn(scenarios.run(s, emit=_emit, device_ws=ws_dev, device_id=data.get("device_id"),
+                        register_command=ctx.get("_register_command")),
+          name=f"scenario-{s['id']}")
+    return True
+
+
 async def handle_voice_command(websocket, data, ctx) -> None:
     """Голосовой ход целиком: любой выход (в т.ч. ранние return — стоп
     озвучки, v3 confirm, pending — и исключения) закрывается tts_end.
@@ -406,6 +434,15 @@ async def handle_voice_command(websocket, data, ctx) -> None:
     device_id = data.get("device_id")
     ws_dev = st.connected_devices.get(device_id)
     try:
+        # Журнал чата: запрос — в журнал; «не записывай»/«запись» — здесь же.
+        async def _speak(phrase):
+            if ws_dev is not None:
+                await stream_tts_to_device(phrase, ws_dev, device_id or "laptop", literal=True)
+        from sakura_core import chat_hooks
+        if await chat_hooks.on_voice_request(data, _speak):
+            return
+        if await _maybe_run_scenario(data, ws_dev, ctx, _speak):
+            return
         await _handle_voice_command_inner(websocket, data, ctx, t_recv)
     finally:
         # Команда агенту с подтверждением: ход закроет tts_end самой фразы

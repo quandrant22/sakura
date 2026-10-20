@@ -57,6 +57,18 @@ SECURE_BACKEND = os.getenv("SECURE_BACKEND", "lib").strip().lower()   # lib | ed
 # Адрес сервера для QR спаривания (клиент подключается к нему).
 SECURE_PUBLIC_URL = os.getenv("SECURE_PUBLIC_URL", "ws://31.76.80.5:8765")
 # Чат, история, память, профиль, кадры экрана — только по secure-соединению.
+# Журнал чата (modules/chat_log.py): SQLite вне git, права 600.
+CHAT_DB_PATH = os.getenv("CHAT_DB_PATH", "memory/chat.db")
+# 1 — запись журнала на паузе (как после команды «не записывай»).
+CHAT_LOG_PAUSED = os.getenv("CHAT_LOG_PAUSED", "0").strip().lower() in ("1", "true", "yes")
+# 1 — писать в журнал и подтверждения команд («Готово.», «Выполняю.»).
+CHAT_LOG_ACKS = os.getenv("CHAT_LOG_ACKS", "0").strip().lower() in ("1", "true", "yes")
+try:
+    # Срок хранения журнала в днях; 0 — бессрочно.
+    CHAT_LOG_RETENTION_DAYS = max(0, int(os.getenv("CHAT_LOG_RETENTION_DAYS", "0")))
+except ValueError:
+    CHAT_LOG_RETENTION_DAYS = 0
+# Приватные классы v2 (чат, память, профиль) — только secure-соединение.
 PRIVATE_REQUIRES_SECURE = os.getenv("PRIVATE_REQUIRES_SECURE", "1").strip().lower() not in ("0", "false", "no")
 # Протокол v2 настольного клиента (sakura_core/proto_v2.py): 0 — сервер
 # ведёт себя как v1 (нет registered, запросы v2 — error/unsupported).
@@ -227,3 +239,5 @@ def mark_key_exhausted(key: str):
 # Эпизоды «Выполнила команду: …» (executor) — служебный след, не память:
 # 199 из 199 эпизодов были такими. 0 — не писать (по умолчанию).
 EPISODES_LOG_COMMANDS = os.getenv("EPISODES_LOG_COMMANDS", "0").strip().lower() in ("1", "true", "yes")
+PROFILE_PATH = os.getenv("PROFILE_PATH", "memory/profile_v2.json")
+SCENARIOS_PATH = os.getenv("SCENARIOS_PATH", "memory/scenarios.json")

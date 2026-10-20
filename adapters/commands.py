@@ -303,3 +303,43 @@ async def cmd_revoke_impl(message: "Message"):
             pass
     await message.answer(f"Ключ {device_id} отозван; его соединение закрыто. "
                          f"Для нового ключа — /pair.")
+
+# ── Журнал чата ─────────────────────────────────────────────────
+
+async def cmd_export_chat_impl(message: "Message"):
+    """/export_chat — весь журнал чата файлом (Markdown)."""
+    import asyncio
+    import time
+    from aiogram.types import BufferedInputFile
+    from modules import chat_log
+    try:
+        n = await asyncio.to_thread(chat_log.count)
+        if not n:
+            await message.answer("Журнал чата пуст.")
+            return
+        text = await asyncio.to_thread(chat_log.export, "md")
+    except Exception as e:
+        await message.answer(f"Не получилось выгрузить журнал: {type(e).__name__}.")
+        return
+    name = time.strftime("sakura_chat_%Y%m%d_%H%M.md")
+    await message.answer_document(
+        BufferedInputFile(text.encode("utf-8"), filename=name),
+        caption=f"Журнал чата: {n} сообщ.")
+
+
+async def cmd_clear_chat_impl(message: "Message"):
+    """/clear_chat — стереть журнал чата; без «да» только спрашивает."""
+    import asyncio
+    from modules import chat_log
+    arg = (message.text or "").split(maxsplit=1)[1:]
+    try:
+        if not arg or arg[0].strip().lower() not in ("да", "yes"):
+            n = await asyncio.to_thread(chat_log.count)
+            await message.answer(
+                f"В журнале {n} сообщ. Стереть всё без возврата — отправь: /clear_chat да")
+            return
+        n = await asyncio.to_thread(chat_log.clear)
+    except Exception as e:
+        await message.answer(f"Не получилось: {type(e).__name__}.")
+        return
+    await message.answer(f"Журнал чата очищен: удалено {n} сообщ.")

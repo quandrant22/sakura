@@ -121,6 +121,7 @@ def _register_commands():
         cmd_clean_slate_impl, cmd_guests_impl, cmd_vip_impl, cmd_trusted_impl,
         cmd_users_impl, cmd_unvip_impl, cmd_block_impl,
         cmd_pair_impl, cmd_devices_impl, cmd_revoke_impl,
+        cmd_export_chat_impl, cmd_clear_chat_impl,
     )
     dp.message(Command("помощь"))(_master_only(cmd_help_impl))
     dp.message(Command("health"))(_master_only(cmd_health_impl))
@@ -140,8 +141,16 @@ def _register_commands():
     dp.message(Command("pair"))(_master_only(cmd_pair_impl))
     dp.message(Command("devices"))(_master_only(cmd_devices_impl))
     dp.message(Command("revoke"))(_master_only(cmd_revoke_impl))
+    dp.message(Command("export_chat"))(_master_only(cmd_export_chat_impl))
+    dp.message(Command("clear_chat"))(_master_only(cmd_clear_chat_impl))
 
 _register_commands()
+
+
+# ── Журнал чата: входящие Мастера и исходящие в его чат ───────────
+from sakura_core.chat_hooks import tg_incoming_middleware, tg_session_middleware
+dp.message.outer_middleware(tg_incoming_middleware)
+bot.session.middleware(tg_session_middleware())
 
 
 # ── Device control ─────────────────────────────────────────────

@@ -62,6 +62,10 @@ async def handle(websocket, data: dict) -> None:
     if not is_master_device(device_id):
         await error("not_master", "vision_request: только для master-устройств")
         return
+    from sakura_core.proto_v2 import connection_secure
+    if not connection_secure(websocket) and getattr(config, "PRIVATE_REQUIRES_SECURE", True):
+        await error("secure_channel_required", "кадр экрана — только по защищённому каналу")
+        return
     image = data.get("image")
     if not isinstance(image, str) or not image or len(image) > MAX_B64:
         await error("bad_request", "нет кадра или он слишком большой")
