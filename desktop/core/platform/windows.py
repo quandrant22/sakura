@@ -447,8 +447,8 @@ class WindowsPlatform(make_stub("windows")):
 KEYEVENTF_KEYUP = 0x0002
 MEDIA_VK = {"play_pause": 0xB3, "next": 0xB0, "prev": 0xB1,
             "mute": 0xAD, "volume_down": 0xAE, "volume_up": 0xAF}
-# Подтверждение выключения уже получено на сервере (modules/ws_handlers.py); выключение и
-# перезагрузка — с задержкой SHUTDOWN_DELAY_S, чтобы «отмени выключение» (shutdown /a) успело.
+# Подтверждение выключения уже получено на сервере (команда с confirmed: true); выключение и
+# перезагрузка — через SHUTDOWN_DELAY_S (по умолчанию 0 — сразу: shutdown /s /t 0).
 def power_command(action: str, delay_s: int | None = None) -> list[str] | None:
     from desktop.core import config
     delay = str(max(0, int(config.SHUTDOWN_DELAY_S if delay_s is None else delay_s)))

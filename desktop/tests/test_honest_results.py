@@ -114,7 +114,8 @@ def test_key_path_is_absolute():
 
 
 def test_shutdown_announces_pending_and_cancel(monkeypatch):
-    # Подставной исполнитель: execute_command не выключает компьютер.
+    # Подставной исполнитель: execute_command не выключает компьютер. Отсчёт — только при задержке > 0.
+    monkeypatch.setattr(agent_mod.config, "SHUTDOWN_DELAY_S", 30)
     events = []
     a = _agent()
     a.bus = SimpleNamespace(emit=lambda ev, **k: events.append((ev, k)))

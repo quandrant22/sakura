@@ -21,7 +21,8 @@ from collections.abc import Callable
 
 log = logging.getLogger("sakura.chat")
 
-KINDS = ("llm", "ack", "template", "error", "proactive", "command", "voice_only")
+# confirm — вопрос сервера «Да или нет?» (выключение, перезагрузка, сон): в окне — кнопки «Да»/«Нет».
+KINDS = ("llm", "ack", "template", "error", "proactive", "command", "voice_only", "confirm")
 VOICE_ONLY_TEXT = "голосовой ответ (текст недоступен)"
 # Сколько ждать текст после tts_end, прежде чем показать заглушку.
 TEXT_AFTER_AUDIO_S = 1.5
@@ -79,7 +80,7 @@ class ChatTurns:
             return None
         turn = turn_id or self._turn
         kind = kind if kind in KINDS else ("llm" if turn else "proactive")
-        if turn is None:
+        if turn is None and kind != "confirm":
             kind = "proactive"
         msg = self._message("assistant", text, turn, kind, "server", ts)
         if msg is not None and turn:

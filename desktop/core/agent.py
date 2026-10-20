@@ -50,6 +50,10 @@ _THINK_TIMEOUT_SEC  = 25.0   # thinking дольше — ответа не бу�
 
 # ping не реже раза в столько секунд, даже без смены окна: сервер судит о присутствии по input_idle_s.
 PING_MAX_SEC = 10
+# Действия, перед которыми ПК уходит: bye с причиной (перезагрузка — тоже shutdown).
+_POWER_BYE = {"system:shutdown": "shutdown", "system:restart": "shutdown",
+              "system:sleep": "sleep", "power.sleep": "sleep"}
+
 # bye серверу (§10.5) перед выключением, сном и выходом: дольше не ждём, дальше закрываемся как обычно.
 BYE_TIMEOUT_SEC = 1.0
 BYE_REASONS = ("shutdown", "sleep", "exit")
@@ -754,11 +758,16 @@ class Agent:
             bus = getattr(self, "bus", None)
             # Опасное действие без подтверждения сервера — видимый запрос в окне (до 60 с).
             asker = getattr(self, "confirmations", None)
+            # confirmed: true — сервер уже спросил Мастера: исполняем сразу, без своего «Разрешить?» (на любом ПК).
             if control.ACTIONS[action].confirm and not confirmed and asker is not None:
                 confirmed = await asker.ask(action, arg)
                 if not confirmed:
                     await _send_ack(R.unsupported("пользователь не подтвердил действие"))
                     return
+            if action in _POWER_BYE and confirmed:
+                from desktop.core.control import safety
+                if not safety.PAUSED["on"]:
+                    await self.say_bye(_POWER_BYE[action])
             if bus is not None:
                 bus.emit("pc_action", active=True)
             try:
@@ -931,8 +940,12 @@ class Agent:
         try:
             # arg приходит отдельно («volume» + «70») — склеиваем в «volume:70»
             full = f"{action}:{arg}" if arg and ":" not in action else action
+            if full in _POWER_BYE:
+                await self.say_bye(_POWER_BYE[full])   # ПК уходит — сервер узнаёт раньше, чем пропадёт связь
             out = await asyncio.to_thread(execute_command, full)
-            if full in ("system:shutdown", "system:restart") and R.from_legacy(out.get("result"))["ok"]:
+            # Отсчёт и «Отмена» — только при SHUTDOWN_DELAY_S > 0; по умолчанию выключение сразу, без тоста.
+            if full in ("system:shutdown", "system:restart") and config.SHUTDOWN_DELAY_S > 0 \
+                    and R.from_legacy(out.get("result"))["ok"]:
                 self.bus.emit("power_pending", action=full.split(":")[1], seconds=config.SHUTDOWN_DELAY_S)
             elif full == "system:shutdown_cancel":
                 self.bus.emit("power_cancelled")

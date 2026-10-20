@@ -55,13 +55,24 @@ def test_no_windll_outside_platform():
 
 
 @pytest.mark.parametrize("action,flag", [("shutdown", "/s"), ("restart", "/r")])
-def test_windows_shutdown_restart_delayed_30s(action, flag):
-    # Подставной исполнитель: Popen не запускает ничего настоящего.
+def test_windows_shutdown_restart_now_t0(action, flag):
+    # Подставной исполнитель: Popen не запускает ничего настоящего. По умолчанию — сразу (/t 0).
+    from desktop.core import config
+    assert config.SHUTDOWN_DELAY_S == 0
     with patch.object(windows.subprocess, "Popen") as popen:
         windows.WindowsPlatform().power(action)
     args = popen.call_args[0][0]
     assert args[:2] == ["shutdown", flag]
-    assert args[args.index("/t") + 1] == "30"  # успеть отменить
+    assert args[args.index("/t") + 1] == "0"
+
+
+def test_windows_shutdown_delay_from_setting(monkeypatch):
+    from desktop.core import config
+    monkeypatch.setattr(config, "SHUTDOWN_DELAY_S", 30)
+    with patch.object(windows.subprocess, "Popen") as popen:
+        windows.WindowsPlatform().power("shutdown")
+    args = popen.call_args[0][0]
+    assert args[args.index("/t") + 1] == "30"
 
 
 def test_windows_shutdown_cancel():
@@ -87,7 +98,7 @@ def test_windows_power_unknown_raises():
 def test_hands_system_restart_now_supported():
     from desktop.core import hands
     with patch.object(windows.subprocess, "Popen") as popen:
-        assert hands.execute_command("system:restart") == {"result": "перезагрузка через 30 с"}
+        assert hands.execute_command("system:restart") == {"result": "перезагружаю"}
     assert "/r" in popen.call_args[0][0]
 
 

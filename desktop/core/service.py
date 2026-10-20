@@ -126,7 +126,10 @@ class CoreService:
         # Сервер v2 сам шлёт chat_message с репликами — их не дублируем; строки команд
         # и заглушка «звук без текста» — только от клиента, их показываем всегда.
         msg = event.get("message") or {}
-        if self.link.proto == 2 and msg.get("kind") not in ("command", "voice_only") and msg.get("role") != "system":
+        # Вопрос «Да или нет?» (kind confirm) показываем всегда: кнопки нужны, даже если сервер пришлёт и свой
+        # chat_message (окно склеит одинаковый текст).
+        if self.link.proto == 2 and msg.get("kind") not in ("command", "voice_only", "confirm") \
+                and msg.get("role") != "system":
             return
         self._emit(event)
 

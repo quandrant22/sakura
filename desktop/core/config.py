@@ -97,8 +97,9 @@ KETTLE_KEY_FILE = os.getenv("KETTLE_KEY_FILE") or os.path.join(DATA_DIR, "kettle
 # Без ключа команды чайника не пытаются подключиться; 1 — разрешить сопряжение (создать ключ).
 KETTLE_PAIR     = os.getenv("KETTLE_PAIR", "0") == "1"
 
-# Выключение и перезагрузка — с задержкой: успеть сказать «отмени» или нажать «Отмена».
-SHUTDOWN_DELAY_S = int(os.getenv("SHUTDOWN_DELAY_S", "30"))
+# Выключение и перезагрузка — сразу (shutdown /t 0): подтверждение уже спросил сервер («Да или нет?»).
+# Больше 0 — с задержкой и тостом «Отмена» (shutdown /a).
+SHUTDOWN_DELAY_S = int(os.getenv("SHUTDOWN_DELAY_S", "0"))
 
 # Папки с играми
 GAME_DIRS = [d.strip() for d in os.getenv("GAME_DIRS", r"C:\Games").split(";") if d.strip()]

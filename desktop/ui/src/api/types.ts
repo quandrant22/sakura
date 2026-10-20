@@ -15,8 +15,9 @@ export interface Message {
   /** Откуда сообщение: mic — голос, ui — окно чата, e2e — автоматическая проверка, api — другой клиент, server — ответ. */
   source?: "mic" | "ui" | "e2e" | "api" | "server" | "system";
   /** Вид реплики Сакуры: llm — ответ модели, ack/template — быстрый, error, proactive,
-   *  command — результат команды (строка «действие»), voice_only — звук без текста. */
-  kind?: "llm" | "ack" | "template" | "error" | "proactive" | "command" | "voice_only";
+   *  command — результат команды (строка «действие»), voice_only — звук без текста,
+   *  confirm — вопрос сервера «Да или нет?» (кнопки «Да»/«Нет»). */
+  kind?: "llm" | "ack" | "template" | "error" | "proactive" | "command" | "voice_only" | "confirm";
   /** Ход: реплика пользователя и все ответы на неё. */
   turn_id?: string | null;
 }

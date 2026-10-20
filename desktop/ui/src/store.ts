@@ -96,6 +96,12 @@ export function isSameReply(a: Message, b: Message): boolean {
     (a.kind ?? "") === (b.kind ?? "") && a.text === b.text;
 }
 
+/** Вопрос «Да или нет?» ядро показывает само (с кнопками); такой же текст от сервера — не второй пузырь. */
+export function isSameQuestion(a: Message, b: Message): boolean {
+  return a.role === "assistant" && b.role === "assistant" && (a.kind === "confirm" || b.kind === "confirm") &&
+    a.text === b.text && Math.abs(a.ts - b.ts) < 120;
+}
+
 /** Ответ встаёт после последнего сообщения своего хода (поздний ответ на старый ход
  *  не уходит в конец под новый ход); без хода или у пользователя — в конец. */
 export function insertInTurn(msgs: Message[], m: Message): Message[] {
@@ -275,7 +281,7 @@ export function createAppStore(client: CoreClient) {
         case "chat_message": {
           const m = (ev as { message: Message }).message;
           const msgs = s.chat.data;
-          if (msgs.some((x) => x.id === m.id || isSameReply(x, m))) break;
+          if (msgs.some((x) => x.id === m.id || isSameReply(x, m) || isSameQuestion(x, m))) break;
           // Эхо своего сообщения от сервера заменяет локальный «ожидающий» пузырь.
           const pendingIdx = m.role === "user" ? msgs.findIndex((x) => x.pending && x.text === m.text) : -1;
           const next = pendingIdx >= 0 ? msgs.map((x, i) => (i === pendingIdx ? m : x)) : insertInTurn(msgs, m);

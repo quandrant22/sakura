@@ -32,6 +32,7 @@ export function kindChip(m: Message): { text: string; tone: "accent" | "dim" | "
     case "error": return { text: "ошибка", tone: "error" };
     case "proactive": return { text: "проактивно", tone: "accent" };
     case "command": return { text: "команда", tone: "dim" };
+    case "confirm": return { text: "вопрос", tone: "accent" };
     default: return null;
   }
 }
@@ -70,7 +71,29 @@ function DeleteControl({ m, onDelete }: { m: Message; onDelete?(id: string): voi
   );
 }
 
-function Bubble({ m, onDelete }: { m: Message; onDelete?(id: string): void }) {
+/** Вопрос сервера «Да или нет?»: ответ уходит обычным текстом «да»/«нет», как если бы его сказали. */
+function ConfirmButtons({ onAnswer }: { onAnswer(text: "да" | "нет"): void }) {
+  return (
+    <div className="mt-2 flex gap-2" role="group" aria-label="Ответ на вопрос">
+      <button type="button" onClick={() => onAnswer("да")}
+              className="rounded-full bg-accent-grad px-4 py-1 text-xs font-medium text-white">Да</button>
+      <button type="button" onClick={() => onAnswer("нет")}
+              className="rounded-full border border-line px-4 py-1 text-xs text-ink-dim hover:text-ink">Нет</button>
+    </div>
+  );
+}
+
+/** Кнопки — только у последнего вопроса, на который ещё не ответили (после него нет реплики пользователя). */
+export function openQuestionId(msgs: Message[]): string | null {
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i]!;
+    if (m.role === "user") return null;
+    if (m.kind === "confirm") return m.id;
+  }
+  return null;
+}
+
+function Bubble({ m, onDelete, onAnswer }: { m: Message; onDelete?(id: string): void; onAnswer?(text: "да" | "нет"): void }) {
   const label = sourceLabel(m);
   if (m.role === "system" && (m.kind === "command" || m.kind === "error")) return <ActionLine m={m} />;
   if (m.role === "user") {
@@ -100,6 +123,7 @@ function Bubble({ m, onDelete }: { m: Message; onDelete?(id: string): void }) {
         ) : (
           <p className="whitespace-pre-wrap break-words">{m.text}</p>
         )}
+        {onAnswer && <ConfirmButtons onAnswer={onAnswer} />}
         <div className="mt-1 text-right text-[11px] text-ink-dim">{label && `${label} · `}{timeHM(m.ts)}
           <DeleteControl m={m} onDelete={onDelete} /></div>
       </div>
@@ -123,6 +147,7 @@ export function Chat({ onCollapse }: { onCollapse(): void }) {
   const loadOlder = useApp((s) => s.loadOlder);
   const searchHistory = useApp((s) => s.searchHistory);
   const deleteMessage = useApp((s) => s.deleteMessage);
+  const question = openQuestionId(chat.data);
   const [text, setText] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -208,7 +233,8 @@ export function Chat({ onCollapse }: { onCollapse(): void }) {
             <EmptyState text="Здесь будет ваша переписка. Напишите или скажите «Сакура…»" />
           ) : (
             chat.data.filter((m) => showCommands || m.kind !== "command").map((m) => (
-              <Bubble key={m.id} m={m} onDelete={noHistory ? undefined : (id) => void remove(id)} />))
+              <Bubble key={m.id} m={m} onDelete={noHistory ? undefined : (id) => void remove(id)}
+                      onAnswer={m.id === question ? (t) => void sendText(t) : undefined} />))
           )}
         </Loadable>
         )}
