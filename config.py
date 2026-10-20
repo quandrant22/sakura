@@ -48,6 +48,16 @@ VOICE_GATE_WAIT_S = float(os.getenv("VOICE_GATE_WAIT_S", "4.0"))
 COMPUTER_USE = os.getenv("COMPUTER_USE", "0").strip().lower() in ("1", "true", "yes")
 COMPUTER_MAX_STEPS = 20
 COMPUTER_MAX_SHOT_BYTES = 400 * 1024
+# Защищённый канал Noise поверх WebSocket (securechannel/, docs/security):
+# off — только старый протокол (JSON + token); optional — Noise и токен;
+# required — только Noise. Ключ сервера и реестр устройств — SECURE_DIR (600).
+SECURE_CHANNEL = os.getenv("SECURE_CHANNEL", "off").strip().lower()
+SECURE_DIR = os.getenv("SECURE_DIR", "memory/secure")
+SECURE_BACKEND = os.getenv("SECURE_BACKEND", "lib").strip().lower()   # lib | edu
+# Адрес сервера для QR спаривания (клиент подключается к нему).
+SECURE_PUBLIC_URL = os.getenv("SECURE_PUBLIC_URL", "ws://31.76.80.5:8765")
+# Чат, история, память, профиль, кадры экрана — только по secure-соединению.
+PRIVATE_REQUIRES_SECURE = os.getenv("PRIVATE_REQUIRES_SECURE", "1").strip().lower() not in ("0", "false", "no")
 # Протокол v2 настольного клиента (sakura_core/proto_v2.py): 0 — сервер
 # ведёт себя как v1 (нет registered, запросы v2 — error/unsupported).
 PROTO_V2 = os.getenv("PROTO_V2", "1").strip().lower() not in ("0", "false", "no", "")

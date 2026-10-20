@@ -219,3 +219,87 @@ async def device_control_impl(message: "Message", *, connected_devices,
         spawn(stream_tts_to_device(
             "Выключаюсь, Мастер. Спокойной ночи.", ws, dev_id,
             literal=True, emotion=get_current_emotion()), name="shutdown-tts")
+
+
+# ── Защищённый канал: спаривание и устройства (docs/security) ───────
+
+async def cmd_pair_impl(message: "Message"):
+    """/pair — одноразовый код спаривания (QR + 8 слов, 10 минут).
+
+    Слова уходят только в это сообщение Мастеру: сервер хранит хеш (PSK),
+    в журнал слова не пишутся."""
+    import io
+    import time
+    import config
+    from aiogram.types import BufferedInputFile
+    from sakura_core import secure_policy
+    from securechannel.keys import fingerprint
+    from securechannel.pairing import make_qr_uri
+    if secure_policy.mode() == "off":
+        await message.answer("Защищённый канал выключен (SECURE_CHANNEL=off) — спаривать некуда.")
+        return
+    ctx = secure_policy.context()
+    words, expires = ctx.pairing.create()
+    pub = ctx.keys.current[1]
+    uri = make_qr_uri(config.SECURE_PUBLIC_URL, pub, words, expires)
+    left = int((expires - time.time()) // 60)
+    text = (f"Код спаривания (одноразовый, {left} мин, 5 попыток):\n\n"
+            f"<code>{words}</code>\n\n"
+            f"Отпечаток ключа сервера: <code>{fingerprint(pub)}</code>\n"
+            f"Сверьте его в клиенте. Новый /pair отменяет этот код.")
+    try:
+        import qrcode
+        buf = io.BytesIO()
+        qrcode.make(uri).save(buf, format="PNG")
+        await message.answer_photo(BufferedInputFile(buf.getvalue(), "pair.png"),
+                                   caption=text, parse_mode="HTML")
+    except Exception:
+        await message.answer(text + "\n\n(QR недоступен — введите слова вручную)",
+                             parse_mode="HTML")
+
+
+async def cmd_devices_impl(message: "Message"):
+    """/devices — спаренные устройства защищённого канала."""
+    import time
+    import modules.state as st
+    from sakura_core import secure_policy
+    devs = secure_policy.context().registry.list()
+    if not devs:
+        await message.answer("Спаренных устройств нет. /pair — спарить новое.")
+        return
+
+    def ago(ts):
+        if not ts:
+            return "никогда"
+        m = int((time.time() - ts) // 60)
+        return f"{m} мин назад" if m < 120 else f"{m // 60} ч назад"
+    lines = []
+    for d in devs:
+        state = ("отозвано" if d.get("revoked")
+                 else "онлайн" if d["id"] in st.connected_devices else "не в сети")
+        lines.append(f"• <b>{d['id']}</b> — {d['name']} ({d['kind']}), {state}\n"
+                     f"  отпечаток <code>{d['fp']}</code>, вход: {ago(d.get('last_seen'))}")
+    await message.answer("\n".join(lines) + "\n\n/revoke &lt;id&gt; — отозвать.",
+                         parse_mode="HTML")
+
+
+async def cmd_revoke_impl(message: "Message"):
+    """/revoke <id> — отозвать ключ устройства и оборвать его соединение."""
+    import modules.state as st
+    from sakura_core import secure_policy
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        await message.answer("Использование: /revoke <id> (список — /devices)")
+        return
+    device_id = parts[1].strip()
+    if not secure_policy.context().registry.revoke(device_id):
+        await message.answer(f"Устройство {device_id!r} не найдено или уже отозвано.")
+        return
+    ws = st.connected_devices.get(device_id)
+    if ws is not None and getattr(ws, "transport", None) == "noise":
+        try:
+            await ws.close(4408, "revoked")
+        except Exception:
+            pass
+    await message.answer(f"Ключ {device_id} отозван; его соединение закрыто. "
+                         f"Для нового ключа — /pair.")
