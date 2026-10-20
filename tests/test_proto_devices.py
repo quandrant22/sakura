@@ -152,6 +152,8 @@ def test_registered_and_old_client(server):
 
 
 def test_errors_not_master_unsupported_and_disabled(server, monkeypatch):
+    # loopback по политике securechannel считается защищённым — форсируем «без защиты»
+    monkeypatch.setattr("sakura_core.proto_v2.connection_secure", lambda ws: False)
     async def sc(uri):
         g = await connect(uri, GUEST)
         e1 = await g.request({"type": "devices_request"})

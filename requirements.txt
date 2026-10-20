@@ -19,6 +19,7 @@ websockets==16.0
 youtube-transcript-api==1.2.4
 
 # Не включены намеренно: rapidfuzz (опционально, modules/nlu.py),
-# sounddevice (агентский код в modules/audio_control.py)noiseprotocol==0.3.1   # Noise для securechannel (MIT)
+# sounddevice (агентский код в modules/audio_control.py)
+noiseprotocol==0.3.1   # Noise для securechannel (MIT)
 cryptography>=42      # X25519, ChaCha20-Poly1305 (securechannel)
 qrcode[pil]==7.4.2      # QR спаривания /pair (BSD)
