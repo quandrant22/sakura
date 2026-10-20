@@ -95,6 +95,14 @@ def _focused() -> str | None:
         return None
 
 
+def _bye(device_id: str) -> bool:
+    try:
+        from modules.presence_sync import is_bye
+        return is_bye(device_id)
+    except Exception:
+        return False
+
+
 def device(device_id: str, focus_id: str | None = None) -> dict:
     """Device протокола v2."""
     info = _devices.get(device_id, {})
@@ -102,7 +110,7 @@ def device(device_id: str, focus_id: str | None = None) -> dict:
         "id": device_id,
         "name": _name(device_id, info.get("name")),
         "kind": _kind(device_id, info.get("kind")),
-        "online": device_id in st.connected_devices,
+        "online": device_id in st.connected_devices and not _bye(device_id),
         "last_seen": float(info.get("last_seen") or 0.0) or None,
         "focus": device_id == focus_id,
         "stats": dict(info.get("stats") or {}),

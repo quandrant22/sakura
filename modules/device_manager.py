@@ -65,6 +65,7 @@ def update_device(device_id: str, active_window: str = None,
     # Неизвестный id (не в DEVICES) тоже заводим: показываем под своим id.
     dev = data["devices"].setdefault(device_id, _blank())
     dev["online"]    = True
+    dev.pop("offline_reason", None)
     dev["last_seen"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     if active_window is not None:
@@ -108,7 +109,10 @@ def get_device_status() -> str:
                     plugged = "🔌" if sys_info.get("plugged") else "🔋"
                     line += f" | {plugged} {sys_info['battery']}%"
         else:
-            line = f"✗ {name} — оффлайн (был: {info.get('last_seen', 'никогда')})"
+            why = {"shutdown": "выключен", "sleep": "спит", "exit": "агент закрыт"}.get(
+                info.get("offline_reason"))
+            line = (f"✗ {name} — оффлайн" + (f", {why}" if why else "")
+                    + f" (был: {info.get('last_seen', 'никогда')})")
 
         lines.append(line)
 
@@ -131,10 +135,12 @@ def get_device_context() -> str:
     return result
 
 
-def set_device_offline(device_id: str):
+def set_device_offline(device_id: str, reason: str | None = None):
     data = load_devices()
     if device_id in data["devices"]:
         data["devices"][device_id]["online"] = False
+        if reason is not None:            # обычный обрыв не стирает причину из bye
+            data["devices"][device_id]["offline_reason"] = reason
         save_devices(data)
 
 

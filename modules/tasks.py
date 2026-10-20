@@ -48,8 +48,48 @@ def mark_notified(task_id: int):
             t["notified"] = True
     save_tasks(tasks)
 
+ARCHIVE_FILE = "memory/tasks_archive.json"
+ARCHIVE_AFTER_H = 24      # просрочено дольше — в архив, в промпт не идёт
+
+
+def _due_dt(t: dict):
+    d = t.get("due_date")
+    if not d:
+        return None
+    try:
+        h, m = map(int, (t.get("due_time") or "23:59").split(":"))
+        return datetime.strptime(d, "%Y-%m-%d").replace(hour=h, minute=m)
+    except Exception:
+        return None
+
+
+def archive_overdue(now: datetime | None = None) -> int:
+    """Невыполненные задачи, просроченные > ARCHIVE_AFTER_H часов, → архив."""
+    now = now or datetime.now()
+    tasks = load_tasks()
+    keep, old = [], []
+    for t in tasks:
+        due = _due_dt(t)
+        if (not t.get("done") and due is not None
+                and now - due > timedelta(hours=ARCHIVE_AFTER_H)):
+            old.append(t)
+        else:
+            keep.append(t)
+    if old:
+        try:
+            with open(ARCHIVE_FILE, "r", encoding="utf-8") as f:
+                arch = json.load(f)
+        except Exception:
+            arch = []
+        arch.extend({**t, "archived": str(now)} for t in old)
+        save_json(ARCHIVE_FILE, arch)
+        save_tasks(keep)
+    return len(old)
+
+
 def get_due_tasks() -> list:
     """Задачи которые пора выполнить — просроченные или наступившие"""
+    archive_overdue()
     tasks = load_tasks()
     today = str(date.today())
     now = datetime.now()
@@ -108,11 +148,13 @@ def get_upcoming_tasks(hours_ahead: int = 2) -> list:
     return upcoming
 
 def get_tasks_context() -> str:
-    """Контекст задач для промпта Сакуры"""
+    """Контекст задач для промпта Сакуры: только живые — не выполненные, не
+    напомненные и не просроченные больше суток."""
+    archive_overdue()
     tasks = load_tasks()
     today = str(date.today())
     now = datetime.now()
-    active = [t for t in tasks if not t.get("done")]
+    active = [t for t in tasks if not t.get("done") and not t.get("notified")]
     if not active:
         return ""
 
@@ -143,58 +185,53 @@ def get_tasks_context() -> str:
 
     return "\n".join(lines)
 
-def extract_tasks_from_text(text: str) -> list:
-    """Извлекает задачи из текста разговора"""
-    tasks_found = []
-    text_lower = text.lower()
-    today = date.today()
+_WEEKDAYS = {
+    "понедельник": 0, "вторник": 1, "среду": 2, "среда": 2,
+    "четверг": 3, "пятницу": 4, "пятница": 4,
+    "субботу": 5, "суббота": 5, "воскресенье": 6,
+}
+_TIME_RE = re.compile(r'в\s+(\d{1,2})(?:[:\.](\d{2}))?(?:\s*(?:час\w*|утра|дня|вечера|ночи))?')
 
-    task_triggers = [
-        "напомни", "не забудь", "нужно", "надо", "запомни что",
-        "завтра", "послезавтра", "в понедельник", "во вторник",
-        "в среду", "в четверг", "в пятницу"
-    ]
 
-    if not any(t in text_lower for t in task_triggers):
-        return []
-
-    # Определяем дату
+def parse_due(text: str, today: date | None = None, now: datetime | None = None) -> tuple:
+    """(due_date, due_time) из явной просьбы «напомни завтра в 10 …».
+    Нет ни даты, ни времени → (None, None). Время без даты — сегодня,
+    а если оно уже прошло, то завтра."""
+    today = today or date.today()
+    now = now or datetime.now()
+    tl = (text or "").lower()
     due_date = None
-    if "завтра" in text_lower:
-        due_date = str(today + timedelta(days=1))
-    elif "послезавтра" in text_lower:
+    if "послезавтра" in tl:
         due_date = str(today + timedelta(days=2))
-    elif "сегодня" in text_lower:
+    elif "завтра" in tl:
+        due_date = str(today + timedelta(days=1))
+    elif "сегодня" in tl:
         due_date = str(today)
     else:
-        weekdays = {
-            "понедельник": 0, "вторник": 1, "среду": 2, "среда": 2,
-            "четверг": 3, "пятницу": 4, "пятница": 4,
-            "субботу": 5, "суббота": 5, "воскресенье": 6
-        }
-        for day_name, day_num in weekdays.items():
-            if day_name in text_lower:
-                days_ahead = (day_num - today.weekday()) % 7
-                if days_ahead == 0:
-                    days_ahead = 7
-                due_date = str(today + timedelta(days=days_ahead))
+        for name, num in _WEEKDAYS.items():
+            if name in tl:
+                due_date = str(today + timedelta(days=(num - today.weekday()) % 7 or 7))
                 break
-
-    # Определяем время
     due_time = None
-    time_match = re.search(r'в\s+(\d{1,2})(?:[:\.](\d{2}))?\s*(?:час|утра|дня|вечера|ночи)?', text_lower)
-    if time_match:
-        hour = int(time_match.group(1))
-        minute = int(time_match.group(2)) if time_match.group(2) else 0
-        if "вечера" in text_lower and hour < 12:
+    m = _TIME_RE.search(tl)
+    if m and int(m.group(1)) < 24:
+        hour = int(m.group(1))
+        minute = int(m.group(2)) if m.group(2) else 0
+        if ("вечера" in tl or "дня" in tl) and 1 <= hour < 12:
             hour += 12
-        due_time = f"{hour:02d}:{minute:02d}"
+        if minute < 60:
+            due_time = f"{hour:02d}:{minute:02d}"
+    if due_time and not due_date:
+        h, mi = map(int, due_time.split(":"))
+        later = now.replace(hour=h, minute=mi, second=0, microsecond=0) > now
+        due_date = str(today if later else today + timedelta(days=1))
+    return due_date, due_time
 
-    if due_date or due_time:
-        tasks_found.append({
-            "text": text[:200],
-            "due_date": due_date,
-            "due_time": due_time
-        })
 
-    return tasks_found
+def clean_task_text(text: str) -> str:
+    """Текст задачи без «напомни», даты и времени."""
+    t = re.sub(r'(?i)^\s*напомни(?:те)?(?:\s+мне)?\s*', '', text or '')
+    t = re.sub(r'(?i)\b(послезавтра|завтра|сегодня)\b', '', t)
+    t = re.sub(r'(?i)\b(?:в|во)\s+(?:понедельник|вторник|среду|четверг|пятницу|субботу|воскресенье)\b', '', t)
+    t = _TIME_RE.sub('', t)
+    return re.sub(r'\s{2,}', ' ', t).strip(' ,.-') or (text or '').strip()

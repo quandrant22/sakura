@@ -131,6 +131,30 @@ async def announce_presence_transfer() -> None:
         await broadcast_transfer(transfer, st.connected_devices)
 
 
+# ── bye ────────────────────────────────────────────────────────────────
+
+async def handle_bye(websocket, data, ctx) -> None:
+    """{"type": "bye", "device_id", "reason": shutdown|sleep|exit}: ПК уходит —
+    сразу офлайн с причиной (не ждём закрытия сокета). Только master."""
+    device_id = data.get("device_id")
+    if not is_master_device(device_id):
+        return
+    from modules import presence_sync
+    from modules.device_manager import set_device_offline
+    from sakura_core import proto_devices
+    reason = data.get("reason")
+    reason = reason if reason in presence_sync.BYE_REASONS else "exit"
+    await asyncio.to_thread(presence_sync.mark_bye, device_id, reason)
+    await asyncio.to_thread(set_device_offline, device_id, reason)
+    log.info(f"[ws] bye device_id={device_id} reason={reason}")
+    try:
+        await proto_devices.push_device(device_id, force=True)
+        await proto_devices.push_status()
+        await announce_presence_transfer()
+    except Exception as e:
+        log.debug(f"[ws] bye {device_id}: {type(e).__name__}: {e}")
+
+
 # ── ping ───────────────────────────────────────────────────────────
 
 async def handle_ping(websocket, data, ctx) -> None:

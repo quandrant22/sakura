@@ -109,18 +109,26 @@ class TestFactTriggers(unittest.TestCase):
     def test_device_offline_over_30_min(self):
         with _TmpState() as pr:
             old = (datetime.now() - timedelta(minutes=40)).isoformat()
-            devices = {"laptop": {"online": False, "last_seen": old}}
+            devices = {"phone": {"online": False, "last_seen": old}}
             topic, crit, text = pr.get_fact_trigger(devices)
             self.assertEqual(topic, "monitor_device")
             self.assertTrue(crit)
-            self.assertTrue(text.startswith("Устройство laptop недоступно с "))
+            self.assertTrue(text.startswith("Устройство phone недоступно с "))
             topic2, _, _ = pr.get_fact_trigger(devices)
             self.assertIsNone(topic2), "дедуп offline-уведомления"
-            pr.get_fact_trigger({"laptop": {"online": True, "last_seen": old}})
+            pr.get_fact_trigger({"phone": {"online": True, "last_seen": old}})
             state = pr.load_state()
-            self.assertNotIn("laptop", state["monitor_state"]["offline_notified"])
+            self.assertNotIn("phone", state["monitor_state"]["offline_notified"])
             topic3, _, _ = pr.get_fact_trigger(devices)
             self.assertEqual(topic3, "monitor_device")
+
+    def test_pc_offline_is_normal_not_alarm(self):
+        """Выключение ПК (pc, laptop, mostech) — не авария: проактива нет."""
+        with _TmpState() as pr:
+            old = (datetime.now() - timedelta(minutes=90)).isoformat()
+            for dev in ("pc", "laptop", "mostech"):
+                topic, _, _ = pr.get_fact_trigger({dev: {"online": False, "last_seen": old}})
+                self.assertIsNone(topic, dev)
 
     def test_device_recently_offline_is_silent(self):
         with _TmpState() as pr:

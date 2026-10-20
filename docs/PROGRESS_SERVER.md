@@ -30,3 +30,32 @@ origin/master (2a9e6a3 на старте); push только своих вето
 
 Не сделано / вне задачи: клиент не шлёт `input_idle_s` (agent/ и desktop/ не трогались); прод не перезапускался.
 
+## server/presence-memory (2026-10-20)
+
+| блок | состояние |
+|---|---|
+| 1 очистка | `scripts/cleanup_tasks.py` (+`--dry-run`), `/забудь_задачи` с «Да/Нет»; копия в `memory/backup/<дата>/` |
+| 2 не копить | задачи только по «напомни…»; нити `THREADS=off`; напомненные/выполненные не в промпте; просрочка > 24 ч → `memory/tasks_archive.json` |
+| 3–4 присутствие | `presence_sync.get_master_presence()` (at_pc/at_work/away_from_pc/pcs_off), сообщение `bye` (PROTOCOL.md §10.5–10.6) |
+| 5 промпт | реальное присутствие в блоке контекста, директива «Он не у компьютера…», окно не даёт «играет» вне ПК |
+| 6–7 вывод | проактив при away/pcs_off — только Telegram; «Устройство X недоступно» для ПК убрано |
+| тесты | tests/test_presence_memory.py (19), весь набор 1153 passed |
+
+### Как запустить очистку на проде (не выполнялось)
+
+Из `/opt/sakura`, тем же python, что у сервера; **сначала dry-run**:
+
+```
+cd /opt/sakura
+venv/bin/python scripts/cleanup_tasks.py --dry-run     # только покажет: сколько и первые 40 символов
+venv/bin/python scripts/cleanup_tasks.py               # копия в memory/backup/<дата>/ → очистка
+```
+
+Или в Telegram: `/забудь_задачи` → «Да». Откат: вернуть `tasks.json` из
+`memory/backup/<дата>/` и открыть нити (`UPDATE conversation_threads SET closed=0`
+по `conversation_threads.json` из той же папки). Остановка сервера для очистки не нужна;
+лучше запускать, пока никто не говорит с Сакурой.
+
+Клиентам: `bye` (shutdown/sleep/exit) и `input_idle_s` в ping шлёт агент — `agent/`
+не менялся, до обновления агента действует запасная логика (последний голос/текст).
+

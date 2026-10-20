@@ -75,6 +75,38 @@ async def cmd_tasks_impl(message: "Message"):
     await message.answer(ctx if ctx else "Задач пока нет.")
 
 
+async def cmd_forget_tasks_impl(message: "Message"):
+    """/забудь_задачи — сколько задач и нитей будет удалено; Да/Нет кнопками."""
+    import asyncio
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+    from modules import task_cleanup
+    pv = await asyncio.to_thread(task_cleanup.preview)
+    if not pv["tasks"] and not pv["threads"]:
+        await message.answer("Задач и открытых нитей нет — чистить нечего.")
+        return
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="Да", callback_data="forget_tasks:yes"),
+        InlineKeyboardButton(text="Нет", callback_data="forget_tasks:no")]])
+    await message.answer(
+        f"Будет удалено задач: {len(pv['tasks'])}, нитей: {len(pv['threads'])}. "
+        f"Копия сохранится в memory/backup. Удалить?", reply_markup=kb)
+
+
+async def cb_forget_tasks_impl(callback):
+    """Ответ на «Да/Нет» после /забудь_задачи."""
+    import asyncio
+    from modules import task_cleanup
+    yes = callback.data == "forget_tasks:yes"
+    if yes:
+        res = await asyncio.to_thread(task_cleanup.run)
+        text = (f"Готово: удалено задач {res['tasks']}, закрыто нитей {res['threads']}. "
+                f"Копия: {res['backup']}")
+    else:
+        text = "Хорошо, ничего не удаляю."
+    await callback.message.edit_text(text)
+    await callback.answer()
+
+
 async def cmd_clear_impl(message: "Message", ask_gemini):
     from memory.memory import clear_history, clear_session_summary
     clear_history()

@@ -122,6 +122,7 @@ def _register_commands():
         cmd_users_impl, cmd_unvip_impl, cmd_block_impl,
         cmd_pair_impl, cmd_devices_impl, cmd_revoke_impl,
         cmd_export_chat_impl, cmd_clear_chat_impl,
+        cmd_forget_tasks_impl, cb_forget_tasks_impl,
     )
     dp.message(Command("помощь"))(_master_only(cmd_help_impl))
     dp.message(Command("health"))(_master_only(cmd_health_impl))
@@ -143,6 +144,12 @@ def _register_commands():
     dp.message(Command("revoke"))(_master_only(cmd_revoke_impl))
     dp.message(Command("export_chat"))(_master_only(cmd_export_chat_impl))
     dp.message(Command("clear_chat"))(_master_only(cmd_clear_chat_impl))
+    dp.message(Command("забудь_задачи"))(_master_only(cmd_forget_tasks_impl))
+
+    async def _forget_tasks_cb(callback):
+        if is_master(callback.from_user.id):
+            await cb_forget_tasks_impl(callback)
+    dp.callback_query(F.data.in_({"forget_tasks:yes", "forget_tasks:no"}))(_forget_tasks_cb)
 
 _register_commands()
 

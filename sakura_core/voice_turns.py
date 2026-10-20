@@ -171,6 +171,11 @@ async def broadcast_reply(text: str, kind: str = "proactive") -> int:
     """reply всем подключённым master-устройствам (проактивные сообщения).
     Возвращает, скольким ушло."""
     from modules.state import connected_devices
+    if kind == "proactive":
+        from modules.presence_sync import pc_voice_allowed
+        if not pc_voice_allowed():
+            log.info("[turn] Мастер не у ПК — проактив не шлю на ПК (только Telegram)")
+            return 0
     sent = 0
     for dev, ws in list(connected_devices.items()):
         if await send_reply(ws, dev, text, kind):

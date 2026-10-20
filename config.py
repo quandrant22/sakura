@@ -39,6 +39,8 @@ MASTER_DEVICES = set(
 )
 # Известные устройства (modules/device_manager.KNOWN_DEVICES): список id через запятую.
 DEVICES = [d.strip() for d in os.getenv("DEVICES", "pc,laptop,mostech,phone").split(",") if d.strip()]
+# Нити разговора (modules/threads.py): по умолчанию выключены.
+THREADS = os.getenv("THREADS", "off").strip().lower() in ("1", "true", "yes", "on")
 # Рассылка вектора настроения всем клиентам (mood_update). По умолчанию выключена;
 # переходы между ПК (presence) от флага не зависят.
 MOOD_BROADCAST = os.getenv("MOOD_BROADCAST", "off").strip().lower() in ("1", "true", "yes", "on")

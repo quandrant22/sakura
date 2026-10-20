@@ -1031,6 +1031,11 @@ async def stream_tts_to_device(
     if voice_turns.is_cancelled():
         log.info(f"[TTS] ход {voice_turns.current_id()} вытеснен — озвучка пропущена | {device_id}")
         return
+    if reply_kind == "proactive":
+        from modules.presence_sync import pc_voice_allowed
+        if not pc_voice_allowed():
+            log.info(f"[TTS] Мастер не у ПК — проактив не озвучиваю на {device_id} (только Telegram)")
+            return
     if stop is None:
         stop = lambda: tts_stop_requested(device_id)
 

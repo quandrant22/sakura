@@ -285,6 +285,7 @@ async def ws_handler(websocket):
                 HANDLERS = {
                     "register": handle_register,
                     "ping": handle_ping,
+                    "bye": handle_bye,
                     "apps_list": handle_apps_list,
                     "screen_context": handle_screen_context,
                     "command_result": handle_command_result,
@@ -392,6 +393,7 @@ from sakura_core.send import (
 from sakura_core.ws_protocol import (
     handle_register,
     handle_ping,
+    handle_bye,
     handle_apps_list,
     handle_screen_context,
     handle_kettle_ready,

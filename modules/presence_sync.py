@@ -45,10 +45,20 @@ _active:      str = ""       # решение: текущее активное �
 # device_id → {"seen": monotonic последнего ping/ввода, "input_at": monotonic
 # последнего ввода или None, если клиент input_idle_s не присылает}
 _devs: dict[str, dict] = {}
+# Отключения ПК: device_id → {"wall": time.time(), "reason": shutdown|sleep|exit|None}
+_offline: dict[str, dict] = {}
+_bye: dict[str, str] = {}    # device_id → причина: клиент прислал bye, сокет мог ещё жить
+BYE_REASONS = ("shutdown", "sleep", "exit")
+# Нет ввода столько секунд (при онлайн-ПК) — Мастер отошёл
+AWAY_AFTER_S = 600.0
 
 
 def _now() -> float:
     return time.monotonic()
+
+
+def _wall() -> float:
+    return time.time()
 
 
 def reset() -> None:
@@ -56,6 +66,8 @@ def reset() -> None:
     global _announced, _active
     with _lock:
         _devs.clear()
+        _offline.clear()
+        _bye.clear()
         _announced = _active = ""
 
 
@@ -120,8 +132,10 @@ def update(device_id: str, data: dict):
 
     t = _now()
     with _lock:
-        rec = _devs.setdefault(device_id, {"seen": t, "input_at": None})
+        rec = _devs.setdefault(device_id, {"seen": t, "input_at": None, "since": t})
         rec["seen"] = t
+        _bye.pop(device_id, None)           # жив — прежний bye недействителен
+        _offline.pop(device_id, None)
         idle = _idle_value(data)
         if idle is not None:
             rec["input_at"] = t - idle
@@ -138,8 +152,10 @@ def note_input(device_id: str) -> None:
         return
     t = _now()
     with _lock:
-        rec = _devs.setdefault(device_id, {"seen": t, "input_at": None})
+        rec = _devs.setdefault(device_id, {"seen": t, "input_at": None, "since": t})
         rec["seen"] = rec["input_at"] = t
+        _bye.pop(device_id, None)
+        _offline.pop(device_id, None)
         if _active != device_id:
             log.info(f"[presence_sync] ввод на {device_id}: активное {_active or 'none'} → {device_id}")
         _active = device_id
@@ -157,9 +173,102 @@ def set_offline(device_id: str):
     _conn().commit()
     with _lock:
         _devs.pop(device_id, None)
+        prev = _bye.get(device_id) or (_offline.get(device_id) or {}).get("reason")
+        _offline[device_id] = {"wall": _wall(), "reason": prev}
         if _active == device_id:
             _active = ""
         _decide(_now())
+
+
+def mark_bye(device_id: str, reason: str = "exit") -> None:
+    """Клиент прислал bye: ПК сразу офлайн с причиной (сокет может ещё жить)."""
+    global _active
+    if not device_id:
+        return
+    reason = reason if reason in BYE_REASONS else "exit"
+    with _lock:
+        _bye[device_id] = reason
+        _offline[device_id] = {"wall": _wall(), "reason": reason}
+        _devs.pop(device_id, None)
+        if _active == device_id:
+            _active = ""
+        _decide(_now())
+    log.info(f"[presence_sync] {device_id}: bye ({reason})")
+
+
+def is_bye(device_id: str) -> bool:
+    with _lock:
+        return device_id in _bye
+
+
+# ── Присутствие Мастера ──────────────────────────────────────────────
+
+def is_pc(device_id: str) -> bool:
+    """ПК (pc, laptop, mostech и др.), а не телефон."""
+    try:
+        from modules.device_manager import KNOWN_DEVICES
+        kind = (KNOWN_DEVICES.get(device_id) or {}).get("type")
+    except Exception:
+        kind = None
+    if kind:
+        return kind != "phone"
+    return "phone" not in (device_id or "").lower()
+
+
+def get_master_presence(connected=None) -> dict:
+    """Где Мастер на самом деле (по включённым ПК и вводу), а не по расписанию.
+
+    state:
+      at_pc         — ПК онлайн, ввод < 10 мин назад (device — какой ПК);
+      at_work       — то же, но активный ПК — WORK_LAPTOP_DEVICE (mostech);
+      away_from_pc  — ПК онлайн, ввода нет ≥ 10 мин (idle_s — сколько);
+      pcs_off       — ни одного ПК онлайн (since — time.time() выключения
+                      последнего, reason — shutdown|sleep|exit|None);
+    Клиент без input_idle_s: ввод = последний голос/текст с этого ПК, иначе
+    момент появления. Прислал bye — ПК не считается онлайн сразу.
+    """
+    import config
+    if connected is None:
+        import modules.state as st
+        connected = st.connected_devices
+    online = [d for d in list(connected) if is_pc(d) and d not in _bye]
+    now = _now()
+    with _lock:
+        if not online:
+            pcs = [(d, o) for d, o in _offline.items() if is_pc(d)]
+            if pcs:
+                dev, o = max(pcs, key=lambda x: x[1]["wall"])
+                return {"state": "pcs_off", "device": dev, "idle_s": None,
+                        "since": o["wall"], "reason": o.get("reason")}
+            return {"state": "pcs_off", "device": None, "idle_s": None,
+                    "since": None, "reason": None}
+        _decide(now)
+        idle = {}
+        for d in online:
+            rec = _devs.get(d)
+            if rec is None:
+                idle[d] = 0.0               # данных нет — считаем, что Мастер тут
+            else:
+                at = rec["input_at"] if rec["input_at"] is not None else rec.get("since", now)
+                idle[d] = max(0.0, now - at)
+        fresh = min(idle, key=idle.get)
+        act = _active if _active in idle else fresh
+        dev = act if idle[act] < AWAY_AFTER_S else fresh
+        if idle[dev] >= AWAY_AFTER_S:
+            return {"state": "away_from_pc", "device": dev, "idle_s": idle[dev],
+                    "since": None, "reason": None}
+        work = getattr(config, "WORK_LAPTOP_DEVICE", "mostech")
+        return {"state": "at_work" if dev == work else "at_pc", "device": dev,
+                "idle_s": idle[dev], "since": None, "reason": None}
+
+
+def pc_voice_allowed() -> bool:
+    """Можно ли говорить/писать проактивом на ПК: только если Мастер у ПК."""
+    try:
+        return get_master_presence()["state"] in ("at_pc", "at_work")
+    except Exception as e:
+        log.debug(f"[presence_sync] pc_voice_allowed: {type(e).__name__}: {e}")
+        return True
 
 
 # ── Определение активного устройства ─────────────────────────────────

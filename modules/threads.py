@@ -39,6 +39,13 @@ _THREAD_TTL_DAYS = 7     # нить живёт 7 дней без упомина�
 _last_recall_at: float = 0.0
 
 
+def _enabled() -> bool:
+    """THREADS=off (по умолчанию): нити не открываются и не попадают в промпт —
+    простое «надо» нитью не является (DECISIONS P2)."""
+    import config
+    return bool(getattr(config, "THREADS", False))
+
+
 # ── Хранилище ─────────────────────────────────────────────────────────
 
 def _ensure_table():
@@ -162,6 +169,8 @@ def extract_threads(user_msg: str, reply: str):
     Вызывать из extract_and_remember — попутно, без доп. LLM-запроса.
     Используем простой keyword-детект чтобы не тратить квоту.
     """
+    if not _enabled():
+        return
     tl = user_msg.lower()
 
     # Детект закрытия: «сделал X» — ищем нить с похожей темой
@@ -191,6 +200,8 @@ def get_threads_context() -> str:
     Блок для системного промпта — незакрытые темы.
     Молчим если нет ничего.
     """
+    if not _enabled():
+        return ""
     threads = _get_open_threads()
     if not threads:
         return ""
@@ -213,6 +224,8 @@ def get_thread_recall() -> Optional[str]:
     Возвращает промпт-дополнение или None.
     """
     global _last_recall_at
+    if not _enabled():
+        return None
     if time.time() - _last_recall_at < _RECALL_COOLDOWN:
         return None
 

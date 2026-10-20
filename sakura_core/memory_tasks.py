@@ -17,7 +17,6 @@ from memory.memory import (
     save_session_summary, clear_session_summary,
 )
 from modules.jsonio import save_json
-from modules.tasks import add_task, extract_tasks_from_text
 from modules.threads import extract_threads
 from memory.db import add_to_category as db_add_to_category
 
@@ -154,8 +153,8 @@ async def extract_and_remember(user_message: str, reply: str):
         else:
             log.info("[memory] ничего нового не извлечено")
         mark_key_used(key)
-        for t in extract_tasks_from_text(user_message):
-            add_task(t["text"], t.get("due_date"), t.get("due_time"))
+        # Задачи из обычной речи не создаём: только по явному «напомни…»
+        # (modules/voice_info.tasks_add / reminders_add).
 
         try:
             await asyncio.to_thread(extract_threads, user_message, reply)
