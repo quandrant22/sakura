@@ -94,8 +94,8 @@ _REMOTE_OPS = {"seek_forward": ("seek_by", 10), "seek_back": ("seek_by", -10)}
 
 
 def _yamusic_remote():
-    from desktop.core.media.yandex_remote import YandexRemote
-    return YandexRemote()
+    from desktop.core.media import yandex_remote
+    return yandex_remote.shared()
 
 
 # Приложение (yamusic_app): волна и легаси play/pause

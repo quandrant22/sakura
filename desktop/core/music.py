@@ -42,6 +42,30 @@ def _ym_token() -> str:
 
 # ── SMTC — системный медиа-интерфейс Windows ─────────────────────────
 
+# Один менеджер сессий SMTC на процесс: его создаёт наблюдатель (SmtcWatch.start) или первое чтение;
+# request_async() заново — только после ошибки (drop_manager). Раньше каждое чтение звало request_async().
+_MGR: dict = {"mgr": None}
+
+
+def set_manager(mgr) -> None:
+    _MGR["mgr"] = mgr
+
+
+def drop_manager() -> None:
+    """Ошибка WinRT — следующий вызов получит менеджер заново."""
+    _MGR["mgr"] = None
+
+
+async def _manager():
+    mgr = _MGR["mgr"]
+    if mgr is None:
+        from winsdk.windows.media.control import (
+            GlobalSystemMediaTransportControlsSessionManager as MediaManager,
+        )
+        mgr = await asyncio.wait_for(MediaManager.request_async(), timeout=3.0)
+        _MGR["mgr"] = mgr
+    return mgr
+
 def _pick_yamusic_session(sessions_mgr):
     """Сессия Яндекс Музыки из менеджера SMTC (или None).
 
@@ -70,13 +94,10 @@ async def _smtc_get_info() -> Optional[dict]:
     """Возвращает текущий трек и статус через Windows SMTC."""
     try:
         from winsdk.windows.media.control import (
-            GlobalSystemMediaTransportControlsSessionManager as MediaManager,
-        )
-        from winsdk.windows.media.control import (
             GlobalSystemMediaTransportControlsSessionPlaybackStatus as PlaybackStatus,
         )
 
-        sessions = await asyncio.wait_for(MediaManager.request_async(), timeout=3.0)
+        sessions = await _manager()
         session = _pick_yamusic_session(sessions)
         if not session:
             session = sessions.get_current_session()
@@ -120,9 +141,12 @@ async def _smtc_get_info() -> Optional[dict]:
             "duration_s": float(end_s),
             "playing": playback.playback_status == PlaybackStatus.PLAYING,
             "updated_age_s": _age_seconds(timeline),
+            # Режимы — из того же playback_info (без второго чтения SMTC).
+            **_modes_of(playback),
         }
     except Exception as e:
         log.debug(f"[music] SMTC: {e}")
+        drop_manager()
         return None
 
 
@@ -192,16 +216,13 @@ async def smtc_position() -> float | None:
 async def _smtc_set_position(seconds: float) -> bool:
     """TryChangePlaybackPositionAsync (тики по 100 нс); False — приложение не поддерживает."""
     try:
-        from winsdk.windows.media.control import (
-            GlobalSystemMediaTransportControlsSessionManager as MediaManager,
-        )
-        sessions = await MediaManager.request_async()
-        session = _pick_yamusic_session(sessions) or sessions.get_current_session()
+        session = await _session()
         if not session:
             return False
         return bool(await session.try_change_playback_position_async(int(seconds * 10_000_000)))
     except Exception as e:
         log.debug(f"[music] SMTC position: {e}")
+        drop_manager()
         return False
 
 
@@ -211,11 +232,19 @@ REPEAT_MODES = ("none", "track", "list")  # MediaPlaybackAutoRepeatMode: 0, 1, 2
 
 
 async def _session():
-    from winsdk.windows.media.control import (
-        GlobalSystemMediaTransportControlsSessionManager as MediaManager,
-    )
-    sessions = await asyncio.wait_for(MediaManager.request_async(), timeout=3.0)
+    sessions = await _manager()
     return _pick_yamusic_session(sessions) or sessions.get_current_session()
+
+
+def _modes_of(pb) -> dict:
+    """Перемешивание и повтор из playback_info; None — приложение не сообщает."""
+    try:
+        shuffle = pb.is_shuffle_active
+        mode = pb.auto_repeat_mode
+        return {"shuffle": None if shuffle is None else bool(shuffle),
+                "repeat": None if mode is None else REPEAT_MODES[int(mode)]}
+    except Exception:
+        return {"shuffle": None, "repeat": None}
 
 
 async def smtc_modes() -> dict:
@@ -224,13 +253,10 @@ async def smtc_modes() -> dict:
         session = await _session()
         if not session:
             return {"shuffle": None, "repeat": None}
-        pb = session.get_playback_info()
-        shuffle = pb.is_shuffle_active
-        mode = pb.auto_repeat_mode
-        return {"shuffle": None if shuffle is None else bool(shuffle),
-                "repeat": None if mode is None else REPEAT_MODES[int(mode)]}
+        return _modes_of(session.get_playback_info())
     except Exception as e:
         log.debug(f"[music] SMTC modes: {e}")
+        drop_manager()
         return {"shuffle": None, "repeat": None}
 
 
@@ -293,6 +319,7 @@ async def smtc_cover() -> bytes | None:
         return data
     except Exception as e:
         log.debug(f"[music] SMTC cover: {e}")
+        drop_manager()
         return None
 
 
@@ -331,13 +358,7 @@ async def restart_track(set_position=None, press_prev=None) -> dict:
 async def _smtc_control(action: str) -> bool:
     """Управление воспроизведением через SMTC."""
     try:
-        from winsdk.windows.media.control import (
-            GlobalSystemMediaTransportControlsSessionManager as MediaManager,
-        )
-        sessions = await MediaManager.request_async()
-        session = _pick_yamusic_session(sessions)
-        if not session:
-            session = sessions.get_current_session()
+        session = await _session()
         if not session:
             return False
 
@@ -352,6 +373,7 @@ async def _smtc_control(action: str) -> bool:
         return True
     except Exception as e:
         log.debug(f"[music] SMTC control {action}: {e}")
+        drop_manager()
         return False
 
 

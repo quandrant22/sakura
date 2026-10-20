@@ -12,7 +12,9 @@ class FakeSMTC:
         self.calls = []
 
     async def _smtc_get_info(self):
-        return self.info
+        self.calls.append("read")
+        # Режимы приходят в том же чтении (music._modes_of).
+        return {**self.info, **self.modes} if self.info else self.info
 
     async def smtc_modes(self):
         return dict(self.modes)
@@ -48,9 +50,11 @@ class FakeSMTC:
 class FakePlatform:
     def __init__(self, volume=40):
         self.volume = volume
+        self.gets = 0
 
     def app_volume_get(self, names):
         assert "yandex" in names
+        self.gets += 1
         return self.volume
 
     def app_volume_set(self, names, percent):
@@ -102,18 +106,56 @@ def run(c):
     return asyncio.run(c)
 
 
-def remote(info=INFO, available=True, running=True, token="", volume=40, buttons=None, likes=None, **kw):
+def remote(info=INFO, available=True, running=True, token="", volume=40, buttons=None, likes=None, watch=None,
+           clock=None, **kw):
+    """watch=None — без наблюдателя SMTC (одно чтение); с FakeWatch — снимок наблюдателя."""
+    extra = {"clock": clock} if clock else {}
     return YandexRemote(smtc=FakeSMTC(info, **kw), platform=FakePlatform(volume), available=lambda: available,
                         running=lambda: running, token=token, open_link=lambda url: url == "yandexmusic://",
-                        buttons=buttons or FakeButtons(), likes=likes or FakeLikes())
+                        buttons=buttons or FakeButtons(), likes=likes or FakeLikes(), watch=watch, **extra)
 
 
-def test_state_ok_with_cover_modes_volume():
+class FakeWatch:
+    def __init__(self, snap):
+        self.snap = snap
+
+    def snapshot(self):
+        return dict(self.snap) if self.snap else self.snap
+
+
+def test_state_ok_modes_volume_without_cover():
     st = run(remote(shuffle=True, repeat="list").state())
     assert st["status"] == "ok" and st["title"] == "Песня" and st["playing"] is True
     assert st["shuffle"] is True and st["repeat"] == "list" and st["volume"] == 40
-    assert st["cover"].startswith("data:image/png;base64,")
+    assert "cover" not in st  # обложка — только событием music_cover
     assert st["can_like"] is False and st["like_hint"] == TOKEN_HINT
+
+
+def test_state_is_watch_snapshot_with_seq_no_smtc_read():
+    snap = {**INFO, "status": "ok", "seq": 9, "track_seq": 7, "shuffle": False, "repeat": "none"}
+    r = remote(watch=FakeWatch(snap))
+    st = run(r.state())
+    assert st["seq"] == 9 and st["track_seq"] == 7 and st["title"] == "Песня"
+    assert r.smtc.calls == []  # SMTC заново не читается
+    assert run(remote(watch=FakeWatch({"status": "starting", "seq": 3})).state())["status"] == "starting"
+    assert run(remote(watch=FakeWatch(None)).state())["status"] == "starting"  # первое чтение ещё не прошло
+
+
+def test_volume_in_thread_cached_two_seconds():
+    import threading
+    t = [0.0]
+    r = remote(watch=FakeWatch({**INFO, "status": "ok", "seq": 1}), clock=lambda: t[0])
+    main = threading.get_ident()
+    seen = []
+    orig = r.platform.app_volume_get
+    r.platform.app_volume_get = lambda names: seen.append(threading.get_ident()) or orig(names)
+    run(r.state())
+    run(r.state())
+    assert r.platform.gets == 1
+    t[0] = 2.1
+    run(r.state())
+    assert r.platform.gets == 2
+    assert seen and all(x != main for x in seen)  # COM громкости — не в потоке цикла
 
 
 def test_states_idle_not_running_no_smtc():
@@ -221,6 +263,8 @@ def test_state_reads_modes_from_window_when_smtc_has_none():
 def test_like_toggle_dislike_lyrics_with_token():
     likes = FakeLikes(liked=False)
     r = remote(token="t", likes=likes)
+    assert run(r.state())["liked"] is None             # лайк ещё не узнан (фон после смены трека)
+    assert run(r.liked_for("Песня", "Певица")) is False  # фон: API в потоке, в кэш
     st = run(r.state())
     assert st["can_like"] is True and st["liked"] is False
     assert run(r.control("like"))["liked"] is True

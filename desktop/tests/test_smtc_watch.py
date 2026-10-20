@@ -69,3 +69,101 @@ def test_service_metric_event_to_ui(monkeypatch):
     assert 100 <= out["ms"] < 1000
     m = asyncio.run(svc.cmd_music_metrics({}))
     assert m["count"] == 1 and m["p95"] == out["ms"]
+
+
+def test_event_during_read_is_not_lost():
+    """Событие пришло, пока шло чтение SMTC: после чтения — ещё одно, не ждём сторожа (1 с)."""
+    got = []
+    reads = []
+
+    async def go():
+        w = SmtcWatch(lambda st, t: got.append(st["title"]), process_running=lambda: True)
+
+        async def read():
+            reads.append(len(reads))
+            if len(reads) == 1:
+                # Трек сменился, пока шло первое чтение: WinRT присылает событие посреди чтения.
+                w._event()
+                await asyncio.sleep(0.05)
+                return A
+            return {**A, "title": "Новая"}
+        w._read = read
+        w._loop = asyncio.get_running_loop()
+        w._event()
+        await asyncio.sleep(0.2)  # меньше WATCHDOG_S: сторож не участвует
+    asyncio.run(go())
+    assert got == ["Песня", "Новая"]
+    assert len(reads) == 2
+
+
+def test_one_smtc_manager_per_process_reacquired_after_error(monkeypatch):
+    """music: request_async() один раз на процесс; после ошибки WinRT — заново."""
+    import sys
+    import types
+
+    from desktop.core import music
+    calls = []
+
+    class Mgr:
+        def get_sessions(self):
+            return []
+
+        def get_current_session(self):
+            raise RuntimeError("RPC_E_DISCONNECTED")
+
+    async def request_async():
+        calls.append(1)
+        return Mgr()
+
+    fake = types.ModuleType("winsdk.windows.media.control")
+    fake.GlobalSystemMediaTransportControlsSessionManager = types.SimpleNamespace(request_async=request_async)
+    fake.GlobalSystemMediaTransportControlsSessionPlaybackStatus = types.SimpleNamespace(
+        PLAYING=4, PAUSED=5, STOPPED=3, CHANGING=2, CLOSED=0)
+    monkeypatch.setitem(sys.modules, "winsdk.windows.media.control", fake)
+    music.drop_manager()
+
+    async def go():
+        m1 = await music._manager()
+        m2 = await music._manager()
+        assert m1 is m2
+        assert await music._smtc_get_info() is None      # ошибка → менеджер сброшен
+        await music._manager()
+    asyncio.run(go())
+    music.drop_manager()
+    assert len(calls) == 2
+
+
+def test_watch_start_shares_manager_and_snapshot_has_seq():
+    from desktop.core.media import smtc_watch
+    subs = []
+
+    class Mgr:
+        def add_sessions_changed(self, cb):
+            subs.append("sessions")
+
+        def add_current_session_changed(self, cb):
+            subs.append("current")
+
+        def get_sessions(self):
+            return []
+
+    mgr = Mgr()
+
+    async def manager():
+        return mgr
+
+    async def read():
+        return A
+
+    async def go():
+        w = SmtcWatch(lambda st, t: None, read_info=read, process_running=lambda: True, manager=manager)
+        await w.start()
+        await asyncio.sleep(0.1)
+        assert smtc_watch.active() is w
+        snap = w.snapshot()
+        assert snap["title"] == "Песня" and snap["seq"] == 1 and snap["track_seq"] == 1
+    try:
+        asyncio.run(go())
+    finally:
+        smtc_watch._ACTIVE.clear()
+    assert subs == ["sessions", "current"]  # повторные чтения не переподписываются

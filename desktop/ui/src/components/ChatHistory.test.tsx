@@ -67,5 +67,6 @@ test("экспорт переписки в файл через диалог со
   await waitFor(() => expect(exportChat).toHaveBeenCalled());
   const text = (exportChat.mock.calls[0] as unknown as [string])[0];
   expect(text.split("\n")).toHaveLength(HISTORY_PAGE);
-  expect(screen.getByRole("status").textContent).toContain("сохранена");
+  // Строка «сохранена» появляется после ответа диалога — ждём её, а не проверяем сразу (гонка под нагрузкой).
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("сохранена"));
 });

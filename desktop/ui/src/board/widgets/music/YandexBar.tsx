@@ -10,12 +10,12 @@ import { type MouseEvent, type PointerEvent, type ReactNode, useCallback, useEff
 import { usePrefs } from "../../../layout/prefs";
 import { useMediaClient } from "../../../media/MediaContext";
 import {
-  type ControlResult, dominantColor, extrapolate, fmt, type Hint, hintFor, prevAction, type QueueRow, type RemoteState,
-  TOKEN_STEPS,
-  visibleControls,
+  applyPoll, belongsToTrack, type ControlResult, dominantColor, extrapolate, fmt, type Hint, hintFor, mergeState,
+  prevAction, type QueueRow, type RemoteState, TOKEN_STEPS, visibleControls,
 } from "./barLogic";
 
-const POLL_MS = 2000;
+// Опрос — только сторож (громкость, режимы); трек приходит событиями music_state.
+export const POLL_MS = 5000;
 const TICK_MS = 250;
 
 function useWidth<T extends HTMLElement>() {
@@ -31,34 +31,33 @@ function useWidth<T extends HTMLElement>() {
   return [ref, w] as const;
 }
 
-/** Снимок пульта раз в 2 с (не в скрытом окне) + позиция каждые 250 мс между снимками. */
+/** Снимок пульта раз в 5 с (не в скрытом окне) + позиция каждые 250 мс между снимками. */
 function useRemote() {
   const client = useMediaClient();
-  const [st, setSt] = useState<RemoteState | null>(null);
-  const [fetchedAt, setFetchedAt] = useState(0);
+  // fetched_at — когда получен снимок (performance.now), от него экстраполируется позиция.
+  const [st, setSt] = useState<(RemoteState & { fetched_at?: number }) | null>(null);
   const [now, setNow] = useState(0);
 
   const refresh = useCallback(async () => {
     try {
       const r = await client.call<RemoteState>("media_ymremote", { op: "state" });
-      if (r) { setSt(r); setFetchedAt(performance.now()); }
+      // Ответ опроса старше события, пришедшего за время запроса, — не применяем (трек не «откатится»).
+      if (r) setSt((prev) => { const next = applyPoll(prev, r); return next ? { ...next, fetched_at: performance.now() } : prev; });
     } catch {
       setSt((s) => s ?? { status: "no_smtc" });
     }
   }, [client]);
 
-  // Мгновенный трек: события наблюдателя SMTC (music_state) — сразу, обложка (music_cover) — следом.
+  // Мгновенный трек: события наблюдателя SMTC (music_state) — сразу, обложка (music_cover) и лайк (music_like) — следом.
   useEffect(() => client.onEvent((ev) => {
-    const e = ev as { type: string; state?: RemoteState & { seq: number }; seq?: number; cover?: string };
+    const e = ev as { type: string; state?: RemoteState & { seq: number }; seq?: number; cover?: string; liked?: boolean };
     if (e.type === "music_state" && e.state) {
       const next = e.state;
-      setSt((prev) => {
-        const sameTrack = prev && prev.title === next.title && prev.artist === next.artist && prev.album === next.album;
-        return { ...(prev ?? {}), ...next, cover: sameTrack ? prev?.cover : null };
-      });
-      setFetchedAt(performance.now());
+      setSt((prev) => ({ ...mergeState(prev, next), fetched_at: performance.now() }));
     } else if (e.type === "music_cover" && e.cover) {
-      setSt((prev) => (prev && prev.seq === e.seq ? { ...prev, cover: e.cover } : prev));
+      setSt((prev) => (belongsToTrack(prev, e.seq) ? { ...prev!, cover: e.cover } : prev));
+    } else if (e.type === "music_like" && typeof e.liked === "boolean") {
+      setSt((prev) => (belongsToTrack(prev, e.seq) ? { ...prev!, liked: e.liked } : prev));
     }
   }), [client]);
   const seq = st?.seq;
@@ -73,7 +72,7 @@ function useRemote() {
     return () => { clearTimeout(first); clearInterval(poll); clearInterval(tick); };
   }, [refresh]);
 
-  const position = extrapolate(st, fetchedAt ? Math.max(0, (now - fetchedAt) / 1000) : 0);
+  const position = extrapolate(st, st?.fetched_at ? Math.max(0, (now - st.fetched_at) / 1000) : 0);
   return { st, position, refresh, client };
 }
 

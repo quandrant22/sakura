@@ -479,6 +479,17 @@ class CoreService:
                         asyncio.ensure_future(push())
             if st.get("changed") == "track":
                 asyncio.ensure_future(self._music_cover(st))
+                asyncio.ensure_future(self._music_like(st))
+
+    async def _music_like(self, st: dict):
+        """Сердце нового трека — в фоне (API в потоке), событием music_like; опрос панели берёт его из кэша."""
+        from desktop.core.media import yandex_remote
+        try:
+            liked = await yandex_remote.shared().liked_for(st.get("title", ""), st.get("artist", ""))
+        except Exception:  # noqa: BLE001
+            return
+        if liked is not None:
+            self._emit({"type": "music_like", "seq": st["seq"], "liked": liked})
 
     async def _music_cover(self, st: dict):
         """Обложка — асинхронно, после текста; кэш по (artist, title, album)."""
@@ -626,6 +637,7 @@ class CoreService:
                 "server": {"online": self.link.state_event().get("server") == "online",
                            "proto": self.link.state_event().get("proto")},
                 "music": await self.cmd_music_metrics({}), "data_dir": config.DATA_DIR, "log_dir": config.LOG_DIR,
+                "loop_lag_ms": getattr(getattr(self, "loop_lag", None), "last_report", None),
                 "channel": self.channel_state()}
 
     def channel_state(self) -> dict:
@@ -707,6 +719,9 @@ class CoreService:
 
     async def run(self, api_port: int = 0):
         await self.api.start(api_port)
+        from desktop.core.loop_lag import LoopLag
+        self.loop_lag = LoopLag()
+        asyncio.ensure_future(self.loop_lag.run())
         from desktop.core import support
         support.confirm_started(config.DATA_DIR)  # ядро после обновления поднялось — откат не нужен
         asyncio.ensure_future(self._start_music_watch())

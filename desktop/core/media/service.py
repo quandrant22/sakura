@@ -286,8 +286,8 @@ class MediaService:
 
     async def cmd_ymremote(self, msg):
         """Панель Яндекс.Музыки (remote): op=state — снимок, иначе операция пульта."""
-        from desktop.core.media.yandex_remote import YandexRemote
-        remote = getattr(self, "_ym_remote", None) or YandexRemote()
+        from desktop.core.media import yandex_remote
+        remote = getattr(self, "_ym_remote", None) or yandex_remote.shared()
         self._ym_remote = remote
         op = msg.get("op", "state")
         if op == "state":

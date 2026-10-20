@@ -21,6 +21,33 @@ export interface RemoteState {
   can_lyrics?: boolean;
   /** Стоит ли лайк у текущего трека (API, нужен токен); null — неизвестно. */
   liked?: boolean | null;
+  /** seq смены трека: к нему относятся события music_cover и music_like. */
+  track_seq?: number | null;
+}
+
+const sameTrack = (a: RemoteState | null, b: RemoteState) =>
+  !!a && a.status === "ok" && b.status === "ok" && a.title === b.title && a.artist === b.artist && a.album === b.album;
+
+/** Новое состояние (событие music_state или ответ опроса) поверх текущего: обложка и лайк того же трека
+ *  сохраняются (в опросе обложки нет, лайк приходит отдельным событием). */
+export function mergeState(prev: RemoteState | null, next: RemoteState): RemoteState {
+  const same = sameTrack(prev, next);
+  return { ...(prev ?? {}), ...next,
+           cover: same ? prev?.cover ?? null : null,
+           liked: next.liked ?? (same ? prev?.liked ?? null : null),
+           track_seq: next.track_seq ?? (same ? prev?.track_seq : next.seq) ?? null };
+}
+
+/** Ответ опроса: устаревший (seq меньше текущего — пока шёл запрос, пришло событие) не применяется. */
+export function applyPoll(prev: RemoteState | null, next: RemoteState): RemoteState | null {
+  if (prev?.seq != null && next.seq != null && next.seq < prev.seq) return null;
+  return mergeState(prev, next);
+}
+
+/** Обложка или лайк, пришедшие событием для трека с этим seq: только если трек тот же. */
+export function belongsToTrack(st: RemoteState | null, seq: number | undefined): boolean {
+  if (!st || seq == null) return false;
+  return (st.track_seq ?? st.seq) === seq;
 }
 
 /** Ответ пульта на действие. */

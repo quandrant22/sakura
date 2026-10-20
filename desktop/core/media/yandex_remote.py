@@ -4,7 +4,10 @@
 клавиш в чужие окна. Лайк, дизлайк и текст песни — только с YANDEX_MUSIC_TOKEN (API); без
 токена кнопки неактивны с подсказкой. Бэкенды подменяются в тестах.
 
-state() — снимок для панели; control(op, value) — {ok, status, detail}.
+state() — снимок для панели: готовое состояние наблюдателя SMTC (smtc_watch, с seq), SMTC заново
+не читается; громкость — в потоке, с кэшем VOLUME_TTL_S; лайк — из кэша (его в фоне после смены трека
+обновляет liked_for → событие music_like); обложки в ответе нет — только событием music_cover.
+control(op, value) — {ok, status, detail}. Системные вызовы (громкость, UI Automation, psutil) — в потоке.
 """
 import asyncio
 import base64
@@ -22,6 +25,7 @@ NO_SOUND = "Звук Яндекс.Музыки не найден: включит
 NO_PLAYER = "Яндекс.Музыка ничего не воспроизводит — включите трек в приложении"
 SEEK_NO = "Приложение Яндекс.Музыки не даёт перематывать через Windows — перемотайте в окне приложения"
 MODES_TTL_S = 10.0
+VOLUME_TTL_S = 2.0
 RETRY_MS = 2000
 REPEAT_CYCLE = {"none": "list", "list": "track", "track": "none"}
 
@@ -60,9 +64,25 @@ def _cover_url(data: bytes | None) -> str | None:
     return f"data:{mime};base64,{base64.b64encode(data).decode()}"
 
 
+_SHARED: list = []
+
+
+def shared() -> "YandexRemote":
+    """Пульт процесса: один кэш громкости и лайков для опроса панели и фонового лайка."""
+    if not _SHARED:
+        _SHARED.append(YandexRemote())
+    return _SHARED[0]
+
+
+def _default_watch():
+    from desktop.core.media import smtc_watch
+    return smtc_watch.active()
+
+
 class YandexRemote:
     def __init__(self, smtc=None, platform=None, available=_smtc_available, running=_app_running,
-                 token=None, open_link=None, likes=None, buttons=None, clock=time.monotonic):
+                 token=None, open_link=None, likes=None, buttons=None, clock=time.monotonic,
+                 watch=_default_watch):
         self._smtc = smtc
         self._platform = platform
         self._available = available
@@ -75,6 +95,9 @@ class YandexRemote:
         self._win_modes: dict = {}
         self._win_modes_at = None
         self._track = ("", "")  # (title, artist) последнего снимка — для лайка
+        self._watch = watch
+        self._volume: tuple[float, int | None] | None = None   # (когда, значение)
+        self._liked: dict[tuple[str, str], bool | None] = {}
 
     @property
     def likes(self):
@@ -130,36 +153,71 @@ class YandexRemote:
         from desktop.core import config
         return bool(config.YANDEX_MUSIC_TOKEN.strip())
 
+    async def _volume_get(self) -> int | None:
+        """Громкость сессии приложения (COM) — в потоке, не чаще раза в VOLUME_TTL_S."""
+        now = self._clock()
+        if self._volume is None or now - self._volume[0] >= VOLUME_TTL_S:
+            try:
+                value = await asyncio.to_thread(self.platform.app_volume_get, APP_NAMES)
+            except Exception:  # noqa: BLE001
+                value = None
+            self._volume = (now, value)
+        return self._volume[1]
+
+    async def _volume_set(self, percent: int) -> int | None:
+        got = await asyncio.to_thread(self.platform.app_volume_set, APP_NAMES, percent)
+        self._volume = (self._clock(), got)
+        return got
+
+    async def liked_for(self, title: str, artist: str) -> bool | None:
+        """Сердце трека из API (в потоке) и в кэш — для фона после смены трека (событие music_like)."""
+        if not self.has_token() or not title:
+            return None
+        liked = await asyncio.to_thread(self.likes.liked, title, artist)
+        self._liked[(title, artist)] = liked
+        while len(self._liked) > 64:
+            self._liked.pop(next(iter(self._liked)))
+        return liked
+
+    async def _snapshot(self) -> dict | None:
+        """Состояние наблюдателя SMTC; без наблюдателя (тесты, не Windows) — одно чтение и seq 0."""
+        watch = self._watch() if callable(self._watch) else self._watch
+        if watch is not None:
+            return watch.snapshot()
+        info = await self.smtc._smtc_get_info()
+        if not info or not info.get("title"):
+            return {"status": "idle" if await asyncio.to_thread(self._running) else "not_running", "seq": 0}
+        return {"status": "ok", "seq": 0, **{k: info.get(k) for k in (
+            "title", "artist", "album", "playing", "position_s", "duration_s", "updated_age_s",
+            "shuffle", "repeat")}}
+
     async def state(self) -> dict:
-        """status: ok | idle (ничего не играет) | not_running | no_smtc."""
+        """status: ok | starting | idle (ничего не играет) | not_running | no_smtc; seq — номер снимка."""
         token = self.has_token()
         base = {"can_like": token, "like_hint": None if token else TOKEN_HINT,
                 "can_lyrics": token, "volume": None, "liked": None}
         if not self._available():
             return {**base, "status": "no_smtc"}
-        info = await self.smtc._smtc_get_info()
-        try:
-            base["volume"] = self.platform.app_volume_get(APP_NAMES)
-        except Exception:
-            base["volume"] = None
-        if not info or not info.get("title"):
-            return {**base, "status": "idle" if self._running() else "not_running"}
-        modes = await self.smtc.smtc_modes()
-        if modes.get("shuffle") is None and modes.get("repeat") is None:
+        snap = await self._snapshot()
+        base["volume"] = await self._volume_get()
+        if snap is None:  # наблюдатель ещё не прочитал SMTC
+            return {**base, "status": "starting", "seq": 0}
+        if snap.get("status") != "ok":
+            return {**base, "status": snap.get("status"), "seq": snap.get("seq", 0)}
+        modes = {"shuffle": snap.get("shuffle"), "repeat": snap.get("repeat")}
+        if modes["shuffle"] is None and modes["repeat"] is None:
             win = await self._window_modes()
             modes = {"shuffle": win.get("shuffle"),
                      "repeat": None if win.get("repeat") is None else ("list" if win["repeat"] else "none")}
-        cover = await self.smtc.smtc_cover()
-        self._track = (info.get("title", ""), info.get("artist", ""))
+        self._track = (snap.get("title", ""), snap.get("artist", ""))
         if token:
-            base["liked"] = await asyncio.to_thread(self.likes.liked, *self._track)
-        return {**base, "status": "ok",
-                "title": info.get("title", ""), "artist": info.get("artist", ""), "album": info.get("album", ""),
-                "playing": bool(info.get("playing")),
-                "position_s": info.get("position_s"), "duration_s": info.get("duration_s"),
-                "updated_age_s": info.get("updated_age_s"),
-                "shuffle": modes.get("shuffle"), "repeat": modes.get("repeat"),
-                "cover": _cover_url(cover)}
+            base["liked"] = self._liked.get(self._track)
+        return {**base, "status": "ok", "seq": snap.get("seq", 0), "track_seq": snap.get("track_seq"),
+                "title": snap.get("title", ""), "artist": snap.get("artist", ""), "album": snap.get("album", ""),
+                "playing": bool(snap.get("playing")),
+                "position_s": snap.get("position_s"), "duration_s": snap.get("duration_s"),
+                "updated_age_s": snap.get("updated_age_s"),
+                "shuffle": modes.get("shuffle"), "repeat": modes.get("repeat")}
 
     async def control(self, op: str, value=None) -> dict:
         s = self.smtc
@@ -204,18 +262,18 @@ class YandexRemote:
                 return R.done(f"повтор: {mode}")
             return await self._press_window("repeat", "Повтор")
         if op in ("volume", "volume_by"):
-            cur = self.platform.app_volume_get(APP_NAMES)
+            cur = await asyncio.to_thread(self.platform.app_volume_get, APP_NAMES)
             if cur is None:
                 return R.noop(NO_SOUND, retry_ms=RETRY_MS)
             target = int(value) if op == "volume" else cur + int(value or 0)
-            got = self.platform.app_volume_set(APP_NAMES, target)
+            got = await self._volume_set(target)
             return R.done(f"громкость Яндекс.Музыки {got}%", volume=got) if got is not None else \
                 R.noop(NO_SOUND, retry_ms=RETRY_MS)
         if op == "mute":
-            cur = self.platform.app_volume_get(APP_NAMES)
+            cur = await asyncio.to_thread(self.platform.app_volume_get, APP_NAMES)
             if cur is None:
                 return R.noop(NO_SOUND, retry_ms=RETRY_MS)
-            got = self.platform.app_volume_set(APP_NAMES, 0 if cur > 0 else int(value or 50))
+            got = await self._volume_set(0 if cur > 0 else int(value or 50))
             return R.done("звук Яндекс.Музыки выключен" if got == 0 else f"звук Яндекс.Музыки {got}%")
         if op in ("like", "dislike", "lyrics", "queue"):
             if not self.has_token():
@@ -229,7 +287,10 @@ class YandexRemote:
             if not title:
                 return R.noop(NO_PLAYER)
             if op == "like":
-                return await asyncio.to_thread(self.likes.toggle_like, title, artist)
+                res = await asyncio.to_thread(self.likes.toggle_like, title, artist)
+                if "liked" in res:
+                    self._liked[(title, artist)] = res["liked"]
+                return res
             if op == "dislike":
                 return await asyncio.to_thread(self.likes.dislike, title, artist)
             return await asyncio.to_thread(self.likes.lyrics, title, artist)

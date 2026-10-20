@@ -147,3 +147,33 @@ test("очередь: с токеном — список, текущий тре�
   expect(dlg.textContent).toContain("Дальше");
   expect(dlg.querySelector("[aria-current]")?.textContent).toContain("Песня");
 });
+
+test("устаревший ответ опроса не перезаписывает новый трек из события", async () => {
+  const c = setup({ ...new RemoteClient("normal").state, seq: 3 });
+  await waitFor(() => expect(screen.getByText("Песня")).toBeTruthy());
+  // Опрос ушёл, пока ядро ещё не прочитало смену трека: его ответ (seq 3) придёт ПОСЛЕ события seq 4.
+  let release: () => void = () => {};
+  const orig = c.call.bind(c);
+  c.call = async <T,>(type: string, payload: Record<string, unknown> = {}): Promise<T> => {
+    if (type === "media_ymremote" && payload.op === "state") {
+      await new Promise<void>((r) => { release = r; });
+      return { ...c.state, seq: 3 } as T;
+    }
+    return orig<T>(type, payload);
+  };
+  fireEvent.click(screen.getByLabelText("Следующий"));  // после действия — опрос
+  act(() => c.emitEvent({ type: "music_state", state: { status: "ok", seq: 4, track_seq: 4, title: "Новый трек",
+                                                         artist: "Кто-то", playing: true, position_s: 0, duration_s: 100 } }));
+  expect(screen.getByText("Новый трек")).toBeTruthy();
+  await act(async () => { release(); await new Promise((r) => setTimeout(r, 0)); });
+  expect(screen.getByText("Новый трек")).toBeTruthy();
+  expect(screen.queryByText("Песня")).toBeNull();
+  // Лайк этого трека — событием music_like с его seq.
+  act(() => c.emitEvent({ type: "music_like", seq: 4, liked: true }));
+  expect(screen.getByLabelText("Убрать лайк")).toBeTruthy();
+});
+
+test("опрос пульта — раз в 5 с", async () => {
+  const { POLL_MS } = await import("./YandexBar");
+  expect(POLL_MS).toBe(5000);
+});
