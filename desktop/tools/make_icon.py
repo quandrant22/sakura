@@ -76,7 +76,8 @@ def main() -> None:
     os.makedirs(TRAY_DIR, exist_ok=True)
     big.resize((16, 16), Image.LANCZOS).save(os.path.join(TRAY_DIR, "tray.png"))
     big.resize((32, 32), Image.LANCZOS).save(os.path.join(TRAY_DIR, "tray@2x.png"))
-    big.resize((48, 48), Image.LANCZOS).save(os.path.join(TRAY_DIR, "tray.ico"), sizes=[(16, 16), (24, 24), (32, 32), (48, 48)])
+    big.resize((48, 48), Image.LANCZOS).save(os.path.join(TRAY_DIR, "tray.ico"),
+                                             sizes=[(16, 16), (24, 24), (32, 32), (48, 48)])
     print(os.path.join(TRAY_DIR, "tray.ico"))
 
 
