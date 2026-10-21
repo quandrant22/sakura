@@ -70,6 +70,8 @@ Say ("[{0}] DEVICE_ID в .env" -f $(if ($hasDevice) { "ok" } else { "x" })) $(if
 if (-not ($hasToken -and $hasDevice)) { Fail "впишите WS_TOKEN и DEVICE_ID в $EnvFile" }
 
 $env:SAKURA_ENV_FILE = $EnvFile
+# Dev-режим: медленные колбэки цикла ядра (> 50 мс) — с именем корутины в журнале (core/loop_lag.py).
+$env:SAKURA_LOOP_DEBUG = "1"
 # Модели не копируются: ядро ищет их в SAKURA_MODELS_DIR (desktop\core\config.py, _find_model).
 if (Test-Path (Join-Path $AgentDir "vosk-model-small-ru-0.22")) {
     $env:SAKURA_MODELS_DIR = $AgentDir

@@ -749,9 +749,12 @@ class CoreService:
         await self.api.start(api_port)
         from desktop.core.securechannel import loader as secure_loader
         secure_loader.preload()   # модули канала — в потоке, к открытию «Безопасности» уже в памяти
-        from desktop.core.loop_lag import LoopLag
+        from desktop.core.loop_lag import LoopLag, enable_debug
+        enable_debug()   # SAKURA_LOOP_DEBUG=1: имя медленной корутины/колбэка в журнале
         self.loop_lag = LoopLag()
         asyncio.ensure_future(self.loop_lag.run())
+        from desktop.core.loop_lag import freeze_heap
+        asyncio.ensure_future(freeze_heap())
         from desktop.core import support
         support.confirm_started(config.DATA_DIR)  # ядро после обновления поднялось — откат не нужен
         asyncio.ensure_future(self._start_music_watch())

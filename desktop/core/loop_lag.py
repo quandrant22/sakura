@@ -6,6 +6,7 @@
 """
 import asyncio
 import logging
+import os
 import time
 
 log = logging.getLogger("sakura.loop")
@@ -14,6 +15,35 @@ PERIOD_S = 0.05
 WARN_MS = 50
 WARN_EVERY_S = 1.0
 REPORT_S = 10.0
+
+
+def enable_debug(loop=None, env=None) -> bool:
+    """SAKURA_LOOP_DEBUG=1 (start_dev.ps1 ставит его сам): asyncio debug и slow_callback_duration 0,05 с —
+    asyncio пишет в журнал «Executing <Task …> took 0.06 seconds» с именем корутины/колбэка."""
+    env = os.environ if env is None else env
+    if env.get("SAKURA_LOOP_DEBUG") != "1":
+        return False
+    loop = loop or asyncio.get_running_loop()
+    loop.set_debug(True)
+    loop.slow_callback_duration = WARN_MS / 1000
+    logging.getLogger("asyncio").setLevel(logging.WARNING)
+    log.warning("[loop] отладка цикла включена: медленные колбэки > %d мс — в журнал", WARN_MS)
+    return True
+
+
+FREEZE_AFTER_S = 20.0
+
+
+async def freeze_heap(delay: float = FREEZE_AFTER_S) -> None:
+    """Через delay после старта (модели речи, torch и индекс файлов загружены): одна полная сборка и
+    gc.freeze() — загруженное уходит в постоянное поколение, полная сборка его больше не обходит.
+    Без этого каждая полная сборка держала цикл 56–64 мс (периодические «[loop] lag 59–75 ms»)."""
+    import gc
+    await asyncio.sleep(delay)
+    t = time.monotonic()
+    gc.collect()
+    gc.freeze()
+    log.info("[loop] куча заморожена: %d объектов, %.0f мс", gc.get_freeze_count(), (time.monotonic() - t) * 1000)
 
 
 class LoopLag:

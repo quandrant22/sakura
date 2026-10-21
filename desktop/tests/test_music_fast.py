@@ -105,3 +105,57 @@ def test_loop_lag_measures_blocking_call():
         task.cancel()
     asyncio.run(go())
     assert max(lag._window) >= 80
+
+
+def test_loop_debug_names_slow_coroutine(caplog):
+    import os
+    import time as _t
+
+    from desktop.core.loop_lag import enable_debug
+
+    async def heartbeat_like():
+        _t.sleep(0.08)   # синхронный вызов в корутине
+
+    async def go():
+        assert enable_debug(env={"SAKURA_LOOP_DEBUG": "1"})
+        assert asyncio.get_running_loop().slow_callback_duration == 0.05
+        await asyncio.ensure_future(heartbeat_like())
+    with caplog.at_level(logging.WARNING):
+        asyncio.run(go())
+    assert any("heartbeat_like" in r.getMessage() and "took" in r.getMessage() for r in caplog.records)
+    assert enable_debug(asyncio.new_event_loop(), env={}) is False
+    assert "SAKURA_LOOP_DEBUG" not in os.environ
+
+
+def test_freeze_heap_makes_full_gc_cheap():
+    import gc
+    big = [[i] for i in range(300_000)]   # много отслеживаемых объектов, как модели и torch
+
+    def full_gc_ms():
+        import time as _t
+        t = _t.perf_counter()
+        gc.collect(2)
+        return (_t.perf_counter() - t) * 1000
+    try:
+        before = min(full_gc_ms() for _ in range(3))
+        from desktop.core.loop_lag import freeze_heap
+        asyncio.run(freeze_heap(0))
+        after = min(full_gc_ms() for _ in range(3))
+    finally:
+        gc.unfreeze()
+    assert after < before / 3
+    assert big
+
+
+def test_file_index_entries_not_tracked_by_gc(tmp_path):
+    import gc
+    import json as _json
+
+    from desktop.core.file_index import FileIndex
+    cache = tmp_path / "idx.json"
+    cache.write_text(_json.dumps({"paths": [f"C:\\d\\f{i}.txt" for i in range(1000)], "built": 1.0}), encoding="utf-8")
+    idx = FileIndex(cache_path=str(cache))
+    assert idx._load_cache()
+    gc.collect()   # первая сборка снимает с учёта записи (кортежи строк),
+    gc.collect()   # вторая — сам кортеж индекса: дальше полная сборка его не обходит
+    assert not gc.is_tracked(idx._entries)
