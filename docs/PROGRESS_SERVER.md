@@ -81,3 +81,9 @@ venv/bin/python scripts/cleanup_tasks.py               # копия в memory/ba
 - «Какой компьютер: …?» при неоднозначности (W14).
 - Тесты: tests/test_power_confirm.py — 20; весь набор зелёный.
 
+
+## Выкат на прод (2026-10-21)
+
+- Хэш до выката (откат: `git checkout 2a9e6a3d8f1a8aaef5b363846bfdd8e356d3ba1e`, `systemctl restart sakura`): **2a9e6a3d8f1a8aaef5b363846bfdd8e356d3ba1e**.
+- Резервная копия `memory/` — `memory/backup/predeploy-<дата>/` на проде.
+- Конфигурация проверена (True/False): PRIVATE_REQUIRES_SECURE не выключен, mostech в MASTER_DEVICES, SECURE_CHANNEL отсутствует/off.
