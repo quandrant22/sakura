@@ -1111,18 +1111,15 @@ class Agent:
                             await _ws.send(json.dumps(msg, ensure_ascii=False))
                         self.server_link.on_connected(_send_v2)
                     await self._outbox.flush(ws)
-                    apps = await asyncio.to_thread(scan_apps)
-                    if apps:
-                        await ws.send(json.dumps({
-                            "type":      "apps_list",
-                            "device_id": config.DEVICE_ID,
-                            "token":     config.WS_TOKEN,
-                            "apps":      apps,
-                        }))
                     self.bus.emit("connection", online=True)
                     _backoff = config.RECONNECT_SEC
-                    log.info("[agent] Подключено к VPS! Приложений: %s", len(apps))
-                    await self._recv_loop()
+                    # Ответы сервера (registered) читаем сразу; список приложений — параллельно:
+                    # раньше приём начинался после сканирования, и registered «опаздывал» на секунды.
+                    apps_task = spawn(self._send_apps(ws), name="apps-list")
+                    try:
+                        await self._recv_loop()
+                    finally:
+                        apps_task.cancel()
             except Exception as e:
                 log.exception("[agent] WS ошибка: %s", e)
             self._ws = None
@@ -1131,6 +1128,17 @@ class Agent:
             self.bus.emit("connection", online=False)
             await asyncio.sleep(_backoff)
             _backoff = min(_backoff * 2, 60)
+
+    async def _send_apps(self, ws):
+        apps = await asyncio.to_thread(scan_apps)
+        if apps:
+            await ws.send(json.dumps({
+                "type":      "apps_list",
+                "device_id": config.DEVICE_ID,
+                "token":     config.WS_TOKEN,
+                "apps":      apps,
+            }))
+        log.info("[agent] Подключено к VPS! Приложений: %s", len(apps or {}))
 
     async def _screen_analysis_loop(self):
         """

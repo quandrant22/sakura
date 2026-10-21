@@ -26,7 +26,7 @@ export function NetworkSection() {
       <Row label="Сервер" hint="Адрес из .env (VPS_WS_URL); токен не показывается">
         {s?.offline ? "Без сервера (SAKURA_OFFLINE)" : String(s?.server_url ?? "—")}
         <span className={"ml-2 text-xs " + (server.online ? "text-online" : "text-warn")}>
-          {server.online ? `на связи, протокол v${server.proto ?? "?"}` : "нет связи"}</span>
+          {server.connecting ? "подключение…" : server.online ? `на связи, протокол v${server.proto ?? "?"}` : "нет связи"}</span>
       </Row>
       <Row label="Транспорт" hint="SERVER_TRANSPORT: ws, wss или noise (DECISIONS №43)">
         {String(s?.server_transport ?? "ws")}{s?.cert_pinned ? " · сертификат закреплён" : ""}

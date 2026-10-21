@@ -31,7 +31,8 @@ export interface ConfirmRequest { id: string; action: string; label: string; ts:
 
 export interface AppState {
   link: LinkState;
-  server: { online: boolean; proto: number | null };
+  /** connecting — соединение есть, ответа на register ещё нет (до 5 с): «подключение…». */
+  server: { online: boolean; proto: number | null; connecting?: boolean };
   coreState: CoreState;
   settings: Settings | null;
   gameMode: boolean;
@@ -218,7 +219,8 @@ export function createAppStore(client: CoreClient) {
         case "connection": {
           const e = ev as { server: string; proto: number | null };
           const wasOnline = s.server.online && s.server.proto === 2;
-          set({ server: { online: e.server === "online", proto: e.proto } });
+          set({ server: { online: e.server === "online" || e.server === "connecting", proto: e.proto,
+                          connecting: e.server === "connecting" } });
           // Сервер (пере)подключился с proto 2 — обновляем данные экранов.
           if (e.server === "online" && e.proto === 2 && !wasOnline) {
             void get().loadHistory();
@@ -227,7 +229,7 @@ export function createAppStore(client: CoreClient) {
             void get().loadScenarios();
           }
           // Сервер недоступен: вместо вечных скелетонов — ошибка с кнопкой «Повторить».
-          if (e.server !== "online") {
+          if (e.server === "offline") {
             for (const k of ["chat", "devices", "status", "scenarios"] as const) {
               const sl = get()[k];
               if (sl.status === "idle" || sl.status === "loading") {

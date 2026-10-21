@@ -84,7 +84,8 @@ export function ServerWidget() {
   return (
     <div className={body}>
       {row("Ядро", link === "open" ? (coreReady ? "на связи" : "запускается") : "нет связи", link === "open" && coreReady)}
-      {row("Сервер", server.online ? `на связи, протокол v${server.proto ?? "?"}` : "нет связи", server.online)}
+      {row("Сервер", server.connecting ? "подключение…" : server.online ? `на связи, протокол v${server.proto ?? "?"}` : "нет связи",
+           server.online && !server.connecting)}
       {device && <div className="text-xs text-ink-dim">Устройство: {device}</div>}
     </div>
   );

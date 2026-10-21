@@ -189,6 +189,17 @@ describe("store", () => {
     expect(store.getState().getLevel()).toBe(1);
   });
 
+  test("connecting до ответа на register: «подключение…», без ошибок «нет связи» и без «не поддерживает»", () => {
+    const c = new ScriptClient();
+    const store = createAppStore(c);
+    store.getState().init();
+    c.emit({ type: "connection", server: "connecting", proto: null });
+    expect(store.getState().server).toEqual({ online: true, proto: null, connecting: true });
+    expect(store.getState().devices.status).toBe("idle");
+    c.emit({ type: "connection", server: "online", proto: 2 });
+    expect(store.getState().server).toEqual({ online: true, proto: 2, connecting: false });
+  });
+
   test("события state/settings/device_update/status/notify", () => {
     const c = new ScriptClient();
     const store = createAppStore(c);

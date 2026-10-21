@@ -8,7 +8,8 @@ Agent держит соединение с VPS (как раньше); ServerLink
 
 Сервер v1 не присылает registered: если за V1_GRACE секунд после подключения
 ответа нет, считаем proto = 1 (сообщаем интерфейсу событием connection, даже без
-запросов) и на запросы сразу отвечаем unsupported.
+запросов) и на запросы сразу отвечаем unsupported. До ответа или конца ожидания
+состояние — «connecting» (окно пишет «подключение…»), а не «без proto 2».
 """
 import asyncio
 import itertools
@@ -23,7 +24,7 @@ log = logging.getLogger("sakura.server_link")
 
 PROTO = 2
 REQUEST_TIMEOUT = 10.0
-V1_GRACE = 3.0
+V1_GRACE = 5.0
 PUSH_TYPES = frozenset({"chat_message", "device_update", "status", "scenario_event",
                         "scenario_run_started"})
 
@@ -51,8 +52,8 @@ class ServerLink:
         return self._send is not None
 
     def state_event(self) -> dict:
-        return {"type": "connection", "server": "online" if self.online else "offline",
-                "proto": self.proto}
+        server = "offline" if not self.online else "connecting" if self.proto is None else "online"
+        return {"type": "connection", "server": server, "proto": self.proto}
 
     def on_connected(self, send: Callable[[dict], Awaitable[None]]) -> None:
         self._send = send

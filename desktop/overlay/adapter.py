@@ -1,4 +1,4 @@
-"""desktop.overlay.adapter — старый PyQt6-оверлей (agent/ui/overlay.py) на локальном API ядра.
+﻿"""desktop.overlay.adapter — старый PyQt6-оверлей (agent/ui/overlay.py) на локальном API ядра.
 
 Вид оверлея не меняется: адаптер только переводит события API в вызовы тех же
 методов, что дёргал agent/sakura.py через UiBridge, а ввод из оверлея
@@ -22,7 +22,7 @@ def route(event: dict) -> list[tuple[str, tuple]]:
                   "system": "add_system_message"}.get(m.get("role"))
         return [(method, (m.get("text", ""),))] if method else []
     if kind == "connection":
-        return [("set_connected", (event.get("server") == "online",))]
+        return [("set_connected", (event.get("server") in ("online", "connecting"),))]
     if kind == "game_mode":
         return [("set_game_mode", (bool(event.get("on")),))]
     if kind == "notify":

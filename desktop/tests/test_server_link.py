@@ -189,7 +189,7 @@ def test_v1_announced_without_requests():
             await asyncio.sleep(0.05)
         return events
     events = run(go())
-    assert [(e["server"], e["proto"]) for e in events] == [("online", None), ("online", 1)]
+    assert [(e["server"], e["proto"]) for e in events] == [("connecting", None), ("online", 1)]
 
 
 def test_grace_timer_ignores_old_connection():
@@ -238,4 +238,25 @@ def test_state_events():
     link.on_connected(send)
     link.handle({"type": "registered", "proto": 2, "master": True})
     link.on_disconnected()
-    assert [(e["server"], e["proto"]) for e in events] == [("online", None), ("online", 2), ("offline", 2)]
+    assert [(e["server"], e["proto"]) for e in events] == [("connecting", None), ("online", 2), ("offline", 2)]
+
+
+def test_registered_after_1_6s_no_false_v1(caplog):
+    """Живая проверка 21.10: registered пришёл через 1,6 с — предупреждения «без proto 2» быть не должно,
+    до ответа окно видит «подключение…» (connecting)."""
+    import logging
+    events = []
+    link = ServerLink(on_state=events.append)   # ожидание по умолчанию — V1_GRACE (5 с)
+
+    async def send(msg):
+        pass
+
+    async def go():
+        link.on_connected(send)
+        await asyncio.sleep(1.6)
+        link.handle({"type": "registered", "proto": 2, "master": True})
+        await asyncio.sleep(0.1)
+    with caplog.at_level(logging.INFO, logger="sakura.server_link"):
+        asyncio.run(go())
+    assert "без proto 2" not in caplog.text
+    assert [(e["server"], e["proto"]) for e in events] == [("connecting", None), ("online", 2)]
