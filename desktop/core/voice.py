@@ -4,6 +4,7 @@
 PCM пишется в bytearray, callback читает по мере воспроизведения.
 """
 
+import collections
 import logging
 import struct
 import threading
@@ -100,7 +101,9 @@ class Player:
     _ur_count = _ur_total = _ur_max = _ur_cur = 0
     # Колбэк звука не пишет в журнал и не вызывает чужой код: он отмечает события, а поток-уведомитель
     # (_notify_loop) пишет итог разрывов и зовёт on_start/on_end, когда звук дошёл до колонок / доиграл.
-    level = 0.0              # громкость реально выведенного звука 0..1 (последний блок)
+    level = 0.0              # громкость последнего блока, записанного в устройство 0..1
+    _levels = None           # очередь (когда блок прозвучит, уровень): капля — в такт тому, что слышно
+    _heard = 0.0             # уровень, который звучит сейчас (level_at)
     _latency = 0.0           # задержка устройства вывода, с (если time_info её не даёт)
     _resp_seq = 0            # номер ответа: растёт с первым чанком и при interrupt()
     _sound_seq = 0           # ответ, чей звук уже пошёл в устройство
@@ -124,6 +127,7 @@ class Player:
         self._preroll_bytes = int(getattr(config, "PLAYER_PREROLL_MS", 0) * rate / 1000) * 2
         self._reset_response()
         self._notify = threading.Event()
+        self._levels = collections.deque(maxlen=256)   # ~20 с блоков; колбэк только добавляет
         self._open_stream()
         threading.Thread(target=self._watchdog, daemon=True).start()
         threading.Thread(target=self._notify_loop, daemon=True, name="player-notify").start()
@@ -218,6 +222,7 @@ class Player:
         need = frames * 2
         chunk = b""
         signal = False
+        heard_at = time.monotonic() + self._out_delay(time_info)
         with self._lock:
             n = 0
             if not self._started and self._buf:
@@ -255,8 +260,21 @@ class Player:
         if n < need:
             outdata[n:] = b"\x00" * (need - n)
         self.level = pcm_level(chunk) if chunk else 0.0
+        if self._levels is not None:
+            self._levels.append((heard_at, self.level))   # deque.append — без блокировок и I/O
         if signal and self._notify is not None:
             self._notify.set()
+
+    def level_at(self, now: float | None = None) -> float:
+        """Уровень звука, который слышно сейчас: блоки из очереди, чей момент выхода из колонок наступил.
+        На Bluetooth (задержка ~0,35 с) капля иначе опережала бы голос."""
+        q = self._levels
+        if q is None:
+            return self.level
+        now = time.monotonic() if now is None else now
+        while q and q[0][0] <= now:
+            self._heard = q.popleft()[1]
+        return self._heard
 
     # ── уведомления (поток player-notify) ──────────────────────────────
     @property
@@ -344,7 +362,9 @@ class Player:
             self._finish_response()
             self._resp_seq += 1
             self._pending_start = self._pending_end = None
-            self.level = 0.0
+            self.level = self._heard = 0.0
+            if self._levels is not None:
+                self._levels.clear()
 
     def buffer_bytes(self) -> int:
         with self._lock:

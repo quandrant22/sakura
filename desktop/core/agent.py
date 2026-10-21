@@ -324,7 +324,9 @@ class Agent:
             await asyncio.sleep(LEVEL_PERIOD_SEC)
             state = self._state
             if state == "speaking":
-                value = getattr(self.player, "level", 0.0)
+                # уровень того, что слышно сейчас (с задержкой устройства), а не того, что записано в него
+                level_at = getattr(self.player, "level_at", None)
+                value = level_at() if level_at is not None else getattr(self.player, "level", 0.0)
             elif state == "listening":
                 value = getattr(self.hearing, "level", 0.0)
             else:

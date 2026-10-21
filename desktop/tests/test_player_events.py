@@ -150,3 +150,26 @@ def test_level_loop_at_most_30_per_second_and_source_by_state():
     assert all(ev == "level" for ev, _ in sent)
     assert len(sent) <= 30 * took[0] + 2        # не больше 30 в секунду
     assert sent[-1][1] == 0.7                   # listening — уровень микрофона
+
+
+def test_level_follows_what_is_heard_with_device_delay(monkeypatch):
+    """Bluetooth: блок звучит через 0,35 с после записи — уровень для капли тоже."""
+    t = [10.0]
+    monkeypatch.setattr(voice.time, "monotonic", lambda: t[0])
+    p = make_player(monkeypatch)
+    ti = SimpleNamespace(currentTime=1.0, outputBufferDacTime=1.35)
+    p.feed(LOUD)
+    pull(p, time_info=ti)                    # громкий блок записан в устройство
+    assert p.level > 0.8                      # записанный
+    assert p.level_at() == 0.0                # но ещё не слышен
+    t[0] += 0.36
+    assert p.level_at() > 0.8                 # прозвучал
+    pull(p, time_info=ti)                     # тишина записана
+    assert p.level_at() > 0.8                 # а слышен ещё голос
+    t[0] += 0.36
+    assert p.level_at() == 0.0
+    p.feed(LOUD)
+    pull(p, time_info=ti)
+    p.interrupt()                             # «стоп» — очередь уровня сброшена
+    t[0] += 1
+    assert p.level_at() == 0.0
