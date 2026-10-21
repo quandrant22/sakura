@@ -73,3 +73,11 @@ venv/bin/python scripts/cleanup_tasks.py               # копия в memory/ba
 Перед выкаткой: проверить на старом `agent/`, что `power.sleep` и `system.shutdown` с `confirmed`
 исполняются (до этого он получал `system:shutdown`/`system:sleep`).
 
+### server/power: правки перед выкатом
+
+- Вопрос о питании снимается любым ходом кроме да/нет и любым другим вопросом Сакуры (W11–W12);
+  «да» из Telegram через 10 с по-прежнему подтверждает.
+- proto 1 получает `system:shutdown/restart/sleep`, proto 2 — канонические + `confirmed` (W13).
+- «Какой компьютер: …?» при неоднозначности (W14).
+- Тесты: tests/test_power_confirm.py — 20; весь набор зелёный.
+

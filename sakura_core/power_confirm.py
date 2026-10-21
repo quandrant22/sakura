@@ -9,7 +9,9 @@
             «все компы» → перечень онлайн-ПК; без названия → активный ПК;
             ПК офлайн → «<ПК> уже выключен», без вопроса;
   «да»    — команда уходит на ПК с "confirmed": true (клиент исполняет сразу).
-Висящий вопрос про ПК сбрасывается по bye и при уходе ПК офлайн.
+Висящий вопрос про ПК сбрасывается по bye и при уходе ПК офлайн, а также
+(«Хорошо, не выключаю») любым ходом Мастера, кроме да/нет, и любым другим
+вопросом Сакуры: «да» засчитывается только на последний заданный вопрос.
 """
 
 from __future__ import annotations
@@ -35,6 +37,10 @@ ACTIONS = {
 }
 POWER_IDS = frozenset(ACTIONS)
 CANCELLED = "Отменила, ничего не выключаю"
+DROPPED = "Хорошо, не выключаю"
+# Клиентам proto 1 (старый agent/) — прежние имена; proto 2 — канонические.
+LEGACY_WIRE = {"system.shutdown": "system:shutdown", "system.restart": "system:restart",
+               "power.sleep": "system:sleep", "system.sleep": "system:sleep"}
 DELIVERED = object()        # мост: вопрос уже доставлен сам, второй раз не говорить
 
 _ALL = re.compile(r"\bвсе\s+(?:комп\w*|пк|ноут\w*|машин\w*|устройства)")
@@ -135,7 +141,9 @@ def _question(verb: str, targets: list[str], everyone: bool) -> str:
 
 def choose_targets(action_id: str, text: str, ctx_device: str | None,
                    source: str | None) -> tuple[list[str], bool, str | None]:
-    """→ (цели, «все», готовый ответ без вопроса или None)."""
+    """→ (цели, «все», готовый ответ без вопроса или None).
+    Нет названия, нет активного ПК и онлайн больше одного → цели пусты,
+    ответ — «Какой компьютер?» (see request)."""
     dm = _dm()
     from modules.presence_sync import get_active_device
     online = online_pcs()
@@ -151,25 +159,47 @@ def choose_targets(action_id: str, text: str, ctx_device: str | None,
             named = ctx_device
         else:
             active = get_active_device()
-            named = active if active in online else (
-                source if source in online else (online[0] if len(online) == 1 else None))
+            named = active if active in online else (online[0] if len(online) == 1 else None)
     if named is None:
-        return [], False, "Все компьютеры уже выключены." if not online else \
-            "Какой компьютер? Назови его: игровой, ноутбук или рабочий."
+        if not online:
+            return [], False, "Все компьютеры уже выключены."
+        return [], False, None
     if named not in online:
         return [], False, f"{dm.device_name(named)} уже выключен."
     return [named], False, None
 
 
-async def request(action_id: str, ctx, param=None):
-    """Executor: вместо исполнения — вопрос. → DELIVERED или (текст, ok)."""
+def other_dialogs_pending() -> bool:
+    """Есть ли другой незакрытый вопрос Сакуры (план, уточнение, подтверждение)."""
+    try:
+        from sakura_core.bridge import get_router
+        if get_router().session.pending is not None:
+            return True
+    except Exception:
+        pass
+    if st._pending_plan or st._pending_clarify or st._pending_system:
+        return True
+    try:
+        from modules.voice_info import pending_forget_active
+        return bool(pending_forget_active())
+    except Exception:
+        return False
+
+
+def _clear_other_dialogs() -> None:
+    """Наш вопрос — последний: прежние ожидания снимаются."""
+    try:
+        from sakura_core.bridge import get_router
+        get_router().session.cancel()
+    except Exception:
+        pass
+    st._pending_plan.clear()
+    st._pending_clarify.clear()
+    st._pending_system.clear()
+
+
+async def _ask(action_id: str, targets: list[str], everyone: bool, source: str | None) -> None:
     verb = ACTIONS[action_id][0]
-    extra = ctx.extra or {}
-    text = str(extra.get("text") or "")
-    source = extra.get("source") or ctx.device_id
-    targets, everyone, answer = choose_targets(action_id, text, ctx.device_id, source)
-    if answer:
-        return (answer, True)
     pid = f"{int(time.time() * 1000) % 10**9:x}"
     st._pending_power = {"id": pid, "action": action_id, "targets": targets,
                          "ts": time.monotonic(), "ttl": TTL_S, "source": source}
@@ -180,6 +210,30 @@ async def request(action_id: str, ctx, param=None):
     await say(question, source, "confirm", buttons=None if at_pc else pid)
     from sakura_core.tasks import spawn
     spawn(_expire(pid), name="power-confirm-ttl")
+
+
+async def request(action_id: str, ctx, param=None):
+    """Executor: вместо исполнения — вопрос. → DELIVERED или (текст, ok)."""
+    extra = ctx.extra or {}
+    text = str(extra.get("text") or "")
+    source = extra.get("source") or ctx.device_id
+    targets, everyone, answer = choose_targets(action_id, text, ctx.device_id, source)
+    if answer:
+        return (answer, True)
+    _clear_other_dialogs()
+    if not targets:
+        # какой именно? — следующая реплика с названием ПК выбирает машину
+        online = online_pcs()
+        pid = f"{int(time.time() * 1000) % 10**9:x}"
+        st._pending_power = {"id": pid, "action": action_id, "targets": [], "stage": "which",
+                             "options": online, "ts": time.monotonic(), "ttl": TTL_S,
+                             "source": source}
+        names = ", ".join(_dm().device_short(d) for d in online)
+        await say(f"Какой компьютер: {names}?", source, "confirm")
+        from sakura_core.tasks import spawn
+        spawn(_expire(pid), name="power-confirm-ttl")
+        return DELIVERED
+    await _ask(action_id, targets, everyone, source)
     return DELIVERED
 
 
@@ -190,6 +244,19 @@ async def _expire(pid: str) -> None:
         st._pending_power = {}
         log.info("[power] срок вышел — отмена")
         await say(CANCELLED + ".", p["source"], "ack")
+
+
+def supersede(reason: str = "другой вопрос") -> None:
+    """Сакура задала другой вопрос: наш снимается («Хорошо, не выключаю»)."""
+    p = st._pending_power
+    if not p:
+        return
+    st._pending_power = {}
+    log.info(f"[power] вопрос снят: {reason}")
+    try:
+        asyncio.get_running_loop().create_task(say(DROPPED + ".", p["source"], "ack"))
+    except RuntimeError:
+        pass
 
 
 # ── ответ ────────────────────────────────────────────────────────────
@@ -215,8 +282,11 @@ async def resolve(verdict: str, pid: str | None = None) -> str | None:
             cmd_id = _register_command(wire, dev)
         except Exception:
             cmd_id = None
-        await ws.send(json.dumps({"type": "command", "action": wire,
-                                  "id": cmd_id, "confirmed": True}))
+        if st.device_proto.get(dev) == 2:
+            msg = {"type": "command", "action": wire, "id": cmd_id, "confirmed": True}
+        else:       # proto 1 (старый agent/): прежние имена system:*
+            msg = {"type": "command", "action": LEGACY_WIRE[p["action"]]}
+        await ws.send(json.dumps(msg))
         done.append(dev)
         st._last_command_ts = time.monotonic()
         log.info(f"[power] → {dev}: {wire} confirmed")
@@ -228,14 +298,43 @@ async def resolve(verdict: str, pid: str | None = None) -> str | None:
 
 
 async def handle_answer(text: str, source: str | None) -> bool:
-    """«да»/«нет» текстом или голосом откуда угодно. True — это был ответ."""
-    if pending() is None:
+    """Ход Мастера при висящем вопросе. True — это был ответ на вопрос.
+
+    «да»/«нет» → ответ; на «Какой компьютер?» — название ПК → следующий вопрос;
+    любой другой ход (голос, окно, Telegram) снимает вопрос («Хорошо, не
+    выключаю») и обрабатывается как обычно (возвращаем False).
+    Если после нашего вопроса был задан другой — «да» ему, наш снят."""
+    p = pending()
+    if p is None:
         return False
-    from sakura_core.session import check_confirmation
-    verdict = check_confirmation(text)
-    if verdict is None:
+    if other_dialogs_pending():
+        supersede("задан другой вопрос")
         return False
-    reply = await resolve(verdict)
-    if reply:
-        await say(reply, source, "ack")
-    return True
+    if p.get("stage") == "which":
+        name = mentioned(text)
+        online = online_pcs()
+        if name == "all" and online:
+            st._pending_power = {}
+            await _ask(p["action"], online, True, p["source"])
+            return True
+        if name in online:
+            st._pending_power = {}
+            await _ask(p["action"], [name], False, p["source"])
+            return True
+        if name is not None:
+            st._pending_power = {}
+            await say(f"{_dm().device_name(name)} уже выключен.", source, "ack")
+            return True
+    else:
+        from sakura_core.session import check_confirmation
+        verdict = check_confirmation(text)
+        if verdict is not None:
+            reply = await resolve(verdict)
+            if reply:
+                await say(reply, source, "ack")
+            return True
+    # любой другой ход
+    st._pending_power = {}
+    log.info(f"[power] вопрос снят: другой ход {text[:30]!r}")
+    await say(DROPPED + ".", source, "ack")
+    return False

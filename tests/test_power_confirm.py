@@ -31,6 +31,7 @@ def world(monkeypatch):
     """pc / laptop / mostech онлайн; озвучка и Telegram записываются."""
     ws = {d: AgentWS() for d in ("pc", "laptop", "mostech")}
     monkeypatch.setattr(st, "connected_devices", dict(ws))
+    monkeypatch.setattr(st, "device_proto", {d: 2 for d in ws})      # proto 2: канонические имена
     ps.reset()
     monkeypatch.setattr(ps, "get_active_device", lambda: "pc")
     spoken, tg = [], []
@@ -187,8 +188,104 @@ def test_telegram_asks_with_buttons_and_button_resolves(world):
     assert [c["confirmed"] for c in ws["pc"].commands()] == [True]
 
 
-def test_unrelated_text_is_not_consumed(world):
-    ws, _, _ = world
+def test_other_turn_drops_question(world):
+    """«включи музыку» снимает вопрос; последующее «да» ничего не выключает."""
+    ws, spoken, tg = world
     say("выключи комп", "laptop", ws)
-    assert not answer("какая сегодня погода", "laptop")
-    assert st._pending_power, "вопрос ждёт ответа"
+    assert not answer("включи музыку", "laptop")        # не ответ — обрабатывается как обычно
+    assert not st._pending_power
+    assert spoken[-1][1] == "Хорошо, не выключаю."
+    assert not answer("да", "laptop")
+    assert all(w.commands() == [] for w in ws.values())
+
+
+def test_other_turn_in_telegram_drops_question_too(world):
+    ws, spoken, tg = world
+    say("выключи комп", "laptop", ws)
+    assert not answer("а какая погода?", "telegram")
+    assert not st._pending_power and tg[-1][0] == "Хорошо, не выключаю."
+    assert not answer("да", "telegram")
+    assert all(w.commands() == [] for w in ws.values())
+
+
+def test_yes_from_telegram_after_10_seconds_still_shuts_down(world):
+    ws, spoken, tg = world
+    say("выключи комп", "laptop", ws)
+    st._pending_power["ts"] -= 10                       # прошло 10 с
+    assert answer("да", "telegram")
+    assert [c["action"] for c in ws["pc"].commands()] == ["system.shutdown"]
+
+
+def test_other_question_supersedes_power_question(world):
+    """Вопрос о выключении → вопрос другого диалога подтверждения → «да» → не выключается."""
+    ws, spoken, tg = world
+    say("выключи комп", "laptop", ws)
+
+    async def other_question():
+        br.get_router().session.expect("confirm", action="files.delete", device="laptop")
+    asyncio.run(other_question())                       # Session.expect → наш вопрос снят
+    assert not st._pending_power
+    assert not answer("да", "laptop")                   # «да» — другому диалогу
+    assert all(w.commands() == [] for w in ws.values())
+
+
+def test_power_question_supersedes_older_dialogs(world):
+    ws, spoken, tg = world
+    br.get_router().session.expect("confirm", action="files.delete", device="laptop")
+    st._pending_plan["laptop"] = {"plan": []}
+    say("выключи комп", "laptop", ws)
+    assert br.get_router().session.pending is None and not st._pending_plan
+    assert answer("да", "laptop")
+    assert ws["pc"].commands()
+
+
+def test_legacy_dialog_asked_later_wins(world):
+    """После нашего вопроса появилось ожидание плана (старый путь): «да» ему."""
+    ws, spoken, tg = world
+    say("выключи комп", "laptop", ws)
+    st._pending_plan["laptop"] = {"plan": []}
+    assert not answer("да", "laptop")
+    assert not st._pending_power and all(w.commands() == [] for w in ws.values())
+
+
+def test_proto1_clients_get_legacy_names_proto2_canonical(world):
+    ws, _, _ = world
+    st.device_proto.pop("pc")                           # pc — старый agent/ (proto 1)
+    for phrase, legacy, canon in (("выключи комп", "system:shutdown", "system.shutdown"),
+                                  ("перезагрузи игровой", "system:restart", "system.restart"),
+                                  ("усыпи игровой", "system:sleep", "power.sleep")):
+        ws["pc"].sent.clear(); ws["laptop"].sent.clear()
+        say(phrase, "laptop", ws)
+        answer("да", "laptop")
+        assert ws["pc"].commands() == [{"type": "command", "action": legacy}], phrase
+        st.device_proto["pc"] = 2                       # тот же ПК на proto 2
+        say(phrase, "laptop", ws)
+        answer("да", "laptop")
+        (cmd,) = ws["pc"].commands()[-1:]
+        assert cmd["action"] == canon and cmd["confirmed"] is True, phrase
+        st.device_proto.pop("pc")
+
+
+def test_which_computer_then_name_then_yes(world, monkeypatch):
+    ws, spoken, tg = world
+    del st.connected_devices["mostech"]
+    monkeypatch.setattr(ps, "get_active_device", lambda: None)      # активного нет
+    out = say("выключи комп", "laptop", ws)
+    assert spoken[-1][1] == "Какой компьютер: игровой, ноутбук?" and spoken[-1][2] == "confirm"
+    assert st._pending_power["stage"] == "which"
+    assert answer("игровой", "laptop")
+    assert spoken[-1][1] == "Выключить игровой компьютер? Да или нет?"
+    assert all(w.commands() == [] for w in ws.values())
+    assert answer("да", "laptop")
+    (cmd,) = ws["pc"].commands()
+    assert cmd["action"] == "system.shutdown" and cmd["confirmed"] is True
+    assert ws["laptop"].commands() == []
+
+
+def test_which_computer_other_answer_drops(world, monkeypatch):
+    ws, spoken, tg = world
+    monkeypatch.setattr(ps, "get_active_device", lambda: None)
+    say("выключи комп", "laptop", ws)
+    assert st._pending_power["stage"] == "which"
+    assert not answer("включи музыку", "laptop")
+    assert not st._pending_power and spoken[-1][1] == "Хорошо, не выключаю."
