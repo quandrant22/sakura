@@ -314,7 +314,10 @@ def _legacy_active() -> Optional[str]:
 def _decide(now: float) -> None:
     """Единственное место, где выбирается активное устройство (под _lock)."""
     global _active
-    for d in [d for d, r in _devs.items() if now - r["seen"] > ACTIVE_WINDOW_SEC]:
+    # «Активное устройство» — всегда ПК: телефон им не становится (как раньше в
+    # device_manager), а голосовой ход с телефона не отбирает активность у ПК.
+    for d in [d for d, r in _devs.items()
+              if now - r["seen"] > ACTIVE_WINDOW_SEC or not is_pc(d)]:
         del _devs[d]
     if not _devs:
         _active = ""
