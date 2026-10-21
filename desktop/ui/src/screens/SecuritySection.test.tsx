@@ -100,3 +100,11 @@ test("неверный код — понятная ошибка; список у
   await act(async () => {});
   expect(c.calls.some((x) => x.type === "secure_reset")).toBe(true);
 });
+
+test("нет пакета cryptography — понятное предупреждение, экран открывается", async () => {
+  const c = new C("normal");
+  c.st = { ...base, unavailable: "Не установлен пакет cryptography — защищённый канал недоступен." };
+  setup(c);
+  expect((await screen.findByRole("alert")).textContent).toContain("cryptography");
+  expect(screen.getByLabelText("Состояние канала")).toBeTruthy();
+});

@@ -204,8 +204,11 @@ def test_secure_pair_by_words_and_qr_status_reset(tmp_path, monkeypatch):
 
     async def go(lab, url):
         svc = _svc(tmp_path, monkeypatch)
-        monkeypatch.setattr(svc, "_keystore", lambda: KeyStore(str(tmp_path / "secure"), protect=lambda b: b,
-                                                                unprotect=lambda b: b))
+        ks = KeyStore(str(tmp_path / "secure"), protect=lambda b: b, unprotect=lambda b: b)
+
+        async def keystore():
+            return ks
+        monkeypatch.setattr(svc, "_keystore", keystore)
         lab.start_pairing(WORDS)
         out = await svc.cmd_secure_pair({"words": WORDS, "url": url, "name": "Ноутбук"})
         assert out["server_fp"] == fingerprint(lab.pub)

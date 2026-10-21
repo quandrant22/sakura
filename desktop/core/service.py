@@ -540,22 +540,37 @@ class CoreService:
         return await YandexApi().inventory()
 
     # ── Настройки → «Безопасность»: защищённый канал (securechannel/1) ──
-    def _keystore(self):
+    async def _keystore(self):
+        """Хранилище ключей; модули канала (cryptography) грузятся в потоке, а не в цикле событий."""
         import os as _os
 
+        from desktop.core.securechannel import loader
+        try:
+            await loader.load()
+        except loader.SecureUnavailable as e:
+            raise ApiError("unavailable", str(e)) from None
         from desktop.core.securechannel.keys import KeyStore
         restrict = self._restrict if _os.name == "nt" else None
         return KeyStore(_os.path.join(config.DATA_DIR, "secure"), restrict=restrict)
 
+    NO_KEYS = {"device_key": False, "device_fp": None, "storage": None, "paired": False, "server_fp": None,
+               "device_id": None}
+
     async def cmd_secure_status(self, msg: dict):
-        ks = self._keystore()
-        return {"keys": await asyncio.to_thread(ks.status), "channel": self.channel_state(),
-                "mode": config.SERVER_TRANSPORT or "ws", "pinned": bool(config.SERVER_PUBKEY_SHA256)}
+        base = {"channel": self.channel_state(), "mode": config.SERVER_TRANSPORT or "ws",
+                "pinned": bool(config.SERVER_PUBKEY_SHA256)}
+        try:
+            ks = await self._keystore()
+        except ApiError as e:
+            # Нет cryptography: «Безопасность» открывается и честно говорит, чего не хватает.
+            return {**base, "keys": dict(self.NO_KEYS), "unavailable": e.message}
+        return {**base, "keys": await asyncio.to_thread(ks.status)}
 
     async def cmd_secure_pair(self, msg: dict):
         """Спаривание по 8 словам или QR (текст sakura-pair://1): XXpsk3, сохранение ключей."""
         import websockets
 
+        ks = await self._keystore()   # канал загружен (или понятная ошибка) — дальше импорты из памяти
         from desktop.core.securechannel.client import SecureError, xx_pair
         from desktop.core.securechannel.keys import fingerprint
         from desktop.core.securechannel.pairing import PairingError, parse_qr_uri, words_to_psk
@@ -568,7 +583,6 @@ class CoreService:
             psk = words_to_psk(words)
         except PairingError as e:
             raise ApiError("bad_request", str(e)) from None
-        ks = self._keystore()
         priv, pub = await asyncio.to_thread(ks.device_keypair)
         info = {"name": str(msg.get("name") or config.DEVICE_ID)[:40], "kind": "pc", "device_id_hint": config.DEVICE_ID}
         try:
@@ -583,7 +597,7 @@ class CoreService:
                 "restart_suggested": True}
 
     async def cmd_secure_reset(self, msg: dict):
-        ks = self._keystore()
+        ks = await self._keystore()
         await asyncio.to_thread(ks.reset)
         return {"keys": await asyncio.to_thread(ks.status)}
 
@@ -733,6 +747,8 @@ class CoreService:
 
     async def run(self, api_port: int = 0):
         await self.api.start(api_port)
+        from desktop.core.securechannel import loader as secure_loader
+        secure_loader.preload()   # модули канала — в потоке, к открытию «Безопасности» уже в памяти
         from desktop.core.loop_lag import LoopLag
         self.loop_lag = LoopLag()
         asyncio.ensure_future(self.loop_lag.run())

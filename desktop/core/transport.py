@@ -126,6 +126,11 @@ class NoiseTransport:
         return conn
 
     async def connect(self) -> Connection:
+        from desktop.core.securechannel import loader
+        try:
+            await loader.load()   # импорт cryptography — в потоке, не в цикле событий
+        except loader.SecureUnavailable as e:
+            return await self._fallback_or_raise(str(e))
         from desktop.core.securechannel.client import SecureError, ik_handshake
         from desktop.core.securechannel.keys import sha256_hex
         ks = self.keystore

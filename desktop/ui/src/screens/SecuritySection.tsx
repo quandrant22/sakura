@@ -12,7 +12,9 @@ interface Keys { device_key: boolean; device_fp: string | null; storage: string 
                  server_fp: string | null; device_id: string | null }
 interface Channel { transport: string | null; secure: boolean; reason?: string | null; age_s?: number; rekeys?: number;
                     proto?: number | null }
-export interface SecureStatus { keys: Keys; channel: Channel; mode: string; pinned: boolean }
+export interface SecureStatus { keys: Keys; channel: Channel; mode: string; pinned: boolean;
+                               /** Защищённый канал недоступен (например, не установлен пакет cryptography). */
+                               unavailable?: string }
 /** Устройство реестра канала (ответ secure_devices, PROTOCOL.md сервера §10.3). */
 export interface SecureDevice { device_id: string; name?: string | null; fingerprint: string; paired_at?: number | null;
                                 last_seen?: number | null; online: boolean; secure_now: boolean; revoked: boolean; current: boolean }
@@ -125,6 +127,7 @@ export function SecuritySection() {
   const ch = st ? channelText(st) : null;
   return (
     <div className="px-4 pb-3">
+      {st?.unavailable && <div role="alert" className="mb-2 rounded-btn bg-warn/10 px-3 py-2 text-xs text-warn">{st.unavailable}</div>}
       <Row label="Канал до сервера" hint="Режим: SERVER_TRANSPORT (ws, noise, noise-only)">
         {ch && (
           <div aria-label="Состояние канала">
