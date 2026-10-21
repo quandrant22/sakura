@@ -10,6 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { sayBye } from "./coreBye.js";
+import { trayIconPath } from "./trayIcon.js";
 import { coreAlready, type CoreState, CoreSupervisor, coreAutostartEnabled, pidAlive, readLockPid } from "./coreProcess.js";
 import { readLayout, writeLayout } from "./layoutFile.js";
 import {
@@ -149,7 +150,9 @@ function quitAll(): void {
 }
 
 function createTray(): void {
-  const icon = nativeImage.createFromPath(path.join(here, "..", "electron", "assets", "tray.png"));
+  const iconPath = trayIconPath(here);
+  const icon = nativeImage.createFromPath(iconPath);
+  if (icon.isEmpty()) console.log(`[tray] значок не загрузился: ${iconPath}`);
   tray = new Tray(icon);
   tray.setToolTip("Sakura");
   tray.on("click", showWindow);

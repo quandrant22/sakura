@@ -1,4 +1,5 @@
-"""Иконка Сакуры (цветок из логотипа ui/src/components/SakuraLogo.tsx) → desktop/assets/sakura.ico и .png.
+"""Иконка Сакуры (цветок из логотипа ui/src/components/SakuraLogo.tsx) → desktop/assets/sakura.ico и .png,
+значок трея → desktop/ui/electron/assets/tray.png (16 px), tray@2x.png (32 px) и tray.ico (16–48 px).
 
 python -m desktop.tools.make_icon — тот же контур лепестка, пять лепестков через 72°, радиальный
 градиент акцента «Сакура-ночь» (#FF6AE3 → #3E0074), сердцевина и пять тычинок. Рисуется в 1024 px
@@ -16,7 +17,9 @@ PETAL = [((0, -2.2), (-3.6, -4.6), (-5.6, -9.2), (-3.9, -12.6)),
          ((0, -13.4), (1.2, -14.9), (2.9, -14.5), (3.9, -12.6)),
          ((3.9, -12.6), (5.6, -9.2), (3.6, -4.6), (0, -2.2))]
 SIZE = 1024
-OUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets")
+DESKTOP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUT_DIR = os.path.join(DESKTOP, "assets")
+TRAY_DIR = os.path.join(DESKTOP, "ui", "electron", "assets")
 
 
 def _bezier(p0, p1, p2, p3, n=40):
@@ -70,6 +73,11 @@ def main() -> None:
     sizes = [(n, n) for n in (16, 24, 32, 48, 64, 128, 256)]
     big.resize((256, 256), Image.LANCZOS).save(os.path.join(OUT_DIR, "sakura.ico"), sizes=sizes)
     print(os.path.join(OUT_DIR, "sakura.ico"))
+    os.makedirs(TRAY_DIR, exist_ok=True)
+    big.resize((16, 16), Image.LANCZOS).save(os.path.join(TRAY_DIR, "tray.png"))
+    big.resize((32, 32), Image.LANCZOS).save(os.path.join(TRAY_DIR, "tray@2x.png"))
+    big.resize((48, 48), Image.LANCZOS).save(os.path.join(TRAY_DIR, "tray.ico"), sizes=[(16, 16), (24, 24), (32, 32), (48, 48)])
+    print(os.path.join(TRAY_DIR, "tray.ico"))
 
 
 if __name__ == "__main__":

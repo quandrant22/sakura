@@ -36,6 +36,9 @@ function Fail($text) {
 Log "запуск: $Desktop"
 
 # ── Уже открыта — второй экземпляр Electron просто покажет существующее окно ──
+# VS Code (и другие Electron-приложения) передаёт ELECTRON_RUN_AS_NODE дочерним процессам: с ней electron.exe
+# работает как Node и молча ничего не открывает и не закрывает. Сбрасываем до любого запуска Electron.
+Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
 $running = @(Get-CimInstance Win32_Process -Filter "Name='electron.exe'" | Where-Object { $_.ExecutablePath -eq $Electron })
 if ($running.Count -and -not $CheckOnly) {
     Log "Сакура уже запущена (pid $($running[0].ProcessId)) — показываю окно"
@@ -121,7 +124,6 @@ if ($needInstall -or $needBuild) {
 }
 
 # ── 4. Запуск: готовая сборка, ядро — дочерним процессом окна ────────
-Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
 Remove-Item Env:SAKURA_DEV_URL -ErrorAction SilentlyContinue
 $env:SAKURA_CORE_AUTOSTART = "1"
 $env:SAKURA_PYTHON = $Python
