@@ -87,3 +87,8 @@ venv/bin/python scripts/cleanup_tasks.py               # копия в memory/ba
 - Хэш до выката (откат: `git checkout 2a9e6a3d8f1a8aaef5b363846bfdd8e356d3ba1e`, `systemctl restart sakura`): **2a9e6a3d8f1a8aaef5b363846bfdd8e356d3ba1e**.
 - Резервная копия `memory/` — `memory/backup/predeploy-<дата>/` на проде.
 - Конфигурация проверена (True/False): PRIVATE_REQUIRES_SECURE не выключен, mostech в MASTER_DEVICES, SECURE_CHANNEL отсутствует/off.
+
+### Выкат fix/active-pc-only (2026-10-21)
+
+- Хэш до выката (откат: `git checkout 1b6f189d0ba99b2a346980078bc887898d3bc7bb`, `systemctl restart sakura`): **1b6f189d0ba99b2a346980078bc887898d3bc7bb**.
+- Причина: на проде телефон стал «активным устройством» (`Фокус переехал: none → phone`); теперь активным может быть только ПК.
