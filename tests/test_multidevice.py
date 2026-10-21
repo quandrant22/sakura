@@ -242,3 +242,13 @@ def test_unknown_device_id_does_not_crash(monkeypatch, tmp_path):
     monkeypatch.setattr(ps, "get_active_device", lambda: "mystery")
     assert "mystery" in device_manager.get_device_context()
     assert proto_devices._name("mystery") == "mystery"
+
+
+def test_phone_never_becomes_active(clock):
+    ping("phone")
+    assert ps.get_active_device() is None
+    ping("pc", idle=100)
+    ping("phone", idle=0)
+    assert ps.get_active_device() == "pc"
+    ps.note_input("phone")                  # голос/текст с телефона активным ПК не делает
+    assert ps.get_active_device() == "pc"
