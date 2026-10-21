@@ -68,15 +68,16 @@ def test_every_client_action_declared_with_client_flags(decls):
         if aid == "files.open":
             continue      # был до pc-control: confirm совпадает, параметр — open_file:<имя>
         assert (d.reversible, d.confirm) == (reversible, confirm), aid
-        assert 3 <= len(d.triggers) <= 6, (aid, d.triggers)
+        assert aid == "power.sleep" or 3 <= len(d.triggers) <= 6, (aid, d.triggers)   # power.sleep: фразы system.sleep слиты
         assert d.followup in ("ack", "llm"), aid
         assert get_handler(aid) is not None, aid
 
 
 def test_dangerous_confirm_and_prompt(decls):
     assert {a for a in CLIENT_ACTIONS if decls[a].confirm} == DANGEROUS
-    for aid in DANGEROUS:
+    for aid in DANGEROUS - {"power.sleep"}:      # power.sleep спрашивает через power_confirm
         assert decls[aid].confirm_prompt.endswith("Точно? Скажи «да».")
+    assert decls["power.sleep"].confirm_prompt.endswith("Да или нет?")
 
 
 def test_no_audio_output_and_read_actions_follow_llm(decls):
@@ -215,9 +216,9 @@ def test_new_triggers_not_inside_old_triggers(decls):
 
 
 def test_old_lock_and_sleep_untouched(decls):
-    """system.lock / system.sleep — для старого agent/: фразы на месте."""
+    """system.lock — для старого agent/: фразы на месте; «спящий режим» слит в power.sleep."""
     assert _route("заблокируй компьютер").action == "system.lock"
-    assert _route("спящий режим").action == "system.sleep"
+    assert _route("спящий режим").action == "power.sleep"
     assert _route("переключись на телеграм").action == "app.switch"
 
 
@@ -275,7 +276,6 @@ def _yes(text, source, ws, device, reg):
 
 
 @pytest.mark.parametrize("text,action,arg", [
-    ("усыпи компьютер", "power.sleep", ""),
     ("закрой процесс блокнот", "process.kill", "блокнот"),
     ("выключи вайфай", "net.wifi", "off"),
     ("перенеси файл отчёт в документы", "files.move", "отчёт|документы"),
@@ -310,7 +310,7 @@ def test_safe_action_has_no_confirmed_flag(engine):
 def test_yes_from_other_device_is_not_accepted(engine):
     _, _, reg = engine
     ws = AgentWS()
-    _fast("усыпи компьютер", ws, "laptop", reg, speak=AsyncMock())
+    _fast("закрой процесс блокнот", ws, "laptop", reg, speak=AsyncMock())
     decision, res = _yes("да", "pc", ws, "pc", reg)
     assert decision.verdict == "wrong_source" and res is None
     assert ws.commands() == []

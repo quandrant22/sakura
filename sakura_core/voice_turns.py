@@ -52,6 +52,12 @@ class Turn:
     reported: bool = False
     # Сторож зависшего хода: момент последнего исходящего сообщения хода.
     last_activity: float = field(default_factory=time.monotonic)
+    # Журнал чата (sakura_core.chat_hooks): канал запроса, id записи
+    # Мастера (reply_to ответа), сказанное за ход — одной записью в конце.
+    channel: str = "voice"
+    user_msg_id: int | None = None
+    spoken: list[str] = field(default_factory=list)
+    log: bool = True
 
 
 _current: contextvars.ContextVar[Turn | None] = contextvars.ContextVar(
@@ -130,7 +136,8 @@ def reply_text(text: str) -> str:
 #   template  — готовые и кэшированные фразы, ответы реестра
 #   error     — «Не получилось: <detail>»
 #   proactive — напоминания, брифинги, уведомления (всем master-устройствам)
-REPLY_KINDS = ("llm", "ack", "template", "error", "proactive")
+#   confirm   — вопрос «Выключить …? Да или нет?» (sakura_core/power_confirm.py)
+REPLY_KINDS = ("llm", "ack", "template", "error", "proactive", "confirm")
 
 
 async def send_reply(websocket, device_id: str, text: str, kind: str = "llm") -> bool:
@@ -165,6 +172,11 @@ async def broadcast_reply(text: str, kind: str = "proactive") -> int:
     """reply всем подключённым master-устройствам (проактивные сообщения).
     Возвращает, скольким ушло."""
     from modules.state import connected_devices
+    if kind == "proactive":
+        from modules.presence_sync import pc_voice_allowed
+        if not pc_voice_allowed():
+            log.info("[turn] Мастер не у ПК — проактив не шлю на ПК (только Telegram)")
+            return 0
     sent = 0
     for dev, ws in list(connected_devices.items()):
         if await send_reply(ws, dev, text, kind):
@@ -285,14 +297,20 @@ async def _run(turn: Turn, factory: Callable[[], Awaitable[None]]) -> None:
         turn.done = True
         from sakura_core import turn_timing
         turn_timing.on_done(turn)
+        try:
+            from sakura_core.chat_hooks import on_turn_done
+            await on_turn_done(turn)
+        except Exception as e:
+            log.warning(f"[turn] журнал хода {turn.turn_id}: {type(e).__name__}: {e}")
 
 
-def start(device_id: str, ws, factory: Callable[[], Awaitable[None]]) -> Turn:
+def start(device_id: str, ws, factory: Callable[[], Awaitable[None]],
+          *, turn_id: str | None = None) -> Turn:
     """Начать ход устройства задачей; предыдущий — вытесняется.
 
     Вызывается синхронно из цикла сокета: следующее сообщение того же
     устройства читается сразу, и новый ход может вытеснить этот."""
-    turn = Turn(turn_id=new_turn_id(), device_id=device_id, ws=ws,
+    turn = Turn(turn_id=turn_id or new_turn_id(), device_id=device_id, ws=ws,
                 prev=_last.get(device_id))
     _last[device_id] = turn
     # Свой контекст: задача хода не наследует turn вызывающего.

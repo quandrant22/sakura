@@ -129,3 +129,12 @@ venv-check/
 # Выходные кадры рендера для ручного просмотра — не коммитить
 agent/tests/render_out/
 memory/tts_cache/
+
+# Защищённый канал: ключ сервера и реестр устройств (600)
+memory/secure/
+.coverage
+# Журнал чата (modules/chat_log.py) — приватные данные
+memory/chat.db
+memory/chat.db-*
+memory/profile_v2.json
+memory/scenarios.json

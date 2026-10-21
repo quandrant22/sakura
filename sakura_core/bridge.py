@@ -168,7 +168,7 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
     on_agent_command(decision, cmd_id) — async-хук: команда ушла агенту
     (результат исполнения — cmd_id); голос «вооружает» подтверждение.
     """
-    from modules.state import _current_track, connected_devices
+    from modules.state import connected_devices, device_track, prompt_track
 
     text, target = target_device(text)
     if target and target != device_id:
@@ -187,7 +187,8 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
         device_ws, device_id = target_ws, target
 
     context = resolve_context(
-        (data or {}).get("active_window", ""), _current_track or None
+        (data or {}).get("active_window", ""),
+        device_track(device_id) or prompt_track() or None
     )
     route_source = {"source": source} if source is not None else {}
     decision = await get_router().route(text, context, on_llm=on_llm,
@@ -213,6 +214,9 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
     )
     if not executed:
         return False
+    from sakura_core import power_confirm
+    if result is power_confirm.DELIVERED:
+        return True                        # вопрос о питании уже задан там, где Мастер
     if on_agent_command is not None and isinstance(result, str) and result:
         await on_agent_command(decision, result)
 

@@ -75,6 +75,38 @@ async def cmd_tasks_impl(message: "Message"):
     await message.answer(ctx if ctx else "Задач пока нет.")
 
 
+async def cmd_forget_tasks_impl(message: "Message"):
+    """/забудь_задачи — сколько задач и нитей будет удалено; Да/Нет кнопками."""
+    import asyncio
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+    from modules import task_cleanup
+    pv = await asyncio.to_thread(task_cleanup.preview)
+    if not pv["tasks"] and not pv["threads"]:
+        await message.answer("Задач и открытых нитей нет — чистить нечего.")
+        return
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="Да", callback_data="forget_tasks:yes"),
+        InlineKeyboardButton(text="Нет", callback_data="forget_tasks:no")]])
+    await message.answer(
+        f"Будет удалено задач: {len(pv['tasks'])}, нитей: {len(pv['threads'])}. "
+        f"Копия сохранится в memory/backup. Удалить?", reply_markup=kb)
+
+
+async def cb_forget_tasks_impl(callback):
+    """Ответ на «Да/Нет» после /забудь_задачи."""
+    import asyncio
+    from modules import task_cleanup
+    yes = callback.data == "forget_tasks:yes"
+    if yes:
+        res = await asyncio.to_thread(task_cleanup.run)
+        text = (f"Готово: удалено задач {res['tasks']}, закрыто нитей {res['threads']}. "
+                f"Копия: {res['backup']}")
+    else:
+        text = "Хорошо, ничего не удаляю."
+    await callback.message.edit_text(text)
+    await callback.answer()
+
+
 async def cmd_clear_impl(message: "Message", ask_gemini):
     from memory.memory import clear_history, clear_session_summary
     clear_history()
@@ -219,3 +251,127 @@ async def device_control_impl(message: "Message", *, connected_devices,
         spawn(stream_tts_to_device(
             "Выключаюсь, Мастер. Спокойной ночи.", ws, dev_id,
             literal=True, emotion=get_current_emotion()), name="shutdown-tts")
+
+
+# ── Защищённый канал: спаривание и устройства (docs/security) ───────
+
+async def cmd_pair_impl(message: "Message"):
+    """/pair — одноразовый код спаривания (QR + 8 слов, 10 минут).
+
+    Слова уходят только в это сообщение Мастеру: сервер хранит хеш (PSK),
+    в журнал слова не пишутся."""
+    import io
+    import time
+    import config
+    from aiogram.types import BufferedInputFile
+    from sakura_core import secure_policy
+    from securechannel.keys import fingerprint
+    from securechannel.pairing import make_qr_uri
+    if secure_policy.mode() == "off":
+        await message.answer("Защищённый канал выключен (SECURE_CHANNEL=off) — спаривать некуда.")
+        return
+    ctx = secure_policy.context()
+    words, expires = ctx.pairing.create()
+    pub = ctx.keys.current[1]
+    uri = make_qr_uri(config.SECURE_PUBLIC_URL, pub, words, expires)
+    left = int((expires - time.time()) // 60)
+    text = (f"Код спаривания (одноразовый, {left} мин, 5 попыток):\n\n"
+            f"<code>{words}</code>\n\n"
+            f"Отпечаток ключа сервера: <code>{fingerprint(pub)}</code>\n"
+            f"Сверьте его в клиенте. Новый /pair отменяет этот код.")
+    try:
+        import qrcode
+        buf = io.BytesIO()
+        qrcode.make(uri).save(buf, format="PNG")
+        await message.answer_photo(BufferedInputFile(buf.getvalue(), "pair.png"),
+                                   caption=text, parse_mode="HTML")
+    except Exception:
+        await message.answer(text + "\n\n(QR недоступен — введите слова вручную)",
+                             parse_mode="HTML")
+
+
+async def cmd_devices_impl(message: "Message"):
+    """/devices — спаренные устройства защищённого канала."""
+    import time
+    import modules.state as st
+    from sakura_core import secure_policy
+    devs = secure_policy.context().registry.list()
+    if not devs:
+        await message.answer("Спаренных устройств нет. /pair — спарить новое.")
+        return
+
+    def ago(ts):
+        if not ts:
+            return "никогда"
+        m = int((time.time() - ts) // 60)
+        return f"{m} мин назад" if m < 120 else f"{m // 60} ч назад"
+    lines = []
+    for d in devs:
+        state = ("отозвано" if d.get("revoked")
+                 else "онлайн" if d["id"] in st.connected_devices else "не в сети")
+        lines.append(f"• <b>{d['id']}</b> — {d['name']} ({d['kind']}), {state}\n"
+                     f"  отпечаток <code>{d['fp']}</code>, вход: {ago(d.get('last_seen'))}")
+    await message.answer("\n".join(lines) + "\n\n/revoke &lt;id&gt; — отозвать.",
+                         parse_mode="HTML")
+
+
+async def cmd_revoke_impl(message: "Message"):
+    """/revoke <id> — отозвать ключ устройства и оборвать его соединение."""
+    import modules.state as st
+    from sakura_core import secure_policy
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        await message.answer("Использование: /revoke <id> (список — /devices)")
+        return
+    device_id = parts[1].strip()
+    if not secure_policy.context().registry.revoke(device_id):
+        await message.answer(f"Устройство {device_id!r} не найдено или уже отозвано.")
+        return
+    ws = st.connected_devices.get(device_id)
+    if ws is not None and getattr(ws, "transport", None) == "noise":
+        try:
+            await ws.close(4408, "revoked")
+        except Exception:
+            pass
+    await message.answer(f"Ключ {device_id} отозван; его соединение закрыто. "
+                         f"Для нового ключа — /pair.")
+
+# ── Журнал чата ─────────────────────────────────────────────────
+
+async def cmd_export_chat_impl(message: "Message"):
+    """/export_chat — весь журнал чата файлом (Markdown)."""
+    import asyncio
+    import time
+    from aiogram.types import BufferedInputFile
+    from modules import chat_log
+    try:
+        n = await asyncio.to_thread(chat_log.count)
+        if not n:
+            await message.answer("Журнал чата пуст.")
+            return
+        text = await asyncio.to_thread(chat_log.export, "md")
+    except Exception as e:
+        await message.answer(f"Не получилось выгрузить журнал: {type(e).__name__}.")
+        return
+    name = time.strftime("sakura_chat_%Y%m%d_%H%M.md")
+    await message.answer_document(
+        BufferedInputFile(text.encode("utf-8"), filename=name),
+        caption=f"Журнал чата: {n} сообщ.")
+
+
+async def cmd_clear_chat_impl(message: "Message"):
+    """/clear_chat — стереть журнал чата; без «да» только спрашивает."""
+    import asyncio
+    from modules import chat_log
+    arg = (message.text or "").split(maxsplit=1)[1:]
+    try:
+        if not arg or arg[0].strip().lower() not in ("да", "yes"):
+            n = await asyncio.to_thread(chat_log.count)
+            await message.answer(
+                f"В журнале {n} сообщ. Стереть всё без возврата — отправь: /clear_chat да")
+            return
+        n = await asyncio.to_thread(chat_log.clear)
+    except Exception as e:
+        await message.answer(f"Не получилось: {type(e).__name__}.")
+        return
+    await message.answer(f"Журнал чата очищен: удалено {n} сообщ.")

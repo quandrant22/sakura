@@ -572,6 +572,9 @@ async def reminders_add(text: str):
     from modules.reminders import parse_reminder, add_reminder
     parsed = parse_reminder(text or "")
     if not parsed:
+        from modules.tasks import parse_due
+        if parse_due(text or "")[0]:         # «напомни завтра в 10 …» — задача на дату
+            return await tasks_add(text)
         return ("Не разобрала время. Скажи, например: "
                 "напомни через 20 минут проверить чайник."), False
     entry = add_reminder(parsed["text"], parsed["delay"],
@@ -624,10 +627,15 @@ async def tasks_list():
 
 async def tasks_add(arg: str):
     """Добавить задачу. → (текст, ok)."""
-    from modules.tasks import add_task
+    from modules.tasks import add_task, clean_task_text, parse_due
     name = (arg or "").strip()
     if not name:
         return "Не расслышала текст задачи.", False
+    due_date, due_time = parse_due(name)
+    if due_date or due_time:
+        task = add_task(clean_task_text(name), due_date, due_time)
+        when = " ".join(x for x in (due_date, due_time) if x)
+        return f"Задача добавлена: {task['text']} ({when}).", True
     task = add_task(name)
     return f"Задача добавлена: {task['text']}.", True
 

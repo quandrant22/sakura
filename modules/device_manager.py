@@ -2,30 +2,73 @@ import json
 import os
 from datetime import datetime
 
+import config
 from modules.jsonio import save_json
 
 DEVICES_FILE = "memory/devices.json"
 
-KNOWN_DEVICES = {
-    "pc":     {"name": "Игровой ПК",  "type": "pc",     "priority": 1},
-    "laptop": {"name": "Ноутбук",     "type": "laptop", "priority": 2},
-    "phone":  {"name": "Телефон",     "type": "phone",  "priority": 3, "always_notify": True},
+# Описания известных id; для остальных из DEVICES имя — сам id.
+_DEVICE_INFO = {
+    "pc":      {"name": "Игровой ПК",      "type": "pc",
+                "acc": "игровой компьютер", "short": "игровой"},
+    "laptop":  {"name": "Ноутбук",         "type": "laptop",
+                "acc": "ноутбук", "short": "ноутбук"},
+    "mostech": {"name": "Рабочий ноутбук", "type": "laptop",
+                "acc": "рабочий ноутбук", "short": "рабочий"},
+    "phone":   {"name": "Телефон",         "type": "phone", "always_notify": True},
 }
+
+
+def build_known_devices(ids=None) -> dict:
+    """KNOWN_DEVICES из DEVICES конфига (по умолчанию pc, laptop, mostech, phone)."""
+    if ids is None:
+        ids = getattr(config, "DEVICES", None) or list(_DEVICE_INFO)
+    known = {}
+    for i, did in enumerate(ids, 1):
+        info = dict(_DEVICE_INFO.get(did) or {"name": did, "type": "pc"})
+        info["priority"] = i
+        known[did] = info
+    return known
+
+
+KNOWN_DEVICES = build_known_devices()
+
+
+def device_name(device_id: str | None) -> str:
+    """Имя для показа; неизвестный id показываем как есть."""
+    return (KNOWN_DEVICES.get(device_id) or {}).get("name") or str(device_id)
+
+
+def device_acc(device_id: str | None) -> str:
+    """Название в винительном падеже для вопроса («игровой компьютер»)."""
+    info = KNOWN_DEVICES.get(device_id) or {}
+    return info.get("acc") or (info.get("name") or str(device_id)).lower()
+
+
+def device_short(device_id: str | None) -> str:
+    info = KNOWN_DEVICES.get(device_id) or {}
+    return info.get("short") or device_acc(device_id)
+
+
+def WORK_DEVICE_ID() -> str:
+    return getattr(config, "WORK_LAPTOP_DEVICE", "mostech")
+
+
+def _blank() -> dict:
+    return {"online": False, "last_seen": None, "active_window": None, "context": None}
 
 
 def load_devices() -> dict:
     if not os.path.exists(DEVICES_FILE):
-        default = {
-            "active_device": None,
-            "devices": {
-                k: {"online": False, "last_seen": None, "active_window": None, "context": None}
-                for k in KNOWN_DEVICES
-            }
-        }
+        default = {"active_device": None,
+                   "devices": {k: _blank() for k in KNOWN_DEVICES}}
         save_devices(default)
         return default
     with open(DEVICES_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+        data = json.load(f)
+    for k in KNOWN_DEVICES:          # файл мог быть создан до появления устройства
+        data.setdefault("devices", {}).setdefault(k, _blank())
+    return data
 
 
 def save_devices(data: dict):
@@ -34,12 +77,13 @@ def save_devices(data: dict):
 
 def update_device(device_id: str, active_window: str = None,
                   context: str = None, system_info: dict = None):
-    data = load_devices()
-    if device_id not in data["devices"]:
+    if not device_id:
         return
-
-    dev = data["devices"][device_id]
+    data = load_devices()
+    # Неизвестный id (не в DEVICES) тоже заводим: показываем под своим id.
+    dev = data["devices"].setdefault(device_id, _blank())
     dev["online"]    = True
+    dev.pop("offline_reason", None)
     dev["last_seen"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     if active_window is not None:
@@ -49,23 +93,23 @@ def update_device(device_id: str, active_window: str = None,
     if system_info is not None:
         dev["system_info"] = system_info
 
-    if device_id != "phone":
-        data["active_device"] = device_id
-
+    # «Активное устройство» здесь не ведётся: оно одно — presence_sync.
     save_devices(data)   # один вызов вместо двух
 
 
 def get_active_device() -> str | None:
-    return load_devices().get("active_device")
+    """Делегирует presence_sync — единственному источнику активного устройства."""
+    from modules.presence_sync import get_active_device as _active
+    return _active()
 
 
 def get_device_status() -> str:
     data   = load_devices()
-    active = data.get("active_device")
+    active = get_active_device()
     lines  = []
 
     for device_id, info in data["devices"].items():
-        name      = KNOWN_DEVICES[device_id]["name"]
+        name      = device_name(device_id)
         is_active = " ← активное" if device_id == active else ""
 
         if info["online"]:
@@ -83,7 +127,10 @@ def get_device_status() -> str:
                     plugged = "🔌" if sys_info.get("plugged") else "🔋"
                     line += f" | {plugged} {sys_info['battery']}%"
         else:
-            line = f"✗ {name} — оффлайн (был: {info.get('last_seen', 'никогда')})"
+            why = {"shutdown": "выключен", "sleep": "спит", "exit": "агент закрыт"}.get(
+                info.get("offline_reason"))
+            line = (f"✗ {name} — оффлайн" + (f", {why}" if why else "")
+                    + f" (был: {info.get('last_seen', 'никогда')})")
 
         lines.append(line)
 
@@ -92,12 +139,12 @@ def get_device_status() -> str:
 
 def get_device_context() -> str:
     data   = load_devices()
-    active = data.get("active_device")
+    active = get_active_device()
     if not active:
         return "Активное устройство неизвестно."
 
     dev    = data["devices"].get(active, {})
-    name   = KNOWN_DEVICES[active]["name"]
+    name   = device_name(active)
     result = f"Мастер сейчас за {name}."
     if dev.get("active_window"):
         result += f" Активное окно: {dev['active_window']}."
@@ -106,12 +153,12 @@ def get_device_context() -> str:
     return result
 
 
-def set_device_offline(device_id: str):
+def set_device_offline(device_id: str, reason: str | None = None):
     data = load_devices()
     if device_id in data["devices"]:
         data["devices"][device_id]["online"] = False
-        if data.get("active_device") == device_id:
-            data["active_device"] = None
+        if reason is not None:            # обычный обрыв не стирает причину из bye
+            data["devices"][device_id]["offline_reason"] = reason
         save_devices(data)
 
 

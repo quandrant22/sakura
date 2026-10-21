@@ -396,6 +396,11 @@ def get_fact_trigger(devices: dict) -> tuple:
     notified = ms.setdefault("offline_notified", {})
     dev_dirty = False
     for dev_id, dev in (devices or {}).items():
+        from modules.presence_sync import is_pc
+        if is_pc(dev_id):
+            # ПК выключили — это нормально, а не авария (сервер: диск/память/нагрузка выше)
+            notified.pop(dev_id, None)
+            continue
         online = bool((dev or {}).get("online"))
         if not online:
             if notified.get(dev_id):

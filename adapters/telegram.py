@@ -120,6 +120,9 @@ def _register_commands():
         cmd_status_impl, cmd_memory_impl, cmd_tasks_impl, cmd_clear_impl,
         cmd_clean_slate_impl, cmd_guests_impl, cmd_vip_impl, cmd_trusted_impl,
         cmd_users_impl, cmd_unvip_impl, cmd_block_impl,
+        cmd_pair_impl, cmd_devices_impl, cmd_revoke_impl,
+        cmd_export_chat_impl, cmd_clear_chat_impl,
+        cmd_forget_tasks_impl, cb_forget_tasks_impl,
     )
     dp.message(Command("помощь"))(_master_only(cmd_help_impl))
     dp.message(Command("health"))(_master_only(cmd_health_impl))
@@ -136,8 +139,35 @@ def _register_commands():
     dp.message(Command("users"))(_master_only(cmd_users_impl))
     dp.message(Command("unvip"))(_master_only(cmd_unvip_impl))
     dp.message(Command("block"))(_master_only(cmd_block_impl))
+    dp.message(Command("pair"))(_master_only(cmd_pair_impl))
+    dp.message(Command("devices"))(_master_only(cmd_devices_impl))
+    dp.message(Command("revoke"))(_master_only(cmd_revoke_impl))
+    dp.message(Command("export_chat"))(_master_only(cmd_export_chat_impl))
+    dp.message(Command("clear_chat"))(_master_only(cmd_clear_chat_impl))
+    dp.message(Command("забудь_задачи"))(_master_only(cmd_forget_tasks_impl))
+
+    async def _forget_tasks_cb(callback):
+        if is_master(callback.from_user.id):
+            await cb_forget_tasks_impl(callback)
+    dp.callback_query(F.data.in_({"forget_tasks:yes", "forget_tasks:no"}))(_forget_tasks_cb)
+
+    async def _power_cb(callback):
+        if not is_master(callback.from_user.id):
+            return
+        from sakura_core import power_confirm
+        _, verdict, pid = (callback.data or "power:no:").split(":", 2)
+        reply = await power_confirm.resolve("confirm" if verdict == "yes" else "deny", pid)
+        await callback.message.edit_text(reply or "Этот вопрос уже неактуален.")
+        await callback.answer()
+    dp.callback_query(F.data.startswith("power:"))(_power_cb)
 
 _register_commands()
+
+
+# ── Журнал чата: входящие Мастера и исходящие в его чат ───────────
+from sakura_core.chat_hooks import tg_incoming_middleware, tg_session_middleware
+dp.message.outer_middleware(tg_incoming_middleware)
+bot.session.middleware(tg_session_middleware())
 
 
 # ── Device control ─────────────────────────────────────────────
@@ -235,6 +265,10 @@ async def handle_message(message: Message):
                 await bot.send_message(MASTER_ID, "Хорошо, остановилась.")
         except Exception:
             pass
+        return
+
+    from sakura_core import power_confirm
+    if await power_confirm.handle_answer(text, "telegram"):
         return
 
     from sakura_core.bridge import handle_v3_confirm

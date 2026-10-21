@@ -31,7 +31,6 @@ from modules.integrations import (
     should_comment_music, get_current_music_from_window,
     make_music_comment_prompt, mark_music_commented,
 )
-from modules.mood_vector import get_orb_params
 from modules.evening_pulse import check_pc_health
 from modules.presence_sync import update as ps_update, check_device_transfer, broadcast_transfer
 from modules.notification_tracker import add_notification
@@ -124,7 +123,39 @@ async def handle_register(websocket, data, ctx) -> None:
     await asyncio.to_thread(ps_update, device_id, data)
 
 
-# ── ping ───────────────────────────────────────────────────────────────
+async def announce_presence_transfer() -> None:
+    """Сменилось активное устройство → сообщить клиентам (proto 2 — presence,
+    proto 1 — mood_update с is_arrival/is_departure)."""
+    transfer = await asyncio.to_thread(check_device_transfer, st.connected_devices)
+    if transfer:
+        await broadcast_transfer(transfer, st.connected_devices)
+
+
+# ── bye ────────────────────────────────────────────────────────────────
+
+async def handle_bye(websocket, data, ctx) -> None:
+    """{"type": "bye", "device_id", "reason": shutdown|sleep|exit}: ПК уходит —
+    сразу офлайн с причиной (не ждём закрытия сокета). Только master."""
+    device_id = data.get("device_id")
+    if not is_master_device(device_id):
+        return
+    from modules import presence_sync
+    from modules.device_manager import set_device_offline
+    from sakura_core import proto_devices
+    reason = data.get("reason")
+    reason = reason if reason in presence_sync.BYE_REASONS else "exit"
+    await asyncio.to_thread(presence_sync.mark_bye, device_id, reason)
+    await asyncio.to_thread(set_device_offline, device_id, reason)
+    log.info(f"[ws] bye device_id={device_id} reason={reason}")
+    try:
+        await proto_devices.push_device(device_id, force=True)
+        await proto_devices.push_status()
+        await announce_presence_transfer()
+    except Exception as e:
+        log.debug(f"[ws] bye {device_id}: {type(e).__name__}: {e}")
+
+
+# ── ping ───────────────────────────────────────────────────────────
 
 async def handle_ping(websocket, data, ctx) -> None:
     ask_gemini = ctx["ask_gemini"]
@@ -188,10 +219,7 @@ async def handle_ping(websocket, data, ctx) -> None:
                 mark_music_commented()
 
     await asyncio.to_thread(ps_update, device_id, data)
-    transfer = await asyncio.to_thread(check_device_transfer, st.connected_devices)
-    if transfer:
-        mood_params = await asyncio.to_thread(get_orb_params)
-        await broadcast_transfer(transfer, st.connected_devices, mood_params)
+    await announce_presence_transfer()
 
     sys_info = data.get("system_info", {})
     if sys_info:
@@ -457,14 +485,15 @@ async def _handle_command_result(websocket, data, ctx) -> None:
         # сам; followup == ack → молча (ответ уже дан — «Готово» в мосте).
         from sakura_core.registry import followup_for as _followup_for
         if _followup_for(music.get("action", "")) == "ack":
-            if music.get("action") == "music_like" and st._current_track:
+            _trk = st.device_track(dev_m) or st.prompt_track()
+            if music.get("action") == "music_like" and _trk:
                 try:
-                    like_artist(st._current_track.get("artist", ""), "лайк от Мастера")
+                    like_artist(_trk.get("artist", ""), "лайк от Мастера")
                 except Exception as e:
                     log.debug(f"[ws] handle_command_result: {type(e).__name__}: {e}")
-            elif music.get("action") == "music_dislike" and st._current_track:
+            elif music.get("action") == "music_dislike" and _trk:
                 try:
-                    dislike_artist(st._current_track.get("artist", ""), "дизлайк от Мастера")
+                    dislike_artist(_trk.get("artist", ""), "дизлайк от Мастера")
                 except Exception as e:
                     log.debug(f"[ws] handle_command_result: {type(e).__name__}: {e}")
             return
@@ -606,8 +635,9 @@ def update_current_track(data) -> None:
     """Обновляет текущий трек из любого сообщения агента."""
     if data.get("current_track"):
         track = data["current_track"]
-        _prev = dict(st._current_track)
-        st._current_track.update(track)
+        _dev = data.get("device_id") or "laptop"
+        _prev = dict(st.device_track(_dev))
+        st.set_device_track(_dev, track)
         log.debug(f"[track] Трек: {track.get('artist','')} — {track.get('title','')} [{track.get('status','')}]")
         if track.get("status") == "играет" and track.get("title"):
             _new_key = f"{track.get('artist','')}|{track.get('title','')}"

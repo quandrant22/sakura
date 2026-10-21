@@ -31,7 +31,7 @@ PROTO = 2
 V2_REQUESTS = frozenset({
     "chat_send", "history_request", "chat_read", "chat_search",
     "chat_delete", "chat_clear",
-    "devices_request", "status_request",
+    "devices_request", "status_request", "secure_devices",
     "scenarios_list", "scenario_get", "scenario_save", "scenario_delete",
     "scenario_run", "scenario_from_text",
     "memory_list", "memory_search", "memory_update", "memory_delete",
@@ -39,6 +39,30 @@ V2_REQUESTS = frozenset({
 })
 
 Handler = Callable[[object, dict, dict], Awaitable[dict | None]]
+
+# Приватные классы (чат, история, память, профиль): только secure-соединение
+# (docs/security/PROTOCOL.md §5.1). Второй рубеж после adapters/ws.
+PRIVATE_PREFIXES = ("chat_", "history_", "memory_", "profile_", "secure_")
+
+
+def is_private(kind: str | None) -> bool:
+    return (kind or "").startswith(PRIVATE_PREFIXES)
+
+
+def connection_secure(websocket) -> bool:
+    """Noise (обёртка с secure=True) или локальный источник по политике
+    securechannel; без модуля политики — не secure (DECISIONS S9)."""
+    if getattr(websocket, "secure", False) is True:
+        return True
+    try:
+        # Модуль политики — из feat/securechannel; без него (выкатили раньше)
+        # приватное не открывается (importlib — чтобы проверка ссылок не
+        # требовала модуль, которого в этой ветке ещё нет).
+        import importlib
+        secure_policy = importlib.import_module("sakura_core.secure_policy")
+    except ImportError:
+        return False
+    return secure_policy.is_local_peer(secure_policy.peer_ip(websocket))
 _HANDLERS: dict[str, Handler] = {}
 
 
@@ -126,6 +150,13 @@ async def handle(websocket, data: dict, ctx: dict) -> None:
     if not _is_master(device_id):
         await error("not_master", f"{kind}: только для master-устройств")
         return
+    if is_private(kind) and not connection_secure(websocket) \
+            and getattr(config, "PRIVATE_REQUIRES_SECURE", True):
+        await _send(websocket, {"type": "error", "request_id": rid,
+                                "code": "secure_channel_required",
+                                "message": "нужен защищённый канал",
+                                "hint": "подключитесь через защищённый канал (Noise) или VPN"})
+        return
     fn = _HANDLERS.get(kind)
     if fn is None:
         await error("unsupported", f"{kind}: пока не поддерживается")
@@ -147,6 +178,10 @@ async def handle(websocket, data: dict, ctx: dict) -> None:
 def _load_portions() -> None:
     """Порции протокола, выкатываемые без шифрования: устройства и статус."""
     from sakura_core import proto_devices  # noqa: F401
+    from sakura_core import proto_chat  # noqa: F401
+    from sakura_core import proto_memory  # noqa: F401
+    from sakura_core import proto_profile  # noqa: F401
+    from sakura_core import proto_scenarios  # noqa: F401
 
 
 _load_portions()

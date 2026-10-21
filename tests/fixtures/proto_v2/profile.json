@@ -1,0 +1,2 @@
+{"name": "Хозяин", "address_as": "ты", "quiet_hours": "23:00-07:00",
+ "voice": "Leda", "tone": "calm", "notifications": {"telegram": true, "sound": true}}

@@ -113,6 +113,8 @@ class Session:
     def expect(self, kind: str, *, action: Optional[str] = None,
                device: Optional[str] = None, ttl: float = DEFAULT_TTL,
                payload: Optional[dict] = None) -> Pending:
+        from sakura_core import power_confirm
+        power_confirm.supersede("задан другой вопрос")
         self._pending = Pending(kind=kind, action=action, device=device,
                                 until=time.monotonic() + ttl,
                                 payload=dict(payload or {}))

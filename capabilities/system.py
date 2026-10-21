@@ -27,7 +27,6 @@ SYSTEM_AGENT_ACTIONS = (
     "system.shutdown",
     "system.shutdown_cancel",
     "system.restart",
-    "system.sleep",
     "system.lock",
     "system.volume",
 )

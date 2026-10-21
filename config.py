@@ -37,6 +37,13 @@ WS_SECRET = os.getenv("WS_SECRET", "")
 MASTER_DEVICES = set(
     d.strip() for d in os.getenv("MASTER_DEVICES", "laptop,pc").split(",") if d.strip()
 )
+# Известные устройства (modules/device_manager.KNOWN_DEVICES): список id через запятую.
+DEVICES = [d.strip() for d in os.getenv("DEVICES", "pc,laptop,mostech,phone").split(",") if d.strip()]
+# Нити разговора (modules/threads.py): по умолчанию выключены.
+THREADS = os.getenv("THREADS", "off").strip().lower() in ("1", "true", "yes", "on")
+# Рассылка вектора настроения всем клиентам (mood_update). По умолчанию выключена;
+# переходы между ПК (presence) от флага не зависят.
+MOOD_BROADCAST = os.getenv("MOOD_BROADCAST", "off").strip().lower() in ("1", "true", "yes", "on")
 CONFIRM_LISTEN_SEC = float(os.getenv("CONFIRM_LISTEN_SEC", "10"))
 # Шлюз «классификатор ∥ голосовой стрим»: без вердикта дольше этого —
 # считаем «не команда» (adapters/voice.py VoiceGate).
@@ -48,6 +55,27 @@ VOICE_GATE_WAIT_S = float(os.getenv("VOICE_GATE_WAIT_S", "4.0"))
 COMPUTER_USE = os.getenv("COMPUTER_USE", "0").strip().lower() in ("1", "true", "yes")
 COMPUTER_MAX_STEPS = 20
 COMPUTER_MAX_SHOT_BYTES = 400 * 1024
+# Защищённый канал Noise поверх WebSocket (securechannel/, docs/security):
+# off — только старый протокол (JSON + token); optional — Noise и токен;
+# required — только Noise. Ключ сервера и реестр устройств — SECURE_DIR (600).
+SECURE_CHANNEL = os.getenv("SECURE_CHANNEL", "off").strip().lower()
+SECURE_DIR = os.getenv("SECURE_DIR", "memory/secure")
+SECURE_BACKEND = os.getenv("SECURE_BACKEND", "lib").strip().lower()   # lib | edu
+# Адрес сервера для QR спаривания (клиент подключается к нему).
+SECURE_PUBLIC_URL = os.getenv("SECURE_PUBLIC_URL", "ws://31.76.80.5:8765")
+# Журнал чата (modules/chat_log.py): SQLite вне git, права 600.
+CHAT_DB_PATH = os.getenv("CHAT_DB_PATH", "memory/chat.db")
+# 1 — запись журнала на паузе (как после команды «не записывай»).
+CHAT_LOG_PAUSED = os.getenv("CHAT_LOG_PAUSED", "0").strip().lower() in ("1", "true", "yes")
+# 1 — писать в журнал и подтверждения команд («Готово.», «Выполняю.»).
+CHAT_LOG_ACKS = os.getenv("CHAT_LOG_ACKS", "0").strip().lower() in ("1", "true", "yes")
+try:
+    # Срок хранения журнала в днях; 0 — бессрочно.
+    CHAT_LOG_RETENTION_DAYS = max(0, int(os.getenv("CHAT_LOG_RETENTION_DAYS", "0")))
+except ValueError:
+    CHAT_LOG_RETENTION_DAYS = 0
+# Приватные классы v2 (чат, память, профиль) — только secure-соединение.
+PRIVATE_REQUIRES_SECURE = os.getenv("PRIVATE_REQUIRES_SECURE", "1").strip().lower() not in ("0", "false", "no")
 # Протокол v2 настольного клиента (sakura_core/proto_v2.py): 0 — сервер
 # ведёт себя как v1 (нет registered, запросы v2 — error/unsupported).
 PROTO_V2 = os.getenv("PROTO_V2", "1").strip().lower() not in ("0", "false", "no", "")
@@ -217,3 +245,5 @@ def mark_key_exhausted(key: str):
 # Эпизоды «Выполнила команду: …» (executor) — служебный след, не память:
 # 199 из 199 эпизодов были такими. 0 — не писать (по умолчанию).
 EPISODES_LOG_COMMANDS = os.getenv("EPISODES_LOG_COMMANDS", "0").strip().lower() in ("1", "true", "yes")
+PROFILE_PATH = os.getenv("PROFILE_PATH", "memory/profile_v2.json")
+SCENARIOS_PATH = os.getenv("SCENARIOS_PATH", "memory/scenarios.json")

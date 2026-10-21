@@ -140,18 +140,34 @@ def _peer(websocket) -> str:
     return str(addr)
 
 
+async def _presence_input(device_id: str) -> None:
+    """Ввод на устройстве → оно активное; сменилось — сообщить клиентам.
+    Ошибки только в лог."""
+    try:
+        from modules import presence_sync
+        from sakura_core.ws_protocol import announce_presence_transfer
+        await asyncio.to_thread(presence_sync.note_input, device_id)
+        await announce_presence_transfer()
+    except Exception as e:
+        log.warning(f"[ws] presence-input {device_id}: {type(e).__name__}: {e}")
+
+
 async def ws_handler(websocket):
     from adapters.telegram import bot, send_to_master, send_safe
     from modules.ws_auth import check_token, is_master_device, reject
     from modules.ws_auth import WS_AUTH_TIMEOUT_SECONDS
     from modules.device_manager import set_device_offline
     from modules.presence_sync import set_offline as ps_offline
+    from modules import presence_sync
     from modules.rituals import should_farewell, get_farewell_prompt
     from modules.app_mapping import find_vip_by_name
     from sakura_core.memory_tasks import clean_slate
     from sakura_core.apps import analyze_apps, analyze_screen_context
     from sakura_core.llm import ask_gemini, ask_gemini_voice
     from adapters.voice import _get_active_ws
+
+    from sakura_core import secure_policy
+    from securechannel.frames import is_secure_frame
 
     device_id = None
     log.info(f"[ws] connection open {_peer(websocket)}")
@@ -164,12 +180,49 @@ async def ws_handler(websocket):
             await reject(websocket, reason="authentication timeout")
             return
 
+        # ── защищённый канал (docs/security/PROTOCOL.md) ─────────────
+        # Первое сообщение — кадр Noise: рукопожатие, дальше websocket —
+        # обёртка, которая сама шифрует и расшифровывает JSON.
+        sc_mode = secure_policy.mode()
+        noise_device = None
+        if is_secure_frame(first_raw):
+            if sc_mode == "off":
+                log.info(f"[ws] transport=noise secure=false {_peer(websocket)} — "
+                         f"SECURE_CHANNEL=off, закрытие 4400")
+                await websocket.close(4400, "secure channel disabled")
+                return
+            from securechannel.server import accept
+            conn = await accept(websocket, bytes(first_raw), secure_policy.context())
+            if conn is None:
+                return                      # спаривание или отказ — уже закрыто
+            websocket, noise_device = conn, conn.device_id
+            try:
+                first_raw = await asyncio.wait_for(websocket.recv(),
+                                                   timeout=WS_AUTH_TIMEOUT_SECONDS)
+            except asyncio.TimeoutError:
+                await websocket.close(4408, "no register")
+                return
+        elif sc_mode == "required":
+            log.info(f"[ws] transport=ws secure=false {_peer(websocket)} — "
+                     f"SECURE_CHANNEL=required, закрытие 4412")
+            await websocket.close(4412, "secure channel required")
+            return
+        conn_secure = noise_device is not None or secure_policy.is_local_peer(
+            secure_policy.peer_ip(websocket))
+        log.info(f"[ws] transport={'noise' if noise_device else 'ws'} "
+                 f"secure={str(conn_secure).lower()} {_peer(websocket)}"
+                 + (f" device={noise_device}" if noise_device else ""))
+
+        def _authorized(msg: dict) -> bool:
+            # Noise: устройство уже доказало ключ — токен не нужен.
+            return noise_device is not None or check_token(msg)
+
         try:
             first_data = json.loads(first_raw)
         except (TypeError, ValueError):
             await reject(websocket, reason="invalid authentication message")
             return
-        if not isinstance(first_data, dict) or not check_token(first_data):
+        if not isinstance(first_data, dict) or not _authorized(first_data):
             await reject(websocket, reason="invalid token on first message")
             return
 
@@ -183,15 +236,33 @@ async def ws_handler(websocket):
                 data     = json.loads(raw)
                 msg_type = data.get("type")
 
-                if not check_token(data):
+                if not _authorized(data):
                     await reject(websocket, reason=f"invalid token on '{msg_type}'")
                     return
+                if noise_device is not None:
+                    # device_id — из реестра по ключу Noise, не из сообщения.
+                    if data.get("device_id") not in (None, noise_device):
+                        log.warning(f"[ws] transport=noise device={noise_device}: "
+                                    f"в сообщении device_id={data.get('device_id')!r} — заменён")
+                    data["device_id"] = noise_device
+                if (secure_policy.is_private(msg_type) and not conn_secure
+                        and secure_policy.requires_secure()):
+                    log.info(f"[ws] transport=ws secure=false {_peer(websocket)}: "
+                             f"'{msg_type}' только по защищённому каналу")
+                    await websocket.send(json.dumps(
+                        secure_policy.secure_error(data.get("request_id")), ensure_ascii=False))
+                    continue
 
                 dev_from_msg = data.get("device_id")
                 if msg_type in ("voice_command", "apps_list"):
                     if not is_master_device(dev_from_msg):
                         await reject(websocket, reason=f"'{msg_type}' denied: not master device ({dev_from_msg!r})")
                         return
+
+                if msg_type in presence_sync.INPUT_TYPES and is_master_device(dev_from_msg):
+                    # Голос или текст с устройства → оно активное сразу.
+                    # Фоном: голосовой ход не ждёт присутствие.
+                    spawn(_presence_input(dev_from_msg), name="presence-input")
 
                 _ctx = {
                     "ask_gemini": ask_gemini,
@@ -214,6 +285,7 @@ async def ws_handler(websocket):
                 HANDLERS = {
                     "register": handle_register,
                     "ping": handle_ping,
+                    "bye": handle_bye,
                     "apps_list": handle_apps_list,
                     "screen_context": handle_screen_context,
                     "command_result": handle_command_result,
@@ -321,6 +393,7 @@ from sakura_core.send import (
 from sakura_core.ws_protocol import (
     handle_register,
     handle_ping,
+    handle_bye,
     handle_apps_list,
     handle_screen_context,
     handle_kettle_ready,
@@ -340,6 +413,34 @@ async def _handle_pending(text, text_lower, _mk, ws_dev, device_id, ctx, data) -
     return await _handle_pending_core(text, text_lower, _mk, ws_dev, device_id, ctx, data)
 
 
+async def _maybe_run_scenario(data, ws_dev, ctx, speak) -> bool:
+    """Фраза-условие сценария (v1): запуск сценария вместо обычного разбора.
+    Сценарий с опасными действиями голосом не запускается."""
+    from sakura_core import scenarios
+    try:
+        s = await asyncio.to_thread(scenarios.match_phrase, data.get("text") or "")
+    except Exception as e:
+        log.debug(f"[scenario] фраза: {type(e).__name__}: {e}")
+        return False
+    if s is None:
+        return False
+    if scenarios.dangerous_actions(s):
+        await speak(f"У сценария «{s['name']}» есть опасные действия — запусти его из приложения.")
+        return True
+    await speak(f"Запускаю сценарий «{s['name']}».")
+
+    async def _emit(event):
+        if ws_dev is not None:
+            try:
+                await ws_dev.send(json.dumps(event, ensure_ascii=False))
+            except Exception:
+                pass
+    spawn(scenarios.run(s, emit=_emit, device_ws=ws_dev, device_id=data.get("device_id"),
+                        register_command=ctx.get("_register_command")),
+          name=f"scenario-{s['id']}")
+    return True
+
+
 async def handle_voice_command(websocket, data, ctx) -> None:
     """Голосовой ход целиком: любой выход (в т.ч. ранние return — стоп
     озвучки, v3 confirm, pending — и исключения) закрывается tts_end.
@@ -353,6 +454,15 @@ async def handle_voice_command(websocket, data, ctx) -> None:
     device_id = data.get("device_id")
     ws_dev = st.connected_devices.get(device_id)
     try:
+        # Журнал чата: запрос — в журнал; «не записывай»/«запись» — здесь же.
+        async def _speak(phrase):
+            if ws_dev is not None:
+                await stream_tts_to_device(phrase, ws_dev, device_id or "laptop", literal=True)
+        from sakura_core import chat_hooks
+        if await chat_hooks.on_voice_request(data, _speak):
+            return
+        if await _maybe_run_scenario(data, ws_dev, ctx, _speak):
+            return
         await _handle_voice_command_inner(websocket, data, ctx, t_recv)
     finally:
         # Команда агенту с подтверждением: ход закроет tts_end самой фразы
@@ -398,6 +508,11 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
                                            device_id or "laptop", literal=True)
         except Exception:
             pass
+        return
+
+    # ── Подтверждение выключения/перезагрузки/сна: «да»/«нет» откуда угодно ──
+    from sakura_core import power_confirm
+    if await power_confirm.handle_answer(text, device_id):
         return
 
     # ── v3 (этап 5): confirm-диалог реестра проверяется ДО v2 _pending_system:

@@ -25,7 +25,12 @@ async def broadcast_mood(connected_devices: dict):
     """
     Рассылает текущие параметры орба всем подключённым устройствам.
     Не падает если устройств нет или WS закрыт.
+    По умолчанию выключена (config.MOOD_BROADCAST=off): клиенты считают
+    настроение сами, переходы между ПК идут отдельно (presence_sync).
     """
+    import config
+    if not getattr(config, "MOOD_BROADCAST", False):
+        return
     try:
         from modules.mood_vector import get_orb_params
         params = await asyncio.to_thread(get_orb_params)

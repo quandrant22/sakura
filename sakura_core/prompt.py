@@ -143,7 +143,8 @@ async def _build_system(
     import asyncio
     import time as _t
 
-    from modules.state import _current_track
+    from modules.state import prompt_track
+    _current_track = prompt_track()
     from modules.state_arbiter import get_current_emotion
 
     # Кэшируем только типичный случай (Telegram, без calendar, без query)

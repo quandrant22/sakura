@@ -152,15 +152,17 @@ def test_registered_and_old_client(server):
 
 
 def test_errors_not_master_unsupported_and_disabled(server, monkeypatch):
+    # loopback по политике securechannel считается защищённым — форсируем «без защиты»
+    monkeypatch.setattr("sakura_core.proto_v2.connection_secure", lambda ws: False)
     async def sc(uri):
         g = await connect(uri, GUEST)
         e1 = await g.request({"type": "devices_request"})
         m = await connect(uri, MASTER)
-        e2 = await m.request({"type": "history_request"})       # порция 1 — не здесь
+        e2 = await m.request({"type": "history_request"})       # приватное, без защиты
         return e1, e2
     e1, e2 = run(sc)
     assert (e1["type"], e1["code"]) == ("error", "not_master")
-    assert (e2["type"], e2["code"]) == ("error", "unsupported")
+    assert (e2["type"], e2["code"]) == ("error", "secure_channel_required")
 
     monkeypatch.setattr(config, "PROTO_V2", False)
 
@@ -320,3 +322,37 @@ def test_heartbeat_error_does_not_break_ping(server, monkeypatch):
         return await a.request({"type": "devices_request"})
     r = run(sc)
     assert r["type"] == "devices" and r["devices"][0]["focus"] is False
+
+
+def test_voice_handler_does_not_wait_for_presence_input(server, monkeypatch):
+    """note_input идёт фоновой задачей: голосовой обработчик стартует, не дожидаясь его."""
+    import time
+    ts = {}
+
+    def slow_note_input(device_id):
+        time.sleep(0.5)
+        ts["note_done"] = time.monotonic()
+
+    async def fake_handler(websocket, data, ctx):
+        ts["handler"] = time.monotonic()
+
+    monkeypatch.setattr(presence, "note_input", slow_note_input)
+    monkeypatch.setattr(wh, "handle_voice_command", fake_handler)
+
+    async def sc(uri):
+        c = await connect(uri, MASTER)
+        await c.send({"type": "voice_command", "text": "привет"}, rid=False)
+        await asyncio.sleep(0.9)
+
+    run(sc)
+    assert "handler" in ts and "note_done" in ts
+    assert ts["handler"] < ts["note_done"] - 0.3
+
+
+def test_presence_input_errors_only_logged(monkeypatch, caplog):
+    def boom(device_id):
+        raise RuntimeError("x")
+    monkeypatch.setattr(presence, "note_input", boom)
+    asyncio.run(wh._presence_input("laptop"))
+    assert "presence-input" in caplog.text
+

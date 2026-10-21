@@ -16,9 +16,13 @@ _pending_clarify: dict[str, dict] = {}   # master_key → {"text", "main", "alt"
 _last_executed: dict[str, dict] = {}     # master_key → {"text", "action", "ts"}
 _pending_plan: dict[str, dict] = {}      # master_key → {"text", "plan", "ts"}
 _pending_system: dict[str, dict] = {}    # master_key → {"action", "device", "ts"} — подтверждение опасных system:* команд, TTL 60с
+_pending_power: dict = {}                # подтверждение выключения/перезагрузки/сна ПК (sakura_core/power_confirm.py)
 _plan_cancel: dict[str, bool] = {}       # master_key → True если отмена
 _last_command_ts: float = 0.0   # время последней выполненной команды
-_current_track: dict = {}       # текущий играющий трек (из агента)
+# Трек — отдельно по устройствам; новая запись заменяет старую целиком.
+# device_id → {"track": dict, "ts": monotonic времени приёма}
+device_tracks: dict[str, dict] = {}
+TRACK_MAX_AGE_S = 60.0          # старше — агент перестал сообщать, трек не считаем
 
 # ── Прерывание долгой озвучки (полный список ачивок и др.) ───────────
 # key = device_id (голос) или "tg" (телеграм-канал).
@@ -64,3 +68,48 @@ def check_confirmation(text: str) -> str | None:
     from sakura_core.session import check_confirmation as _check_confirmation
 
     return _check_confirmation(text)
+
+
+# ── Треки по устройствам ─────────────────────────────────────────────
+
+def _track_playing(track: dict | None) -> bool:
+    return bool(track and track.get("title") and track.get("status") == "играет")
+
+
+def set_device_track(device_id: str, track: dict, now: float | None = None) -> None:
+    """Запись целиком (не merge): поля прежнего трека не переживают новый."""
+    import time
+    device_tracks[device_id or "laptop"] = {
+        "track": dict(track), "ts": time.monotonic() if now is None else now}
+
+
+def device_track(device_id: str | None, now: float | None = None) -> dict:
+    """Свежий трек устройства или {}."""
+    import time
+    rec = device_tracks.get(device_id or "")
+    if not rec:
+        return {}
+    t = time.monotonic() if now is None else now
+    return rec["track"] if t - rec["ts"] <= TRACK_MAX_AGE_S else {}
+
+
+def prompt_track(active: str | None = None, now: float | None = None) -> dict:
+    """Трек для промпта: активного ПК; если там тишина — самый свежий играющий
+    трек любого ПК не старше TRACK_MAX_AGE_S; иначе (пауза) трек активного."""
+    import time
+    t = time.monotonic() if now is None else now
+    if active is None:
+        try:
+            from modules.presence_sync import get_active_device
+            active = get_active_device()
+        except Exception:
+            active = None
+    own = device_track(active, t)
+    if _track_playing(own):
+        return own
+    best, best_ts = {}, None
+    for rec in list(device_tracks.values()):
+        if t - rec["ts"] <= TRACK_MAX_AGE_S and _track_playing(rec["track"]) \
+                and (best_ts is None or rec["ts"] > best_ts):
+            best, best_ts = rec["track"], rec["ts"]
+    return best or (own if own.get("title") else {})

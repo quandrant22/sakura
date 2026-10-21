@@ -81,6 +81,37 @@ def get_location_context(hour: int, minute: int, weekday: int) -> dict:
     return {"location": "home", "status": "free", "desc": "дома, выходной"}
 
 
+# ─────────────────────────────────────────────
+#  Реальное присутствие (presence_sync.get_master_presence)
+# ─────────────────────────────────────────────
+
+_DEV_INS = {"pc": "игровым ПК", "laptop": "ноутбуком", "mostech": "рабочим ноутбуком"}
+_DEV_GEN = {"pc": "игрового ПК", "laptop": "ноутбука", "mostech": "рабочего ноутбука"}
+
+
+def describe_presence(p: dict) -> str:
+    """Фраза для промпта: «Мастер за игровым ПК» / «Мастер отошёл от ноутбука
+    25 мин назад» / «Все компьютеры выключены с 23:10» / «Мастер на работе
+    за рабочим ноутбуком»."""
+    dev = p.get("device")
+    state = p["state"]
+    if state == "at_pc":
+        return f"Мастер за {_DEV_INS.get(dev, dev)}"
+    if state == "at_work":
+        return f"Мастер на работе за {_DEV_INS.get(dev, dev)}"
+    if state == "away_from_pc":
+        mins = int((p.get("idle_s") or 0) // 60)
+        ago = f"{mins} мин" if mins < 120 else f"{mins // 60} ч"
+        return f"Мастер отошёл от {_DEV_GEN.get(dev, dev)} {ago} назад"
+    since = p.get("since")
+    if not since:
+        return "Все компьютеры выключены"
+    t = datetime.fromtimestamp(since)
+    when = t.strftime("%H:%M") if t.date() == datetime.now().date() else t.strftime("%d.%m %H:%M")
+    verb = "в спящем режиме" if p.get("reason") == "sleep" else "выключены"
+    return f"Все компьютеры {verb} с {when}"
+
+
 def get_time_of_day(hour: int, minute: int = 0) -> str:
     # Около полуночи час не говорит модели главного: 23:58 — ещё не ночь,
     # 00:10 — уже не вечер. Метка — чтобы не путала «полночь» и «час ночи».
@@ -250,8 +281,29 @@ def get_full_context(active_window_override: str | None = None) -> dict:
         devices.setdefault(active, {})["online"]        = True
         devices[active]["active_window"]                = active_window_override
 
-    location = get_location_context(now.hour, now.minute, weekday)
-    window   = parse_active_window(devices)
+    schedule = get_location_context(now.hour, now.minute, weekday)
+    try:
+        from modules.presence_sync import get_master_presence
+        pres = get_master_presence()
+    except Exception:
+        pres = None
+    state = pres["state"] if pres else None
+    if state == "at_pc":
+        location = {"location": "home", "status": "free", "desc": describe_presence(pres)}
+    elif state == "at_work":
+        location = {"location": "work", "status": "working", "desc": describe_presence(pres)}
+    elif state == "away_from_pc":
+        location = {"location": "away", "status": "away", "desc": describe_presence(pres)}
+    elif state == "pcs_off":
+        # расписание — запасной вариант, когда все ПК выключены
+        location = {**schedule, "desc": f"{describe_presence(pres)}; по расписанию: {schedule['desc']}"}
+    else:
+        location = schedule
+    # Мастер не у ПК — окно просто осталось открытым: не «играет» и не «в коде»
+    if state in ("away_from_pc", "pcs_off"):
+        window = {"window": None, "activity": "unknown", "is_game": False, "app": None}
+    else:
+        window = parse_active_window(devices)
     health   = get_system_health(devices)
     body     = get_health_snapshot()
 
@@ -264,6 +316,7 @@ def get_full_context(active_window_override: str | None = None) -> dict:
         "master": {
             "location": location["location"], "status": location["status"],
             "location_desc": location["desc"], "silence_minutes": get_silence_minutes(),
+            "presence_state": state, "schedule_desc": schedule["desc"],
             "activity": window["activity"], "active_window": window["window"],
             "is_gaming": window["is_game"], "current_app": window["app"],
         },
@@ -301,6 +354,11 @@ def get_presence(ctx: dict) -> dict:
     if 2 <= hour < 7:
         mode, d = "deep_night", ("Глубокая ночь. Он спит или должен спать. Молчи — это и есть забота. "
                                  "Если написал сам — тихо, коротко, тепло, без затей.")
+    elif m.get("presence_state") in ("away_from_pc", "pcs_off"):
+        mode = "away_pc" if m["presence_state"] == "away_from_pc" else "pcs_off"
+        d = "Он не у компьютера. Голосом на ПК не говори — если пишешь, то в Telegram."
+        if mode == "pcs_off":
+            d += f" По расписанию: {m.get('schedule_desc', '')}."
     elif m["is_gaming"]:
         genre = _game_genre(m["current_app"])
         base  = "Он играет. Ты рядом штурманом: коротко, по делу, молчишь в напряжённый момент."
