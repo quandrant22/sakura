@@ -1,0 +1,177 @@
+[[commands]]
+id = "browser_tab_new"
+type = "action"
+action = "browser"
+args = "tab_new"
+priority = 10
+description = "Open a new browser tab"
+
+phrases.ru = [
+    "новая вкладка",
+    "открой вкладку",
+    "открой новую вкладку",
+]
+phrases.en = [
+    "new tab",
+    "open tab",
+]
+
+keywords = ["новая вкладка", "вкладку"]
+
+[[commands]]
+id = "browser_tab_close"
+type = "action"
+action = "browser"
+args = "tab_close"
+priority = 10
+description = "Close current browser tab"
+
+phrases.ru = [
+    "закрой вкладку",
+    "закрой таб",
+    "закрой эту вкладку",
+]
+phrases.en = [
+    "close tab",
+]
+
+[[commands]]
+id = "browser_tab_dup"
+type = "action"
+action = "browser"
+args = "tab_dup"
+priority = 10
+description = "Duplicate current tab"
+
+phrases.ru = [
+    "дублируй вкладку",
+    "скопируй вкладку",
+]
+
+[[commands]]
+id = "browser_tab_next"
+type = "action"
+action = "browser"
+args = "tab_next"
+priority = 10
+description = "Switch to next tab"
+
+phrases.ru = [
+    "следующая вкладка",
+    "таб вперёд",
+    "следующий таб",
+]
+
+[[commands]]
+id = "browser_tab_prev"
+type = "action"
+action = "browser"
+args = "tab_prev"
+priority = 10
+description = "Switch to previous tab"
+
+phrases.ru = [
+    "предыдущая вкладка",
+    "таб назад",
+    "предыдущий таб",
+]
+
+[[commands]]
+id = "browser_back"
+type = "action"
+action = "browser"
+args = "back"
+priority = 10
+description = "Go back in browser"
+
+phrases.ru = [
+    "назад в браузере",
+    "вернись назад",
+    "страница назад",
+]
+
+[[commands]]
+id = "browser_forward"
+type = "action"
+action = "browser"
+args = "forward"
+priority = 10
+description = "Go forward in browser"
+
+phrases.ru = [
+    "вперёд в браузере",
+    "страница вперёд",
+]
+
+[[commands]]
+id = "browser_reload"
+type = "action"
+action = "browser"
+args = "reload"
+priority = 10
+description = "Reload page"
+
+phrases.ru = [
+    "обнови страницу",
+    "перезагрузи страницу",
+    "обновить страницу",
+]
+
+[[commands]]
+id = "browser_scroll_down"
+type = "action"
+action = "browser"
+args = "scroll_down"
+priority = 10
+description = "Scroll down"
+
+phrases.ru = [
+    "прокрути вниз",
+    "листай вниз",
+    "вниз по странице",
+]
+
+[[commands]]
+id = "browser_scroll_up"
+type = "action"
+action = "browser"
+args = "scroll_up"
+priority = 10
+description = "Scroll up"
+
+phrases.ru = [
+    "прокрути вверх",
+    "листай вверх",
+    "вверх по странице",
+]
+
+[[commands]]
+id = "browser_search"
+type = "action"
+action = "browser"
+args = "search:{query}"
+priority = 15
+description = "Search in browser"
+
+phrases.ru = [
+    "найди в браузере",
+    "поищи в браузере",
+    "загугли",
+    "найди в интернете",
+]
+
+[commands.slots.query]
+entity = "search query"
+
+[[commands]]
+id = "browser_url"
+type = "action"
+action = "browser"
+args = "url:{url}"
+priority = 20
+description = "Open URL in browser"
+
+patterns = ["(?:открой|перейди|зайди)\\s+(https?://\\S+|[\\w-]+\\.[\\w]{2,}(?:/\\S*)?)"]
+
+[commands.slots.url]
+entity = "url"
