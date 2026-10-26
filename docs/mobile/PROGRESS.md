@@ -28,3 +28,4 @@
 | блок | состояние |
 |---|---|
 | M1 каркас | зависимости: appcompat, core, recyclerview, lifecycle, constraintlayout, viewpager2, material, OkHttp, bcprov, ZXing embedded, Vosk, CameraX (+ тестовые, D2); edge-to-edge, predictive back; бэкап запрещён; `assembleDebug testDebugUnitTest` — SUCCESSFUL |
+| M2 канал | `crypto/noise` (CipherState, SymmetricState, HandshakeState IK/XXpsk3 на BouncyCastle), `link` (FrameCodec, SecureChannel с rekey, SecureLink на OkHttp, Backoff 1→30 с, CloseCodes, secure_server_key), `pairing` (8 слов, PSK, QR с проверкой срока, отпечаток, PairingSession XXpsk3 со сверкой k), `keys` (X25519 под AES-GCM `sakura_wrap`); тесты: векторы cacophony, побайтные транскрипты сервера (IK, IK с rekey, XXpsk3, фрагмент > 64 КБ), кодек, нормализация, QR, wrap/unwrap — 30 passed |

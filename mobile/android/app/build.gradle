@@ -42,7 +42,9 @@ android {
         unitTests {
             includeAndroidResources = true
             all {
-                maxHeapSize = '1g'
+                maxHeapSize = '512m'
+                maxParallelForks = 1
+                jvmArgs '-XX:+UseSerialGC', '-XX:ReservedCodeCacheSize=128m', '-XX:MaxMetaspaceSize=384m'
             }
         }
     }
