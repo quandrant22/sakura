@@ -106,3 +106,19 @@ venv/bin/python scripts/cleanup_tasks.py               # копия в memory/ba
 | S2 action_run | `sakura_core/proto_actions.py` (в `_load_portions`): `action_run` → `action_started`, ошибки bad_request/not_found/not_master; тот же Executor, confirm и power_confirm (вопрос — reply kind=confirm, ответ — voice_command «да»/«нет»); без `device` — активный ПК; «да» с телефона исполняется на ПК, о котором спрашивали; pytest **1262 passed**, ruff = база |
 | S5 active и track | в `devices` и `device_update` добавлены `active: bool` и `track: {title, artist, status, cover_url\|null, ts}\|null` (из `state.device_tracks`, правило 60 с); device_update при смене трека/статуса (ws_protocol.update_current_track) и активного устройства (оба устройства); поля только добавлены; pytest **1267 passed**, ruff = база |
 | S6 vision_request с камеры | необязательное `source: "window"\|"camera"`; для камеры отдельный промпт «кадр с камеры телефона Мастера» (краткость, людей не опознавать, личные данные не пересказывать), те же лимиты/проверки JPEG-PNG/base64/права, кадр не логируется; неизвестный source → bad_request; pytest **1271 passed**, ruff = база |
+| S7 документы | `PROTOCOL.md` §11 «Телефон»; `DECISIONS.md` — раздел «Телефон» T1–T15; этот журнал; pytest **1271 passed** (tests/test_phone.py + tests/test_phone_ws.py — 72 прогона), ruff = база (2056) |
+
+### server/phone: выкат (описание, НЕ выполнялось)
+
+Хэш для отката: перед выкатом записать `git rev-parse HEAD` в `/opt/sakura`
+(на момент подготовки прод = `8dc9e6c`, откат: `git checkout 8dc9e6c` и
+`systemctl restart sakura`; `git reset --hard` запрещён правилами проекта).
+
+1. Резервная копия `memory/` в `memory/backup/predeploy-<дата>/`.
+2. Влить `server/phone` в master (`--no-ff`), весь набор тестов, push master — по обычному процессу владельца.
+3. На проде: `git fetch && git merge --ff-only origin/master`; `venv/bin/pip install -r requirements.txt` (новых зависимостей ветка не добавляет).
+4. `.env`: `SECURE_CHANNEL=optional` (Noise для телефона; ПК продолжают работать по токену), `MASTER_DEVICES` += `phone`. Необязательно: `PHONE_DEVICES=phone`, `SECURE_ONLY_MASTERS=phone` (значения по умолчанию).
+5. `systemctl restart sakura`. Проверка: сервис active, нет трейсбеков; ПК подключаются как раньше (proto 2, `registered.master=true`).
+6. Спарить телефон: в Telegram `/pair` → QR/8 слов в приложении (device_id hint `phone`); `/devices` показывает `phone`.
+7. Проверка телефона: `registered` с `master: true` только по Noise; «найди телефон» → команда на телефон; `action_run phone.find`; «выключи комп» → вопрос с `kind: confirm`; `speak:false` без `tts_chunk`/`tts_end`.
+8. Если телефон подключился не по Noise (токен/loopback) — он не master: это ожидаемо (`SECURE_ONLY_MASTERS`).
