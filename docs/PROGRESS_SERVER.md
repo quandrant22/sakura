@@ -92,3 +92,10 @@ venv/bin/python scripts/cleanup_tasks.py               # копия в memory/ba
 
 - Хэш до выката (откат: `git checkout 1b6f189d0ba99b2a346980078bc887898d3bc7bb`, `systemctl restart sakura`): **1b6f189d0ba99b2a346980078bc887898d3bc7bb**.
 - Причина: на проде телефон стал «активным устройством» (`Фокус переехал: none → phone`); теперь активным может быть только ПК.
+
+## server/phone (2026-10-26)
+
+| блок | состояние |
+|---|---|
+| старт | ветка `server/phone` от origin/master (8dc9e6c) |
+| базовая линия | не снята: Python 3.12 на машине не найден (`py -0` видит только 3.11), блоки S1–S7 не начаты |
