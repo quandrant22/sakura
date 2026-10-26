@@ -316,7 +316,8 @@ async def ws_handler(websocket):
                     # вытесняет незавершённый ход, а не ждёт его.
                     voice_turns.start(
                         dev_from_msg or "laptop", websocket,
-                        lambda d=data, c=_ctx: handler(websocket, d, c))
+                        lambda d=data, c=_ctx: handler(websocket, d, c),
+                        speak=data.get("speak") is not False)
                 elif handler:
                     await handler(websocket, data, _ctx)
                 else:

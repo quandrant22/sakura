@@ -7,6 +7,7 @@ Run: python -m pytest tests/test_phone.py -q
 import asyncio
 import json
 import re
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -271,3 +272,83 @@ def _run_with_env(monkeypatch, T, scenario):
     finally:
         _st.connected_devices.clear()
         _st.connected_devices.update(saved)
+
+
+# ── S3: speak:false ─────────────────────────────────────────────────
+
+def _silent_turn(ws, speak=False):
+    """Контекст хода как у voice_turns.start (без запуска задачи)."""
+    from sakura_core import voice_turns
+    turn = voice_turns.Turn(turn_id="t1", device_id="laptop", ws=ws, speak=speak)
+    return voice_turns, voice_turns.use(turn), turn
+
+
+def test_silent_turn_sends_reply_only_without_synthesis(monkeypatch):
+    import modules.tts_server as tts
+    ws = WS()
+
+    async def boom(*a, **k):
+        raise AssertionError("Live-синтез в тихом ходе не нужен")
+    monkeypatch.setattr(tts, "_synthesize_and_stream", boom)
+    monkeypatch.setattr(tts, "_live_synthesize", boom)
+    vt, tok, _turn = _silent_turn(ws)
+    try:
+        async def go():
+            await tts.stream_tts_to_device("Готово, Мастер.", ws, "laptop", literal=True,
+                                           reply_kind="llm")
+            await tts._send_end(ws, "laptop")
+            await tts.ensure_turn_end(ws, "laptop", 0.0)
+        asyncio.run(go())
+    finally:
+        vt.reset(tok)
+    assert [m["type"] for m in ws.sent] == ["reply"]
+    assert ws.sent[0]["text"] == "Готово, Мастер." and ws.sent[0]["turn_id"] == "t1"
+    assert not ws.of("tts_chunk") and not ws.of("tts_end")
+
+
+def test_silent_turn_does_not_open_live_session(monkeypatch):
+    import modules.tts_server as tts
+    monkeypatch.setattr(tts, "_preconnect_task", None)
+    vt, tok, _ = _silent_turn(WS())
+    try:
+        assert asyncio.run(tts.preconnect()) is False
+    finally:
+        vt.reset(tok)
+    assert tts._preconnect_task is None
+
+
+def test_spoken_turn_still_closes_with_tts_end(monkeypatch):
+    import modules.tts_server as tts
+    ws = WS()
+    vt, tok, turn = _silent_turn(ws, speak=True)
+    try:
+        asyncio.run(tts._send_end(ws, "laptop"))
+    finally:
+        vt.reset(tok)
+    assert ws.of("tts_end") and turn.ended
+
+
+def test_llm_voice_reply_in_silent_turn_skips_tts(monkeypatch):
+    """ask_gemini_voice в тихом ходе: генерация без стрима в TTS, текст — reply-ем."""
+    from sakura_core import llm
+    ws = WS()
+    seen = {}
+
+    async def fake_generate(*a, **k):
+        return "Привет, Мастер."
+
+    async def no_stream(*a, **k):
+        seen["stream"] = True
+        return "", "neutral"
+    monkeypatch.setattr(llm, "generate", fake_generate)
+    monkeypatch.setattr("adapters.voice.stream_llm_to_tts", no_stream)
+    monkeypatch.setattr(llm, "_build_system", AsyncMock(return_value="system"))
+    monkeypatch.setattr("config.get_active_key", lambda: "k")
+    monkeypatch.setattr("config.mark_key_used", lambda k: None)
+    vt, tok, _ = _silent_turn(ws)
+    try:
+        text, _emotion = asyncio.run(llm.ask_gemini_voice("привет", websocket=ws, device_id="laptop"))
+    finally:
+        vt.reset(tok)
+    assert "stream" not in seen and "Привет" in text
+    assert [m["type"] for m in ws.sent] == ["reply"] and ws.of("reply")[0]["kind"] == "llm"

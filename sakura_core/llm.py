@@ -771,8 +771,10 @@ async def ask_gemini_voice(
             "выдумывай факты."
         )
 
+    from sakura_core.voice_turns import is_silent
+    _tts_ws = None if is_silent() else websocket     # speak:false — без озвучки
     try:
-        if websocket:
+        if _tts_ws:
             from adapters.voice import stream_llm_to_tts
             from modules.state_arbiter import get_current_emotion
             full_text, emotion = await stream_llm_to_tts(
@@ -799,7 +801,7 @@ async def ask_gemini_voice(
     except Exception as e:
         log.error(f"[Voice] {e}")
         try:
-            if websocket:
+            if _tts_ws:
                 from adapters.voice import stream_llm_to_tts
                 from modules.state_arbiter import get_current_emotion
                 full_text, emotion = await stream_llm_to_tts(

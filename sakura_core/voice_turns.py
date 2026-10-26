@@ -58,6 +58,9 @@ class Turn:
     user_msg_id: int | None = None
     spoken: list[str] = field(default_factory=list)
     log: bool = True
+    # speak:false (телефон): ответ только текстом — reply и chat_message,
+    # без tts_chunk/tts_end и без Live-сессии синтеза.
+    speak: bool = True
 
 
 _current: contextvars.ContextVar[Turn | None] = contextvars.ContextVar(
@@ -74,6 +77,12 @@ def new_turn_id() -> str:
 
 def current() -> Turn | None:
     return _current.get()
+
+
+def is_silent() -> bool:
+    """Текущий ход без озвучки (speak:false)."""
+    t = _current.get()
+    return t is not None and not t.speak
 
 
 def current_id() -> str | None:
@@ -305,13 +314,13 @@ async def _run(turn: Turn, factory: Callable[[], Awaitable[None]]) -> None:
 
 
 def start(device_id: str, ws, factory: Callable[[], Awaitable[None]],
-          *, turn_id: str | None = None) -> Turn:
+          *, turn_id: str | None = None, speak: bool = True) -> Turn:
     """Начать ход устройства задачей; предыдущий — вытесняется.
 
     Вызывается синхронно из цикла сокета: следующее сообщение того же
     устройства читается сразу, и новый ход может вытеснить этот."""
     turn = Turn(turn_id=turn_id or new_turn_id(), device_id=device_id, ws=ws,
-                prev=_last.get(device_id))
+                prev=_last.get(device_id), speak=speak)
     _last[device_id] = turn
     # Свой контекст: задача хода не наследует turn вызывающего.
     ctx = contextvars.copy_context()

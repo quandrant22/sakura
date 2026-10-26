@@ -414,6 +414,8 @@ async def preconnect(ttl: float = PRECONNECT_TTL) -> bool:
     True — предбанник занят (своей или прежней сессией).
     """
     global _preconnect_task, _preconnect_ready, _preconnect_release
+    if voice_turns.is_silent():
+        return False        # speak:false — Live-сессия не нужна
     if not get_active_key():
         return False
     async with _preconnect_lock:
@@ -942,6 +944,9 @@ _last_end: dict[str, float] = {}
 
 async def _send_end(websocket, device_id: str, listen: float | None = None):
     turn = voice_turns.current()
+    if turn is not None and not turn.speak:
+        voice_turns.mark_ended()    # speak:false: tts_end клиенту не шлём
+        return
     if turn is not None and turn.cancelled and turn.ended:
         return      # вытесненный ход уже закрыт — второго tts_end нет
     try:
@@ -965,6 +970,9 @@ async def ensure_turn_end(websocket, device_id: str, since: float) -> None:
     числе с listen) уже ушёл после since — ничего не делаем."""
     last_end = _last_end.get(device_id, 0)
     turn = voice_turns.current()
+    if turn is not None and not turn.speak:
+        voice_turns.mark_ended()
+        return
     trace = (f"[tts] ensure_turn_end device={device_id} "
              f"since={since:.3f} last_end={last_end:.3f}"
              + (f" turn={turn.turn_id}" if turn is not None else ""))
@@ -1046,6 +1054,12 @@ async def stream_tts_to_device(
         return
     from sakura_core.chat_hooks import note_spoken
     note_spoken(text)
+
+    if voice_turns.is_silent():
+        # speak:false: текст уходит reply-ем (и в журнал), звука и Live-сессии нет.
+        if reply_kind:
+            await send_spoken_reply(text, websocket, device_id, reply_kind)
+        return
 
     t0 = time.monotonic()
     parts = [] if is_short_reply(text) else glue_first(_split_speech(text))

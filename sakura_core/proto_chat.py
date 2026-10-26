@@ -101,7 +101,7 @@ async def _chat_send(websocket, data: dict, ctx: dict) -> None:
     }
     voice_turns.start(device_id, websocket,
                       lambda: handle_voice_command(websocket, turn_data, ctx),
-                      turn_id=turn_id)
+                      turn_id=turn_id, speak=data.get("speak") is not False)
     return None
 
 
