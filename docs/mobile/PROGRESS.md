@@ -22,3 +22,9 @@
 ## Уборка (задача 0.2)
 
 - Каталог `mobile/android/memory/` удалён, не открывая файлы. Причина появления: модули сервера пишут в относительные пути (`config.py`: `KEYS_FILE = "memory/api_keys.json"`; `modules/relationship.py`: `memory/first_run.json`; `modules/fortune_cookie.py` и др.), а серверный код запускался (pytest в задаче 0) с рабочим каталогом сессии `mobile/android`. Файлы созданы 26.10 12:48–12:58. Защита: `memory/` в `mobile/android/.gitignore`; серверный код из `mobile/android` больше не запускается.
+
+## Android-клиент
+
+| блок | состояние |
+|---|---|
+| M1 каркас | зависимости: appcompat, core, recyclerview, lifecycle, constraintlayout, viewpager2, material, OkHttp, bcprov, ZXing embedded, Vosk, CameraX (+ тестовые, D2); edge-to-edge, predictive back; бэкап запрещён; `assembleDebug testDebugUnitTest` — SUCCESSFUL |
