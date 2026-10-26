@@ -1,4 +1,4 @@
-package app.sakura.mobile;
+package app.sakura.mobile.ui;
 
 import android.os.Bundle;
 
@@ -8,7 +8,11 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
+import app.sakura.mobile.R;
+
 public class MainActivity extends AppCompatActivity {
+    /** Открыть приложение и сразу слушать (уведомление, плитка, виджет). */
+    public static final String ACTION_LISTEN = "app.sakura.mobile.LISTEN";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {

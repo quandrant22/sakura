@@ -88,21 +88,24 @@ public final class SecureChannel {
         return out;
     }
 
-    /** Служебный кадр (PING/PONG), перед ним — REKEY, если пора. */
-    private List<byte[]> control(int inner, byte[] data) throws NoiseException, FrameCodec.FrameException {
-        byte[] d = data.length > 32 ? java.util.Arrays.copyOf(data, 32) : data;
+    /** Служебный кадр (PING/PONG/PAIRED), перед ним — REKEY, если пора (как control() на сервере). */
+    public List<byte[]> control(int inner, byte[] data) throws NoiseException, FrameCodec.FrameException {
         List<byte[]> out = new ArrayList<>(2);
         maybeRekey(out);
-        out.add(sealInner(FrameCodec.encodeInner(inner, 0, d)));
+        out.add(sealInner(FrameCodec.encodeInner(inner, 0, data)));
         return out;
     }
 
+    private static byte[] upTo32(byte[] data) {
+        return data.length > 32 ? java.util.Arrays.copyOf(data, 32) : data;
+    }
+
     public List<byte[]> ping(byte[] data) throws NoiseException, FrameCodec.FrameException {
-        return control(FrameCodec.PING, data);
+        return control(FrameCodec.PING, upTo32(data));
     }
 
     public List<byte[]> pong(byte[] echo) throws NoiseException, FrameCodec.FrameException {
-        return control(FrameCodec.PONG, echo);
+        return control(FrameCodec.PONG, upTo32(echo));
     }
 
     public byte[] closeFrame(int code, String reason) throws NoiseException, FrameCodec.FrameException {

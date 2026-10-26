@@ -14,39 +14,13 @@ import org.junit.rules.TemporaryFolder;
 import java.io.File;
 import java.nio.file.Files;
 import java.security.GeneralSecurityException;
-import java.security.SecureRandom;
-
-import javax.crypto.SecretKey;
-import javax.crypto.spec.SecretKeySpec;
 
 import app.sakura.mobile.crypto.noise.Primitives;
+import app.sakura.mobile.testutil.SoftWrapper;
 
 public class DeviceKeyStoreTest {
     @Rule
     public TemporaryFolder tmp = new TemporaryFolder();
-
-    /** Тот же формат, что у KeystoreWrapper, но с программным ключом (в JVM нет AndroidKeyStore). */
-    static final class SoftWrapper extends AesGcmWrapper {
-        SecretKey key;
-
-        @Override
-        protected SecretKey key(boolean create) throws GeneralSecurityException {
-            if (key == null) {
-                if (!create) {
-                    throw new GeneralSecurityException("нет ключа");
-                }
-                byte[] k = new byte[32];
-                new SecureRandom().nextBytes(k);
-                key = new SecretKeySpec(k, "AES");
-            }
-            return key;
-        }
-
-        @Override
-        public void destroy() {
-            key = null;
-        }
-    }
 
     @Test
     public void wrapUnwrap() throws Exception {
@@ -60,6 +34,15 @@ public class DeviceKeyStoreTest {
         blob[20] ^= 1;
         assertThrows(GeneralSecurityException.class, () -> w.unwrap(blob));
         assertThrows(GeneralSecurityException.class, () -> w.unwrap(new byte[10]));
+    }
+
+    @Test
+    public void unwrapWithAnotherKeyFails() throws Exception {
+        SoftWrapper a = new SoftWrapper();
+        SoftWrapper b = new SoftWrapper();
+        byte[] blob = a.wrap(new byte[32]);
+        b.wrap(new byte[1]);
+        assertThrows(GeneralSecurityException.class, () -> b.unwrap(blob));
     }
 
     @Test
