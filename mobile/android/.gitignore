@@ -10,3 +10,5 @@ captures/
 .cxx/
 *.keystore
 *.jks
+memory/
+tools/.venv/

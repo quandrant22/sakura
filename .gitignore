@@ -65,7 +65,6 @@ __pycache__/
 .Python
 venv/
 .venv/
-.venv-tests/
 env/
 *.egg-info/
 dist/
