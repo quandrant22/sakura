@@ -48,8 +48,26 @@ def check_token(data: dict) -> bool:
     return hmac.compare_digest(incoming.encode(), _WS_SECRET.encode())
 
 
-def is_master_device(device_id: str | None) -> bool:
-    return bool(device_id and device_id.strip() in _MASTER_DEVICES)
+def is_secure_connection(websocket) -> bool:
+    """Noise-соединение (обёртка securechannel с secure=True). Loopback,
+    xray и токен сюда не относятся: это не аутентификация устройства."""
+    return getattr(websocket, "secure", False) is True
+
+
+def is_master_device(device_id: str | None, websocket=None) -> bool:
+    """Master по списку MASTER_DEVICES. Для устройств из SECURE_ONLY_MASTERS
+    (по умолчанию phone) этого мало: master только на Noise-соединении.
+    websocket не передан — берётся соединение, привязанное к device_id."""
+    did = (device_id or "").strip()
+    if not did or did not in _MASTER_DEVICES:
+        return False
+    import config
+    if did in getattr(config, "SECURE_ONLY_MASTERS", ()):
+        if websocket is None:
+            import modules.state as st
+            websocket = st.connected_devices.get(did)
+        return is_secure_connection(websocket)
+    return True
 
 
 async def reject(websocket, reason: str = "unauthorized") -> None:

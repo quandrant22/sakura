@@ -88,9 +88,9 @@ def is_v2_device(device_id: str | None) -> bool:
     return st.device_proto.get(device_id) == PROTO
 
 
-def _is_master(device_id: str | None) -> bool:
+def _is_master(device_id: str | None, websocket=None) -> bool:
     from modules.ws_auth import is_master_device
-    return is_master_device(device_id)
+    return is_master_device(device_id, websocket)
 
 
 async def _send(ws, obj: dict) -> None:
@@ -112,10 +112,10 @@ async def on_register(websocket, data: dict) -> None:
     st.device_proto[device_id] = PROTO
     try:
         await _send(websocket, {"type": "registered", "device_id": device_id,
-                                "proto": PROTO, "master": _is_master(device_id)})
+                                "proto": PROTO, "master": _is_master(device_id, websocket)})
     except Exception as e:
         log.debug(f"[v2] registered не отправлен: {type(e).__name__}: {e}")
-    log.info(f"[v2] {device_id}: proto {PROTO}, master={_is_master(device_id)}")
+    log.info(f"[v2] {device_id}: proto {PROTO}, master={_is_master(device_id, websocket)}")
 
 
 def forget(device_id: str | None) -> None:
@@ -147,7 +147,7 @@ async def handle(websocket, data: dict, ctx: dict) -> None:
     if not config.PROTO_V2:
         await error("unsupported", f"{kind}: сервер не поддерживает proto 2")
         return
-    if not _is_master(device_id):
+    if not _is_master(device_id, websocket):
         await error("not_master", f"{kind}: только для master-устройств")
         return
     if is_private(kind) and not connection_secure(websocket) \

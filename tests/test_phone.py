@@ -10,6 +10,7 @@ import re
 
 import pytest
 
+import config
 import modules.state as st
 from modules import presence_sync as ps
 from sakura_core import bridge as br
@@ -169,3 +170,104 @@ def test_phone_triggers_only_with_word_phone_and_do_not_overlap():
 def test_pc_phrases_not_hijacked_by_phone(world, phrase, action):
     decision = asyncio.run(br.get_router().route(phrase))
     assert decision.action == action, (phrase, decision.action)
+
+
+# ── S4: SECURE_ONLY_MASTERS ─────────────────────────────────────────
+
+def test_secure_only_master_needs_noise_connection(monkeypatch):
+    from modules import ws_auth
+    monkeypatch.setattr(ws_auth, "_MASTER_DEVICES", {"laptop", "phone"})
+    noise, token, loopback = WS(secure=True), WS(), WS()
+    loopback.remote_address = ("127.0.0.1", 5555)
+    monkeypatch.setattr(st, "connected_devices", {"phone": noise})
+    assert ws_auth.is_master_device("phone") is True
+    assert ws_auth.is_master_device("phone", noise) is True
+    for plain in (token, loopback):                      # токен и loopback master не дают
+        assert ws_auth.is_master_device("phone", plain) is False
+        monkeypatch.setitem(st.connected_devices, "phone", plain)
+        assert ws_auth.is_master_device("phone") is False
+    monkeypatch.setattr(st, "connected_devices", {})
+    assert ws_auth.is_master_device("phone") is False, "не подключён — не master"
+
+
+def test_other_masters_unaffected_and_config_switch(monkeypatch):
+    from modules import ws_auth
+    monkeypatch.setattr(ws_auth, "_MASTER_DEVICES", {"laptop", "phone"})
+    monkeypatch.setattr(st, "connected_devices", {"laptop": WS(), "phone": WS()})
+    assert ws_auth.is_master_device("laptop") is True       # ПК: токен/loopback как раньше
+    monkeypatch.setattr(config, "SECURE_ONLY_MASTERS", set())
+    assert ws_auth.is_master_device("phone") is True        # правило выключено env-ом
+    assert config.PHONE_DEVICES == ["phone"]
+
+
+def test_registered_master_flag_follows_transport(monkeypatch):
+    from modules import ws_auth
+    from sakura_core import proto_v2
+    monkeypatch.setattr(ws_auth, "_MASTER_DEVICES", {"phone"})
+    monkeypatch.setattr(config, "PROTO_V2", True)
+    monkeypatch.setattr(st, "device_proto", {})
+    out = {}
+    for name, ws in (("noise", WS(secure=True)), ("token", WS())):
+        monkeypatch.setitem(st.connected_devices, "phone", ws)
+        asyncio.run(proto_v2.on_register(ws, {"device_id": "phone", "proto": 2}))
+        out[name] = ws.of("registered")[0]["master"]
+    assert out == {"noise": True, "token": False}
+
+
+def test_non_master_phone_requests_rejected_in_v2(monkeypatch):
+    from modules import ws_auth
+    from sakura_core import proto_v2
+    monkeypatch.setattr(ws_auth, "_MASTER_DEVICES", {"phone"})
+    monkeypatch.setattr(config, "PROTO_V2", True)
+    plain = WS()
+    monkeypatch.setattr(st, "connected_devices", {"phone": plain})
+    asyncio.run(proto_v2.handle(plain, {"type": "devices_request", "request_id": "r", "device_id": "phone"}, {}))
+    assert plain.sent[-1]["code"] == "not_master"
+
+
+def test_e2e_noise_phone_is_master_token_phone_is_not(monkeypatch):
+    import websockets
+
+    from modules import ws_auth
+    from securechannel.client import connect_session
+    from tests.test_securechannel_ws import paired_device, until
+    monkeypatch.setattr(ws_auth, "_MASTER_DEVICES", {"laptop", "pc", "phone"})
+    monkeypatch.setattr(config, "SECURE_CHANNEL", "optional")
+    monkeypatch.setattr(config, "PROTO_V2", True)
+
+    async def sc(uri):
+        priv, info = await paired_device(uri, hint="phone")
+        async with websockets.connect(uri, max_size=None) as ws:
+            c = await connect_session(ws, priv, info["server_pub_bytes"], device_id="phone")
+            await c.send(json.dumps({"type": "register", "proto": 2}))
+            noise = await until(c, lambda m: m.get("type") == "registered")
+        async with websockets.connect(uri) as ws2:               # тот же id по токену
+            await ws2.send(json.dumps({"type": "register", "device_id": "phone",
+                                       "token": ws_auth._WS_SECRET, "proto": 2}))
+            token = json.loads(await asyncio.wait_for(ws2.recv(), 3))
+        return noise, token
+    import tests.test_securechannel_ws as T
+    noise, token = _run_with_env(monkeypatch, T, sc)
+    assert noise["master"] is True and token["master"] is False
+
+
+def _run_with_env(monkeypatch, T, scenario):
+    """Стенд test_securechannel_ws без pytest-фикстуры: те же подмены вручную."""
+    import modules.state as _st
+    import sakura_core.ws_protocol as proto
+    from modules import device_manager, presence_sync, rituals
+    saved = dict(_st.connected_devices)
+    _st.connected_devices.clear()
+    monkeypatch.setattr(_st, "device_proto", {})
+    monkeypatch.setattr(device_manager, "set_device_offline", lambda d, r=None: None)
+    monkeypatch.setattr(presence_sync, "set_offline", lambda d: None)
+    monkeypatch.setattr(rituals, "should_farewell", lambda: False)
+    monkeypatch.setattr(proto, "update_device", lambda *a, **k: None)
+    monkeypatch.setattr(proto, "should_greet_device", lambda d: False)
+    monkeypatch.setattr(proto, "should_brief", lambda: False)
+    monkeypatch.setattr(proto, "ps_update", lambda *a, **k: None)
+    try:
+        return T.run(scenario)
+    finally:
+        _st.connected_devices.clear()
+        _st.connected_devices.update(saved)
