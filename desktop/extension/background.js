@@ -4,7 +4,18 @@
  * Полное управление браузером для Сакуры:
  *   Вкладки, навигация, закладки, история, YouTube, формы, скриншоты,
  *   управление окнами, mute/pin, reader mode, и т.д.
+ *
+ * Агент браузера (3.2.0): действия tabs.* / agent_window.* / page.* — lib/agent.js,
+ * захват кадра — lib/capture.js. Код в страницу — только функции
+ * (chrome.scripting.executeScript({func, args})), сборка кода строкой запрещена.
+ * В console.log — только действие и статус, без данных страниц.
  */
+
+importScripts("lib/capture.js", "lib/agent.js");
+
+// Произвольный JS на странице (js_exec / js_exec_url) выключен. Включается только
+// правкой этой строки; из реестра команд desktop core действия убраны.
+const ALLOW_JS_EXEC = false;
 
 // Агент занимает первый свободный порт из списка (agent/config.py:
 // EXTENSION_PORTS, .env override). Перебираем те же порты по порядку и
@@ -13,6 +24,7 @@
 // сокету (VS Code держал 8766) и слало бы ему команды в никуда.
 const PORTS = [8766, 8767, 8768, 8769];
 const HELLO_TIMEOUT_MS = 1000;
+const CONNECT_TIMEOUT_MS = 2000;
 
 // Реконнект с экспоненциальным бэкоффом: если агент не запущен,
 // не стучимся в порт каждые 3 секунды бесконечно
@@ -37,31 +49,46 @@ function connect(portIdx = 0) {
     return;
   }
   const url = `ws://127.0.0.1:${PORTS[portIdx]}`;
+  let sock;
   try {
-    ws = new WebSocket(url);
+    sock = ws = new WebSocket(url);
   } catch (e) {
     console.log("[Sakura] Не удалось открыть", url, e && e.message);
     setTimeout(() => connect(portIdx + 1), 50);
     return;
   }
 
-  ws.onopen = () => {
+  // Бросить этот сокет и перейти к следующему порту. Обработчики снимаются до close():
+  // иначе поздний onclose старого сокета затёр бы ws нового и запустил второй перебор.
+  let helloTimer = null;
+  const abandon = (why) => {
+    console.log("[Sakura]", url, why);
+    clearTimeout(connectTimer);
+    clearTimeout(helloTimer);
+    sock.onopen = sock.onclose = sock.onerror = null;
+    try { sock.close(); } catch (_) {}
+    if (ws === sock) ws = null;
+    connect(portIdx + 1);
+  };
+
+  // Чужая программа может принять TCP и не ответить на рукопожатие (VS Code на 8767):
+  // без срока сокет навсегда остаётся CONNECTING, и до Сакуры перебор не доходит.
+  const connectTimer = setTimeout(() => {
+    if (sock.readyState === WebSocket.CONNECTING) abandon("— нет рукопожатия, пробую следующий порт");
+  }, CONNECT_TIMEOUT_MS);
+
+  sock.onopen = () => {
+    clearTimeout(connectTimer);
     // Ждём sakura_hello не дольше секунды: не пришло или пришло другое —
     // на этом порту не Сакура, закрываем и пробуем следующий порт.
-    const sock = ws;
-    const timer = setTimeout(() => {
-      console.log("[Sakura]", url, "— нет sakura_hello, пробую следующий порт");
-      try { sock.close(); } catch (_) {}
-      ws = null;
-      connect(portIdx + 1);
-    }, HELLO_TIMEOUT_MS);
+    helloTimer = setTimeout(() => abandon("— нет sakura_hello, пробую следующий порт"), HELLO_TIMEOUT_MS);
     sock.addEventListener("message", function onHello(event) {
       let msg = null;
       try { msg = JSON.parse(event.data); } catch (_) { return; }
       if (!msg || msg.type !== "sakura_hello") {
         return; // не приветствие — игнорируем, ждём дальше
       }
-      clearTimeout(timer);
+      clearTimeout(helloTimer);
       sock.removeEventListener("message", onHello);
       sock.onmessage = handleMessages;
       connected = true;
@@ -72,9 +99,12 @@ function connect(portIdx = 0) {
     });
   };
 
-  ws.onclose = () => {
+  sock.onclose = () => {
     // Сюда попадаем и при отказе порта (чужой сокет закрыл соединение).
     // Если hello уже принят, onclose — обычный обрыв: реконнект с начала.
+    clearTimeout(connectTimer);
+    clearTimeout(helloTimer);
+    if (ws !== sock) return;  // событие брошенного сокета
     const wasConnected = connected;
     connected = false;
     ws = null;
@@ -87,15 +117,20 @@ function connect(portIdx = 0) {
     }
   };
 
-  ws.onerror = (e) => {
+  sock.onerror = (e) => {
     console.log("[Sakura] Ошибка WS:", url, e && e.message);
-    if (ws) { try { ws.close(); } catch (_) {} }
+    try { sock.close(); } catch (_) {}
   };
 }
 
 function handleMessages(event) {
   let msg;
   try { msg = JSON.parse(event.data); } catch { return; }
+  if (msg && msg.type === "upload_data") {
+    const waiter = uploadWaiters.get(msg.id);
+    if (waiter) { uploadWaiters.delete(msg.id); waiter(msg); }
+    return;
+  }
   (async () => {
     const result = await handleCommand(msg);
     if (result !== undefined) {
@@ -109,6 +144,31 @@ function send(data) {
     ws.send(JSON.stringify(data));
   }
 }
+
+// ── Агент браузера ────────────────────────────────────────────────
+
+// Файл для page.upload приходит из desktop core по одноразовому токену.
+const uploadWaiters = new Map();
+let uploadSeq = 0;
+
+function fetchUpload(token) {
+  return new Promise((resolve) => {
+    if (!connected) { resolve({ ok: false, error: "нет связи с ядром" }); return; }
+    const id = "u" + (++uploadSeq) + "-" + Date.now().toString(36);
+    const timer = setTimeout(() => {
+      uploadWaiters.delete(id);
+      resolve({ ok: false, error: "ядро не прислало файл" });
+    }, 20000);
+    uploadWaiters.set(id, (m) => { clearTimeout(timer); resolve(m); });
+    send({ type: "upload_fetch", id, file_token: token });
+  });
+}
+
+const captureQueue = SakuraCapture.createQueue({
+  capture: (windowId, opts) => chrome.tabs.captureVisibleTab(windowId, opts),
+});
+
+const agent = SakuraAgent.create({ chrome, capture: captureQueue, fetchUpload });
 
 // ── Утилиты ───────────────────────────────────────────────────────
 
@@ -127,6 +187,17 @@ async function findTab(query) {
   ) || null;
 }
 
+// Функция в страницу с аргументами — без сборки кода строкой.
+async function runInTab(tabId, func, args = []) {
+  try {
+    const results = await chrome.scripting.executeScript({ target: { tabId }, func, args });
+    return results[0]?.result;
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+// Только для js_exec при ALLOW_JS_EXEC = true: произвольный код по определению.
 async function execInTab(tabId, code) {
   try {
     const results = await chrome.scripting.executeScript({
@@ -145,6 +216,12 @@ async function execInTab(tabId, code) {
 async function handleCommand(msg) {
   const action = msg.action || "";
   const arg    = msg.arg    || "";
+
+  if (SakuraAgent.handles(action)) {
+    const res = await agent.handle(action, msg.args || {});
+    console.log("[Sakura]", action, "→", res.status);
+    return res;
+  }
 
   // ══════════════════════════════════════════════════════════════════
   // ВКЛАДКИ
@@ -325,13 +402,13 @@ async function handleCommand(msg) {
   if (action === "page_content") {
     const tab = await getActiveTab();
     if (!tab) return { ok: false };
-    const content = await execInTab(tab.id, `
-      (function() {
-        var body = document.body.cloneNode(true);
-        body.querySelectorAll('script,style,noscript,svg,nav,header,footer,aside,iframe').forEach(e => e.remove());
-        return (body.innerText || body.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 12000);
-      })()
-    `);
+    const content = await runInTab(tab.id, () => {
+      try {
+        const body = document.body.cloneNode(true);
+        body.querySelectorAll("script,style,noscript,svg,nav,header,footer,aside,iframe").forEach(e => e.remove());
+        return (body.innerText || body.textContent || "").replace(/\s+/g, " ").trim().slice(0, 12000);
+      } catch (e) { return { error: e.message }; }
+    });
     return { ok: true, content: content || "", url: tab.url, title: tab.title };
   }
 
@@ -339,74 +416,70 @@ async function handleCommand(msg) {
     // Reader mode — извлекает чистую статью
     const tab = await getActiveTab();
     if (!tab) return { ok: false };
-    const content = await execInTab(tab.id, `
-      (function() {
+    const content = await runInTab(tab.id, () => {
+      try {
         // Ищем основной контент
-        var article = document.querySelector('article') ||
+        let article = document.querySelector("article") ||
                       document.querySelector('[role="main"]') ||
-                      document.querySelector('.post-content') ||
-                      document.querySelector('.article-content') ||
-                      document.querySelector('.entry-content') ||
-                      document.querySelector('.content') ||
-                      document.querySelector('main');
+                      document.querySelector(".post-content") ||
+                      document.querySelector(".article-content") ||
+                      document.querySelector(".entry-content") ||
+                      document.querySelector(".content") ||
+                      document.querySelector("main");
         if (!article) {
-          var body = document.body.cloneNode(true);
-          body.querySelectorAll('script,style,noscript,svg,nav,header,footer,aside,iframe,form').forEach(e => e.remove());
+          const body = document.body.cloneNode(true);
+          body.querySelectorAll("script,style,noscript,svg,nav,header,footer,aside,iframe,form").forEach(e => e.remove());
           article = body;
         }
-        var text = (article.innerText || article.textContent || '').replace(/\\s+/g, ' ').trim();
+        const text = (article.innerText || article.textContent || "").replace(/\s+/g, " ").trim();
         // Извлекаем заголовок
-        var h1 = document.querySelector('h1');
-        var title = h1 ? h1.textContent.trim() : document.title;
+        const h1 = document.querySelector("h1");
+        const title = h1 ? h1.textContent.trim() : document.title;
         return { title: title, content: text.slice(0, 12000), url: location.href };
-      })()
-    `);
+      } catch (e) { return { error: e.message }; }
+    });
     return { ok: true, ...(content || {}) };
   }
 
   if (action === "page_links") {
     const tab = await getActiveTab();
     if (!tab) return { ok: false };
-    const links = await execInTab(tab.id, `
-      Array.from(document.querySelectorAll('a[href]')).slice(0, 50).map(a => ({
+    const links = await runInTab(tab.id, () =>
+      Array.from(document.querySelectorAll("a[href]")).slice(0, 50).map(a => ({
         text: a.textContent.trim().slice(0, 80),
         href: a.href,
-      }))
-    `);
+      })));
     return { ok: true, links: links || [] };
   }
 
   if (action === "page_images") {
     const tab = await getActiveTab();
     if (!tab) return { ok: false };
-    const images = await execInTab(tab.id, `
-      Array.from(document.querySelectorAll('img[src]')).slice(0, 20).map(img => ({
+    const images = await runInTab(tab.id, () =>
+      Array.from(document.querySelectorAll("img[src]")).slice(0, 20).map(img => ({
         src: img.src,
-        alt: img.alt?.slice(0, 80) || '',
+        alt: img.alt?.slice(0, 80) || "",
         width: img.naturalWidth,
         height: img.naturalHeight,
-      }))
-    `);
+      })));
     return { ok: true, images: images || [] };
   }
 
   if (action === "page_meta") {
     const tab = await getActiveTab();
     if (!tab) return { ok: false };
-    const meta = await execInTab(tab.id, `
-      (function() {
-        var get = (n) => document.querySelector('meta[name="'+n+'"]')?.content ||
-                         document.querySelector('meta[property="'+n+'"]')?.content || '';
-        return {
-          title: document.title,
-          description: get('description') || get('og:description'),
-          image: get('og:image'),
-          url: location.href,
-          author: get('author'),
-          keywords: get('keywords'),
-        };
-      })()
-    `);
+    const meta = await runInTab(tab.id, () => {
+      const get = (n) => document.querySelector('meta[name="' + n + '"]')?.content ||
+                         document.querySelector('meta[property="' + n + '"]')?.content || "";
+      return {
+        title: document.title,
+        description: get("description") || get("og:description"),
+        image: get("og:image"),
+        url: location.href,
+        author: get("author"),
+        keywords: get("keywords"),
+      };
+    });
     return { ok: true, ...(meta || {}) };
   }
 
@@ -456,7 +529,7 @@ async function handleCommand(msg) {
     const tab = await getActiveTab();
     if (!tab) return { ok: false };
     const dir = arg === "up" ? -500 : arg === "down" ? 500 : parseInt(arg) || 500;
-    await execInTab(tab.id, `window.scrollBy(0, ${dir})`);
+    await runInTab(tab.id, (dy) => window.scrollBy(0, dy), [dir]);
     return { ok: true };
   }
 
@@ -464,26 +537,24 @@ async function handleCommand(msg) {
     const tab = await getActiveTab();
     if (!tab) return { ok: false };
     const pct = Math.max(0, Math.min(100, parseInt(arg) || 0));
-    await execInTab(tab.id, `window.scrollTo(0, document.body.scrollHeight * ${pct} / 100)`);
+    await runInTab(tab.id, (p) => window.scrollTo(0, document.body.scrollHeight * p / 100), [pct]);
     return { ok: true };
   }
 
   if (action === "page_click") {
     const tab = await getActiveTab();
     if (!tab) return { ok: false };
-    const result = await execInTab(tab.id, `
-      (function() {
-        var all = document.querySelectorAll('a,button,[role="button"],input[type="submit"]');
-        for (var i = 0; i < all.length; i++) {
-          if (all[i].textContent.toLowerCase().includes('${arg.replace(/'/g, "\\'")}'.toLowerCase())) {
-            all[i].scrollIntoView({block:'center'});
-            all[i].click();
-            return 'clicked: ' + all[i].textContent.trim().slice(0,40);
-          }
+    const result = await runInTab(tab.id, (text) => {
+      const all = document.querySelectorAll('a,button,[role="button"],input[type="submit"]');
+      for (let i = 0; i < all.length; i++) {
+        if (all[i].textContent.toLowerCase().includes(text.toLowerCase())) {
+          all[i].scrollIntoView({ block: "center" });
+          all[i].click();
+          return "clicked: " + all[i].textContent.trim().slice(0, 40);
         }
-        return 'not found';
-      })()
-    `);
+      }
+      return "not found";
+    }, [arg]);
     return { ok: true, result };
   }
 
@@ -491,22 +562,22 @@ async function handleCommand(msg) {
     const tab = await getActiveTab();
     if (!tab) return { ok: false };
     // Подсвечивает элемент — визуальная обратная связь
-    await execInTab(tab.id, `
-      (function() {
-        var all = document.querySelectorAll('a,button,[role="button"],input,select,textarea,label');
-        for (var i = 0; i < all.length; i++) {
-          if (all[i].textContent.toLowerCase().includes('${arg.replace(/'/g, "\\'")}'.toLowerCase()) ||
-              (all[i].placeholder && all[i].placeholder.toLowerCase().includes('${arg.replace(/'/g, "\\'")}'.toLowerCase()))) {
-            all[i].scrollIntoView({block:'center', behavior:'smooth'});
-            all[i].style.outline = '3px solid #ff69b4';
-            all[i].style.outlineOffset = '2px';
-            setTimeout(() => { all[i].style.outline = ''; all[i].style.outlineOffset = ''; }, 3000);
-            return 'highlighted: ' + (all[i].textContent.trim().slice(0,40) || all[i].placeholder || all[i].tagName);
-          }
+    await runInTab(tab.id, (text) => {
+      const q = text.toLowerCase();
+      const all = document.querySelectorAll('a,button,[role="button"],input,select,textarea,label');
+      for (let i = 0; i < all.length; i++) {
+        if (all[i].textContent.toLowerCase().includes(q) ||
+            (all[i].placeholder && all[i].placeholder.toLowerCase().includes(q))) {
+          const el = all[i];
+          el.scrollIntoView({ block: "center", behavior: "smooth" });
+          el.style.outline = "3px solid #ff69b4";
+          el.style.outlineOffset = "2px";
+          setTimeout(() => { el.style.outline = ""; el.style.outlineOffset = ""; }, 3000);
+          return "highlighted: " + (el.textContent.trim().slice(0, 40) || el.placeholder || el.tagName);
         }
-        return 'not found';
-      })()
-    `);
+      }
+      return "not found";
+    }, [arg]);
     return { ok: true };
   }
 
@@ -518,48 +589,46 @@ async function handleCommand(msg) {
     if (parts.length < 2) return { ok: false, error: "Формат: label|значение" };
     const label = parts[0].trim();
     const value = parts.slice(1).join("|").trim();
-    const result = await execInTab(tab.id, `
-      (function() {
-        var label = '${label.replace(/'/g, "\\'")}';
-        var value = '${value.replace(/'/g, "\\'")}';
-        // Ищем по label
-        var lbl = document.querySelector('label[for]');
-        var inputs = document.querySelectorAll('input,textarea,select');
-        for (var i = 0; i < inputs.length; i++) {
-          var inp = inputs[i];
-          var ph = (inp.placeholder || '').toLowerCase();
-          var nm = (inp.name || '').toLowerCase();
-          var id = (inp.id || '').toLowerCase();
-          var lb = '';
-          if (inp.id) { var l = document.querySelector('label[for="'+inp.id+'"]'); if (l) lb = l.textContent.toLowerCase(); }
-          if (ph.includes(label.toLowerCase()) || nm.includes(label.toLowerCase()) ||
-              id.includes(label.toLowerCase()) || lb.includes(label.toLowerCase())) {
-            // Пароли и платёжные поля не заполняем
-            var ac = (inp.getAttribute('autocomplete') || '').toLowerCase();
-            if ((inp.type || '').toLowerCase() === 'password' || ac.indexOf('cc-') === 0 ||
-                /card|cvv|cvc|iban|pass/.test(nm + ' ' + id + ' ' + ph)) {
-              return { protected: true };
-            }
-            if (inp.tagName === 'SELECT') {
-              for (var j = 0; j < inp.options.length; j++) {
-                if (inp.options[j].text.toLowerCase().includes(value.toLowerCase())) {
-                  inp.selectedIndex = j;
-                  inp.dispatchEvent(new Event('change', {bubbles:true}));
-                  return 'selected: ' + inp.options[j].text;
-                }
+    const result = await runInTab(tab.id, (label, value) => {
+      // Ищем по label
+      const inputs = document.querySelectorAll("input,textarea,select");
+      for (let i = 0; i < inputs.length; i++) {
+        const inp = inputs[i];
+        const ph = (inp.placeholder || "").toLowerCase();
+        const nm = (inp.name || "").toLowerCase();
+        const id = (inp.id || "").toLowerCase();
+        let lb = "";
+        if (inp.id) {
+          const l = Array.from(document.querySelectorAll("label[for]")).find(x => x.htmlFor === inp.id);
+          if (l) lb = l.textContent.toLowerCase();
+        }
+        if (ph.includes(label.toLowerCase()) || nm.includes(label.toLowerCase()) ||
+            id.includes(label.toLowerCase()) || lb.includes(label.toLowerCase())) {
+          // Пароли и платёжные поля не заполняем
+          const ac = (inp.getAttribute("autocomplete") || "").toLowerCase();
+          if ((inp.type || "").toLowerCase() === "password" || ac.indexOf("cc-") === 0 ||
+              /card|cvv|cvc|iban|pass/.test(nm + " " + id + " " + ph)) {
+            return { protected: true };
+          }
+          if (inp.tagName === "SELECT") {
+            for (let j = 0; j < inp.options.length; j++) {
+              if (inp.options[j].text.toLowerCase().includes(value.toLowerCase())) {
+                inp.selectedIndex = j;
+                inp.dispatchEvent(new Event("change", { bubbles: true }));
+                return "selected: " + inp.options[j].text;
               }
-            } else {
-              inp.focus();
-              inp.value = value;
-              inp.dispatchEvent(new Event('input', {bubbles:true}));
-              inp.dispatchEvent(new Event('change', {bubbles:true}));
-              return 'filled: ' + (inp.name || inp.id || inp.placeholder);
             }
+          } else {
+            inp.focus();
+            inp.value = value;
+            inp.dispatchEvent(new Event("input", { bubbles: true }));
+            inp.dispatchEvent(new Event("change", { bubbles: true }));
+            return "filled: " + (inp.name || inp.id || inp.placeholder);
           }
         }
-        return 'input not found';
-      })()
-    `);
+      }
+      return "input not found";
+    }, [label, value]);
     if (result && result.protected) return { ok: false, error: "поле защищено" };
     return { ok: true, result };
   }
@@ -567,35 +636,30 @@ async function handleCommand(msg) {
   if (action === "page_select") {
     const tab = await getActiveTab();
     if (!tab) return { ok: false };
-    const result = await execInTab(tab.id, `
-      (function() {
-        var text = '${arg.replace(/'/g, "\\'")}';
-        var selects = document.querySelectorAll('select');
-        for (var s of selects) {
-          for (var o of s.options) {
-            if (o.text.toLowerCase().includes(text.toLowerCase())) {
-              s.value = o.value;
-              s.dispatchEvent(new Event('change', {bubbles:true}));
-              return 'selected: ' + o.text;
-            }
+    const result = await runInTab(tab.id, (text) => {
+      const selects = document.querySelectorAll("select");
+      for (const s of selects) {
+        for (const o of s.options) {
+          if (o.text.toLowerCase().includes(text.toLowerCase())) {
+            s.value = o.value;
+            s.dispatchEvent(new Event("change", { bubbles: true }));
+            return "selected: " + o.text;
           }
         }
-        return 'select not found';
-      })()
-    `);
+      }
+      return "select not found";
+    }, [arg]);
     return { ok: true, result };
   }
 
   if (action === "page_submit") {
     const tab = await getActiveTab();
     if (!tab) return { ok: false };
-    await execInTab(tab.id, `
-      (function() {
-        var form = document.activeElement?.form || document.querySelector('form');
-        if (form) { form.submit(); return 'submitted'; }
-        return 'no form';
-      })()
-    `);
+    await runInTab(tab.id, () => {
+      const form = document.activeElement?.form || document.querySelector("form");
+      if (form) { form.submit(); return "submitted"; }
+      return "no form";
+    });
     return { ok: true };
   }
 
@@ -776,154 +840,193 @@ async function handleCommand(msg) {
     return null;
   }
 
-  async function ytExec(code) {
+  async function ytRun(func, args = []) {
     const tab = await getYouTubeTab();
     if (!tab) return { ok: false, error: "YouTube не открыт" };
-    return await execInTab(tab.id, code) || { ok: false };
+    return await runInTab(tab.id, func, args) || { ok: false };
   }
 
+  // Кнопка плеера по селектору: клик и ответ «сделано» / «not found».
+  const ytClick = (sel, done) => ytRun((s, d) => {
+    const b = document.querySelector(s);
+    if (b) { b.click(); return d; }
+    return "not found";
+  }, [sel, done]);
+
   if (action === "youtube_pause") {
-    return ytExec(`(function(){var v=document.querySelector('video');if(!v)return'no video';v.paused?v.play():v.pause();return v.paused?'paused':'playing';})()`);
+    return ytRun(() => {
+      const v = document.querySelector("video");
+      if (!v) return "no video";
+      v.paused ? v.play() : v.pause();
+      return v.paused ? "paused" : "playing";
+    });
   }
 
   if (action === "youtube_next") {
-    return ytExec(`(function(){var b=document.querySelector('.ytp-next-button');if(b){b.click();return'next';}return 'not found';})()`);
+    return ytClick(".ytp-next-button", "next");
   }
 
   if (action === "youtube_prev") {
-    return ytExec(`(function(){var v=document.querySelector('video');if(v){v.currentTime=0;return'restart';}return'no video';})()`);
+    return ytRun(() => {
+      const v = document.querySelector("video");
+      if (v) { v.currentTime = 0; return "restart"; }
+      return "no video";
+    });
   }
+
+  // Перемотка/позиция: mode = by (относительно) | to (абсолютно).
+  const ytSeek = (mode, sec) => ytRun((m, s) => {
+    const v = document.querySelector("video");
+    if (!v) return "no video";
+    if (m === "to") v.currentTime = s; else v.currentTime += s;
+    return v.currentTime;
+  }, [mode, sec]);
 
   if (action === "youtube_forward") {
     const sec = parseInt(arg) || 10;
-    return ytExec(`(function(){var v=document.querySelector('video');if(v){v.currentTime+=${sec};return v.currentTime;}return'no video';})()`);
+    return ytSeek("by", sec);
   }
 
   if (action === "youtube_rewind") {
     const sec = parseInt(arg) || 10;
-    return ytExec(`(function(){var v=document.querySelector('video');if(v){v.currentTime-=${sec};return v.currentTime;}return'no video';})()`);
+    return ytSeek("by", -sec);
   }
 
   if (action === "youtube_seek") {
     const sec = parseInt(arg) || 0;
-    return ytExec(`(function(){var v=document.querySelector('video');if(v){v.currentTime=${sec};return v.currentTime;}return'no video';})()`);
+    return ytSeek("to", sec);
   }
 
   if (action === "youtube_volume") {
     const vol = Math.max(0, Math.min(100, parseInt(arg) || 50)) / 100;
-    return ytExec(`(function(){var v=document.querySelector('video');if(v){v.volume=${vol};v.muted=false;return Math.round(v.volume*100);}return'no video';})()`);
+    return ytRun((x) => {
+      const v = document.querySelector("video");
+      if (v) { v.volume = x; v.muted = false; return Math.round(v.volume * 100); }
+      return "no video";
+    }, [vol]);
   }
 
   if (action === "youtube_mute") {
-    return ytExec(`(function(){var v=document.querySelector('video');if(v){v.muted=!v.muted;return v.muted?'muted':'unmuted';}return'no video';})()`);
+    return ytRun(() => {
+      const v = document.querySelector("video");
+      if (v) { v.muted = !v.muted; return v.muted ? "muted" : "unmuted"; }
+      return "no video";
+    });
   }
 
   if (action === "youtube_speed") {
     const rate = parseFloat(arg) || 1.0;
-    return ytExec(`(function(){var v=document.querySelector('video');if(v){v.playbackRate=${rate};return ${rate};}return'no video';})()`);
+    return ytRun((r) => {
+      const v = document.querySelector("video");
+      if (v) { v.playbackRate = r; return r; }
+      return "no video";
+    }, [rate]);
   }
 
   if (action === "youtube_speed_up") {
-    return ytExec(`(function(){var v=document.querySelector('video');if(v){v.playbackRate=Math.min(v.playbackRate+0.25,2);return v.playbackRate;}return'no video';})()`);
+    return ytRun(() => {
+      const v = document.querySelector("video");
+      if (v) { v.playbackRate = Math.min(v.playbackRate + 0.25, 2); return v.playbackRate; }
+      return "no video";
+    });
   }
 
   if (action === "youtube_speed_down") {
-    return ytExec(`(function(){var v=document.querySelector('video');if(v){v.playbackRate=Math.max(v.playbackRate-0.25,0.25);return v.playbackRate;}return'no video';})()`);
+    return ytRun(() => {
+      const v = document.querySelector("video");
+      if (v) { v.playbackRate = Math.max(v.playbackRate - 0.25, 0.25); return v.playbackRate; }
+      return "no video";
+    });
   }
 
   if (action === "youtube_fullscreen") {
-    return ytExec(`(function(){var b=document.querySelector('.ytp-fullscreen-button');if(b){b.click();return'fullscreen';}return'not found';})()`);
+    return ytClick(".ytp-fullscreen-button", "fullscreen");
   }
 
   if (action === "youtube_theater") {
-    return ytExec(`(function(){var b=document.querySelector('.ytp-size-button');if(b){b.click();return'theater';}return'not found';})()`);
+    return ytClick(".ytp-size-button", "theater");
   }
 
   if (action === "youtube_mini") {
-    return ytExec(`(function(){var b=document.querySelector('.ytp-miniplayer-button');if(b){b.click();return'mini';}return'not found';})()`);
+    return ytClick(".ytp-miniplayer-button", "mini");
   }
 
   if (action === "youtube_sub_toggle") {
-    return ytExec(`(function(){var b=document.querySelector('.ytp-subtitles-button');if(b){b.click();return'subtitles toggled';}return'not found';})()`);
+    return ytClick(".ytp-subtitles-button", "subtitles toggled");
   }
 
   if (action === "youtube_like") {
-    return ytExec(`(function(){
-      var b=document.querySelector('button[aria-label*="айк"]:not([aria-label*="исайк"])');
-      if(!b) b=document.querySelector('#top-level-buttons-computed button:first-child');
-      if(b){b.click();return'liked';}return'not found';
-    })()`);
+    return ytRun(() => {
+      let b = document.querySelector('button[aria-label*="айк"]:not([aria-label*="исайк"])');
+      if (!b) b = document.querySelector("#top-level-buttons-computed button:first-child");
+      if (b) { b.click(); return "liked"; }
+      return "not found";
+    });
   }
 
   if (action === "youtube_dislike") {
-    return ytExec(`(function(){
-      var b=document.querySelector('button[aria-label*="исайк"]');
-      if(b){b.click();return'disliked';}return'not found';
-    })()`);
+    return ytClick('button[aria-label*="исайк"]', "disliked");
   }
 
   if (action === "youtube_subscribe") {
-    return ytExec(`(function(){
-      var b=document.querySelector('button#subscribe-button, yt-button-shape#subscribe-button button');
-      if(b){b.click();return'subscribed';}return'not found';
-    })()`);
+    return ytClick("button#subscribe-button, yt-button-shape#subscribe-button button", "subscribed");
   }
 
   if (action === "youtube_info") {
-    return ytExec(`(function(){
-      var v=document.querySelector('video');
-      var title=document.querySelector('h1.ytd-watch-metadata yt-formatted-string');
-      var ch=document.querySelector('#channel-name a');
-      var desc=document.querySelector('#description-inline-expander');
+    return ytRun(() => {
+      const v = document.querySelector("video");
+      const title = document.querySelector("h1.ytd-watch-metadata yt-formatted-string");
+      const ch = document.querySelector("#channel-name a");
+      const desc = document.querySelector("#description-inline-expander");
       return {
-        title: title?title.textContent.trim():null,
-        channel: ch?ch.textContent.trim():null,
-        description: desc?desc.textContent.trim().slice(0,500):null,
-        duration: v?Math.round(v.duration):0,
-        position: v?Math.round(v.currentTime):0,
-        paused: v?v.paused:true,
-        speed: v?v.playbackRate:1,
+        title: title ? title.textContent.trim() : null,
+        channel: ch ? ch.textContent.trim() : null,
+        description: desc ? desc.textContent.trim().slice(0, 500) : null,
+        duration: v ? Math.round(v.duration) : 0,
+        position: v ? Math.round(v.currentTime) : 0,
+        paused: v ? v.paused : true,
+        speed: v ? v.playbackRate : 1,
         url: location.href,
       };
-    })()`);
+    });
   }
 
   if (action === "youtube_comments") {
-    return ytExec(`(function(){
-      var comments = Array.from(document.querySelectorAll('#content-text')).slice(0,10);
-      return comments.map(c => c.textContent.trim().slice(0,200));
-    })()`);
+    return ytRun(() => {
+      const comments = Array.from(document.querySelectorAll("#content-text")).slice(0, 10);
+      return comments.map(c => c.textContent.trim().slice(0, 200));
+    });
   }
 
   if (action === "youtube_playlist") {
-    return ytExec(`(function(){
-      var items = Array.from(document.querySelectorAll('ytd-playlist-video-renderer')).slice(0,20);
+    return ytRun(() => {
+      const items = Array.from(document.querySelectorAll("ytd-playlist-video-renderer")).slice(0, 20);
       return items.map(i => {
-        var title = i.querySelector('#video-title');
-        var channel = i.querySelector('#channel-name a');
+        const title = i.querySelector("#video-title");
+        const channel = i.querySelector("#channel-name a");
         return {
-          title: title?title.textContent.trim():'',
-          channel: channel?channel.textContent.trim():'',
+          title: title ? title.textContent.trim() : "",
+          channel: channel ? channel.textContent.trim() : "",
         };
       });
-    })()`);
+    });
   }
 
   if (action === "youtube_search_results") {
-    return ytExec(`(function(){
-      var items = Array.from(document.querySelectorAll('ytd-video-renderer')).slice(0,10);
+    return ytRun(() => {
+      const items = Array.from(document.querySelectorAll("ytd-video-renderer")).slice(0, 10);
       return items.map(i => {
-        var title = i.querySelector('#video-title');
-        var channel = i.querySelector('#channel-name a, .ytd-channel-name a');
-        var meta = i.querySelector('#metadata-line');
+        const title = i.querySelector("#video-title");
+        const channel = i.querySelector("#channel-name a, .ytd-channel-name a");
+        const meta = i.querySelector("#metadata-line");
         return {
-          title: title?title.textContent.trim():'',
-          url: title?.href || '',
-          channel: channel?channel.textContent.trim():'',
-          meta: meta?meta.textContent.trim():'',
+          title: title ? title.textContent.trim() : "",
+          url: title?.href || "",
+          channel: channel ? channel.textContent.trim() : "",
+          meta: meta ? meta.textContent.trim() : "",
         };
       });
-    })()`);
+    });
   }
 
   // ══════════════════════════════════════════════════════════════════
@@ -946,6 +1049,10 @@ async function handleCommand(msg) {
   // ══════════════════════════════════════════════════════════════════
   // JS
   // ══════════════════════════════════════════════════════════════════
+
+  if ((action === "js_exec" || action === "js_exec_url") && !ALLOW_JS_EXEC) {
+    return { ok: false, error: "js_exec выключен в расширении (ALLOW_JS_EXEC = false)" };
+  }
 
   if (action === "js_exec") {
     const tab = await getActiveTab();

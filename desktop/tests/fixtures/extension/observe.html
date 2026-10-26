@@ -1,0 +1,22 @@
+<!-- Снимок с ref: ссылки, кнопки, поля, скрытые элементы, роли, iframe, капча, таймер. -->
+<header>
+  <a href="https://shop.example/">Главная</a>
+  <a href="https://shop.example/cart" aria-label="Корзина"><img src="cart.svg" alt=""></a>
+</header>
+<main>
+  <h1>Оформление заказа</h1>
+  <p>Заполните данные и нажмите «Оплатить».</p>
+  <label for="q">Поиск</label><input id="q" type="search" value="кофе">
+  <button id="buy" onclick="window.__clicked = (window.__clicked || 0) + 1">Купить</button>
+  <button id="off" disabled>Недоступно</button>
+  <div role="tab" aria-selected="true">Доставка</div>
+  <div role="checkbox" aria-checked="false" tabindex="0">Подарочная упаковка</div>
+  <span onclick="void 0">Кликабельный текст</span>
+  <div contenteditable="true" aria-label="Комментарий">Привет</div>
+  <input type="password" id="pin" aria-label="Пароль" value="1234">
+  <button style="display:none">Спрятана</button>
+  <div hidden><button>Тоже спрятана</button></div>
+  <div class="g-recaptcha" data-sitekey="x" data-rect="10,500,304,78"></div>
+  <canvas width="300" height="150" data-rect="10,600,300,150"></canvas>
+  <iframe src="https://pay.example/frame" data-rect="200,300,400,200"></iframe>
+</main>
