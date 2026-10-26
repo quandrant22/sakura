@@ -103,10 +103,25 @@ def _bye(device_id: str) -> bool:
         return False
 
 
+def track_wire(device_id: str) -> dict | None:
+    """Текущий трек устройства для клиента: {title, artist, status, cover_url, ts}
+    или None. Правило свежести то же, что для промпта (state.TRACK_MAX_AGE_S)."""
+    t = st.device_track(device_id)
+    if not t or not t.get("title"):
+        return None
+    age = time.monotonic() - st.device_tracks[device_id]["ts"]
+    return {"title": str(t.get("title") or ""), "artist": str(t.get("artist") or ""),
+            "status": str(t.get("status") or ""),
+            "cover_url": t.get("cover_url") or None,
+            "ts": round(time.time() - age, 3)}
+
+
 def device(device_id: str, focus_id: str | None = None) -> dict:
-    """Device протокола v2."""
+    """Device протокола v2 (поля active и track — только добавлены)."""
     info = _devices.get(device_id, {})
     return {
+        "active": device_id == focus_id,
+        "track": track_wire(device_id),
         "id": device_id,
         "name": _name(device_id, info.get("name")),
         "kind": _kind(device_id, info.get("kind")),
@@ -126,9 +141,14 @@ def devices() -> list[dict]:
 def _significant(old: dict | None, new: dict) -> bool:
     if old is None:
         return True
-    for k in ("online", "focus", "name", "kind"):
+    for k in ("online", "focus", "active", "name", "kind"):
         if old.get(k) != new.get(k):
             return True
+    ot, nt = old.get("track"), new.get("track")
+    if (ot is None) != (nt is None):
+        return True
+    if ot and nt and any(ot.get(k) != nt.get(k) for k in ("title", "artist", "status", "cover_url")):
+        return True
     os_, ns = old.get("stats") or {}, new.get("stats") or {}
     for k in ("battery", "charging", "wifi", "signal"):
         if os_.get(k) != ns.get(k):

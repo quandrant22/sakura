@@ -129,6 +129,11 @@ async def announce_presence_transfer() -> None:
     transfer = await asyncio.to_thread(check_device_transfer, st.connected_devices)
     if transfer:
         await broadcast_transfer(transfer, st.connected_devices)
+        # active меняется у двух устройств: новое и прежнее
+        from sakura_core import proto_devices
+        for dev in (transfer["to"], transfer.get("from")):
+            if dev:
+                await proto_devices.push_device(dev)
 
 
 # ── bye ────────────────────────────────────────────────────────────────
@@ -638,6 +643,13 @@ def update_current_track(data) -> None:
         _dev = data.get("device_id") or "laptop"
         _prev = dict(st.device_track(_dev))
         st.set_device_track(_dev, track)
+        if any(_prev.get(k) != track.get(k) for k in ("title", "artist", "status", "cover_url")):
+            from sakura_core import proto_devices
+            _push = proto_devices.push_device(_dev)
+            try:
+                spawn(_push, name="device-track-push")
+            except RuntimeError:        # вызвано вне цикла событий (тесты): пуша нет
+                _push.close()
         log.debug(f"[track] Трек: {track.get('artist','')} — {track.get('title','')} [{track.get('status','')}]")
         if track.get("status") == "играет" and track.get("title"):
             _new_key = f"{track.get('artist','')}|{track.get('title','')}"

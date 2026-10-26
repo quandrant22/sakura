@@ -3,11 +3,14 @@
 Run: python -m pytest tests/test_phone_ws.py -q
 """
 
+import asyncio
 import json
+from unittest.mock import AsyncMock
 
 import pytest
 
 import config
+import modules.state as st
 import modules.tts_server as tts
 from modules import ws_auth
 from tests.test_proto_devices import (
@@ -31,6 +34,7 @@ def synth(monkeypatch):
         await websocket.send(json.dumps({"type": "tts_chunk", "device_id": device_id, "data": "AA=="}))
         return 1
     monkeypatch.setattr(tts, "_synthesize_and_stream", fake)
+    monkeypatch.setattr(st, "device_tracks", {})        # треки не текут между тестами
     return calls
 
 
@@ -208,3 +212,95 @@ def test_action_run_power_no_without_confirmation_sends_nothing(server):   # noq
         return ask, quiet
     ask, quiet = run(sc)
     assert ask["text"].startswith("Усыпить ") and ask["kind"] == "confirm" and quiet
+
+
+# ── S5: active и track в devices / device_update ────────────────────
+
+def _ping_with_track(c, title, status="играет", **extra):
+    return c.send({"type": "ping", "active_window": "x",
+                   "current_track": {"artist": "Исп", "title": title, "status": status, **extra}},
+                  rid=False)
+
+
+def test_devices_have_active_and_track_fields(server):                  # noqa: F811
+    async def sc(uri):
+        lap = await connect(uri, MASTER)
+        pc = await connect(uri, MASTER2)
+        await _ping_with_track(pc, "Песня", cover_url="http://c/1.jpg")
+        await pc.send({"type": "ping", "active_window": "x"}, rid=False)   # пинг без трека трек не стирает
+        await asyncio.sleep(0.3)
+        return await lap.request({"type": "devices_request"})
+    r = run(sc)
+    by = {d["id"]: d for d in r["devices"]}
+    assert by[MASTER]["active"] is True and by[MASTER2]["active"] is False     # активный — focus (стенд: laptop)
+    assert by[MASTER]["track"] is None
+    t = by[MASTER2]["track"]
+    assert set(t) == {"title", "artist", "status", "cover_url", "ts"}
+    assert (t["title"], t["artist"], t["status"], t["cover_url"]) == ("Песня", "Исп", "играет", "http://c/1.jpg")
+    assert isinstance(t["ts"], float) and abs(t["ts"] - __import__("time").time()) < 30
+    assert by[MASTER2]["focus"] == by[MASTER2]["active"] is False               # поле focus на месте
+
+
+def test_track_without_cover_is_null_and_expires_after_60s(server, monkeypatch):    # noqa: F811
+    async def sc(uri):
+        lap = await connect(uri, MASTER)
+        pc = await connect(uri, MASTER2)
+        await _ping_with_track(pc, "Песня")
+        await asyncio.sleep(0.3)
+        fresh = await lap.request({"type": "devices_request"})
+        monkeypatch.setitem(st.device_tracks[MASTER2], "ts", st.device_tracks[MASTER2]["ts"] - 61)
+        stale = await lap.request({"type": "devices_request"})
+        return fresh, stale
+    fresh, stale = run(sc)
+    assert {d["id"]: d for d in fresh["devices"]}[MASTER2]["track"]["cover_url"] is None
+    assert {d["id"]: d for d in stale["devices"]}[MASTER2]["track"] is None
+
+
+def test_device_update_on_track_and_status_change_only(server):          # noqa: F811
+    async def sc(uri):
+        lap = await connect(uri, MASTER)
+        pc = await connect(uri, MASTER2)
+        await lap.wait(lambda m: m.get("type") == "device_update" and m["device"]["id"] == MASTER2)
+        lap.inbox.clear()
+        await _ping_with_track(pc, "Первая")
+        a = await lap.wait(lambda m: m.get("type") == "device_update" and m["device"]["track"])
+        await _ping_with_track(pc, "Первая")                    # то же самое — тихо
+        same = await lap.silent(lambda m: m.get("type") == "device_update"
+                                and (m["device"]["track"] or {}).get("title") == "Первая", 0.5)
+        await _ping_with_track(pc, "Первая", status="пауза")     # статус
+        b = await lap.wait(lambda m: m.get("type") == "device_update"
+                           and (m["device"]["track"] or {}).get("status") == "пауза")
+        await _ping_with_track(pc, "Вторая", status="пауза")     # трек
+        c = await lap.wait(lambda m: m.get("type") == "device_update"
+                           and (m["device"]["track"] or {}).get("title") == "Вторая")
+        return a, same, b, c
+    a, same, b, c = run(sc)
+    assert a["device"]["id"] == MASTER2 and a["device"]["track"]["title"] == "Первая"
+    assert same is True
+    assert b["device"]["track"]["status"] == "пауза" and c["device"]["track"]["title"] == "Вторая"
+
+
+def test_device_update_when_active_device_changes(monkeypatch):
+    """Смена активного: device_update уходит и новому, и прежнему устройству."""
+    import sakura_core.ws_protocol as wp
+    from sakura_core import proto_devices
+    pushed = []
+
+    async def push(dev, force=False):
+        pushed.append(dev)
+    monkeypatch.setattr(proto_devices, "push_device", push)
+    monkeypatch.setattr(wp, "check_device_transfer", lambda c: {"from": "pc", "to": "laptop"})
+    monkeypatch.setattr(wp, "broadcast_transfer", AsyncMock())
+    asyncio.run(wp.announce_presence_transfer())
+    assert pushed == ["laptop", "pc"]
+
+
+def test_significant_ignores_ts_but_sees_active():
+    from sakura_core import proto_devices as pd
+    base = {"online": True, "focus": False, "active": False, "name": "x", "kind": "pc",
+            "stats": {}, "track": {"title": "a", "artist": "b", "status": "играет",
+                                   "cover_url": None, "ts": 1.0}}
+    same_later = {**base, "track": {**base["track"], "ts": 99.0}}
+    assert pd._significant(base, same_later) is False
+    assert pd._significant(base, {**base, "active": True}) is True
+    assert pd._significant(base, {**base, "track": None}) is True
