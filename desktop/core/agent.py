@@ -130,6 +130,10 @@ EXT_NAMES = {
     "page_content": "page_content",
     "page_content_youtube": "page_content_youtube",
 }
+# Произвольный JS на странице через ext:<действие> не пропускается (в расширении — за ALLOW_JS_EXEC).
+EXT_DENY = frozenset({"js_exec", "js_exec_url"})
+# Сообщения задачи агента браузера (desktop.core.browser_agent): отдельным type или командой.
+BROWSER_TASK_KINDS = ("browser.do", "browser.cancel", "browser.resume")
 
 
 def _legacy_action(action: str, arg: str = "") -> str:
@@ -226,6 +230,8 @@ class Agent:
         self._last_mood_update = {}  # последний mood_update от сервера
         self._current_track = {}     # кэш текущего трека (обновляет heartbeat)
         self._abort_flag = False     # аварийный тормоз (abort_all)
+        self.browser_agent = None    # desktop.core.browser_agent.BrowserAgent (лениво)
+        self.uploads = None          # desktop.core.upload_store.UploadStore (page.upload)
 
     @property
     def state(self) -> str:
@@ -502,11 +508,20 @@ class Agent:
                 if link is not None and link.handle(data):
                     continue
 
+                if kind in BROWSER_TASK_KINDS:
+                    self._browser_message(kind, data)
+                    continue
+
                 if kind == "command":
                     _cmd_id = data.get("id")
                     _action = data.get("action", "")
+                    if _action in BROWSER_TASK_KINDS:
+                        await self._send_result(_cmd_id, self._browser_message(_action, data))
+                        continue
                     if _action == "abort_all":
                         self._abort_flag = True
+                        if getattr(self, "browser_agent", None) is not None:
+                            self.browser_agent.cancel_all()
                         if _cmd_id:
                             await self._ws.send(json.dumps({
                                 "type": "command_result", "id": _cmd_id,
@@ -811,6 +826,24 @@ class Agent:
                 parts     = action[4:].split(":", 1)
                 ext_action = parts[0]
                 ext_arg    = parts[1] if len(parts) > 1 else ""
+                if ext_action in EXT_DENY:
+                    log.warning("[ext] %s отклонено: произвольный JS выключен", ext_action)
+                    await _send_ack(R.unsupported("произвольный JS в браузере выключен"))
+                    return
+                # Действия агента браузера (3.2.0): аргументы — JSON в arg («ext:tabs.list», «ext:page.act:{…}»).
+                from desktop.core import browser as _browser
+                if ext_action in _browser.EXT_AGENT_ACTIONS:
+                    try:
+                        ext_args = json.loads(ext_arg or arg or "{}")
+                    except ValueError:
+                        ext_args = None
+                    if not isinstance(ext_args, dict):
+                        await _send_ack(R.failed("аргументы действия браузера — объект JSON"))
+                        return
+                    res, raw = await _browser.ext_agent_action(ext_action, ext_args)
+                    log.info("[ext] %s → %s", ext_action, res["status"])
+                    await _send_ack(res, extra={"ext": {k: v for k, v in raw.items() if k != "observe"}})
+                    return
                 result    = await send_command(ext_action, ext_arg)
                 log.info(f"[ext] {ext_action} → {result}")
                 await _send_ack(R.from_legacy(result), extra={"ext": result})
@@ -876,6 +909,75 @@ class Agent:
         except Exception as e:
             log.error(f"execute_command error: {e}")
             await _send_ack(R.failed(f"ошибка: {e}"))
+
+    # ── агент браузера ─────────────────────────────────────────────
+    def _browser(self):
+        """BrowserAgent: шаги — запросы ServerLink (request_id), действия — через расширение."""
+        if getattr(self, "browser_agent", None) is not None:
+            return self.browser_agent
+        link = getattr(self, "server_link", None)
+        if link is None:
+            return None
+        import sys as _s
+
+        from desktop.core import browser_agent as BA
+        from desktop.core.upload_store import UploadStore
+
+        if getattr(self, "uploads", None) is None:
+            self.uploads = UploadStore(config.BROWSER_UPLOAD_DIR)
+
+        def _ext_mod():
+            return _s.modules.get("desktop.core.extension_server")
+
+        async def ext(action, args, timeout):
+            mod = _ext_mod()
+            if mod is None or not mod.is_connected():
+                return {"ok": False, "error": "Расширение не подключено"}
+            return await mod.send_command(action, "", timeout=timeout, args=args)
+
+        async def send(msg):
+            ws = self._ws
+            if ws is None:
+                raise ConnectionError("нет связи с сервером")
+            await ws.send(json.dumps({**msg, "device_id": config.DEVICE_ID, "token": config.WS_TOKEN.strip()},
+                                     ensure_ascii=False))
+
+        def emit(ev):
+            self.bus.emit("browser_task", **{k: v for k, v in ev.items() if k != "type"})
+
+        self.browser_agent = BA.BrowserAgent(
+            request=lambda msg: link.request(msg, timeout=BA.STEP_TIMEOUT), send=send, ext=ext,
+            ext_connected=lambda: bool(_ext_mod() and _ext_mod().is_connected()),
+            online=lambda: link.online, uploads=self.uploads, emit=emit)
+        return self.browser_agent
+
+    def _browser_message(self, kind: str, data: dict) -> dict:
+        """browser.do / browser.cancel / browser.resume от сервера → результат для command_result."""
+        fields = {}
+        arg = data.get("arg")
+        if isinstance(arg, str) and arg.strip().startswith("{"):
+            try:
+                fields = json.loads(arg)
+            except ValueError:
+                fields = {}
+        elif isinstance(arg, str) and arg.strip():
+            fields = {"goal": arg.strip()}
+        fields.update({k: data[k] for k in ("task_id", "goal", "start_url") if data.get(k) is not None})
+        task_id = str(fields.get("task_id") or "")
+        ba = self._browser()
+        if ba is None:
+            return R.unsupported("агент браузера недоступен без протокола v2")
+        if not task_id:
+            return R.failed("нет task_id")
+        if kind == "browser.cancel":
+            return R.done("задача в браузере остановлена") if ba.cancel(task_id) else R.noop("такой задачи нет")
+        if kind == "browser.resume":
+            return R.done("задача продолжена") if ba.resume(task_id, local=False) else R.noop("задача не на паузе")
+        if getattr(self.server_link, "master", None) is False:
+            return R.unsupported("агент браузера — только для master-устройства")
+        if not ba.start(task_id, str(fields.get("goal") or ""), fields.get("start_url")):
+            return R.noop("задача уже выполняется")
+        return R.done("задача в браузере начата")
 
     async def _send_result(self, cmd_id: str | None, res: dict, extra: dict | None = None):
         """command_result серверу: {ok, status, detail} + доп. поля. Без id — некуда отвечать."""
@@ -970,6 +1072,13 @@ class Agent:
             _spec.loader.exec_module(_mod)
             import sys as _s; _s.modules['desktop.core.extension_server'] = _mod
             _mod.set_agent_loop(asyncio.get_running_loop())
+            # page.upload: токены файлов выдаёт агент браузера, расширение забирает их здесь.
+            from desktop.core.upload_store import UploadStore
+            if getattr(self, "uploads", None) is None:
+                self.uploads = UploadStore(config.BROWSER_UPLOAD_DIR)
+            _mod.set_upload_store(self.uploads)
+            # Подключение и версия расширения — в Настройки интерфейса без перезагрузки.
+            _mod.set_status_listener(lambda: self.bus.emit("extension_status"))
 
             def _run_ext_server():
                 # Цикл с нарастающим перезапуском живёт в extension_server

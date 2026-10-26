@@ -1,6 +1,6 @@
 // Безопасность управления ПК: баннер «Сакура управляет компьютером» со «Стоп», «Управление приостановлено»
 // с «Возобновить», окно «Разрешить?» для опасных действий и центр действий (колокол в верхней панели).
-import { Bell, OctagonX, Play, ShieldAlert } from "lucide-react";
+import { Bell, Globe, OctagonX, Play, ShieldAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { bridge } from "../bridge";
@@ -29,6 +29,30 @@ export function ControlBanner() {
       <button type="button" onClick={() => void panic(true)} title="Аварийная остановка (Ctrl+Alt+End)"
               className="ml-auto flex items-center gap-1 rounded-full bg-warn/20 px-3 py-0.5 text-warn">
         <OctagonX size={12} /> Стоп</button>
+    </div>
+  );
+}
+
+/** Задача агента браузера: «работает в окне агента» или пауза (капча, вход) с кнопкой «Готово». */
+export function BrowserTaskBanner() {
+  const task = useApp((s) => s.browserTask);
+  const resume = useApp((s) => s.resumeBrowser);
+  if (!task) return null;
+  if (task.state === "paused") {
+    return (
+      <div role="alert" aria-label="Задача в браузере ждёт"
+           className="flex items-center gap-2 border-b border-warn/40 bg-warn/10 px-4 py-1.5 text-xs text-warn">
+        <Globe size={14} /> Задача в браузере ждёт вас{task.text ? `: ${task.text}` : ""}. Сделайте нужное в окне агента.
+        <button type="button" onClick={() => void resume(task.task_id)}
+                className="ml-auto flex items-center gap-1 rounded-full border border-warn/50 px-3 py-0.5">
+          <Play size={12} /> Готово</button>
+      </div>
+    );
+  }
+  return (
+    <div aria-live="polite" aria-label="Сакура работает в браузере"
+         className="flex items-center gap-2 border-b border-accent/40 bg-accent/10 px-4 py-1.5 text-xs text-ink">
+      <Globe size={14} className="text-accent" /> Сакура выполняет задачу в отдельном окне браузера…
     </div>
   );
 }

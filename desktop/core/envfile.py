@@ -17,6 +17,8 @@ log = logging.getLogger("sakura.secrets")
 SECRET_KEYS = ("WS_TOKEN", "YANDEX_MUSIC_TOKEN")
 # Не секреты (мастер «Подключение»): значения можно показывать.
 CONFIG_KEYS = ("DEVICE_ID", "VPS_WS_URL", "SERVER_TRANSPORT")
+# Настройки → «Расширение браузера» (не секреты; пустое значение — снять закрепление / выключить загрузку).
+EXTENSION_KEYS = ("SAKURA_EXTENSION_ID", "BROWSER_UPLOAD_DIR")
 MAX_LEN = 4096
 
 
@@ -57,7 +59,7 @@ def status(path: str | None, keys=SECRET_KEYS) -> dict[str, bool]:
 
 
 def _check(key: str, value: str) -> str:
-    if key not in SECRET_KEYS + CONFIG_KEYS:
+    if key not in SECRET_KEYS + CONFIG_KEYS + EXTENSION_KEYS:
         raise SecretError("этот ключ нельзя менять из Настроек")
     if not isinstance(value, str):
         raise SecretError("значение должно быть строкой")
@@ -68,7 +70,12 @@ def _check(key: str, value: str) -> str:
         raise SecretError("режим канала: ws, wss, noise или noise-only")
     if key == "DEVICE_ID" and not re.fullmatch(r"[A-Za-z0-9_.-]{2,40}", value):
         raise SecretError("имя устройства: латиница, цифры, «-», «_», «.» (2–40 знаков)")
-    if not value:
+    # ID расширения Chromium — 32 буквы a–p.
+    if key == "SAKURA_EXTENSION_ID" and value and not re.fullmatch(r"[a-p]{32}", value):
+        raise SecretError("ID расширения — 32 латинские буквы a–p (как на странице «Расширения»)")
+    if key == "BROWSER_UPLOAD_DIR" and value and not (os.path.isabs(value) and os.path.isdir(value)):
+        raise SecretError("папка для загрузок — полный путь к существующей папке")
+    if not value and key not in EXTENSION_KEYS:
         raise SecretError("пустое значение")
     if len(value) > MAX_LEN or any(c in value for c in "\r\n\0"):
         raise SecretError("значение слишком длинное или содержит перевод строки")
@@ -130,4 +137,5 @@ def set_secret(path: str, key: str, value: str, restrict=None) -> None:
             restrict(path)
         except Exception as e:  # noqa: BLE001
             log.warning("[secrets] не удалось ограничить права на .env: %s", type(e).__name__)
-    log.info("[secrets] %s обновлён в .env%s", key, "" if key in CONFIG_KEYS else " (значение не журналируется)")
+    log.info("[secrets] %s обновлён в .env%s", key,
+             "" if key in CONFIG_KEYS + EXTENSION_KEYS else " (значение не журналируется)")

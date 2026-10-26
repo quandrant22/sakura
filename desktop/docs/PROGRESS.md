@@ -142,3 +142,14 @@ files.delete удалил по неточному имени C:\sakura-tmp\cpu.t
   Снимки: C:\sakura-tmp\screens\final (26 файлов; home/settings/devices/scenarios/memory/profile, 1440x1024 и 1180x760).
   Холодный старт ярлыком не повторён: уже работает экземпляр Sakura, не запущенный мной (последняя успешная проверка — 14.10, шаг Д).
   Замечание: на «Настройках» при 1180 px остаётся горизонтальная прокрутка у колонки (не от мастера).
+
+## Browser agent — расширение 3.2.0 и desktop core (26.10, ветка feat/browser-agent)
+- Коммиты: иконки + .gitignore (5464664); расширение 3.2.0 (36b3c0b); desktop core и интерфейс — следующий коммит.
+- Расширение: tabs.*/agent_window.* по id, page.observe/act/forms/questions/fill_form/upload/shot/scroll, ref «f<кадр>:e<n>», stale без действия, changed ≤ 80; eval только в js_exec за ALLOW_JS_EXEC=false (DECISIONS №73–75, №78).
+- Ядро: desktop/core/browser_agent.py (цикл browser.do → browser_step, wait/paused/cancel, восстановление после обрыва WS и выгрузки service worker), upload_store.py (токены только для BROWSER_UPLOAD_DIR), транзит ext:<действие> в browser.py и command_packs/browser, extension_server: args, upload_fetch, версия и ID (DECISIONS №76–77).
+- Интерфейс: Настройки → «Расширение браузера» — версия, ID подключённого расширения, закрепление SAKURA_EXTENSION_ID, папка загрузок; баннер задачи в браузере с «Готово» на паузе.
+- Проверки: pytest 777 passed, 40 skipped (desktop/.venv); ruff — чисто; vitest 168/168 (ui) + 67/67 (расширение, jsdom); tsc (оба проекта), eslint — чисто.
+- Живые проверки (Opera GX 137.0.6036.65, Chromium 153; отдельный экземпляр с временным профилем и --load-extension, временное «ядро» на 8768; Opera и ядро Мастера не тронуты — расширение Мастера осталось подключено к 8766):
+  а) загрузка 3.2.0 — **без ошибок**: manifest и importScripts(lib/capture.js, lib/agent.js) загружены, extension_ready 3.2.0. Найдено и исправлено в 3.2.0: VS Code на 8767 принимал TCP и молчал — сокет навсегда оставался CONNECTING (так было и в 3.1.0), теперь срок рукопожатия 2 с; Opera кладёт в новое окно стартовую вкладку GX Corner первой и активной (снимок и кадр давали «extensions gallery cannot be scripted») и игнорирует focused:false.
+  б) захват неактивного окна агента — **работает**: окно агента без фокуса (фокус у окна пользователя), page.shot по window_id → 1232x823, JPEG q60, 45 КБ, на кадре страница (проверено глазами, кадр удалён); annotated и crop_ref — тоже; неактивная вкладка → unsupported, вкладка не активирована. page.observe → ref f0:e1, действие по свежему снимку — done с новым snapshot_id, по прошлому — stale; js_exec → отказ.
+  Не проверялось вживую: полный цикл с сервером (серверной части browser_step ещё нет), капча и формы на реальных сайтах.

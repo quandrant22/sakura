@@ -340,6 +340,39 @@ def youtube_player_cmd(action: str) -> dict:
     return R.done("пауза/воспроизведение на YouTube")
 
 
+# ── Агент браузера (расширение 3.2.0): транзит действий ──────────────
+# Действия по tab_id/window_id и page.* — аргументы словарём (args), ответ расширения
+# {ok, status: done|stale|not_found|unsupported|error, detail, data?, observe?}.
+EXT_AGENT_ACTIONS = frozenset({
+    "tabs.list", "tabs.activate", "tabs.close", "tabs.reload", "tabs.mute", "tabs.pin", "tabs.move", "tabs.new",
+    "agent_window.open", "agent_window.close",
+    "page.observe", "page.act", "page.forms", "page.questions", "page.fill_form", "page.upload",
+    "page.shot", "page.scroll",
+})
+_EXT_STATUS = {"done": "done", "unsupported": "unsupported", "not_found": "failed", "stale": "failed",
+               "error": "failed"}
+
+
+async def ext_agent_action(action: str, args: dict | None = None, timeout: float = 30.0) -> tuple[dict, dict]:
+    """Действие агента браузера через расширение → (результат команды {ok, status, detail}, ответ расширения).
+
+    Статусы расширения сводятся к контракту команды (desktop.core.results): stale/not_found/error → failed.
+    """
+    import sys
+
+    from desktop.core import results as R
+    if action not in EXT_AGENT_ACTIONS:
+        return R.unsupported(f"неизвестное действие браузера: {action}"), {}
+    ext = sys.modules.get("desktop.core.extension_server")
+    if ext is None or not ext.is_connected():
+        return R.unsupported("расширение браузера не подключено"), {}
+    raw = await ext.send_command(action, "", timeout=timeout, args=args or {})
+    if not isinstance(raw, dict) or raw.get("status") not in _EXT_STATUS:
+        detail = raw.get("error") if isinstance(raw, dict) else ""
+        return R.failed(str(detail or "нет ответа расширения")), raw if isinstance(raw, dict) else {}
+    return R.result(_EXT_STATUS[raw["status"]], str(raw.get("detail") or raw["status"])), raw
+
+
 def music_open_and_find(query: str) -> str:
     if not _is_yandex_music_open():
         music_open()

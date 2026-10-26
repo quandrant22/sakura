@@ -9,7 +9,7 @@ import { WidgetBoard } from "./board/WidgetBoard";
 import { bridge } from "./bridge";
 import { Chat, ChatStrip } from "./components/Chat";
 import { CoreFailedBanner } from "./components/CoreFailedBanner";
-import { ConfirmDialog, ControlBanner } from "./components/ControlSafety";
+import { BrowserTaskBanner, ConfirmDialog, ControlBanner } from "./components/ControlSafety";
 import { OfflineBanner } from "./components/OfflineBanner";
 import { useTalkHotkey } from "./screens/VoiceSection";
 
@@ -236,6 +236,7 @@ function Shell() {
       <CoreFailedBanner />
       <OfflineBanner />
       <ControlBanner />
+      <BrowserTaskBanner />
       <ConfirmDialog />
       <TalkHotkey />
       <div className="flex min-h-0 flex-1 gap-gap px-edge pb-edge pt-gap">

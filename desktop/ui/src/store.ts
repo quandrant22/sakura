@@ -27,6 +27,8 @@ export interface Slice<T> {
 export interface ScenarioEvent { run_id: string; step: number; status: string; detail: string }
 
 export interface ConfirmRequest { id: string; action: string; label: string; ts: number; expires: number }
+/** Задача агента браузера (событие ядра browser_task); done/fail/cancelled приходят уведомлением. */
+export interface BrowserTask { task_id: string; state: "running" | "paused"; text: string }
 
 export interface AppState {
   link: LinkState;
@@ -50,6 +52,10 @@ export interface AppState {
   controlPaused: boolean;
   /** Опасные действия, ждущие «Разрешить?» в окне. */
   confirms: ConfirmRequest[];
+  /** Задача агента браузера: идёт или ждёт «Готово» Мастера (капча, вход). */
+  browserTask: BrowserTask | null;
+  /** «Готово» на паузе задачи в браузере. */
+  resumeBrowser(taskId: string): Promise<void>;
   panic(on?: boolean): Promise<void>;
   answerConfirm(id: string, yes: boolean): Promise<void>;
   /** «Отмена» в тосте выключения. */
@@ -282,6 +288,12 @@ export function createAppStore(client: CoreClient) {
         case "pc_action":
           set({ pcAction: Boolean((ev as { active?: boolean }).active) });
           break;
+        case "browser_task": {
+          const t = ev as unknown as BrowserTask;
+          set({ browserTask: t.state === "running" || t.state === "paused"
+            ? { task_id: t.task_id, state: t.state, text: t.text ?? "" } : null });
+          break;
+        }
         case "notify": {
           const n = ev as { text: string; level: "info" | "warn" | "error" };
           // Лента уведомлений (виджет) — только в памяти, последние 50.
@@ -310,6 +322,15 @@ export function createAppStore(client: CoreClient) {
       pcAction: false,
       controlPaused: false,
       confirms: [],
+      browserTask: null,
+      async resumeBrowser(taskId: string) {
+        try {
+          await client.call("browser_resume", { task_id: taskId });
+          set({ browserTask: { task_id: taskId, state: "running", text: "" } });
+        } catch (e) {
+          set({ toast: { text: errorText(e), level: "warn" } });
+        }
+      },
       async panic(on = true) {
         try {
           await client.call("panic", { on });

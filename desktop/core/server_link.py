@@ -115,7 +115,8 @@ class ServerLink:
         return False
 
     # ── запросы ────────────────────────────────────────────────────
-    async def request(self, message: dict) -> dict:
+    async def request(self, message: dict, timeout: float | None = None) -> dict:
+        """timeout — свой срок ответа (шаг агента браузера ждёт модель дольше 10 с)."""
         if not self.online:
             raise ApiError("offline", "нет связи с сервером")
         if (self._effective_proto() or PROTO) < PROTO:
@@ -124,10 +125,11 @@ class ServerLink:
         msg = {**message, **self._auth(), "request_id": rid}
         fut = asyncio.get_running_loop().create_future()
         self._pending[rid] = fut
+        wait = self.timeout if timeout is None else timeout
         try:
             await self._send(msg)
-            return await asyncio.wait_for(fut, self.timeout)
+            return await asyncio.wait_for(fut, wait)
         except asyncio.TimeoutError:
-            raise ApiError("timeout", f"{message.get('type')}: нет ответа за {self.timeout:.0f} с") from None
+            raise ApiError("timeout", f"{message.get('type')}: нет ответа за {wait:.0f} с") from None
         finally:
             self._pending.pop(rid, None)

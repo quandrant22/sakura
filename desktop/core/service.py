@@ -109,8 +109,13 @@ class CoreService:
             import sys as _sys
             ext = _sys.modules.get("desktop.core.extension_server")
             out["extension_connected"] = bool(ext and ext.is_connected())
+            st = ext.get_status() if ext is not None else {}
+            out["extension_version"] = st.get("version") or ""
+            out["extension_connected_id"] = st.get("extension_id") or ""
         except Exception:  # noqa: BLE001
             out["extension_connected"] = False
+        # Агент браузера: папка, из которой можно загружать файлы на сайты (пусто — выключено).
+        out["browser_upload_dir"] = os.getenv("BROWSER_UPLOAD_DIR", config.BROWSER_UPLOAD_DIR)
         return out
 
     def snapshot(self) -> list[dict]:
@@ -180,6 +185,25 @@ class CoreService:
             self._emit({"type": event})
         elif event == "mood_update":
             self._emit({"type": "mood", "params": data.get("params") or {}})
+        elif event == "extension_status":
+            self._emit({"type": "settings", "settings": self.settings_snapshot()})
+        elif event == "browser_task":
+            self._on_browser_task(data)
+
+    def _on_browser_task(self, data: dict):
+        """Задача агента браузера: событие интерфейсу и уведомление на паузе и в конце."""
+        self._emit({"type": "browser_task", **data})
+        state, text = data.get("state"), str(data.get("text") or "")
+        if state == "paused":
+            note, level = ("Задача в браузере на паузе" + (f": {text}" if text else "")
+                           + ". Сделайте нужное в окне агента и нажмите «Готово».", "warn")
+        elif state == "done":
+            note, level = "Задача в браузере выполнена" + (f": {text}" if text else ""), "info"
+        elif state == "fail":
+            note, level = "Задача в браузере не выполнена" + (f": {text}" if text else ""), "warn"
+        else:
+            return
+        self._emit({"type": "notify", "text": note, "level": level})
 
     def _on_push(self, msg: dict):
         self._emit(msg)
@@ -217,6 +241,8 @@ class CoreService:
         c("sound_test", self.cmd_sound_test)
         c("mic_level", self.cmd_mic_level)
         c("secrets_set", self.cmd_secrets_set)
+        c("extension_set", self.cmd_extension_set)
+        c("browser_resume", self.cmd_browser_resume)
         c("core_restart", self.cmd_core_restart)
         if os.getenv("SAKURA_LIVECHECK") == "1":
             c("run_action", self.cmd_run_action)
@@ -320,6 +346,38 @@ class CoreService:
         except envfile.SecretError as e:
             raise ApiError("bad_request", str(e)) from None
         return {"keys": envfile.status(path), "restart_suggested": True}
+
+    # ── Настройки → «Расширение браузера» ──
+    async def cmd_extension_set(self, msg: dict):
+        """SAKURA_EXTENSION_ID (закрепление ID) или BROWSER_UPLOAD_DIR: в .env и сразу в работу."""
+        from desktop.core import envfile
+        key = str(msg.get("key") or "")
+        if key not in envfile.EXTENSION_KEYS:
+            raise ApiError("bad_request", "этот ключ нельзя менять в разделе расширения")
+        path = envfile.env_path()
+        if not path:
+            raise ApiError("unsupported", "файл .env не найден — запустите Сакуру ярлыком или задайте SAKURA_ENV_FILE")
+        value = msg.get("value")
+        try:
+            await asyncio.to_thread(envfile.set_secret, path, key, value, self._restrict)
+        except envfile.SecretError as e:
+            raise ApiError("bad_request", str(e)) from None
+        value = str(value).strip()
+        # Проверка Origin читает SAKURA_EXTENSION_ID при каждом подключении — без перезапуска ядра.
+        os.environ[key] = value
+        uploads = getattr(self._agent, "uploads", None)
+        if key == "BROWSER_UPLOAD_DIR" and uploads is not None:
+            uploads.set_root(value or None)
+        snap = self.settings_snapshot()
+        self._emit({"type": "settings", "settings": snap})
+        return {"settings": snap}
+
+    async def cmd_browser_resume(self, msg: dict):
+        """«Готово» Мастера на паузе задачи агента браузера (капча, вход)."""
+        ba = getattr(self._agent, "browser_agent", None)
+        if ba is None or not ba.resume(str(msg.get("task_id") or ""), local=True):
+            raise ApiError("not_found", "задача не на паузе")
+        return {"resumed": True}
 
     # ── мастер «Подключение» ──
     async def cmd_config_values(self, msg: dict):
@@ -515,6 +573,9 @@ class CoreService:
             player = getattr(agent, "player", None)
             if player is not None:
                 player.interrupt()
+            browser_agent = getattr(agent, "browser_agent", None)
+            if browser_agent is not None:
+                browser_agent.cancel_all()  # задачи в браузере тоже останавливаются
             try:
                 from desktop.core.platform import get_platform
                 await asyncio.to_thread(get_platform().power, "shutdown_cancel")

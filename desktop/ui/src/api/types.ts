@@ -68,6 +68,11 @@ export interface Settings {
   theme: string;
   device_id?: string;
   extension_id?: string;
+  /** Подключённое расширение: версия из extension_ready и ID из Origin (для закрепления). */
+  extension_version?: string;
+  extension_connected_id?: string;
+  /** Папка, из которой агент браузера может загружать файлы (пусто — выключено). */
+  browser_upload_dir?: string;
   mic_enabled?: boolean;
   core_ready?: boolean;
   [key: string]: unknown;
