@@ -454,6 +454,24 @@ CLASSIFY_SYSTEM = (
 _ID_RE = re.compile(r"[a-z0-9_.]+")
 
 
+async def generate_raw(model: str, contents, *, api_key: str | None = None,
+                       timeout: float = 120.0, **cfg):
+    """Один вызов одной модели без фолбэков, повторов и фильтра параметров:
+    сырой ответ (function_calls, usage_metadata) или исключение API как есть.
+    Для scripts/probe_gemma.py и вызовов browser agent (generate_agent)."""
+    key = _initial_key(api_key)
+    if not key:
+        raise RuntimeError("нет активного ключа Gemini")
+    client = get_client(key)
+
+    def _invoke():
+        from google.genai import types as _t
+        return client.models.generate_content(
+            model=model, contents=contents, config=_t.GenerateContentConfig(**cfg))
+
+    return await asyncio.wait_for(asyncio.to_thread(_invoke), timeout=timeout)
+
+
 async def classify_action(text: str, catalog: str, *, model: Optional[str] = None,
                           timeout: float = DEFAULT_TIMEOUT_S,
                           api_key: Optional[str] = None) -> Optional[str]:
