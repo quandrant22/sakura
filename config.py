@@ -151,6 +151,10 @@ GEMMA_PARAMS = tuple(p.strip() for p in os.getenv(
     "seed,candidate_count,safety_settings,response_mime_type,response_schema,tools,"
     "tool_config,automatic_function_calling").split(",") if p.strip())
 NO_SAMPLING_MODELS = ("gemini-3.5-flash-lite",)
+# Квоты бесплатного тарифа Gemma — на каждую модель отдельно
+# (sakura_core/rate_limiter.py; сутки — по тихоокеанскому времени).
+GEMMA_RPM = int(os.getenv("GEMMA_RPM", "15"))
+GEMMA_RPD = int(os.getenv("GEMMA_RPD", "1500"))
 
 try:
     VOICE_MAX_TOKENS = max(1, int(os.getenv("VOICE_MAX_TOKENS", "120")))

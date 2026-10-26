@@ -16,6 +16,7 @@ import logging
 import random
 import re
 import time
+from dataclasses import dataclass
 from typing import AsyncIterator, Optional
 
 import config
@@ -492,6 +493,138 @@ async def generate_raw(model: str, contents, *, api_key: str | None = None,
             model=model, contents=contents, config=_t.GenerateContentConfig(**cfg))
 
     return await asyncio.wait_for(asyncio.to_thread(_invoke), timeout=timeout)
+
+
+# ── Вызовы browser agent: квоты Gemma и 429 (S2/S3) ──────────────────────
+
+AGENT_TIMEOUT_S = 120.0                 # Gemma на API отвечает 15–75 с (probe_gemma)
+AGENT_INLINE_WAIT_S = 5.0               # ждать квоту дольше — status:wait на desktop
+_AGENT_TRANSIENT_DELAYS = (2.0, 4.0)    # 500/503 — бэкенд Gemma часто сбоит
+
+
+class QuotaWait(Exception):
+    """Квоты сейчас нет: повторить шаг через retry_after секунд."""
+
+    def __init__(self, retry_after: float, model: str = ""):
+        super().__init__(f"quota wait {retry_after:.0f}s ({model})")
+        self.retry_after = max(1.0, float(retry_after))
+        self.model = model
+
+
+class ChainExhausted(Exception):
+    """Все модели цепочки исчерпали квоту; resume_at — когда первая вернётся."""
+
+    def __init__(self, resume_at: float):
+        super().__init__(f"chain exhausted until {resume_at:.0f}")
+        self.resume_at = resume_at
+
+
+class AgentLLMError(Exception):
+    """Модели цепочки не ответили (сбой, таймаут, отказ запроса)."""
+
+
+@dataclass(frozen=True)
+class AgentResponse:
+    model: str
+    response: object
+    tokens: int
+
+
+def _error_details(error: Exception) -> list:
+    details = getattr(error, "details", None)
+    err = details.get("error", details) if isinstance(details, dict) else None
+    items = err.get("details") if isinstance(err, dict) else None
+    return items if isinstance(items, list) else []
+
+
+def retry_delay(error: Exception) -> float | None:
+    """retryDelay из RetryInfo ответа 429 («37s»), иначе из текста ошибки."""
+    for item in _error_details(error):
+        if str(item.get("@type", "")).endswith("RetryInfo"):
+            m = re.match(r"([\d.]+)s", str(item.get("retryDelay") or ""))
+            if m:
+                return float(m.group(1))
+    m = re.search(r"retry in ([\d.]+)\s*s", str(error), re.IGNORECASE)
+    return float(m.group(1)) if m else None
+
+
+def quota_per_day(error: Exception) -> bool:
+    """429 из-за суточной квоты (QuotaFailure: quotaId …PerDay…)."""
+    for item in _error_details(error):
+        if str(item.get("@type", "")).endswith("QuotaFailure"):
+            for v in item.get("violations") or []:
+                if "perday" in f"{v.get('quotaId', '')}{v.get('quotaMetric', '')}".lower():
+                    return True
+    return False
+
+
+async def generate_agent(contents, *, chain, system: str = "", tools=None,
+                         tool_config=None, response_schema=None,
+                         response_mime_type: str | None = None,
+                         max_tokens: int = 2048, temperature: float | None = None,
+                         limiter=None, timeout: float = AGENT_TIMEOUT_S,
+                         inline_wait: float = AGENT_INLINE_WAIT_S,
+                         sleep=asyncio.sleep) -> AgentResponse:
+    """Вызов browser agent: модели цепочки по порядку через лимитер квот.
+
+    Квоты нет дольше inline_wait — QuotaWait (desktop получит status:wait).
+    429 — модель блокируется на retry delay (иначе 4→8→16→32 с), до 5
+    повторов, затем следующая модель. Все исчерпаны — ChainExhausted.
+    Сбой 500/503 — два коротких повтора, затем следующая модель; ничего не
+    вышло — AgentLLMError. Параметры — через filter_params (S4)."""
+    from sakura_core import rate_limiter
+    limiter = limiter or rate_limiter.get()
+    models = tuple(dict.fromkeys(m for m in chain if m))
+    if not models:
+        raise AgentLLMError("пустая цепочка моделей")
+    cfg = {"system_instruction": system or None, "max_output_tokens": max_tokens,
+           "temperature": temperature, "tools": tools, "tool_config": tool_config,
+           "response_schema": response_schema,
+           "response_mime_type": response_mime_type}
+    if tools is not None:
+        from google.genai import types as _t
+        cfg["automatic_function_calling"] = _t.AutomaticFunctionCallingConfig(disable=True)
+    last_error: Exception | None = None
+    for model in models:
+        transient = 0
+        while True:
+            if limiter.exhausted_until(model) is not None:
+                break                                   # следующая модель
+            wait = limiter.wait(model)
+            if wait > inline_wait:
+                raise QuotaWait(wait, model)
+            if wait > 0:
+                await sleep(wait)
+            limiter.take(model)
+            params = {k: v for k, v in filter_params(model, cfg).items() if v is not None}
+            started = time.monotonic()
+            try:
+                response = await generate_raw(model, contents, timeout=timeout, **params)
+            except Exception as error:  # noqa: BLE001 — разбор кода ошибки API ниже
+                last_error = error
+                kind = _error_kind(error)
+                log.info("[agent-llm] model=%s code=%s elapsed=%.1fs", model,
+                         _error_code(error), time.monotonic() - started)
+                if kind == "rate_limit":
+                    limiter.on_429(model, retry_delay(error), quota_per_day(error))
+                    continue                            # wait()/exhausted решат
+                if (kind == "transient" and _error_code(error) != "TIMEOUT"
+                        and transient < len(_AGENT_TRANSIENT_DELAYS)):
+                    await sleep(_AGENT_TRANSIENT_DELAYS[transient] + random.random())
+                    transient += 1
+                    continue
+                break
+            limiter.on_success(model)
+            usage = getattr(response, "usage_metadata", None)
+            tokens = int(getattr(usage, "total_token_count", 0) or 0)
+            log.info("[agent-llm] success model=%s elapsed=%.1fs tokens=%d", model,
+                     time.monotonic() - started, tokens)
+            return AgentResponse(model, response, tokens)
+    resumes = [t for t in (limiter.exhausted_until(m) for m in models) if t is not None]
+    if len(resumes) == len(models):
+        raise ChainExhausted(min(resumes))
+    code = _error_code(last_error) if last_error else "none"
+    raise AgentLLMError(f"модели не ответили: {code}")
 
 
 async def classify_action(text: str, catalog: str, *, model: Optional[str] = None,
