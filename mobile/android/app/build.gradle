@@ -18,9 +18,9 @@ android {
 
     buildTypes {
         release {
-            optimization {
-                enable false
-            }
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
     compileOptions {
@@ -36,7 +36,7 @@ android {
 }
 
 dependencies {
-    implementation libs.activity.ktx
+    implementation libs.activity
     implementation libs.appcompat
     implementation libs.constraintlayout
     implementation libs.material

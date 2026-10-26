@@ -1,5 +1,5 @@
 # Add project specific R8 rules here.
-# AGP will combine all keep rule files in src/main/keepRules to pass to R8
+# Подключён в app/build.gradle (release).
 #
 # For more details, see
 #   https://d.android.com/r/tools/r8/keep-rules
@@ -10,3 +10,8 @@
 #-keepclassmembers class fqcn.of.javascript.interface.for.webview {
 #   public *;
 #}
+# Отладочные логи вырезаются из release.
+-assumenosideeffects class android.util.Log {
+    public static int d(...);
+    public static int v(...);
+}
