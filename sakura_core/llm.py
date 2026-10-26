@@ -198,6 +198,28 @@ def _initial_key(api_key: Optional[str]) -> Optional[str]:
         return None
 
 
+# ── Параметры генерации по модели (S4) ───────────────────────────────────
+
+def filter_params(model: str, cfg: dict) -> dict:
+    """Параметры GenerateContentConfig, которые модель принимает.
+
+    gemma-* — только подтверждённые scripts/probe_gemma.py (config.GEMMA_PARAMS);
+    модели из config.NO_SAMPLING_MODELS (gemini-3.5-flash-lite) не принимают
+    пользовательские temperature/top_p — они не передаются."""
+    name = (model or "").lower()
+    out = dict(cfg)
+    if name.startswith("gemma-"):
+        allowed = set(getattr(config, "GEMMA_PARAMS", ()))
+        out = {k: v for k, v in out.items() if k in allowed or v is None}
+    if name.startswith(tuple(getattr(config, "NO_SAMPLING_MODELS", ()))):
+        out.pop("temperature", None)
+        out.pop("top_p", None)
+    dropped = sorted(k for k in cfg if k not in out and cfg[k] is not None)
+    if dropped:
+        log.debug("[llm] model=%s: не передаю %s", model, ",".join(dropped))
+    return out
+
+
 # ── Клиент ───────────────────────────────────────────────────────────────
 
 
@@ -281,7 +303,7 @@ async def generate(contents, *, system: str = "", model: Optional[str] = None,
                     return c.models.generate_content(
                         model=m,
                         contents=contents,
-                        config=_t.GenerateContentConfig(**cfg_kwargs),
+                        config=_t.GenerateContentConfig(**filter_params(m, cfg_kwargs)),
                     )
 
                 response = await asyncio.wait_for(asyncio.to_thread(
@@ -355,7 +377,7 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
                 for chunk in client.models.generate_content_stream(
                     model=model_name,
                     contents=contents,
-                    config=_t.GenerateContentConfig(**cfg_kwargs),
+                    config=_t.GenerateContentConfig(**filter_params(model_name, cfg_kwargs)),
                 ):
                     text = getattr(chunk, "text", None)
                     if text:

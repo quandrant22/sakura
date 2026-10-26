@@ -142,6 +142,16 @@ VOICE_MODEL_CHAIN = _parse_model_chain("VOICE_MODEL_CHAIN", MODEL_CHAIN)
 BACKGROUND_MODEL_CHAIN = _parse_model_chain("BACKGROUND_MODEL_CHAIN", MODEL_CHAIN)
 VISION_MODEL_CHAIN = _parse_model_chain("VISION_MODEL_CHAIN", MODEL_CHAIN)
 
+# Параметры генерации по модели (sakura_core/llm.filter_params):
+# gemma-* — только принятые моделью по scripts/probe_gemma.py (docs/PROGRESS.md);
+# NO_SAMPLING_MODELS не принимают пользовательские temperature/top_p.
+GEMMA_PARAMS = tuple(p.strip() for p in os.getenv(
+    "GEMMA_PARAMS",
+    "system_instruction,max_output_tokens,temperature,top_p,top_k,stop_sequences,"
+    "seed,candidate_count,safety_settings,response_mime_type,response_schema,tools,"
+    "tool_config,automatic_function_calling").split(",") if p.strip())
+NO_SAMPLING_MODELS = ("gemini-3.5-flash-lite",)
+
 try:
     VOICE_MAX_TOKENS = max(1, int(os.getenv("VOICE_MAX_TOKENS", "120")))
 except (TypeError, ValueError):
