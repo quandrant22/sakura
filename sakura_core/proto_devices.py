@@ -4,7 +4,7 @@
   devices_request  → devices {devices: [Device]}
   status_request   → status {tone, mode, context, quote}
   пуш device_update {device}  — изменилось состояние устройства
-  пуш status {tone, mode, context, quote} — изменился статус
+  пуш status {tone, mode, context, quote, activity?} — изменился статус
 
 Device (desktop/tools/fixtures/devices.json):
   {"id", "name", "kind": pc|phone|tablet|headphones|other, "online",
@@ -16,7 +16,8 @@ stats — последние из heartbeat (register/ping: system_info), focus 
 status: tone — TTS_TONE (id: neutral, warm, dry, serious, quiet, cheerful),
 mode — по присутствию и окну (normal | game | call | away), context —
 что делает Мастер (категория активного окна, без заголовка), quote —
-цитата дня из data/quotes.json.
+цитата дня из data/quotes.json; activity (необязательное) — что Сакура
+делает сама (прогресс browser agent), для орба.
 """
 
 from __future__ import annotations
@@ -181,7 +182,20 @@ def status(today: dt.date | None = None) -> dict:
         category = _window_category(window) if window else "other"
         mode = MODE_BY_CATEGORY.get(category, "normal")
         context = CONTEXT_BY_CATEGORY.get(category, CONTEXT_BY_CATEGORY["other"])
-    return {"tone": tone, "mode": mode, "context": context, "quote": _quote(today)}
+    out = {"tone": tone, "mode": mode, "context": context, "quote": _quote(today)}
+    if _activity:
+        out["activity"] = _activity
+    return out
+
+
+_activity: str | None = None
+
+
+def set_activity(text: str | None) -> None:
+    """Что Сакура делает сама (browser agent: «шаг N — note», «реши капчу»):
+    поле activity пуша status для орба; None — снять."""
+    global _activity
+    _activity = " ".join(str(text).split())[:200] if text else None
 
 
 async def push_status(*, force: bool = False) -> None:
@@ -212,6 +226,8 @@ async def on_heartbeat(device_id: str | None, data: dict) -> None:
                 info[dst] = data[src]
         await push_device(device_id)
         await push_status()
+        from sakura_core import browser_step
+        browser_step.ensure_loaded()        # рестарт: автопродолжение задач после квоты
     except Exception as e:
         log.debug(f"[v2] heartbeat {device_id}: {type(e).__name__}: {e}")
 

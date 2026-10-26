@@ -1234,3 +1234,28 @@
     name: goal
     pattern: '(?:сделай(?: сама| за меня)?|выполни) на компьютере\s*:?\s*(.+)'
     required: ask
+
+# browser.task — Сакура сама ведёт задачу в браузере (browser_step на
+# сервере: снимок вкладки → один инструмент; тесты решает решатель).
+# Только при BROWSER_AGENT=1 (sakura_core/bridge.py). confirm выставляет
+# мост по BROWSER_CONFIRM_SENSITIVE.
+- id: browser.task
+  desc: 'Выполнить задачу в браузере по шагам (формы, онлайн-тесты)'
+  executor: vps
+  reversible: false
+  confirm: false
+  confirm_prompt: 'Буду сама действовать в браузере, пока не сделаю. Точно? Скажи «да».'
+  followup: ack
+  triggers: ['сделай в браузере', 'сделай сама в браузере', 'выполни в браузере', 'сделай за меня в браузере']
+  param:
+    name: goal
+    pattern: '(?:сделай(?: сама| за меня)?|выполни) в браузере\s*:?\s*(.+)'
+    required: ask
+
+- id: browser.stop
+  desc: 'Остановить задачу в браузере'
+  executor: vps
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['стоп задача', 'останови задачу', 'отмени задачу', 'стоп браузер', 'хватит в браузере', 'останови браузер']

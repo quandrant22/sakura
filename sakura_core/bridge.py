@@ -10,6 +10,7 @@ v3_fast_path до своей диспетчеризации. На этапе 5 �
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import re
 import config
@@ -34,6 +35,7 @@ _executor: Executor | None = None
 def _load_capabilities() -> None:
     try:
         import capabilities.browser      # noqa: F401
+        import capabilities.browser_agent  # noqa: F401
         import capabilities.calendar     # noqa: F401
         import capabilities.coding       # noqa: F401
         import capabilities.ext          # noqa: F401
@@ -55,11 +57,27 @@ _load_capabilities()
 # require_handlers=True — декларация без хендлера роняет импорт моста, а не
 # уходит тихо на старый путь в бою. Импорт capabilities.* выше обязан быть
 # до этой строки: пустая таблица также считается отсутствием исполнения.
-_declarations = tuple(
-    d for d in _load_registry()
-    # computer.do — только при COMPUTER_USE=1: иначе фразы до него не доходят.
-    if d.id != "computer.do" or config.COMPUTER_USE
-)
+BROWSER_AGENT_IDS = ("browser.task", "browser.stop")
+
+
+def _gate(decls) -> tuple:
+    out = []
+    for d in decls:
+        # computer.do — только при COMPUTER_USE=1: иначе фразы до него не доходят.
+        if d.id == "computer.do" and not config.COMPUTER_USE:
+            continue
+        # browser agent — только при BROWSER_AGENT=1; подтверждение запуска —
+        # за флагом BROWSER_CONFIRM_SENSITIVE (как и действий внутри задачи).
+        if d.id in BROWSER_AGENT_IDS:
+            if not config.BROWSER_AGENT:
+                continue
+            if d.id == "browser.task":
+                d = dataclasses.replace(d, confirm=bool(config.BROWSER_CONFIRM_SENSITIVE))
+        out.append(d)
+    return tuple(out)
+
+
+_declarations = _gate(_load_registry())
 
 
 def get_router() -> Router:

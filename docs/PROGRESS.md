@@ -56,3 +56,37 @@ temperature=0.0, max_output_tokens), перепроверены вторым п�
   top_p, top_k, stop_sequences, seed, candidate_count, safety_settings,
   response_mime_type, response_schema, tools, tool_config,
   automatic_function_calling.
+
+## Статус по пунктам
+
+| пункт | статус | где |
+|---|---|---|
+| S0 probe | ✅ выполнен первым, итог выше | scripts/probe_gemma.py |
+| S1 конфиг | ✅ | config.py |
+| S2 лимитер RPM/RPD | ✅ token bucket на модель, RPD до полуночи PT, `data/gemma_quota.json` | sakura_core/rate_limiter.py |
+| S3 429 | ✅ retryDelay → 4/8/16/32/32 с → следующая модель → paused + Telegram + автопродолжение | sakura_core/llm.py (`generate_agent`), browser_step.py |
+| S4 фильтр параметров | ✅ gemma-* по `GEMMA_PARAMS`, gemini-3.5-flash-lite без temperature/top_p | sakura_core/llm.py (`filter_params`) |
+| S5 BrowserTask | ✅ чекпоинт без кадров/текста, восстановление, одна задача на окно | sakura_core/browser_task.py |
+| S6 навигатор | ✅ FC + разбор JSON, note обязательна, окно кадров, сводка, автоскрин | sakura_core/browser_step.py |
+| S7 решатель | ✅ schema, все kind, кадр-вырезка, режим таймера, изоляция | sakura_core/quiz_solver.py |
+| S8 формы/тесты/капча | ✅ | browser_step.py |
+| S9 управление и отчёт | ✅ browser.task / browser.stop, прогресс (орб `status.activity` + одно сообщение Telegram), отчёт | capabilities/browser_agent.py, bridge.py |
+| S10 подтверждения | ✅ за флагом | browser_step.py, bridge.py |
+
+Тесты: tests/test_gemma_params.py, tests/test_gemma_quota.py,
+tests/test_browser_agent.py, tests/test_browser_capability.py. Полный прогон —
+всё зелёное, кроме `test_acks.py::test_cache_key_changes_with_model_or_voice`
+(падал и на master до этой ветки).
+
+## Что нужно от desktop и расширения (сверить)
+
+- `browser.do` с `resume: true` и прежним task_id — продолжить шаги (после паузы
+  по квоте; DECISIONS B6).
+- Повтор шага после `status: wait` — с тем же `step` (B8).
+- `page_questions` → `last_result.detail.questions[...]`; `page_shot {crop_ref,
+  q_index}` → кадр `kind: question`; поля `invalid`/`error` и `type` у элементов
+  (B12).
+- Ответ сервера на шаг может идти десятки секунд (задержка Gemma) — таймаут
+  ожидания на desktop не меньше 5 минут.
+- Включение: `BROWSER_AGENT=1` на сервере; канал — Noise/локальный (приватный
+  класс `browser*`).
