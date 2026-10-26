@@ -352,3 +352,69 @@ def test_llm_voice_reply_in_silent_turn_skips_tts(monkeypatch):
         vt.reset(tok)
     assert "stream" not in seen and "Привет" in text
     assert [m["type"] for m in ws.sent] == ["reply"] and ws.of("reply")[0]["kind"] == "llm"
+
+
+# ── S6: vision_request с камеры ─────────────────────────────────────
+
+JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 64
+
+
+def _vision(monkeypatch, secure=True, master=True, **fields):
+    """vision_request.handle с подменой модели; возвращает (ответы, промпт, лог)."""
+    import base64
+
+    from modules import ws_auth
+    from sakura_core import llm, vision_request
+    seen = {}
+
+    async def fake_generate(parts, **kw):
+        seen["parts"], seen["kw"] = parts, kw
+        return "На столе чашка и книга."
+    monkeypatch.setattr(llm, "generate", fake_generate)
+    monkeypatch.setattr(ws_auth, "_MASTER_DEVICES", {"phone"} if master else set())
+    ws = WS(secure=secure)
+    monkeypatch.setattr(st, "connected_devices", {"phone": ws})
+    data = {"type": "vision_request", "request_id": "v1", "device_id": "phone",
+            "image": base64.b64encode(JPEG).decode(), **fields}
+    asyncio.run(vision_request.handle(ws, data))
+    return ws.sent, seen
+
+
+def test_camera_frame_uses_camera_prompt_and_replies(monkeypatch, caplog):
+    import logging
+    caplog.set_level(logging.DEBUG)
+    sent, seen = _vision(monkeypatch, source="camera", question="Что у меня на столе?")
+    assert sent[0]["type"] == "reply" and sent[0]["request_id"] == "v1" and sent[0]["kind"] == "llm"
+    assert sent[0]["text"] == "На столе чашка и книга."
+    prompt = seen["parts"][1].text
+    assert "кадр с камеры телефона Мастера" in prompt and "Что у меня на столе?" in prompt
+    assert "до трёх предложений" in prompt and "не пересказывай" in prompt
+    assert "кадр одного окна" not in prompt
+    # кадр не попадает в лог: только размер и длина вопроса
+    import base64
+    assert base64.b64encode(JPEG).decode() not in caplog.text
+    assert "camera кадр" in caplog.text
+
+
+def test_window_frame_keeps_window_prompt(monkeypatch):
+    _sent, seen = _vision(monkeypatch)
+    assert "кадр одного окна" in seen["parts"][1].text and "Что в этом окне?" in seen["parts"][1].text
+    _sent, seen = _vision(monkeypatch, source="window")
+    assert "кадр одного окна" in seen["parts"][1].text
+
+
+def test_camera_default_question_and_unknown_source(monkeypatch):
+    sent, seen = _vision(monkeypatch, source="camera")
+    assert "Что на кадре?" in seen["parts"][1].text
+    sent, seen = _vision(monkeypatch, source="screen")
+    assert sent[0]["code"] == "bad_request" and "parts" not in seen
+
+
+def test_camera_frame_rules_same_as_window(monkeypatch):
+    import base64
+    assert _vision(monkeypatch, source="camera", image="x" * 2_000_001)[0][0]["code"] == "bad_request"
+    assert _vision(monkeypatch, source="camera", image="не base64!")[0][0]["code"] == "bad_request"
+    assert _vision(monkeypatch, source="camera",
+                   image=base64.b64encode(b"GIF89a....").decode())[0][0]["code"] == "bad_request"
+    assert _vision(monkeypatch, source="camera", master=False)[0][0]["code"] == "not_master"
+    assert _vision(monkeypatch, source="camera", secure=False)[0][0]["code"] in ("not_master", "secure_channel_required")
