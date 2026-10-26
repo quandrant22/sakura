@@ -156,6 +156,36 @@ NO_SAMPLING_MODELS = ("gemini-3.5-flash-lite",)
 GEMMA_RPM = int(os.getenv("GEMMA_RPM", "15"))
 GEMMA_RPD = int(os.getenv("GEMMA_RPD", "1500"))
 
+# ── Browser agent (browser.do / browser_step, sakura_core/browser_step.py) ──
+# Модели агента — только Gemma 4 через тот же ключ Gemini API: навигатор
+# gemma-4-26b-a4b-it, решатель тестов gemma-4-31b-it (квоты — на модель).
+# Gemini 3.x фолбэком агента не бывает: не-Gemma из цепочек отбрасываются.
+BROWSER_AGENT = os.getenv("BROWSER_AGENT", "0").strip().lower() in ("1", "true", "yes")
+
+
+def _gemma_only(name, chain):
+    kept = tuple(m for m in chain if m.startswith("gemma-"))
+    if kept != tuple(chain):
+        log.warning("%s: не-Gemma модели отброшены", name)
+    return kept
+
+
+BROWSER_MODEL_CHAIN = _gemma_only("BROWSER_MODEL_CHAIN", _parse_model_chain(
+    "BROWSER_MODEL_CHAIN", ("gemma-4-26b-a4b-it", "gemma-4-31b-it")))
+QUIZ_MODEL_CHAIN = _gemma_only("QUIZ_MODEL_CHAIN", _parse_model_chain(
+    "QUIZ_MODEL_CHAIN", ("gemma-4-31b-it",)))
+# Лимиты задачи; 0 — без лимита. Время считается без пауз (капча, квота).
+BROWSER_MAX_STEPS = int(os.getenv("BROWSER_MAX_STEPS", "200"))
+BROWSER_MAX_SECONDS = int(os.getenv("BROWSER_MAX_SECONDS", "1800"))
+BROWSER_MAX_TOKENS = int(os.getenv("BROWSER_MAX_TOKENS", "0"))
+BROWSER_FRAMES_IN_CONTEXT = int(os.getenv("BROWSER_FRAMES_IN_CONTEXT", "3"))
+BROWSER_SUMMARIZE_EVERY = int(os.getenv("BROWSER_SUMMARIZE_EVERY", "15"))
+BROWSER_MAX_FRAMES_PER_STEP = 4
+BROWSER_MAX_FRAME_BYTES = 400 * 1024
+# 1 — подтверждение перед отправкой форм и вводом в поля пароля (пауза до
+# «готово»); 0 — без вопросов.
+BROWSER_CONFIRM_SENSITIVE = os.getenv("BROWSER_CONFIRM_SENSITIVE", "0").strip().lower() in ("1", "true", "yes")
+
 try:
     VOICE_MAX_TOKENS = max(1, int(os.getenv("VOICE_MAX_TOKENS", "120")))
 except (TypeError, ValueError):
