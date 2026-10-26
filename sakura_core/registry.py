@@ -24,7 +24,7 @@ log = logging.getLogger("sakura.registry")
 
 REGISTRY_PATH = Path(__file__).resolve().parent / "capabilities.yaml"
 
-EXECUTORS = ("vps", "agent")
+EXECUTORS = ("vps", "agent", "phone")
 CONTEXTS = ("playing:music", "window:youtube", "window:browser")
 # followup — что следует за исполнением действия:
 #   ack — кроме «Готово» ничего не звучит (модель не зовётся);

@@ -39,6 +39,12 @@ MASTER_DEVICES = set(
 )
 # Известные устройства (modules/device_manager.KNOWN_DEVICES): список id через запятую.
 DEVICES = [d.strip() for d in os.getenv("DEVICES", "pc,laptop,mostech,phone").split(",") if d.strip()]
+# Телефон (docs/security/PROTOCOL.md §11): устройства, которым идут phone.*;
+# первое онлайн и master — получатель команды.
+PHONE_DEVICES = [d.strip() for d in os.getenv("PHONE_DEVICES", "phone").split(",") if d.strip()]
+# Устройства, у которых master-права только на Noise-соединении
+# (websocket.secure is True): токен, loopback и xray master-прав не дают.
+SECURE_ONLY_MASTERS = {d.strip() for d in os.getenv("SECURE_ONLY_MASTERS", "phone").split(",") if d.strip()}
 # Нити разговора (modules/threads.py): по умолчанию выключены.
 THREADS = os.getenv("THREADS", "off").strip().lower() in ("1", "true", "yes", "on")
 # Рассылка вектора настроения всем клиентам (mood_update). По умолчанию выключена;

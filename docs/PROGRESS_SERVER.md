@@ -99,3 +99,5 @@ venv/bin/python scripts/cleanup_tasks.py               # копия в memory/ba
 |---|---|
 | старт | ветка `server/phone` от origin/master (8dc9e6c) |
 | базовая линия | не снята: Python 3.12 на машине не найден (`py -0` видит только 3.11), блоки S1–S7 не начаты |
+| базовая линия (8dc9e6c + журнал) | Python 3.12.3 (как на проде), venv вне репозитория; `pytest tests/ -q`: **1199 passed, 1 skipped, 0 failed** (падений нет); `ruff check .` без конфига: **2056** замечаний (по файлам сохранено, сравнение «не хуже базы» после каждого блока) |
+| S1 исполнитель phone | 14 действий `phone.*` (`executor: phone`, confirm: false, followup: ack), `capabilities/phone.py`, `PHONE_DEVICES`; офлайн → «Телефон не на связи» (reply kind=error), без очереди; pytest **1231 passed**, ruff 2056 (= база) |

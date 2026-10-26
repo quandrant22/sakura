@@ -1234,3 +1234,122 @@
     name: goal
     pattern: '(?:сделай(?: сама| за меня)?|выполни) на компьютере\s*:?\s*(.+)'
     required: ask
+
+
+# ── Телефон (server/phone) ──────────────────────────────────────────
+# executor: phone — команда уходит на устройство из config.PHONE_DEVICES
+# (capabilities/phone.py), результат приходит command_result. Все триггеры
+# содержат «телефон»: music.*, system.volume и reminder.* не перехватываются
+# (самый длинный триггер выигрывает, а без слова «телефон» эти не срабатывают).
+
+- id: phone.find
+  desc: 'Найти телефон — он зазвонит на полной громкости'
+  executor: phone
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['найди телефон', 'найди мой телефон', 'где мой телефон', 'позвони на мой телефон', 'заставь телефон звонить']
+
+- id: phone.dnd_on
+  desc: 'Включить «Не беспокоить» на телефоне'
+  executor: phone
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['включи не беспокоить на телефоне', 'режим не беспокоить на телефоне', 'заглуши телефон']
+
+- id: phone.dnd_off
+  desc: 'Выключить «Не беспокоить» на телефоне'
+  executor: phone
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['выключи не беспокоить на телефоне', 'отключи не беспокоить на телефоне', 'сними не беспокоить на телефоне', 'верни звук на телефоне']
+
+- id: phone.alarm
+  desc: 'Поставить будильник на телефоне на время ЧЧ:ММ'
+  executor: phone
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['поставь будильник на телефоне', 'будильник на телефоне', 'разбуди меня на телефоне', 'заведи будильник на телефоне']
+
+- id: phone.timer
+  desc: 'Поставить таймер на телефоне на N минут/секунд'
+  executor: phone
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['поставь таймер на телефоне', 'таймер на телефоне', 'заведи таймер на телефоне']
+
+- id: phone.flashlight
+  desc: 'Включить или выключить фонарик на телефоне'
+  executor: phone
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['включи фонарик на телефоне', 'выключи фонарик на телефоне', 'фонарик на телефоне', 'погаси фонарик на телефоне']
+
+- id: phone.volume
+  desc: 'Громкость на телефоне 0–100'
+  executor: phone
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['громкость на телефоне', 'громкость телефона', 'поставь громкость на телефоне']
+
+- id: phone.clipboard
+  desc: 'Положить текст в буфер обмена телефона'
+  executor: phone
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['скопируй на телефон', 'отправь в буфер телефона', 'положи в буфер телефона']
+
+- id: phone.open_url
+  desc: 'Открыть ссылку на телефоне'
+  executor: phone
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['открой ссылку на телефоне', 'открой сайт на телефоне', 'открой адрес на телефоне']
+
+- id: phone.open_app
+  desc: 'Открыть приложение на телефоне'
+  executor: phone
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['открой на телефоне', 'запусти на телефоне', 'открой приложение на телефоне', 'запусти приложение на телефоне']
+
+- id: phone.media_play_pause
+  desc: 'Пауза или продолжить музыку на телефоне'
+  executor: phone
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['пауза на телефоне', 'поставь на паузу на телефоне', 'играй на телефоне', 'продолжи на телефоне', 'останови музыку на телефоне']
+
+- id: phone.media_next
+  desc: 'Следующий трек на телефоне'
+  executor: phone
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['следующий трек на телефоне', 'следующая песня на телефоне', 'дальше на телефоне', 'переключи трек на телефоне']
+
+- id: phone.media_prev
+  desc: 'Предыдущий трек на телефоне'
+  executor: phone
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['предыдущий трек на телефоне', 'предыдущая песня на телефоне', 'назад на телефоне', 'прошлый трек на телефоне']
+
+- id: phone.notify
+  desc: 'Отправить уведомление с текстом на телефон'
+  executor: phone
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['отправь на телефон уведомление', 'отправь уведомление на телефон', 'пришли на телефон уведомление']

@@ -40,6 +40,7 @@ def _load_capabilities() -> None:
         import capabilities.files        # noqa: F401
         import capabilities.kettle       # noqa: F401
         import capabilities.music        # noqa: F401
+        import capabilities.phone
         import capabilities.pc_control   # noqa: F401
         import capabilities.computer     # noqa: F401
         import capabilities.system       # noqa: F401
