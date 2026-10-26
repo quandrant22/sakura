@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Токены темы: значения задают Theme.Sakura.Night и Theme.Sakura.Sketch. -->
+    <attr name="sakuraBg" format="color" />
+    <attr name="sakuraBar" format="color" />
+    <attr name="sakuraPanel" format="color" />
+    <attr name="sakuraPanel2" format="color" />
+    <attr name="sakuraLine" format="color" />
+    <attr name="sakuraInk" format="color" />
+    <attr name="sakuraInkDim" format="color" />
+    <attr name="sakuraAccent" format="color" />
+    <attr name="sakuraAccentDeep" format="color" />
+    <attr name="sakuraAccentSoft" format="color" />
+    <attr name="sakuraOnline" format="color" />
+    <attr name="sakuraWarn" format="color" />
+
+    <declare-styleable name="SakuraCoreView">
+        <attr name="coreStatic" format="boolean" />
+    </declare-styleable>
+</resources>

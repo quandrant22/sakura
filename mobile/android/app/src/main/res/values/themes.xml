@@ -1,9 +1,59 @@
-<resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
-    <style name="Base.Theme.Sakura" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your light theme here. -->
-        <!-- <item name="colorPrimary">@color/my_light_primary</item> -->
+<resources>
+    <style name="Base.Theme.Sakura" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="sakuraAccent">@color/accent</item>
+        <item name="sakuraAccentDeep">@color/accent_deep</item>
+        <item name="sakuraAccentSoft">@color/accent_soft</item>
+        <item name="sakuraOnline">@color/online</item>
+        <item name="sakuraWarn">@color/warn</item>
+        <item name="colorPrimary">@color/accent</item>
+        <item name="colorOnPrimary">@color/accent_deep</item>
+        <item name="colorSecondary">@color/accent</item>
+        <item name="colorError">@color/warn</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="shapeAppearanceCornerMedium">@style/Shape.Sakura.Button</item>
     </style>
 
-    <style name="Theme.Sakura" parent="Base.Theme.Sakura" />
+    <!-- «Сакура-ночь» — по умолчанию -->
+    <style name="Theme.Sakura.Night" parent="Base.Theme.Sakura">
+        <item name="sakuraBg">@color/night_bg</item>
+        <item name="sakuraBar">@color/night_bar</item>
+        <item name="sakuraPanel">@color/night_panel</item>
+        <item name="sakuraPanel2">@color/night_panel2</item>
+        <item name="sakuraLine">@color/night_line</item>
+        <item name="sakuraInk">@color/night_ink</item>
+        <item name="sakuraInkDim">@color/night_ink_dim</item>
+        <item name="android:colorBackground">@color/night_bg</item>
+        <item name="colorSurface">@color/night_panel</item>
+        <item name="colorSurfaceContainer">@color/night_panel</item>
+        <item name="colorSurfaceContainerHigh">@color/night_panel2</item>
+        <item name="colorOnSurface">@color/night_ink</item>
+        <item name="colorOnSurfaceVariant">@color/night_ink_dim</item>
+        <item name="colorOutline">@color/night_line</item>
+    </style>
+
+    <!-- «Как в наброске»: белый фон, чёрные карточки -->
+    <style name="Theme.Sakura.Sketch" parent="Base.Theme.Sakura">
+        <item name="sakuraBg">@color/sketch_bg</item>
+        <item name="sakuraBar">@color/sketch_bar</item>
+        <item name="sakuraPanel">@color/sketch_panel</item>
+        <item name="sakuraPanel2">@color/sketch_panel2</item>
+        <item name="sakuraLine">@color/sketch_line</item>
+        <item name="sakuraInk">@color/sketch_ink</item>
+        <item name="sakuraInkDim">@color/sketch_ink_dim</item>
+        <item name="android:colorBackground">@color/sketch_bg</item>
+        <item name="colorSurface">@color/sketch_panel</item>
+        <item name="colorSurfaceContainer">@color/sketch_panel</item>
+        <item name="colorSurfaceContainerHigh">@color/sketch_panel2</item>
+        <item name="colorOnSurface">@color/sketch_ink</item>
+        <item name="colorOnSurfaceVariant">@color/sketch_ink_dim</item>
+        <item name="colorOutline">@color/sketch_line</item>
+    </style>
+
+    <style name="Theme.Sakura" parent="Theme.Sakura.Night" />
+
+    <style name="Shape.Sakura.Button" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">@dimen/radius_btn</item>
+    </style>
 </resources>

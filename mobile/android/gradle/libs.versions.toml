@@ -19,6 +19,7 @@ camerax = "1.6.2"
 robolectric = "4.17"
 androidxTestCore = "1.7.0"
 orgJson = "20260814"
+paparazzi = "2.0.0-alpha05.1"
 
 [libraries]
 junit = { group = "junit", name = "junit", version.ref = "junit" }
@@ -48,3 +49,4 @@ org-json = { group = "org.json", name = "json", version.ref = "orgJson" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
+paparazzi = { id = "app.cash.paparazzi", version.ref = "paparazzi" }

@@ -1,5 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Токены desktop/docs/UI.md и desktop/ui/src/index.css. В разметке — только ?attr/… (CoreTokensTest). -->
 <resources>
-    <color name="black">#FF000000</color>
-    <color name="white">#FFFFFFFF</color>
+    <!-- Общие для обеих тем -->
+    <color name="accent">#FF6AE3</color>
+    <color name="accent_deep">#3E0074</color>
+    <color name="accent_soft">#29FF6AE3</color>
+    <color name="online">#3DDC97</color>
+    <color name="warn">#FFB84D</color>
+    <color name="ym_yellow">#FFDB4D</color>
+    <color name="ym_on_yellow">#141414</color>
+
+    <!-- «Сакура-ночь» (по умолчанию) -->
+    <color name="night_bg">#0A0610</color>
+    <color name="night_bar">#0A0610</color>
+    <color name="night_panel">#14101C</color>
+    <color name="night_panel2">#1D1628</color>
+    <color name="night_line">#12FFFFFF</color>
+    <color name="night_ink">#F1E9F5</color>
+    <color name="night_ink_dim">#9B8FA8</color>
+
+    <!-- «Как в наброске» -->
+    <color name="sketch_bg">#FFFFFF</color>
+    <color name="sketch_bar">#000000</color>
+    <color name="sketch_panel">#000000</color>
+    <color name="sketch_panel2">#1C1C1E</color>
+    <color name="sketch_line">#1FFFFFFF</color>
+    <color name="sketch_ink">#F5F5F5</color>
+    <color name="sketch_ink_dim">#A5A5AA</color>
+
+    <color name="transparent">#00000000</color>
 </resources>
