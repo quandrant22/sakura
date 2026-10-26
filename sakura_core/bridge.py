@@ -112,6 +112,14 @@ async def execute_decision(decision, *, device_ws, device_id, register_command,
         return False, None
     if get_handler(decision.action) is None:
         return False, None
+    # «да» с телефона на вопрос про ПК-действие (action_run): исполнять на том ПК,
+    # о котором спрашивали, а не на телефоне. Для ПК-ответчиков ничего не меняется.
+    asked = (decision.pending_payload or {}).get("device")
+    if asked and asked != device_id and device_id:
+        from modules.presence_sync import is_pc
+        from modules.state import connected_devices as _cd
+        if not is_pc(device_id) and is_pc(asked) and asked in _cd:
+            device_ws, device_id = _cd[asked], asked
     ctx = ExecutionContext(device_ws=device_ws, device_id=device_id or "",
                            register_command=register_command,
                            extra={"text": text or "",

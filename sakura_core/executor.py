@@ -150,7 +150,8 @@ class Executor:
                 pending = self._session.expect("confirm", action=action_id,
                                                device=asker or None,
                                                ttl=timeout,
-                                               payload={"param": param, "command": prepared})
+                                               payload={"param": param, "command": prepared,
+                                                        "device": ctx.device_id})
                 timeout = pending.until - _time.monotonic()
             log.info(
                 f"[confirm] ожидание: action={action_id} "

@@ -31,7 +31,7 @@ PROTO = 2
 V2_REQUESTS = frozenset({
     "chat_send", "history_request", "chat_read", "chat_search",
     "chat_delete", "chat_clear",
-    "devices_request", "status_request", "secure_devices",
+    "devices_request", "status_request", "secure_devices", "action_run",
     "scenarios_list", "scenario_get", "scenario_save", "scenario_delete",
     "scenario_run", "scenario_from_text",
     "memory_list", "memory_search", "memory_update", "memory_delete",
@@ -178,6 +178,7 @@ async def handle(websocket, data: dict, ctx: dict) -> None:
 def _load_portions() -> None:
     """Порции протокола, выкатываемые без шифрования: устройства и статус."""
     from sakura_core import proto_devices  # noqa: F401
+    from sakura_core import proto_actions  # noqa: F401
     from sakura_core import proto_chat  # noqa: F401
     from sakura_core import proto_memory  # noqa: F401
     from sakura_core import proto_profile  # noqa: F401

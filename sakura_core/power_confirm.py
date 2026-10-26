@@ -102,7 +102,13 @@ def on_device_gone(device_id: str) -> None:
 async def say(text: str, source: str | None, kind: str = "ack", *, buttons: str | None = None) -> None:
     """Сказать там, где Мастер: голос и окно ПК-источника, иначе Telegram."""
     ws = st.connected_devices.get(source) if source and source != "telegram" else None
-    from modules.presence_sync import pc_voice_allowed
+    from modules.presence_sync import is_pc, pc_voice_allowed
+    if ws is not None and not is_pc(source):
+        # телефон: кнопка (action_run) и тихий ход — только reply; говорящий ход — голосом
+        from sakura_core import voice_turns
+        turn = voice_turns.current()
+        if (turn is None or not turn.speak) and await voice_turns.send_reply(ws, source, text, kind):
+            return
     if ws is not None and pc_voice_allowed():
         from modules.tts_server import stream_tts_to_device
         try:

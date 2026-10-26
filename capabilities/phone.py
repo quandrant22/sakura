@@ -30,6 +30,16 @@ PHONE_ACTIONS = (
     "phone.media_prev", "phone.notify",
 )
 OFFLINE = "Телефон не на связи"
+# действия, которым нужен аргумент (action_run без arg → вопрос, как у голоса)
+NEEDS_ARG = {
+    "phone.alarm": "На какое время поставить будильник?",
+    "phone.timer": "На сколько поставить таймер?",
+    "phone.volume": "Какую громкость поставить на телефоне, от 0 до 100?",
+    "phone.clipboard": "Что скопировать в буфер телефона?",
+    "phone.open_url": "Какую ссылку открыть на телефоне?",
+    "phone.open_app": "Какое приложение открыть на телефоне?",
+    "phone.notify": "Какой текст отправить в уведомлении?",
+}
 
 
 def _text(ctx: ExecutionContext) -> str:
@@ -180,7 +190,13 @@ def _make(action: str):
         if dev is None:
             log.info(f"[phone] {action}: телефон не на связи")
             return await _tell(ctx, OFFLINE, "error")
-        arg, ask = build(action, _text(ctx))
+        explicit = (ctx.extra or {}).get("arg")
+        if explicit is not None:           # action_run: аргумент уже готов
+            arg, ask = explicit.strip(), ""
+            if action in NEEDS_ARG and not arg:
+                ask = NEEDS_ARG[action]
+        else:
+            arg, ask = build(action, _text(ctx))
         if ask:
             return await _tell(ctx, ask, "ack")
         ws = st.connected_devices[dev]
