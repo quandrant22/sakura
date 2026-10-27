@@ -5,6 +5,9 @@
 Для каждой модели: картинка + текст, 3 кадра в одном запросе, нативный
 function calling, response_schema, какие параметры генерации принимаются,
 фактические лимиты (пачка запросов до 429, RetryInfo/QuotaFailure из ответа).
+--nav-latency N — вместо проверок: задержка настоящего запроса навигатора
+(build_request: цель, журнал, кадр, снимок, 14 инструментов) с мыслями по
+умолчанию и с thinking_level=minimal, N пар попеременно.
 Ключ — активный из config (окружение); не печатается и вычищается из
 текстов ошибок. Вызовы — через sakura_core.llm.generate_raw (сырой ответ,
 без фильтра параметров: проверяется, что принимает сама модель). Итог — markdown в stdout (переносится в docs/PROGRESS.md).
@@ -295,12 +298,72 @@ def report(probers: list[Prober]) -> str:
     return "\n".join(out)
 
 
+def _nav_request():
+    """Запрос навигатора как в бою: build_request (цель, журнал, кадр, снимок)."""
+    from sakura_core import browser_step as bs
+    from sakura_core import browser_task as bt
+    task = bt.BrowserTask(task_id="probe", goal="Найди на странице форму обратной связи и "
+                                                "отправь сообщение «тест»")
+    for n, (tool, note) in enumerate((("page_observe", "смотрю страницу"),
+                                      ("page_scroll", "листаю вниз к форме")), 1):
+        task.step = n
+        task.record(tool, note, status="done")
+    task.step = 3
+    task.add_frame(bt.Frame(step=3, frame_id="p", kind="page",
+                            data=_jpeg((200, 200, 230), "form", size=(640, 400))))
+    elements = [{"ref": f"f0:e{i}", "role": role, "name": name, "value": "",
+                 "enabled": True, "in_viewport": True}
+                for i, (role, name) in enumerate((
+                    ("link", "Главная"), ("link", "О нас"), ("link", "Контакты"),
+                    ("textbox", "Имя"), ("textbox", "Email"), ("textbox", "Сообщение"),
+                    ("button", "Отправить"), ("link", "Политика")), 1)]
+    obs = {"snapshot_id": "s3", "window_id": 1, "tab_id": 1, "url": "https://example.com/contact",
+           "title": "Контакты", "elements": elements,
+           "text": "Свяжитесь с нами. Заполните форму, и мы ответим в течение дня. " * 20}
+    tools, tool_config = bs._tools()
+    return bs.build_request(task, obs), {"system_instruction": bs.SYSTEM, "tools": tools,
+                                         "tool_config": tool_config, "max_output_tokens": 2048}
+
+
+async def nav_latency(model: str, n: int) -> str:
+    """n пар запросов навигатора: мысли по умолчанию и thinking_level=minimal."""
+    from google.genai import types as T
+    contents, base = _nav_request()
+    modes = {"по умолчанию": {},
+             "minimal": {"thinking_config": T.ThinkingConfig(thinking_level="minimal")}}
+    p = Prober(model)
+    for i in range(n):
+        for mode, extra in modes.items():
+            await p.check(f"nav {mode} #{i + 1}", contents,
+                          lambda r: (bool(getattr(r, "function_calls", None)),
+                                     (r.function_calls[0].name if getattr(r, "function_calls", None)
+                                      else "без вызова")),
+                          automatic_function_calling=T.AutomaticFunctionCallingConfig(disable=True),
+                          **base, **extra)
+    lines = [f"### Задержка навигатора {model} — {time.strftime('%Y-%m-%d %H:%M %Z')}", "",
+             "| режим | ок | медиана, с | мин–макс, с | thoughts (медиана) | повторов 500/503 |",
+             "|---|---|---|---|---|---|"]
+    for mode in modes:
+        rows = [r for r in p.rows if r["check"].startswith(f"nav {mode} #")]
+        ok = [r for r in rows if r.get("ok")]
+        lat = sorted(r["latency_s"] for r in ok)
+        th = sorted((r.get("usage") or {}).get("thoughts") or 0 for r in ok)
+        retries = sum(len(r.get("transient") or []) for r in rows)
+        med = lat[len(lat) // 2] if lat else "—"
+        span = f"{lat[0]}–{lat[-1]}" if lat else "—"
+        lines.append(f"| {mode} | {len(ok)}/{len(rows)} | {med} | {span} | "
+                     f"{th[len(th) // 2] if th else '—'} | {retries} |")
+    return "\n".join(lines)
+
+
 async def main() -> None:
     global _KEY, _ONLY
     ap = argparse.ArgumentParser()
     ap.add_argument("--burst", type=int, default=20, help="0 — не проверять лимиты")
     ap.add_argument("--models", default=",".join(MODELS))
     ap.add_argument("--only", default="", help="проверки по подстроке имени, через запятую")
+    ap.add_argument("--nav-latency", type=int, default=0,
+                    help="N пар запросов навигатора (мысли по умолчанию / minimal) вместо проверок")
     args = ap.parse_args()
     from config import get_active_key
     _KEY = get_active_key() or ""
@@ -308,6 +371,10 @@ async def main() -> None:
     if not _KEY:
         raise SystemExit("нет активного ключа Gemini — проверка не запущена")
     models = [m.strip() for m in args.models.split(",") if m.strip()]
+    if args.nav_latency:
+        for text in await asyncio.gather(*(nav_latency(m, args.nav_latency) for m in models)):
+            print(text + "\n")
+        return
     probers = await asyncio.gather(*(probe_model(m, args.burst) for m in models))
     print(report(list(probers)))
 
