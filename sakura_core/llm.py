@@ -204,7 +204,8 @@ def _initial_key(api_key: Optional[str]) -> Optional[str]:
 def filter_params(model: str, cfg: dict) -> dict:
     """Параметры GenerateContentConfig, которые модель принимает.
 
-    gemma-* — только подтверждённые scripts/probe_gemma.py (config.GEMMA_PARAMS);
+    gemma-* — только подтверждённые scripts/probe_gemma.py (config.GEMMA_PARAMS),
+    thinking_config — только с полем thinking_level (остальное вырезается);
     модели из config.NO_SAMPLING_MODELS (gemini-3.5-flash-lite) не принимают
     пользовательские temperature/top_p — они не передаются."""
     name = (model or "").lower()
@@ -212,6 +213,11 @@ def filter_params(model: str, cfg: dict) -> dict:
     if name.startswith("gemma-"):
         allowed = set(getattr(config, "GEMMA_PARAMS", ()))
         out = {k: v for k, v in out.items() if k in allowed or v is None}
+        if cfg.get("thinking_config") is not None:
+            # Gemma 4 принимает только thinking_level; thinking_budget — 400.
+            tc = _gemma_thinking(cfg["thinking_config"])
+            if tc is not None:
+                out["thinking_config"] = tc
     if name.startswith(tuple(getattr(config, "NO_SAMPLING_MODELS", ()))):
         out.pop("temperature", None)
         out.pop("top_p", None)
@@ -219,6 +225,13 @@ def filter_params(model: str, cfg: dict) -> dict:
     if dropped:
         log.debug("[llm] model=%s: не передаю %s", model, ",".join(dropped))
     return out
+
+
+def _gemma_thinking(tc):
+    """ThinkingConfig только с thinking_level; без него — None (не передавать)."""
+    from google.genai import types as _t
+    level = tc.get("thinking_level") if isinstance(tc, dict) else getattr(tc, "thinking_level", None)
+    return _t.ThinkingConfig(thinking_level=level) if level else None
 
 
 # ── Клиент ───────────────────────────────────────────────────────────────
@@ -499,7 +512,6 @@ async def generate_raw(model: str, contents, *, api_key: str | None = None,
 
 AGENT_TIMEOUT_S = 120.0                 # Gemma на API отвечает 15–75 с (probe_gemma)
 AGENT_INLINE_WAIT_S = 5.0               # ждать квоту дольше — status:wait на desktop
-_AGENT_TRANSIENT_DELAYS = (2.0, 4.0)    # 500/503 — бэкенд Gemma часто сбоит
 
 
 class QuotaWait(Exception):
@@ -512,11 +524,13 @@ class QuotaWait(Exception):
 
 
 class ChainExhausted(Exception):
-    """Все модели цепочки исчерпали квоту; resume_at — когда первая вернётся."""
+    """Все модели цепочки выведены; resume_at — когда первая вернётся;
+    reason — quota (429/RPD) или unavailable (500/503 после повторов)."""
 
-    def __init__(self, resume_at: float):
-        super().__init__(f"chain exhausted until {resume_at:.0f}")
+    def __init__(self, resume_at: float, reason: str = "quota"):
+        super().__init__(f"chain exhausted ({reason}) until {resume_at:.0f}")
         self.resume_at = resume_at
+        self.reason = reason
 
 
 class AgentLLMError(Exception):
@@ -548,6 +562,11 @@ def retry_delay(error: Exception) -> float | None:
     return float(m.group(1)) if m else None
 
 
+def _server_error(error: Exception) -> bool:
+    """500/503 (INTERNAL/UNAVAILABLE) — сбой бэкенда, не отказ запроса."""
+    return _error_code(error).upper() in ("500", "503", "INTERNAL", "UNAVAILABLE")
+
+
 def quota_per_day(error: Exception) -> bool:
     """429 из-за суточной квоты (QuotaFailure: quotaId …PerDay…)."""
     for item in _error_details(error):
@@ -562,6 +581,7 @@ async def generate_agent(contents, *, chain, system: str = "", tools=None,
                          tool_config=None, response_schema=None,
                          response_mime_type: str | None = None,
                          max_tokens: int = 2048, temperature: float | None = None,
+                         thinking_level: str | None = None,
                          limiter=None, timeout: float = AGENT_TIMEOUT_S,
                          inline_wait: float = AGENT_INLINE_WAIT_S,
                          sleep=asyncio.sleep) -> AgentResponse:
@@ -569,9 +589,11 @@ async def generate_agent(contents, *, chain, system: str = "", tools=None,
 
     Квоты нет дольше inline_wait — QuotaWait (desktop получит status:wait).
     429 — модель блокируется на retry delay (иначе 4→8→16→32 с), до 5
-    повторов, затем следующая модель. Все исчерпаны — ChainExhausted.
-    Сбой 500/503 — два коротких повтора, затем следующая модель; ничего не
-    вышло — AgentLLMError. Параметры — через filter_params (S4)."""
+    повторов, затем следующая модель. 500/503 — до 3 повторов через 5→10→20 с,
+    затем так же следующая модель. Все выведены — ChainExhausted (пауза
+    задачи). Прочие ошибки — AgentLLMError. thinking_level — для Gemma
+    ThinkingConfig(thinking_level=…); без него мысли по умолчанию модели.
+    Параметры — через filter_params (S4)."""
     from sakura_core import rate_limiter
     limiter = limiter or rate_limiter.get()
     models = tuple(dict.fromkeys(m for m in chain if m))
@@ -581,20 +603,25 @@ async def generate_agent(contents, *, chain, system: str = "", tools=None,
            "temperature": temperature, "tools": tools, "tool_config": tool_config,
            "response_schema": response_schema,
            "response_mime_type": response_mime_type}
-    if tools is not None:
+    if tools is not None or thinking_level:
         from google.genai import types as _t
-        cfg["automatic_function_calling"] = _t.AutomaticFunctionCallingConfig(disable=True)
+        if tools is not None:
+            cfg["automatic_function_calling"] = _t.AutomaticFunctionCallingConfig(disable=True)
+        if thinking_level:
+            cfg["thinking_config"] = _t.ThinkingConfig(thinking_level=thinking_level)
     last_error: Exception | None = None
     for model in models:
-        transient = 0
         while True:
             if limiter.exhausted_until(model) is not None:
                 break                                   # следующая модель
+            # Квота проверяется заново после каждого сна: параллельные вызовы
+            # (решатель) не должны забрать один и тот же токен.
             wait = limiter.wait(model)
             if wait > inline_wait:
                 raise QuotaWait(wait, model)
             if wait > 0:
                 await sleep(wait)
+                continue
             limiter.take(model)
             params = {k: v for k, v in filter_params(model, cfg).items() if v is not None}
             started = time.monotonic()
@@ -608,11 +635,9 @@ async def generate_agent(contents, *, chain, system: str = "", tools=None,
                 if kind == "rate_limit":
                     limiter.on_429(model, retry_delay(error), quota_per_day(error))
                     continue                            # wait()/exhausted решат
-                if (kind == "transient" and _error_code(error) != "TIMEOUT"
-                        and transient < len(_AGENT_TRANSIENT_DELAYS)):
-                    await sleep(_AGENT_TRANSIENT_DELAYS[transient] + random.random())
-                    transient += 1
-                    continue
+                if _server_error(error):
+                    limiter.on_server_error(model)
+                    continue                            # 5→10→20 с, затем модель выведена
                 break
             limiter.on_success(model)
             usage = getattr(response, "usage_metadata", None)
@@ -620,9 +645,10 @@ async def generate_agent(contents, *, chain, system: str = "", tools=None,
             log.info("[agent-llm] success model=%s elapsed=%.1fs tokens=%d", model,
                      time.monotonic() - started, tokens)
             return AgentResponse(model, response, tokens)
-    resumes = [t for t in (limiter.exhausted_until(m) for m in models) if t is not None]
+    resumes = [(t, m) for m in models if (t := limiter.exhausted_until(m)) is not None]
     if len(resumes) == len(models):
-        raise ChainExhausted(min(resumes))
+        at, first = min(resumes)
+        raise ChainExhausted(at, limiter.exhausted_reason(first))
     code = _error_code(last_error) if last_error else "none"
     raise AgentLLMError(f"модели не ответили: {code}")
 

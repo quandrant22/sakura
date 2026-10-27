@@ -174,9 +174,15 @@ BROWSER_MODEL_CHAIN = _gemma_only("BROWSER_MODEL_CHAIN", _parse_model_chain(
     "BROWSER_MODEL_CHAIN", ("gemma-4-26b-a4b-it", "gemma-4-31b-it")))
 QUIZ_MODEL_CHAIN = _gemma_only("QUIZ_MODEL_CHAIN", _parse_model_chain(
     "QUIZ_MODEL_CHAIN", ("gemma-4-31b-it",)))
-# Лимиты задачи; 0 — без лимита. Время считается без пауз (капча, квота).
+# Мысли навигатора: thinking_level для Gemma 4 (minimal — почти без мыслей,
+# быстрее); пусто — по умолчанию модели. Решатель думает по умолчанию.
+BROWSER_NAV_THINKING = os.getenv("BROWSER_NAV_THINKING", "minimal").strip().lower()
+# Сколько вопросов теста решать одновременно (каждый вызов — через лимитер квот).
+QUIZ_PARALLEL = max(1, int(os.getenv("QUIZ_PARALLEL", "3")))
+# Лимиты задачи; 0 — без лимита. Время считается без пауз (капча, квота);
+# по умолчанию без лимита: Gemma отвечает десятки секунд на шаг.
 BROWSER_MAX_STEPS = int(os.getenv("BROWSER_MAX_STEPS", "200"))
-BROWSER_MAX_SECONDS = int(os.getenv("BROWSER_MAX_SECONDS", "1800"))
+BROWSER_MAX_SECONDS = int(os.getenv("BROWSER_MAX_SECONDS", "0"))
 BROWSER_MAX_TOKENS = int(os.getenv("BROWSER_MAX_TOKENS", "0"))
 BROWSER_FRAMES_IN_CONTEXT = int(os.getenv("BROWSER_FRAMES_IN_CONTEXT", "3"))
 BROWSER_SUMMARIZE_EVERY = int(os.getenv("BROWSER_SUMMARIZE_EVERY", "15"))

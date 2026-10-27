@@ -136,3 +136,42 @@ def test_agent_call_filters_gemma_params(monkeypatch):
     asyncio.run(llm.generate_agent(["x"], chain=("gemma-4-26b-a4b-it",), limiter=lim,
                                    temperature=0.3, response_mime_type="application/json"))
     assert set(got) == {"max_output_tokens"}
+
+
+def test_500_retries_5_10_20_then_next_model(monkeypatch):
+    clock = Clock()
+    lim = rl.RateLimiter(rpm=100, rpd=100, path=None, clock=clock)
+    seen = _raw_script(monkeypatch, {"a": [ApiError(500)] * 4, "b": []})
+    sleeps = []
+
+    async def sleep(s):
+        sleeps.append(round(s, 3))
+        clock.t += s
+
+    res = asyncio.run(llm.generate_agent(["x"], chain=("a", "b"), limiter=lim,
+                                         inline_wait=100, sleep=sleep))
+    assert res.model == "b" and seen == ["a"] * 4 + ["b"]
+    assert [s for s in sleeps if s >= 1] == [5, 10, 20]
+
+
+def test_503_long_wait_goes_to_desktop_and_all_down_pauses(monkeypatch):
+    clock = Clock()
+    lim = rl.RateLimiter(rpm=100, rpd=100, path=None, clock=clock)
+    seen = _raw_script(monkeypatch, {"a": [ApiError(503)], "b": []})
+    with pytest.raises(llm.QuotaWait) as e:              # 5 с > inline_wait: ждёт desktop
+        asyncio.run(llm.generate_agent(["x"], chain=("a", "b"), limiter=lim, inline_wait=1))
+    assert e.value.retry_after == pytest.approx(5) and seen == ["a"]   # b не трогаем
+
+    clock2 = Clock()
+    lim2 = rl.RateLimiter(rpm=100, rpd=100, path=None, clock=clock2)
+    _raw_script(monkeypatch, {"a": [ApiError(500)] * 4, "b": [ApiError(500)] * 4})
+
+    async def sleep(s):
+        clock2.t += s
+
+    with pytest.raises(llm.ChainExhausted) as e:
+        asyncio.run(llm.generate_agent(["x"], chain=("a", "b"), limiter=lim2,
+                                       inline_wait=100, sleep=sleep))
+    assert e.value.reason == "unavailable"
+    assert e.value.resume_at == pytest.approx(clock2.t - 35 + rl.SERVER_BLOCK_S)
+    assert lim2.exhausted_reason("a") == "unavailable"

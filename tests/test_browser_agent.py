@@ -450,11 +450,10 @@ def test_quiz_flow_solve_fill_verify_and_isolation(env, fake):
     async def run():
         outs = [await desk.step(observation=quiz_obs())]
         res = {**OK, "detail": {"questions": QUESTIONS}}
+        # пакет из двух: вопросу 2 (text) нужен кадр — сначала вырезка
         outs.append(await desk.step(observation=quiz_obs(), last_result=res))
-        # вопрос 1 — single без медиа: решён текстом, вписан
-        outs.append(await desk.step(observation=quiz_obs(checked=["f0:e12"]), last_result=OK))
-        # вопрос 2 — text: сначала вырезка
-        outs.append(await desk.step(observation=quiz_obs(checked=["f0:e12"]), last_result=OK,
+        # кадр пришёл: оба решены параллельно, вписаны одним page_fill_form
+        outs.append(await desk.step(observation=quiz_obs(), last_result=OK,
                                     frames=[frame("question", q_index=2)]))
         outs.append(await desk.step(observation=quiz_obs(checked=["f0:e12"],
                                                          values={"f0:e20": "Москва"}),
@@ -462,13 +461,11 @@ def test_quiz_flow_solve_fill_verify_and_isolation(env, fake):
         return outs
     outs = asyncio.run(run())
     assert outs[0]["action"]["tool"] == "page_questions"
-    assert outs[1]["action"] == {"tool": "page_fill_form",
-                                 "args": {"fields": [{"ref": "f0:e12", "checked": True}]}}
-    assert outs[2]["action"] == {"tool": "page_shot", "args": {"crop_ref": "f0:e20", "q_index": 2}}
-    assert outs[3]["action"] == {"tool": "page_fill_form",
-                                 "args": {"fields": [{"ref": "f0:e20", "value": "Москва"}]}}
+    assert outs[1]["action"] == {"tool": "page_shot", "args": {"crop_ref": "f0:e20", "q_index": 2}}
+    assert outs[2]["action"] == {"tool": "page_fill_form", "args": {"fields": [
+        {"ref": "f0:e12", "checked": True}, {"ref": "f0:e20", "value": "Москва"}]}}
     # дальше навигатор: кнопка «Завершить» → сначала проверка вопросов
-    assert outs[4]["action"]["tool"] == "page_questions"
+    assert outs[3]["action"]["tool"] == "page_questions"
     solve_calls = [c for c, kw in fake.calls if kw.get("response_schema") is not None]
     assert images(solve_calls[0]) == 0 and images(solve_calls[1]) == 1
     assert [a["status"] for a in task.answers] == ["verified", "verified"]
@@ -767,3 +764,103 @@ def test_restart_reschedules_quota_resume(env, monkeypatch):
     assert bt.get(task.task_id).state == "running"
     assert ws.sent == [{"type": "browser.do", "task_id": task.task_id,
                         "goal": task.goal, "resume": True}]
+
+
+# ── параллельный решатель, мысли навигатора, 500 → пауза ─────────────
+
+def _single_questions(n):
+    return [{"index": i, "kind": "single", "text": f"вопрос {i}?", "ref": f"f0:e{100 + i}",
+             "options": [{"ref": f"f0:e{200 + i}", "name": "да"}], "answered": False}
+            for i in range(1, n + 1)]
+
+
+def _quiz_raw(monkeypatch, delay=0.02):
+    """generate_raw для решателя: ответ по номеру вопроса, учёт одновременности."""
+    import re as _re
+    state = {"now": 0, "max": 0, "calls": 0}
+
+    async def raw(model, contents, timeout=None, **cfg):
+        state["calls"] += 1
+        state["now"] += 1
+        state["max"] = max(state["max"], state["now"])
+        await asyncio.sleep(delay)
+        state["now"] -= 1
+        idx = int(_re.search(r"Вопрос (\d+)", contents[-1].text).group(1))
+        return SimpleNamespace(text=json.dumps({"reasoning": "r", "answer": {"refs": [f"f0:e{200 + idx}"]}}),
+                               usage_metadata=None)
+
+    monkeypatch.setattr(llm, "generate_raw", raw)
+    return state
+
+
+def test_quiz_parallel_batches_of_three(env, fake, monkeypatch):
+    monkeypatch.setattr(llm, "generate_agent", ORIGINAL_GENERATE_AGENT)
+    monkeypatch.setattr(config, "QUIZ_PARALLEL", 3)
+    monkeypatch.setattr(rl, "_limiter", rl.RateLimiter(rpm=100, rpd=1000, path=None))
+    state = _quiz_raw(monkeypatch)
+    task = new_task("тест")
+    task.pending["await"] = "questions"
+    desk = Desk(task)
+
+    async def run():
+        res = {**OK, "detail": {"questions": _single_questions(5)}}
+        first = await desk.step(observation=quiz_obs(), last_result=res)
+        second = await desk.step(observation=quiz_obs(), last_result=OK)
+        return first, second
+    first, second = asyncio.run(run())
+    assert [f["ref"] for f in first["action"]["args"]["fields"]] == ["f0:e201", "f0:e202", "f0:e203"]
+    assert [f["ref"] for f in second["action"]["args"]["fields"]] == ["f0:e204", "f0:e205"]
+    assert state["max"] == 3 and state["calls"] == 5
+
+
+def test_quiz_parallel_respects_limiter(env, fake, monkeypatch):
+    """RPM 2: третий вопрос пакета ждёт квоту (status wait), решённые не перерешиваются."""
+    monkeypatch.setattr(llm, "generate_agent", ORIGINAL_GENERATE_AGENT)
+    clock = Clock()
+    lim = rl.RateLimiter(rpm=2, rpd=1000, path=None, clock=clock)
+    monkeypatch.setattr(rl, "_limiter", lim)
+    state = _quiz_raw(monkeypatch, delay=0)
+    task = new_task("тест")
+    task.pending["await"] = "questions"
+    desk = Desk(task)
+
+    async def run():
+        res = {**OK, "detail": {"questions": _single_questions(3)}}
+        waited = await desk.step(observation=quiz_obs(), last_result=res, step=1)
+        clock.t += 30                                   # токен вернулся
+        filled = await desk.step(observation=quiz_obs(), last_result=res, step=1)
+        return waited, filled
+    waited, filled = asyncio.run(run())
+    assert waited["status"] == "wait" and waited["retry_after"] == 30
+    assert state["calls"] == 3                          # 2 + 1, без повторов решённых
+    assert len(filled["action"]["args"]["fields"]) == 3
+    assert lim.used("gemma-4-31b-it") == 3
+
+
+ORIGINAL_GENERATE_AGENT = llm.generate_agent
+
+
+def test_navigator_minimal_thinking_solver_default(env, fake, monkeypatch):
+    task = new_task()
+    asyncio.run(Desk(task).step())
+    assert fake.calls[-1][1]["thinking_level"] == "minimal"
+    monkeypatch.setattr(config, "BROWSER_NAV_THINKING", "")
+    asyncio.run(Desk(new_task()).step())
+    assert fake.calls[-1][1]["thinking_level"] is None
+    f = FakeLLM(solve=[solve_resp({"refs": ["f0:e11"]})])
+    monkeypatch.setattr(llm, "generate_agent", f)
+    asyncio.run(qs.solve({"index": 1, "kind": "single", "text": "?", "options": OPTS}))
+    assert "thinking_level" not in f.calls[0][1]
+
+
+def test_server_errors_pause_with_own_message(env, fake):
+    task = new_task()
+    fake.nav = [llm.ChainExhausted(1_000.0, reason="unavailable")]
+    out = asyncio.run(Desk(task).step())
+    assert out["status"] == "paused" and out["reason"].startswith("Gemma не отвечает")
+    assert task.pause_kind == "quota"
+
+
+def test_max_seconds_default_unlimited():
+    import os
+    assert config.BROWSER_MAX_SECONDS == int(os.getenv("BROWSER_MAX_SECONDS", "0"))

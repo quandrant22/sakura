@@ -303,7 +303,8 @@ async def navigate(task: bt.BrowserTask, obs: dict, hint: str = "") -> tuple[str
     for attempt in (1, 2):
         result = await generate_agent(
             build_request(task, obs, hint + extra), chain=config.BROWSER_MODEL_CHAIN,
-            system=SYSTEM, tools=tools, tool_config=tool_config, max_tokens=NAV_MAX_TOKENS)
+            system=SYSTEM, tools=tools, tool_config=tool_config, max_tokens=NAV_MAX_TOKENS,
+            thinking_level=config.BROWSER_NAV_THINKING or None)
         task.tokens_used += result.tokens
         parsed = parse_tool_call(result.response)
         if parsed is None:
@@ -329,7 +330,8 @@ async def summarize(task: bt.BrowserTask) -> None:
     prompt = SUMMARY_PROMPT.format(goal=task.goal, summary=task.summary or "—",
                                    journal=render_journal(task))
     result = await generate_agent([T.Part(text=prompt)], chain=config.BROWSER_MODEL_CHAIN,
-                                  max_tokens=1024)
+                                  max_tokens=1024,
+                                  thinking_level=config.BROWSER_NAV_THINKING or None)
     task.tokens_used += result.tokens
     text = ""
     try:
@@ -511,7 +513,11 @@ def _set_answer(task: bt.BrowserTask, question: dict, answer: dict | None, statu
 
 
 async def quiz_step(task: bt.BrowserTask, obs: dict, last_result) -> dict | None:
-    """Действие конвейера теста или None (дальше — навигатор)."""
+    """Действие конвейера теста или None (дальше — навигатор).
+
+    Вопросы идут пакетами до QUIZ_PARALLEL: кадры вопросов (по одному за шаг)
+    → пакет решается параллельно (каждый вызов — через лимитер квот) → один
+    page_fill_form → проверка по следующему снимку."""
     q = task.quiz
     if task.pending.get("await") == "questions":
         task.pending.pop("await")
@@ -532,61 +538,111 @@ async def quiz_step(task: bt.BrowserTask, obs: dict, last_result) -> dict | None
         queue = [item["index"] for item in questions
                  if not item.get("answered") and (final or item["index"] not in answered)]
         task.quiz = q = {"url": obs.get("url"), "questions": known, "refs": refs,
-                         "queue": queue, "current": None, "phase": None, "final": final,
-                         "labels": q.get("labels", {}), "shot": set(), "fills": {}}
+                         "queue": queue, "batch": [], "phase": None, "solved": set(),
+                         "final": final, "labels": q.get("labels", {}), "shot": set(),
+                         "fills": {}}
         log.info(f"[browser] {task.task_id}: тест — вопросов {len(questions)}, "
                  f"решать {len(queue)}{' (проверка перед завершением)' if final else ''}")
     if not q.get("questions"):
         return None
-    left = (obs.get("timer") or {}).get("seconds_left") if isinstance(obs.get("timer"), dict) else None
     while True:
-        if q.get("current") is None:
+        if not q.get("batch"):
             if not q.get("queue"):
                 if q.get("final"):
                     q["final"] = False
                     return _finish_action(task)
                 return None
-            q["current"], q["phase"] = q["queue"].pop(0), "solve"
-        idx = q["current"]
-        question = q["questions"][idx]
+            n = max(1, config.QUIZ_PARALLEL)
+            q["batch"], q["queue"] = q["queue"][:n], q["queue"][n:]
+            q["phase"], q["solved"] = "solve", set()
+        batch = q["batch"]
         if q["phase"] == "fill":
-            ok = qs.verify(question, (_answer_entry(task, idx) or {}).get("answer") or {},
-                           obs.get("elements"))
-            if ok is False and q["fills"].get(idx, 0) < FILL_ATTEMPTS:
-                return _fill_action(task, question)
-            _set_answer(task, question, None,
-                        "verified" if ok else ("failed" if ok is False else "filled"))
-            q["current"] = q["phase"] = None
+            refill = []
+            for idx in batch:
+                if idx not in q["solved"]:
+                    continue
+                question = q["questions"][idx]
+                ok = qs.verify(question, (_answer_entry(task, idx) or {}).get("answer") or {},
+                               obs.get("elements"))
+                if ok is False and q["fills"].get(idx, 0) < FILL_ATTEMPTS:
+                    refill.append(question)
+                    continue
+                _set_answer(task, question, None,
+                            "verified" if ok else ("failed" if ok is False else "filled"))
+            if refill:
+                return _fill_action(task, refill)
+            q["batch"], q["phase"] = [], None
             continue
-        # phase == solve
-        crop = next((f.data for f in reversed(task.frames)
-                     if f.kind == "question" and f.q_index == idx), None)
-        if crop is None and qs.needs_crop(question) and idx not in q["shot"] \
-                and question.get("ref"):
-            q["shot"].add(idx)
-            return {"tool": "page_shot", "args": {"crop_ref": question["ref"], "q_index": idx},
-                    "note": f"вопрос {idx}: кадр вопроса"}
-        try:
-            solved = await qs.solve(question, crop, seconds_left=left)
-        except qs.SolveError:
-            _set_answer(task, question, None, "failed")
-            q["current"] = q["phase"] = None
+        # phase == solve: сначала кадры вопросов, которым они нужны
+        for idx in batch:
+            question = q["questions"][idx]
+            if idx in q["solved"] or idx in q["shot"] or not question.get("ref"):
+                continue
+            if qs.needs_crop(question) and _crop(task, idx) is None:
+                q["shot"].add(idx)
+                return {"tool": "page_shot",
+                        "args": {"crop_ref": question["ref"], "q_index": idx},
+                        "note": f"вопрос {idx}: кадр вопроса"}
+        await _solve_batch(task, obs)
+        solved = [q["questions"][idx] for idx in batch if idx in q["solved"]]
+        if not solved:
+            q["batch"], q["phase"] = [], None
             continue
-        task.tokens_used += solved["tokens"]
-        task.reasoning[idx] = solved["reasoning"]
-        q["labels"][idx] = qs.answer_label(question, solved["answer"])
-        _set_answer(task, question, solved["answer"], "solved")
         q["phase"] = "fill"
-        return _fill_action(task, question)
+        return _fill_action(task, solved)
 
 
-def _fill_action(task: bt.BrowserTask, question: dict) -> dict:
+def _crop(task: bt.BrowserTask, idx: int) -> bytes | None:
+    return next((f.data for f in reversed(task.frames)
+                 if f.kind == "question" and f.q_index == idx), None)
+
+
+async def _solve_batch(task: bt.BrowserTask, obs: dict) -> None:
+    """Решить нерешённые вопросы пакета параллельно. Решённые сохраняются;
+    квота/пауза/сбой модели пробрасываются (остальные — на следующем шаге)."""
+    from sakura_core.llm import AgentLLMError, ChainExhausted, QuotaWait
     q = task.quiz
-    idx = question["index"]
-    q["fills"][idx] = q["fills"].get(idx, 0) + 1
-    answer = _answer_entry(task, idx)["answer"]
-    return {"tool": "page_fill_form", "args": {"fields": qs.fill_fields(question, answer)},
-            "note": f"вопрос {idx}: вписываю ответ"}
+    timer = obs.get("timer")
+    left = timer.get("seconds_left") if isinstance(timer, dict) else None
+    todo = [idx for idx in q["batch"] if idx not in q["solved"]]
+    results = await asyncio.gather(
+        *(qs.solve(q["questions"][idx], _crop(task, idx), seconds_left=left) for idx in todo),
+        return_exceptions=True)
+    deferred, failed = [], set()
+    for idx, res in zip(todo, results):
+        question = q["questions"][idx]
+        if isinstance(res, qs.SolveError):
+            _set_answer(task, question, None, "failed")
+            failed.add(idx)
+        elif isinstance(res, BaseException):
+            deferred.append(res)
+        else:
+            task.tokens_used += res["tokens"]
+            task.reasoning[idx] = res["reasoning"]
+            q["labels"][idx] = qs.answer_label(question, res["answer"])
+            _set_answer(task, question, res["answer"], "solved")
+            q["solved"].add(idx)
+    # без годного ответа — из пакета; отложенные (квота, сбой) — остаются
+    q["batch"] = [idx for idx in q["batch"] if idx not in failed]
+    for kind in (ChainExhausted, QuotaWait, AgentLLMError):
+        for exc in deferred:
+            if isinstance(exc, kind):
+                raise exc
+    if deferred:
+        raise deferred[0]
+
+
+def _fill_action(task: bt.BrowserTask, questions: list) -> dict:
+    q = task.quiz
+    fields = []
+    for question in questions:
+        idx = question["index"]
+        q["fills"][idx] = q["fills"].get(idx, 0) + 1
+        fields += qs.fill_fields(question, _answer_entry(task, idx)["answer"])
+    which = ", ".join(str(x["index"]) for x in questions)
+    note = (f"вопрос {which}: вписываю ответ" if len(questions) == 1
+            else f"вопросы {which}: вписываю ответы")
+    return {"tool": "page_fill_form", "args": {"fields": fields}, "note": note}
 
 
 def _finish_action(task: bt.BrowserTask) -> dict | None:
@@ -600,7 +656,7 @@ def quiz_progress(task: bt.BrowserTask) -> str:
     if not total:
         return ""
     done = sum(1 for a in task.answers if a.get("status") in ("verified", "filled", "solved"))
-    current = task.quiz.get("current") is not None
+    current = bool(task.quiz.get("batch"))
     return f"вопрос {min(done + 1, total) if current else done} из {total}"
 
 
@@ -824,8 +880,9 @@ async def decide(task: bt.BrowserTask, data: dict, obs: dict, frames: list) -> d
         return {"status": "wait", "retry_after": int(e.retry_after + 0.999)}
     except ChainExhausted as e:
         at = time.strftime("%H:%M", time.localtime(e.resume_at))
-        return await _pause(task, "quota", f"Упёрлась в лимит Gemma, продолжу в {at}",
-                            resume_at=e.resume_at)
+        why = ("Gemma не отвечает (ошибки сервера)" if e.reason == "unavailable"
+               else "Упёрлась в лимит Gemma")
+        return await _pause(task, "quota", f"{why}, продолжу в {at}", resume_at=e.resume_at)
     except AgentLLMError as e:
         fails = task.pending.get("llm_fails", 0) + 1
         task.pending["llm_fails"] = fails

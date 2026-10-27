@@ -48,3 +48,38 @@ def test_computer_use_and_vision_send_no_sampling_to_flash_lite(monkeypatch):
                              max_tokens=300, safety=False, thinking=False))
     assert [m for m, _ in seen] == ["gemini-3.5-flash-lite"] * 2
     assert all(c.temperature is None and c.top_p is None for _, c in seen)
+
+
+def test_gemma_thinking_config_only_level():
+    from google.genai import types as T
+    full = T.ThinkingConfig(thinking_level="minimal", thinking_budget=0, include_thoughts=True)
+    out = llm.filter_params("gemma-4-26b-a4b-it", {"thinking_config": full})
+    tc = out["thinking_config"]
+    assert tc.thinking_level == T.ThinkingLevel.MINIMAL or str(tc.thinking_level).lower().endswith("minimal")
+    assert tc.thinking_budget is None and tc.include_thoughts is None
+    # только budget — thinking_config не передаётся вовсе
+    out = llm.filter_params("gemma-4-31b-it", {"thinking_config": T.ThinkingConfig(thinking_budget=0)})
+    assert "thinking_config" not in out
+    out = llm.filter_params("gemma-4-31b-it", {"thinking_config": {"thinking_level": "low",
+                                                                    "thinking_budget": 5}})
+    assert out["thinking_config"].thinking_budget is None
+    # не-Gemma — без изменений
+    assert llm.filter_params("gemini-3.1-flash-lite", {"thinking_config": full})["thinking_config"] is full
+
+
+def test_generate_agent_thinking_level(monkeypatch):
+    from sakura_core import rate_limiter as rl
+    got = []
+
+    async def raw(model, contents, timeout=None, **cfg):
+        got.append(cfg)
+        return SimpleNamespace(text="ok", usage_metadata=None)
+
+    monkeypatch.setattr(llm, "generate_raw", raw)
+    lim = rl.RateLimiter(rpm=100, rpd=100, path=None)
+    asyncio.run(llm.generate_agent(["x"], chain=("gemma-4-26b-a4b-it",), limiter=lim,
+                                   thinking_level="minimal"))
+    asyncio.run(llm.generate_agent(["x"], chain=("gemma-4-31b-it",), limiter=lim))
+    assert got[0]["thinking_config"].thinking_budget is None
+    assert str(got[0]["thinking_config"].thinking_level).lower().endswith("minimal")
+    assert "thinking_config" not in got[1]
