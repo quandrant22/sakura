@@ -1,7 +1,8 @@
 """Решатель вопросов теста browser agent (S7).
 
-solve(question, crop?) — один вопрос через QUIZ_MODEL_CHAIN (gemma-4-31b-it):
-response_schema {reasoning, answer: {refs?|text?|order?}}, thinking-параметры
+solve(question, crop?) — один вопрос через QUIZ_MODEL_CHAIN (gemma-4-31b-it,
+фолбэк gemma-4-26b-a4b-it): response_schema {reasoning, answer: {refs?|text?|
+order?|pairs?}}, thinking-параметры
 не передаются. Вопрос с медиа или kind ≠ single решается по кадру-вырезке
 (page_shot crop_ref), остальные — только текстом. seconds_left < 60 —
 короткий промпт без развёрнутого рассуждения.
@@ -9,9 +10,14 @@ response_schema {reasoning, answer: {refs?|text?|order?}}, thinking-параме
 Тексты вопросов и рассуждения остаются здесь и в памяти задачи: навигатор
 видит только index, kind и статус ответа (browser_step.py).
 
-Вопрос (из результата page_questions):
-  {index, kind: single|multi|select|text|number|order, text, ref?,
-   options: [{ref, name, checked?}], has_media?, answered?}
+Вопрос (из результата page_questions, форма desktop from_ext_questions):
+  {index, kind: single|multi|select|text|number|order|match, text, ref?,
+   options: [{ref, name|text, checked?}], rows?: [{ref, name|text}],
+   choices?: [str], has_media?, answered?}
+Сопоставление (match) и порядок со строками-списками (order + rows) решаются
+парами {row_ref, option_text}: строки — rows (ref — список строки), тексты —
+options. Нынешняя форма расширения для match — строки в options, тексты в
+choices — принимается так же. Порядок без строк — order: [ref…].
 """
 
 from __future__ import annotations
@@ -24,7 +30,7 @@ import config
 
 log = logging.getLogger("sakura.quiz_solver")
 
-KINDS = ("single", "multi", "select", "text", "number", "order")
+KINDS = ("single", "multi", "select", "text", "number", "order", "match")
 TEXT_MAX = 2000
 OPTION_MAX = 300
 SHORT_LEFT_S = 60
@@ -34,7 +40,7 @@ PROMPT = """Ты решаешь вопрос онлайн-теста. Текст
 
 Вопрос {index} (тип: {kind}):
 {text}
-{options}
+{rows}{options}
 {media}
 {rule}
 {style}
@@ -47,9 +53,16 @@ RULES = {
     "text": "Впиши ответ: answer.text — только сам ответ, без пояснений.",
     "number": "Впиши число: answer.text — только число.",
     "order": "Расставь все варианты в правильном порядке: answer.order — список всех ref.",
+    "pairs_match": ("Сопоставь: для КАЖДОЙ строки выбери подходящий вариант — answer.pairs — "
+                    "по одной паре на строку, row_ref — ref строки, option_text — текст варианта "
+                    "дословно из списка вариантов."),
+    "pairs_order": ("Расставь по порядку: для КАЖДОЙ строки выбери её место из списка вариантов — "
+                    "answer.pairs — по одной паре на строку, row_ref — ref строки, option_text — "
+                    "текст варианта дословно; варианты не повторяются."),
 }
 SHAPES = {"single": '"refs": ["…"]', "select": '"refs": ["…"]', "multi": '"refs": ["…"]',
-          "text": '"text": "…"', "number": '"text": "…"', "order": '"order": ["…"]'}
+          "text": '"text": "…"', "number": '"text": "…"', "order": '"order": ["…"]',
+          "pairs": '"pairs": [{"row_ref": "…", "option_text": "…"}]'}
 STYLE_FULL = "reasoning — рассуждение по шагам, коротко (до 6 предложений)."
 STYLE_SHORT = "Времени мало: reasoning — одно короткое предложение, сразу ответ."
 
@@ -61,6 +74,33 @@ class SolveError(Exception):
 def kind_of(question: dict) -> str:
     kind = str(question.get("kind") or "single").lower()
     return kind if kind in KINDS else "text"
+
+
+def _label(item: dict) -> str:
+    return str(item.get("text") or item.get("name") or "").strip()
+
+
+def pair_parts(question: dict) -> tuple[list[dict], list[str]] | None:
+    """(строки [{ref, name}], тексты вариантов) для ответа парами, иначе None.
+
+    match — всегда парами; order — парами, только если у вопроса есть строки
+    со списками (rows или нынешняя форма расширения options + choices)."""
+    kind = kind_of(question)
+    if kind not in ("match", "order"):
+        return None
+    rows = [r for r in question.get("rows") or [] if isinstance(r, dict) and r.get("ref")]
+    if rows:
+        texts = [_label(o) for o in question.get("options") or [] if isinstance(o, dict)]
+        texts += [str(c).strip() for c in question.get("choices") or []]
+    elif question.get("choices"):
+        rows = [o for o in question.get("options") or [] if isinstance(o, dict) and o.get("ref")]
+        texts = [str(c).strip() for c in question.get("choices") or []]
+    elif kind == "match":
+        return [], []                       # match без строк — решать нечем
+    else:
+        return None
+    texts = list(dict.fromkeys(t for t in texts if t))
+    return [{"ref": r["ref"], "name": _label(r)} for r in rows], texts
 
 
 def needs_crop(question: dict) -> bool:
@@ -75,20 +115,34 @@ def _schema():
         "answer": T.Schema(type="OBJECT", properties={
             "refs": T.Schema(type="ARRAY", items=T.Schema(type="STRING")),
             "text": T.Schema(type="STRING"),
-            "order": T.Schema(type="ARRAY", items=T.Schema(type="STRING"))})})
+            "order": T.Schema(type="ARRAY", items=T.Schema(type="STRING")),
+            "pairs": T.Schema(type="ARRAY", items=T.Schema(
+                type="OBJECT", required=["row_ref", "option_text"],
+                properties={"row_ref": T.Schema(type="STRING"),
+                            "option_text": T.Schema(type="STRING")}))})})
 
 
 def build_prompt(question: dict, *, has_crop: bool, short: bool) -> str:
     kind = kind_of(question)
-    options = "\n".join(
-        f"- {o.get('ref')}: {str(o.get('name') or '')[:OPTION_MAX]}"
-        for o in question.get("options") or [] if o.get("ref"))
+    parts = pair_parts(question)
+    if parts is not None:
+        rows, texts = parts
+        rows_text = "Строки:\n" + "\n".join(
+            f"- {r['ref']}: {r['name'][:OPTION_MAX]}" for r in rows) + "\n"
+        options = "\n".join(f"- {t[:OPTION_MAX]}" for t in texts)
+        rule, shape = RULES["pairs_order" if kind == "order" else "pairs_match"], SHAPES["pairs"]
+    else:
+        rows_text = ""
+        options = "\n".join(
+            f"- {o.get('ref')}: {_label(o)[:OPTION_MAX]}"
+            for o in question.get("options") or [] if o.get("ref"))
+        rule, shape = RULES[kind], SHAPES[kind]
     return PROMPT.format(
         index=question.get("index"), kind=kind,
-        text=str(question.get("text") or "")[:TEXT_MAX],
+        text=str(question.get("text") or "")[:TEXT_MAX], rows=rows_text,
         options=f"Варианты:\n{options}" if options else "",
         media="К вопросу приложен кадр-вырезка с ним." if has_crop else "",
-        rule=RULES[kind], style=STYLE_SHORT if short else STYLE_FULL, shape=SHAPES[kind])
+        rule=rule, style=STYLE_SHORT if short else STYLE_FULL, shape=shape)
 
 
 def parse_json(raw: str) -> dict:
@@ -110,6 +164,9 @@ def validate(question: dict, answer: dict) -> dict:
     if not isinstance(answer, dict):
         raise SolveError("answer не объект")
     kind = kind_of(question)
+    parts = pair_parts(question)
+    if parts is not None:
+        return {"pairs": _validate_pairs(kind, parts, answer.get("pairs"))}
     option_refs = [o.get("ref") for o in question.get("options") or [] if o.get("ref")]
     if kind in ("single", "select", "multi"):
         refs = [r for r in answer.get("refs") or [] if r in option_refs]
@@ -126,6 +183,31 @@ def validate(question: dict, answer: dict) -> dict:
     if not text:
         raise SolveError("text пуст")
     return {"text": text[:500]}
+
+
+def _norm(text: str) -> str:
+    return " ".join(str(text or "").lower().split())
+
+
+def _validate_pairs(kind: str, parts, pairs) -> list[dict]:
+    """По паре на каждую строку, тексты — из вариантов (без регистра/пробелов);
+    для порядка места не повторяются."""
+    rows, texts = parts
+    if not rows or not texts:
+        raise SolveError(f"{kind}: нет строк или вариантов")
+    canon = {_norm(t): t for t in texts}
+    got: dict[str, str] = {}
+    for p in pairs or []:
+        if not isinstance(p, dict):
+            continue
+        ref, text = p.get("row_ref"), canon.get(_norm(p.get("option_text")))
+        if ref in {r["ref"] for r in rows} and text and ref not in got:
+            got[ref] = text
+    if len(got) != len(rows):
+        raise SolveError(f"{kind}: пары не на все строки или текст не из вариантов")
+    if kind == "order" and len(set(got.values())) != len(got):
+        raise SolveError("order: место повторяется")
+    return [{"row_ref": r["ref"], "option_text": got[r["ref"]]} for r in rows]
 
 
 async def solve(question: dict, crop: bytes | None = None, *, seconds_left=None,
@@ -162,8 +244,11 @@ async def solve(question: dict, crop: bytes | None = None, *, seconds_left=None,
 # ── применение и проверка ─────────────────────────────────────────
 
 def fill_fields(question: dict, answer: dict) -> list[dict]:
-    """Поля page_fill_form для ответа."""
+    """Поля page_fill_form для ответа; пары (match/order) — одним полем."""
     kind = kind_of(question)
+    if "pairs" in answer:
+        return [{"ref": question.get("ref") or answer["pairs"][0]["row_ref"],
+                 "pairs": answer["pairs"]}]
     if "refs" in answer:
         if kind == "select":
             name = next((o.get("name") for o in question.get("options") or []
@@ -186,6 +271,11 @@ def verify(question: dict, answer: dict, elements: list) -> bool | None:
     """Проверка по observation: checked у выбранных, value у текста.
     None — проверить по снимку нельзя (порядок, нет элементов)."""
     by_ref = {e.get("ref"): e for e in elements or [] if isinstance(e, dict)}
+    if "pairs" in answer:
+        els = [(by_ref.get(p["row_ref"]), p["option_text"]) for p in answer["pairs"]]
+        if any(e is None or e.get("value") in (None, "") for e, _ in els):
+            return None
+        return all(_norm(e.get("value")) == _norm(t) for e, t in els)
     if "refs" in answer:
         if kind_of(question) == "select":
             el = by_ref.get(question.get("ref"))
@@ -208,10 +298,14 @@ def verify(question: dict, answer: dict, elements: list) -> bool | None:
 
 def answer_label(question: dict, answer: dict) -> str:
     """Человеческий вид ответа для отчёта Мастеру."""
+    if "pairs" in answer:
+        rows = {r["ref"]: r["name"] for r in (pair_parts(question) or ([], []))[0]}
+        return "; ".join(f"{str(rows.get(p['row_ref']) or p['row_ref'])[:40]} → "
+                         f"{p['option_text'][:40]}" for p in answer["pairs"])
     if "refs" in answer:
-        names = {o.get("ref"): o.get("name") for o in question.get("options") or []}
+        names = {o.get("ref"): _label(o) for o in question.get("options") or []}
         return "; ".join(str(names.get(r) or r)[:80] for r in answer["refs"])
     if "order" in answer:
-        names = {o.get("ref"): o.get("name") for o in question.get("options") or []}
+        names = {o.get("ref"): _label(o) for o in question.get("options") or []}
         return " → ".join(str(names.get(r) or r)[:40] for r in answer["order"])
     return answer.get("text", "")[:120]

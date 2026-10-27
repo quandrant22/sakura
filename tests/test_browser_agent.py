@@ -209,7 +209,7 @@ def test_quota_wait_reaches_desktop_and_step_is_not_counted_twice(env, fake):
 
 def test_agent_chains_are_gemma_only():
     assert config.BROWSER_MODEL_CHAIN == ("gemma-4-26b-a4b-it", "gemma-4-31b-it")
-    assert config.QUIZ_MODEL_CHAIN == ("gemma-4-31b-it",)
+    assert config.QUIZ_MODEL_CHAIN == ("gemma-4-31b-it", "gemma-4-26b-a4b-it")
     assert config._gemma_only("X", ("gemma-4-31b-it", "gemini-3.5-flash-lite")) == ("gemma-4-31b-it",)
 
 
@@ -864,3 +864,189 @@ def test_server_errors_pause_with_own_message(env, fake):
 def test_max_seconds_default_unlimited():
     import os
     assert config.BROWSER_MAX_SECONDS == int(os.getenv("BROWSER_MAX_SECONDS", "0"))
+
+
+# ── сопоставление и порядок парами, skipped, фолбэк решателя ─────────
+
+MATCH_ROWS = [{"ref": "f0:e41", "name": "Франция"}, {"ref": "f0:e42", "name": "Япония"}]
+MATCH_Q = {"index": 1, "kind": "match", "text": "Сопоставьте страну и столицу", "ref": "f0:e40",
+           "rows": MATCH_ROWS, "options": [{"name": "Париж"}, {"name": "Токио"}, {"name": "Рим"}]}
+# нынешняя форма расширения: строки — options (select), тексты — choices
+MATCH_Q_EXT = {"index": 1, "kind": "match", "text": "Сопоставьте", "ref": "f0:e40",
+               "options": [{"ref": "f0:e41", "name": "Франция", "text": "Франция"},
+                           {"ref": "f0:e42", "name": "Япония", "text": "Япония"}],
+               "choices": ["Париж", "Токио", "Рим"]}
+ORDER_ROWS_Q = {"index": 2, "kind": "order", "text": "Расставьте по порядку", "ref": "f0:e50",
+                "rows": [{"ref": "f0:e51", "name": "Рассвет"}, {"ref": "f0:e52", "name": "Закат"}],
+                "options": [{"name": "1"}, {"name": "2"}]}
+ORDER_PLAIN_Q = {"index": 3, "kind": "order", "text": "Упорядочьте", "ref": "f0:e60",
+                 "options": [{"ref": "f0:e61", "name": "Б"}, {"ref": "f0:e62", "name": "А"}]}
+
+PAIRS_OK = [{"row_ref": "f0:e41", "option_text": "париж"}, {"row_ref": "f0:e42", "option_text": "Токио"}]
+
+
+@pytest.mark.parametrize("question", [MATCH_Q, MATCH_Q_EXT])
+def test_solver_match_pairs(monkeypatch, question):
+    f = FakeLLM(solve=[solve_resp({"pairs": PAIRS_OK})])
+    monkeypatch.setattr(llm, "generate_agent", f)
+    res = asyncio.run(qs.solve(question))
+    assert res["answer"] == {"pairs": [{"row_ref": "f0:e41", "option_text": "Париж"},
+                                       {"row_ref": "f0:e42", "option_text": "Токио"}]}
+    prompt = f.calls[0][0][-1].text
+    assert "Строки:\n- f0:e41: Франция" in prompt and "- Рим" in prompt and "answer.pairs" in prompt
+    assert qs.fill_fields(question, res["answer"]) == [{"ref": "f0:e40", "pairs": res["answer"]["pairs"]}]
+    assert qs.answer_label(question, res["answer"]) == "Франция → Париж; Япония → Токио"
+
+
+def test_solver_match_rejects_incomplete_or_foreign_pairs(monkeypatch):
+    bad1 = solve_resp({"pairs": PAIRS_OK[:1]})
+    bad2 = solve_resp({"pairs": [PAIRS_OK[0], {"row_ref": "f0:e42", "option_text": "Берлин"}]})
+    monkeypatch.setattr(llm, "generate_agent", FakeLLM(solve=[bad1, bad2]))
+    with pytest.raises(qs.SolveError):
+        asyncio.run(qs.solve(MATCH_Q))
+
+
+def test_solver_order_with_rows_uses_pairs(monkeypatch):
+    pairs = [{"row_ref": "f0:e51", "option_text": "1"}, {"row_ref": "f0:e52", "option_text": "2"}]
+    monkeypatch.setattr(llm, "generate_agent", FakeLLM(solve=[solve_resp({"pairs": pairs})]))
+    assert asyncio.run(qs.solve(ORDER_ROWS_Q))["answer"] == {"pairs": pairs}
+    # место повторяется — не годится
+    dup = [{"row_ref": "f0:e51", "option_text": "1"}, {"row_ref": "f0:e52", "option_text": "1"}]
+    with pytest.raises(qs.SolveError):
+        qs.validate(ORDER_ROWS_Q, {"pairs": dup})
+
+
+def test_solver_order_without_rows_keeps_order(monkeypatch):
+    f = FakeLLM(solve=[solve_resp({"order": ["f0:e62", "f0:e61"]})])
+    monkeypatch.setattr(llm, "generate_agent", f)
+    res = asyncio.run(qs.solve(ORDER_PLAIN_Q))
+    assert res["answer"] == {"order": ["f0:e62", "f0:e61"]}
+    assert "answer.order" in f.calls[0][0][-1].text and "Строки:" not in f.calls[0][0][-1].text
+    assert qs.fill_fields(ORDER_PLAIN_Q, res["answer"]) == [{"ref": "f0:e60", "order": ["f0:e62", "f0:e61"]}]
+
+
+def test_pairs_verify_by_select_values():
+    els = [element(41, "combobox", value="Париж"), element(42, "combobox", value="Токио")]
+    pairs = {"pairs": [{"row_ref": "f0:e41", "option_text": "Париж"},
+                       {"row_ref": "f0:e42", "option_text": "Токио"}]}
+    assert qs.verify(MATCH_Q, pairs, els) is True
+    els[1]["value"] = "Рим"
+    assert qs.verify(MATCH_Q, pairs, els) is False
+    assert qs.verify(MATCH_Q, pairs, [element(41)]) is None
+
+
+def _quiz_task(questions):
+    task = new_task("тест")
+    task.pending["await"] = "questions"
+    return task, Desk(task), {**OK, "questions": questions}
+
+
+def test_match_and_order_each_go_in_own_fill_form(env, fake, monkeypatch):
+    monkeypatch.setattr(config, "QUIZ_PARALLEL", 3)
+    single = dict(QUESTIONS[0], index=4)
+    fake.solve = [solve_resp({"pairs": PAIRS_OK}), solve_resp({"order": ["f0:e62", "f0:e61"]}),
+                  solve_resp({"refs": ["f0:e12"]})]
+    _task, desk, res = _quiz_task([dict(MATCH_Q, has_media=False), ORDER_PLAIN_Q, single])
+    frames = [frame("question", q_index=1, fid="a"), frame("question", q_index=3, fid="b")]
+
+    async def run():
+        outs = [await desk.step(observation=quiz_obs(), last_result=res)]          # кадр вопроса 1
+        outs.append(await desk.step(observation=quiz_obs(), last_result=OK, frames=frames[:1]))
+        outs.append(await desk.step(observation=quiz_obs(), last_result=OK, frames=frames[1:]))
+        outs.append(await desk.step(observation=quiz_obs(checked=["f0:e12"]), last_result=OK))
+        outs.append(await desk.step(observation=quiz_obs(checked=["f0:e12"]), last_result=OK))
+        return outs
+    outs = asyncio.run(run())
+    assert outs[0]["action"]["tool"] == "page_shot" and outs[1]["action"]["tool"] == "page_shot"
+    simple, match, order = (o["action"]["args"]["fields"] for o in outs[2:5])
+    assert simple == [{"ref": "f0:e12", "checked": True}]
+    assert match == [{"ref": "f0:e40", "pairs": [{"row_ref": "f0:e41", "option_text": "Париж"},
+                                                 {"row_ref": "f0:e42", "option_text": "Токио"}]}]
+    assert order == [{"ref": "f0:e60", "order": ["f0:e62", "f0:e61"]}]
+
+
+def test_unsupported_fill_marks_skipped_and_reported(env, fake, monkeypatch):
+    monkeypatch.setattr(config, "QUIZ_PARALLEL", 3)
+    fake.solve = [solve_resp({"order": ["f0:e62", "f0:e61"]}), solve_resp({"refs": ["f0:e12"]})]
+    fake.nav = [fc("done", note="готово", summary="тест пройден")]
+    single = dict(QUESTIONS[0], index=4)
+    task, desk, res = _quiz_task([ORDER_PLAIN_Q, single])
+    unsupported = {"ok": False, "status": "unsupported",
+                   "detail": "порядок вариантов (перетаскивание) расширение не заполняет"}
+
+    async def run():
+        outs = [await desk.step(observation=quiz_obs(), last_result=res)]          # кадр вопроса 3
+        outs.append(await desk.step(observation=quiz_obs(), last_result=OK,
+                                    frames=[frame("question", q_index=3)]))      # простой ответ
+        outs.append(await desk.step(observation=quiz_obs(checked=["f0:e12"]), last_result=OK))  # order
+        outs.append(await desk.step(observation=quiz_obs(checked=["f0:e12"]), last_result=unsupported))
+        return outs
+    outs = asyncio.run(run())
+    assert outs[2]["action"]["args"]["fields"][0]["order"] == ["f0:e62", "f0:e61"]
+    assert outs[3]["status"] == "done"                     # задача пошла дальше — к навигатору
+    entry = next(a for a in task.answers if a["index"] == 3)
+    assert entry["status"] == "skipped" and "перетаскивание" in entry["reason"]
+    report = env.tg[-1]
+    assert "Вопрос 3: пропущен — порядок вариантов (перетаскивание) расширение не заполняет" in report
+    assert "Вопрос 4: четыре" in report
+
+
+def test_field_level_unsupported_marks_only_its_question(env, fake, monkeypatch):
+    monkeypatch.setattr(config, "QUIZ_PARALLEL", 3)
+    q_text = dict(QUESTIONS[1], index=5, has_media=False)
+    fake.solve = [solve_resp({"refs": ["f0:e12"]}), solve_resp({"text": "Москва"})]
+    single = dict(QUESTIONS[0], index=4)
+    task, desk, res = _quiz_task([single, q_text])
+    partial = {"ok": False, "status": "error", "detail": "заполнено 1 из 2",
+               "data": {"fields": [{"ref": "f0:e12", "status": "done"},
+                                   {"ref": "f0:e20", "status": "unsupported",
+                                    "detail": "не текстовое поле"}]}}
+
+    async def run():
+        await desk.step(observation=quiz_obs(), last_result=res)                     # кадр вопроса 5
+        await desk.step(observation=quiz_obs(), last_result=OK, frames=[frame("question", q_index=5)])
+        await desk.step(observation=quiz_obs(checked=["f0:e12"]), last_result=partial)
+    asyncio.run(run())
+    status = {a["index"]: (a["status"], a.get("reason")) for a in task.answers}
+    assert status[4] == ("verified", None)
+    assert status[5] == ("skipped", "не текстовое поле")
+
+
+def test_skipped_not_resolved_on_final_check(env, fake):
+    task = new_task("тест")
+    task.answers = [{"index": 3, "kind": "order", "answer": {"order": ["f0:e62"]},
+                     "status": "skipped", "reason": "не поддерживается"}]
+    task.pending.update({"await": "questions", "final_check": True,
+                         "finish_action": {"tool": "page_act", "args": {"ref": "f0:e30", "action": "click"},
+                                           "note": "завершаю"}})
+    out = asyncio.run(Desk(task).step(observation=quiz_obs(), last_result={**OK, "questions": [ORDER_PLAIN_Q]}))
+    assert out["action"] == {"tool": "page_act", "args": {"ref": "f0:e30", "action": "click"}}
+    assert fake.kinds() == []
+
+
+def test_solver_falls_back_to_26b(env, monkeypatch):
+    """31b не ответил (сбой/квота) — тот же вопрос решает 26b."""
+    monkeypatch.setattr(llm, "generate_agent", ORIGINAL_GENERATE_AGENT)
+    clock = Clock()
+    monkeypatch.setattr(rl, "_limiter", rl.RateLimiter(rpm=100, rpd=1000, path=None, clock=clock))
+    seen = []
+
+    class Exhausted(Exception):
+        code = 429
+
+        def __init__(self, msg):
+            super().__init__(msg)
+            self.details = {"error": {"details": [
+                {"@type": "type.googleapis.com/google.rpc.QuotaFailure",
+                 "violations": [{"quotaId": "RequestsPerDayPerModel"}]}]}}
+
+    async def raw(model, contents, timeout=None, **cfg):
+        seen.append(model)
+        if model == "gemma-4-31b-it":
+            raise Exhausted("429 RESOURCE_EXHAUSTED")
+        return SimpleNamespace(text=json.dumps({"reasoning": "r", "answer": {"pairs": PAIRS_OK}}),
+                               usage_metadata=None)
+
+    monkeypatch.setattr(llm, "generate_raw", raw)
+    res = asyncio.run(qs.solve(MATCH_Q))
+    assert seen == ["gemma-4-31b-it", "gemma-4-26b-a4b-it"] and res["model"] == "gemma-4-26b-a4b-it"

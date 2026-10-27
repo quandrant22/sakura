@@ -63,3 +63,17 @@ def test_names_unchanged_for_desktop():
         "page_upload": ["file", "note", "ref"], "page_scroll": ["direction", "note", "ref"],
         "done": ["note", "summary"], "fail": ["note", "reason"],
     }
+
+
+def test_fill_form_field_has_pairs():
+    """page_fill_form.fields[]: прежние ref/value/checked + pairs [{row_ref, option_text}]."""
+    tool = next(t for t in bs.export_tools()["tools"] if t["name"] == "page_fill_form")
+    field = tool["parameters"]["properties"]["fields"]["items"]
+    assert sorted(field["properties"]) == ["checked", "pairs", "ref", "value"]
+    assert field["required"] == ["ref"]
+    pair = field["properties"]["pairs"]
+    assert pair["type"] == "array"
+    assert pair["items"]["required"] == ["row_ref", "option_text"]
+    tools, _ = bs._tools()
+    decl = next(d for d in tools[0].function_declarations if d.name == "page_fill_form")
+    assert "pairs" in decl.parameters.properties["fields"].items.properties

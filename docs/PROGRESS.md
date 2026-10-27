@@ -103,6 +103,7 @@ temperature=0.0, max_output_tokens), перепроверены вторым п�
 | S5 BrowserTask | ✅ чекпоинт без кадров/текста, восстановление, одна задача на окно | sakura_core/browser_task.py |
 | S6 навигатор | ✅ FC + разбор JSON, note обязательна, окно кадров, сводка, автоскрин; `BROWSER_NAV_THINKING=minimal` (27.10) | sakura_core/browser_step.py |
 | S7 решатель | ✅ schema, все kind, кадр-вырезка, режим таймера, изоляция; пакеты до `QUIZ_PARALLEL=3` через лимитер (27.10) | sakura_core/quiz_solver.py, browser_step.py |
+| match / order (27.10) | ✅ пары {row_ref, option_text} для match и order со строками, одним page_fill_form; order без строк — order; unsupported → вопрос skipped с причиной в отчёте; решатель 31b → 26b | quiz_solver.py, browser_step.py |
 | схема инструментов | ✅ `scripts/export_tool_schema.py` → формат фикстуры desktop, снимок tests/fixtures/server_tools.json (27.10) | browser_step.TOOL_SPEC |
 | S8 формы/тесты/капча | ✅ | browser_step.py |
 | S9 управление и отчёт | ✅ browser.task / browser.stop, прогресс (орб `status.activity` + одно сообщение Telegram), отчёт | capabilities/browser_agent.py, bridge.py |
@@ -110,7 +111,7 @@ temperature=0.0, max_output_tokens), перепроверены вторым п�
 
 Тесты: tests/test_gemma_params.py, tests/test_gemma_quota.py,
 tests/test_browser_agent.py, tests/test_browser_capability.py,
-tests/test_tool_schema.py. Полный прогон (27.10: 1237 passed) —
+tests/test_tool_schema.py. Полный прогон (27.10: 1249 passed) —
 всё зелёное, кроме `test_acks.py::test_cache_key_changes_with_model_or_voice`
 (падал и на master до этой ветки).
 
@@ -127,7 +128,12 @@ tests/test_tool_schema.py. Полный прогон (27.10: 1237 passed) —
 - Схема инструментов: `scripts/export_tool_schema.py` → положить в
   desktop/tests/fixtures/server_tools.json (формат — DECISIONS B28); спека
   поменялась — снимок в tests/fixtures/ и тест `test_tool_schema` это покажут.
-- Пакет ответов теста приходит одним `page_fill_form` с полями нескольких
-  вопросов (B25).
+- Пакет ответов теста: простые ответы — одним `page_fill_form`, каждый ответ
+  парами/порядком — отдельным (B25, B32).
+- **pairs (27.10):** поле `{ref, pairs: [{row_ref, option_text}]}` desktop должен
+  развернуть в `values {row_ref: option_text}` (B31); перегенерированная схема —
+  tests/fixtures/server_tools.json → desktop/tests/fixtures/server_tools.json.
+- Порядок без строк (`order`) desktop отклоняет как unsupported — сервер помечает
+  вопрос skipped и идёт дальше (B32).
 - Включение: `BROWSER_AGENT=1` на сервере; канал — Noise/локальный (приватный
   класс `browser*`).

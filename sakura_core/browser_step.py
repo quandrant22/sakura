@@ -101,9 +101,13 @@ SUMMARY_PROMPT = """Сожми журнал задачи в браузере в 
 # и аргументов не менять — их переводит desktop (desktop/core/browser_agent.py).
 
 NOTE_SCHEMA = {"type": "string", "description": "что делаю и зачем, до 200 символов"}
+_PAIR = {"type": "object", "properties": {"row_ref": {"type": "string"},
+                                          "option_text": {"type": "string"}},
+         "required": ["row_ref", "option_text"]}
 _FIELD = {"type": "object", "properties": {"ref": {"type": "string"},
                                            "value": {"type": "string"},
-                                           "checked": {"type": "boolean"}},
+                                           "checked": {"type": "boolean"},
+                                           "pairs": {"type": "array", "items": _PAIR}},
           "required": ["ref"]}
 
 
@@ -573,8 +577,10 @@ async def quiz_step(task: bt.BrowserTask, obs: dict, last_result) -> dict | None
         refs |= {item.get("ref") for item in questions}
         refs.discard(None)
         answered = {a["index"] for a in task.answers if a.get("status") in ("verified", "filled")}
+        skipped = {a["index"] for a in task.answers if a.get("status") == "skipped"}
         queue = [item["index"] for item in questions
-                 if not item.get("answered") and (final or item["index"] not in answered)]
+                 if not item.get("answered") and item["index"] not in skipped
+                 and (final or item["index"] not in answered)]
         task.quiz = q = {"url": obs.get("url"), "questions": known, "refs": refs,
                          "queue": queue, "batch": [], "phase": None, "solved": set(),
                          "final": final, "labels": q.get("labels", {}), "shot": set(),
@@ -595,11 +601,16 @@ async def quiz_step(task: bt.BrowserTask, obs: dict, last_result) -> dict | None
             q["phase"], q["solved"] = "solve", set()
         batch = q["batch"]
         if q["phase"] == "fill":
+            sent = q.get("sent") or []
+            skipped = _unsupported(task, last_result, sent)
             refill = []
-            for idx in batch:
-                if idx not in q["solved"]:
-                    continue
+            for idx in sent:
                 question = q["questions"][idx]
+                if idx in skipped:
+                    _set_answer(task, question, None, "skipped")
+                    _answer_entry(task, idx)["reason"] = skipped[idx]
+                    log.info(f"[browser] {task.task_id}: вопрос {idx} пропущен — заполнение не поддерживается")
+                    continue
                 ok = qs.verify(question, (_answer_entry(task, idx) or {}).get("answer") or {},
                                obs.get("elements"))
                 if ok is False and q["fills"].get(idx, 0) < FILL_ATTEMPTS:
@@ -609,7 +620,11 @@ async def quiz_step(task: bt.BrowserTask, obs: dict, last_result) -> dict | None
                             "verified" if ok else ("failed" if ok is False else "filled"))
             if refill:
                 return _fill_action(task, refill)
-            q["batch"], q["phase"] = [], None
+            if q.get("groups"):
+                q["groups"].pop(0)
+            if q.get("groups"):
+                return _fill_action(task, [q["questions"][i] for i in q["groups"][0]])
+            q["batch"], q["phase"], q["sent"] = [], None, []
             continue
         # phase == solve: сначала кадры вопросов, которым они нужны
         for idx in batch:
@@ -627,7 +642,8 @@ async def quiz_step(task: bt.BrowserTask, obs: dict, last_result) -> dict | None
             q["batch"], q["phase"] = [], None
             continue
         q["phase"] = "fill"
-        return _fill_action(task, solved)
+        q["groups"] = _fill_groups(task, solved)
+        return _fill_action(task, [q["questions"][i] for i in q["groups"][0]])
 
 
 def _crop(task: bt.BrowserTask, idx: int) -> bytes | None:
@@ -670,13 +686,49 @@ async def _solve_batch(task: bt.BrowserTask, obs: dict) -> None:
         raise deferred[0]
 
 
+def _fill_groups(task: bt.BrowserTask, solved: list) -> list[list[int]]:
+    """Простые ответы пакета — одним page_fill_form; каждый ответ парами или
+    порядком — своим: unsupported расширения тогда относится к одному вопросу."""
+    simple, single = [], []
+    for question in solved:
+        answer = _answer_entry(task, question["index"])["answer"]
+        (single if ("pairs" in answer or "order" in answer) else simple).append(question["index"])
+    return ([simple] if simple else []) + [[i] for i in single]
+
+
+def _unsupported(task: bt.BrowserTask, last_result, sent: list) -> dict:
+    """Вопросы последнего page_fill_form, которые расширение не заполнило
+    (unsupported): весь шаг или отдельные поля → {index: причина}."""
+    if not isinstance(last_result, dict) or not sent:
+        return {}
+    detail = " ".join(str(last_result.get("detail") or "не поддерживается").split())[:160]
+    if last_result.get("status") == "unsupported":
+        return {idx: detail for idx in sent}
+    data = last_result.get("data") if isinstance(last_result.get("data"), dict) else {}
+    fields = last_result.get("fields") or data.get("fields") or []
+    owner = task.quiz.get("field_refs") or {}
+    out = {}
+    for f in fields if isinstance(fields, list) else []:
+        if isinstance(f, dict) and f.get("status") == "unsupported" and owner.get(f.get("ref")) in sent:
+            out.setdefault(owner[f["ref"]], " ".join(str(f.get("detail") or detail).split())[:160])
+    return out
+
+
 def _fill_action(task: bt.BrowserTask, questions: list) -> dict:
     q = task.quiz
     fields = []
+    owner = q.setdefault("field_refs", {})
     for question in questions:
         idx = question["index"]
         q["fills"][idx] = q["fills"].get(idx, 0) + 1
-        fields += qs.fill_fields(question, _answer_entry(task, idx)["answer"])
+        for f in qs.fill_fields(question, _answer_entry(task, idx)["answer"]):
+            fields.append(f)
+            refs = [f.get("ref"), f.get("option_ref")]
+            refs += [p.get("row_ref") for p in f.get("pairs") or []]
+            for ref in refs:
+                if ref:
+                    owner[ref] = idx
+    q["sent"] = [x["index"] for x in questions]
     which = ", ".join(str(x["index"]) for x in questions)
     note = (f"вопрос {which}: вписываю ответ" if len(questions) == 1
             else f"вопросы {which}: вписываю ответы")
@@ -693,7 +745,8 @@ def quiz_progress(task: bt.BrowserTask) -> str:
     total = len(task.quiz.get("questions") or {}) or len(task.answers)
     if not total:
         return ""
-    done = sum(1 for a in task.answers if a.get("status") in ("verified", "filled", "solved"))
+    done = sum(1 for a in task.answers
+               if a.get("status") in ("verified", "filled", "solved", "skipped"))
     current = bool(task.quiz.get("batch"))
     return f"вопрос {min(done + 1, total) if current else done} из {total}"
 
@@ -749,6 +802,10 @@ def report(task: bt.BrowserTask, outcome: str) -> str:
     labels = task.quiz.get("labels") or {}
     for a in sorted(task.answers, key=lambda a: a["index"]):
         answer = labels.get(a["index"]) or qs.answer_label({}, a.get("answer") or {}) or "—"
+        if a.get("status") == "skipped":
+            lines.append(f"Вопрос {a['index']}: пропущен — {a.get('reason') or 'не поддерживается'}"
+                         f" (ответ решателя: {answer})")
+            continue
         mark = {"verified": "", "filled": "", "solved": " (не проверен)",
                 "failed": " (не вписан)"}.get(a.get("status"), "")
         lines.append(f"Вопрос {a['index']}: {answer}{mark}")
