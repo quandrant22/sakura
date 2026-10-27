@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:id="@+id/tab_dialog" android:icon="@drawable/ic_nav_dialog" android:title="Диалог" />
+    <item android:id="@+id/tab_control" android:icon="@drawable/ic_nav_control" android:title="Пульт" />
+    <item android:id="@+id/tab_summary" android:icon="@drawable/ic_nav_summary" android:title="Сводка" />
+    <item android:id="@+id/tab_scenarios" android:icon="@drawable/ic_nav_scenarios" android:title="Сценарии" />
+    <item android:id="@+id/tab_more" android:icon="@drawable/ic_nav_more" android:title="Ещё" />
+</menu>

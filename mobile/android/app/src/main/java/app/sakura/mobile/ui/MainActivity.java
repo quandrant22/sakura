@@ -7,38 +7,58 @@ import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
+import android.view.View;
 import android.widget.TextView;
 
 import androidx.activity.EdgeToEdge;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
+import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentManager;
+import androidx.fragment.app.FragmentTransaction;
+
+import com.google.android.material.bottomnavigation.BottomNavigationView;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+
+import org.json.JSONObject;
 
 import app.sakura.mobile.R;
 import app.sakura.mobile.app.SakuraApp;
+import app.sakura.mobile.app.Settings;
 import app.sakura.mobile.core.CoreFrame;
 import app.sakura.mobile.core.SakuraCoreView;
+import app.sakura.mobile.proto.SakuraClient;
+import app.sakura.mobile.ui.control.ControlFragment;
+import app.sakura.mobile.ui.dialog.ChatFragment;
+import app.sakura.mobile.ui.more.MoreFragment;
+import app.sakura.mobile.ui.more.SecurityFragment;
+import app.sakura.mobile.ui.scenarios.ScenariosFragment;
+import app.sakura.mobile.ui.summary.SummaryFragment;
 import app.sakura.mobile.voice.VoiceController;
 
+/**
+ * Пять вкладок (Диалог, Пульт, Сводка, Сценарии, Ещё), подэкраны поверх вкладки со стеком «Назад»
+ * (predictive back), переходы 150 мс, общий диалог подтверждения reply kind:"confirm".
+ */
 public class MainActivity extends AppCompatActivity {
-    /** Открыть приложение и сразу слушать (уведомление, плитка, виджет). */
+    /** Открыть приложение и сразу слушать (уведомление, плитка, виджет, ассистент). */
     public static final String ACTION_LISTEN = "app.sakura.mobile.LISTEN";
     private static final long PTT_HOLD_MS = 600;
+    private static final int[] TABS = {R.id.tab_dialog, R.id.tab_control, R.id.tab_summary, R.id.tab_scenarios,
+            R.id.tab_more};
 
     private VoiceController voice;
-    private SakuraCoreView core;
     private boolean pttActive;
     private Runnable afterPermission;
-    private final Runnable levelPump = new Runnable() {
-        @Override
-        public void run() {
-            core.setLevel(voice.level());
-            core.postOnAnimation(this);
-        }
-    };
+    private AlertDialog confirmDialog;
+    private Runnable unsubscribeConfirm;
+    private Runnable unsubscribeStatus;
+    private TextView banner;
     private final ActivityResultLauncher<String> micPermission = registerForActivityResult(
             new ActivityResultContracts.RequestPermission(), granted -> {
                 Runnable r = afterPermission;
@@ -48,52 +68,146 @@ public class MainActivity extends AppCompatActivity {
                 }
             });
 
+    static int themeRes(String theme) {
+        return Settings.THEME_SKETCH.equals(theme) ? R.style.Theme_Sakura_Sketch : R.style.Theme_Sakura_Night;
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        SakuraApp app = SakuraApp.get();
+        setTheme(themeRes(app.settings().theme()));
         super.onCreate(savedInstanceState);
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_main);
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
-            Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+            Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.ime());
             v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
-            return insets;
+            return WindowInsetsCompat.CONSUMED;
         });
-        SakuraApp app = SakuraApp.get();
         voice = app.voice();
-        core = findViewById(R.id.core);
-        core.setReduceMotion(app.settings().reduceMotion());
-        core.setMobility(CoreFrame.Mobility.of(app.settings().mobility()));
-        core.setPreset(CoreFrame.MergePreset.of(app.settings().mergePreset()));
-        TextView status = findViewById(R.id.core_status);
-        TextView transcript = findViewById(R.id.transcript);
-        voice.state().observe(this, s -> {
-            core.setState(s);
-            status.setText(statusText(s));
+        banner = findViewById(R.id.banner);
+        BottomNavigationView nav = findViewById(R.id.nav);
+        nav.setOnItemSelectedListener(item -> {
+            showTab(item.getItemId());
+            return true;
         });
-        voice.transcript().observe(this, transcript::setText);
-        bindCore();
+        nav.setOnItemReselectedListener(item -> getSupportFragmentManager()
+                .popBackStack(null, FragmentManager.POP_BACK_STACK_INCLUSIVE));
+        if (savedInstanceState == null) {
+            showTab(R.id.tab_dialog);
+        }
+        unsubscribeConfirm = app.client().bus().subscribe("reply", m -> {
+            if ("confirm".equals(m.optString("kind"))) {
+                runOnUiThread(() -> showConfirm(m));
+            }
+        });
+        unsubscribeStatus = app.client().onStatus(s -> runOnUiThread(() -> renderBanner(s)));
         handleIntent(getIntent());
     }
 
-    static String statusText(CoreFrame.State s) {
-        switch (s) {
-            case LISTENING:
-                return "Слушаю";
-            case THINKING:
-                return "Думаю";
-            case SPEAKING:
-                return "Говорю";
-            case OFFLINE:
-                return "Нет связи";
-            case IDLE:
-            default:
-                return "Онлайн";
+    private static String tag(int tab) {
+        return "tab" + tab;
+    }
+
+    private void showTab(int id) {
+        FragmentManager fm = getSupportFragmentManager();
+        fm.popBackStackImmediate(null, FragmentManager.POP_BACK_STACK_INCLUSIVE);
+        FragmentTransaction tx = fm.beginTransaction().setReorderingAllowed(true);
+        if (!Motion.reduced()) {
+            tx.setCustomAnimations(R.anim.screen_in, R.anim.screen_out);
         }
+        for (int t : TABS) {
+            Fragment f = fm.findFragmentByTag(tag(t));
+            if (t == id) {
+                if (f == null) {
+                    tx.add(R.id.content, create(t), tag(t));
+                } else {
+                    tx.show(f);
+                }
+            } else if (f != null) {
+                tx.hide(f);
+            }
+        }
+        tx.commit();
+    }
+
+    private static Fragment create(int tab) {
+        if (tab == R.id.tab_control) {
+            return new ControlFragment();
+        }
+        if (tab == R.id.tab_summary) {
+            return new SummaryFragment();
+        }
+        if (tab == R.id.tab_scenarios) {
+            return new ScenariosFragment();
+        }
+        if (tab == R.id.tab_more) {
+            return new MoreFragment();
+        }
+        return new ChatFragment();
+    }
+
+    /** Подэкран поверх текущей вкладки (Назад — вернуться). */
+    public void push(Fragment f) {
+        FragmentManager fm = getSupportFragmentManager();
+        FragmentTransaction tx = fm.beginTransaction().setReorderingAllowed(true);
+        if (!Motion.reduced()) {
+            tx.setCustomAnimations(R.anim.screen_in, R.anim.screen_out, R.anim.screen_in, R.anim.screen_out);
+        }
+        for (Fragment x : fm.getFragments()) {
+            if (x.isVisible()) {
+                tx.hide(x);
+            }
+        }
+        tx.add(R.id.content, f).addToBackStack(null).commit();
+    }
+
+    private void renderBanner(SakuraClient.Status s) {
+        String text = null;
+        View.OnClickListener click = null;
+        if (s.conn == SakuraClient.Conn.UNPAIRED) {
+            text = "Телефон не спарен с Сакурой — нажмите, чтобы спарить";
+            click = v -> {
+                ((BottomNavigationView) findViewById(R.id.nav)).setSelectedItemId(R.id.tab_more);
+                push(new SecurityFragment());
+            };
+        } else if (s.conn == SakuraClient.Conn.ONLINE && s.proto < 2) {
+            text = "Сервер ещё не поддерживает приложение телефона: доступны только голос и текст";
+        } else if (s.conn == SakuraClient.Conn.ONLINE && !s.master) {
+            text = "Сервер не выдал телефону прав master: пульт и сценарии недоступны";
+        }
+        banner.setVisibility(text == null ? View.GONE : View.VISIBLE);
+        banner.setText(text);
+        banner.setOnClickListener(click);
+    }
+
+    /** Вопрос Сакуры «Да или нет?» (питание и др.): ответ voice_command «да»/«нет», channel:"text". */
+    private void showConfirm(JSONObject reply) {
+        if (confirmDialog != null) {
+            confirmDialog.dismiss();
+        }
+        View root = findViewById(R.id.main);
+        confirmDialog = new MaterialAlertDialogBuilder(this)
+                .setTitle("Сакура спрашивает")
+                .setMessage(reply.optString("text"))
+                .setPositiveButton("Да", (d, w) -> {
+                    Motion.confirm(root);
+                    voice.answerConfirm(true);
+                })
+                .setNegativeButton("Нет", (d, w) -> {
+                    Motion.reject(root);
+                    voice.answerConfirm(false);
+                })
+                .show();
     }
 
     /** Тап — говорить/перебить; удержание 600 мс — PTT с вибрацией. */
     @SuppressLint("ClickableViewAccessibility")
-    private void bindCore() {
+    public void bindCore(SakuraCoreView core) {
+        Settings s = SakuraApp.get().settings();
+        core.setReduceMotion(s.reduceMotion());
+        core.setMobility(CoreFrame.Mobility.of(s.mobility()));
+        core.setPreset(CoreFrame.MergePreset.of(s.mergePreset()));
         Runnable startPtt = () -> withMic(() -> {
             pttActive = true;
             Motion.pttStart(core);
@@ -102,7 +216,6 @@ public class MainActivity extends AppCompatActivity {
         core.setOnTouchListener((v, e) -> {
             switch (e.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
-                    SakuraApp.get().input().touch();
                     v.postDelayed(startPtt, PTT_HOLD_MS);
                     return true;
                 case MotionEvent.ACTION_UP:
@@ -129,7 +242,7 @@ public class MainActivity extends AppCompatActivity {
         core.setOnClickListener(v -> withMic(voice::tap));
     }
 
-    private void withMic(Runnable r) {
+    public void withMic(Runnable r) {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
             r.run();
         } else {
@@ -147,7 +260,8 @@ public class MainActivity extends AppCompatActivity {
     private void handleIntent(Intent intent) {
         if (intent != null && ACTION_LISTEN.equals(intent.getAction())) {
             intent.setAction(null);
-            core.post(() -> withMic(voice::tap));
+            ((BottomNavigationView) findViewById(R.id.nav)).setSelectedItemId(R.id.tab_dialog);
+            findViewById(R.id.main).post(() -> withMic(voice::tap));
         }
     }
 
@@ -155,17 +269,25 @@ public class MainActivity extends AppCompatActivity {
     protected void onStart() {
         super.onStart();
         voice.setForeground(true);
-        core.postOnAnimation(levelPump);
     }
 
     @Override
     protected void onStop() {
-        core.removeCallbacks(levelPump);
         voice.setForeground(false);
         super.onStop();
     }
 
-    /** Кнопка гарнитуры, пока приложение на экране. */
+    @Override
+    protected void onDestroy() {
+        unsubscribeConfirm.run();
+        unsubscribeStatus.run();
+        if (confirmDialog != null) {
+            confirmDialog.dismiss();
+        }
+        super.onDestroy();
+    }
+
+    /** Кнопка гарнитуры, пока приложение на экране (D24). */
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_HEADSETHOOK || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {

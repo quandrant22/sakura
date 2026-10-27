@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/sakuraBg"
+    android:orientation="vertical">
+
+    <TextView
+        style="@style/Sakura.Title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_margin="@dimen/edge"
+        android:text="Профиль" />
+
+    <app.sakura.mobile.ui.common.StateView
+        android:id="@+id/state"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+
+            <LinearLayout
+                style="@style/Sakura.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/edge"
+                android:layout_marginEnd="@dimen/edge"
+                android:layout_marginBottom="@dimen/edge"
+                android:orientation="vertical">
+
+                <TextView style="@style/Sakura.Dim" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Имя" />
+                <EditText android:id="@+id/p_name" android:layout_width="match_parent" android:layout_height="wrap_content" android:importantForAutofill="no" android:inputType="textPersonName" android:textColor="?attr/sakuraInk" />
+
+                <TextView style="@style/Sakura.Dim" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Обращение (ты / вы)" />
+                <EditText android:id="@+id/p_address" android:layout_width="match_parent" android:layout_height="wrap_content" android:importantForAutofill="no" android:inputType="text" android:textColor="?attr/sakuraInk" />
+
+                <TextView style="@style/Sakura.Dim" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Тихие часы" />
+                <EditText android:id="@+id/p_quiet" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="23:00-07:00" android:importantForAutofill="no" android:inputType="text" android:textColor="?attr/sakuraInk" android:textColorHint="?attr/sakuraInkDim" />
+
+                <TextView style="@style/Sakura.Dim" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Голос" />
+                <EditText android:id="@+id/p_voice" android:layout_width="match_parent" android:layout_height="wrap_content" android:importantForAutofill="no" android:inputType="text" android:textColor="?attr/sakuraInk" />
+
+                <TextView style="@style/Sakura.Dim" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Тон" />
+                <EditText android:id="@+id/p_tone" android:layout_width="match_parent" android:layout_height="wrap_content" android:importantForAutofill="no" android:inputType="text" android:textColor="?attr/sakuraInk" />
+
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/p_telegram"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Уведомления в Telegram"
+                    android:textColor="?attr/sakuraInk" />
+
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/p_sound"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Звук уведомлений"
+                    android:textColor="?attr/sakuraInk" />
+
+                <TextView
+                    android:id="@+id/note"
+                    style="@style/Sakura.Dim"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:visibility="gone" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/save"
+                    style="@style/Widget.Sakura.Button"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/gap"
+                    android:text="Сохранить" />
+            </LinearLayout>
+        </ScrollView>
+    </app.sakura.mobile.ui.common.StateView>
+</LinearLayout>

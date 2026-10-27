@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/sakuraBg">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="@dimen/edge">
+
+        <TextView
+            style="@style/Sakura.Title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Интерфейс" />
+
+        <app.sakura.mobile.core.SakuraCoreView
+            android:id="@+id/preview_core"
+            android:layout_width="@dimen/core_small"
+            android:layout_height="@dimen/core_small"
+            android:layout_gravity="center_horizontal" />
+
+        <LinearLayout
+            style="@style/Sakura.Card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+        <TextView style="@style/Sakura.Section" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Тема" />
+
+        <RadioGroup
+            android:id="@+id/theme"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <RadioButton android:id="@+id/theme_night" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Сакура-ночь" android:textColor="?attr/sakuraInk" />
+            <RadioButton android:id="@+id/theme_sketch" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Как в наброске" android:textColor="?attr/sakuraInk" />
+        </RadioGroup>
+
+        <TextView style="@style/Sakura.Section" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Подвижность ядра" />
+
+        <RadioGroup
+            android:id="@+id/mobility"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <RadioButton android:id="@+id/mob_low" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Тихо" android:textColor="?attr/sakuraInk" />
+            <RadioButton android:id="@+id/mob_normal" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Обычно" android:textColor="?attr/sakuraInk" />
+            <RadioButton android:id="@+id/mob_high" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Живо" android:textColor="?attr/sakuraInk" />
+        </RadioGroup>
+
+        <TextView style="@style/Sakura.Section" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Слияние" />
+
+        <RadioGroup
+            android:id="@+id/preset"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <RadioButton android:id="@+id/pre_soft" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Мягко" android:textColor="?attr/sakuraInk" />
+            <RadioButton android:id="@+id/pre_tight" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Плотно" android:textColor="?attr/sakuraInk" />
+            <RadioButton android:id="@+id/pre_liquid" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Жидко" android:textColor="?attr/sakuraInk" />
+        </RadioGroup>
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/reduce_motion"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/gap"
+            android:text="Убрать анимации"
+            android:textColor="?attr/sakuraInk" />
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/floating_core"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Плавающее ядро поверх приложений"
+            android:textColor="?attr/sakuraInk" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

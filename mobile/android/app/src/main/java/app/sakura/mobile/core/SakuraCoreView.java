@@ -135,9 +135,16 @@ public class SakuraCoreView extends View implements Choreographer.FrameCallback 
         restart();
     }
 
+    private static volatile long lastAvg;
+
     /** Среднее время onDraw, нс (диагностика: бюджет 4 мс). */
     public long drawNanosAverage() {
         return drawNanosAvg;
+    }
+
+    /** Последнее среднее любого ядра на экране — для «Диагностики». */
+    public static long lastDrawNanos() {
+        return lastAvg;
     }
 
     // ── цикл кадров ──
@@ -274,6 +281,7 @@ public class SakuraCoreView extends View implements Choreographer.FrameCallback 
         }
         long dt = System.nanoTime() - t0;
         drawNanosAvg = drawNanosAvg == 0 ? dt : (drawNanosAvg * 15 + dt) / 16;
+        lastAvg = drawNanosAvg;
     }
 
     /** Статичный кадр в битмап (виджет, плитка). Аллоцирует — не для onDraw. */

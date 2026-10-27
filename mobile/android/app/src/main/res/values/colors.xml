@@ -27,6 +27,7 @@
     <color name="sketch_line">#1FFFFFFF</color>
     <color name="sketch_ink">#F5F5F5</color>
     <color name="sketch_ink_dim">#A5A5AA</color>
+    <color name="sketch_on_bg">#000000</color>
 
     <color name="transparent">#00000000</color>
 </resources>

@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Карточка: panel, радиус 20, граница line -->
+    <style name="Sakura.Card" parent="">
+        <item name="android:background">@drawable/bg_card</item>
+        <item name="android:padding">@dimen/edge</item>
+    </style>
+
+    <style name="Sakura.Title" parent="">
+        <item name="android:textColor">?attr/sakuraOnBg</item>
+        <item name="android:textSize">@dimen/text_title</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="Sakura.Body" parent="">
+        <item name="android:textColor">?attr/sakuraInk</item>
+        <item name="android:textSize">@dimen/text_body</item>
+    </style>
+
+    <style name="Sakura.Dim" parent="">
+        <item name="android:textColor">?attr/sakuraInkDim</item>
+        <item name="android:textSize">@dimen/text_small</item>
+    </style>
+
+    <style name="Sakura.Section" parent="">
+        <item name="android:textColor">?attr/sakuraAccent</item>
+        <item name="android:textSize">@dimen/text_small</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:layout_marginTop">@dimen/gap</item>
+        <item name="android:layout_marginBottom">@dimen/gap_small</item>
+    </style>
+
+    <!-- Кнопки: радиус 12 -->
+    <style name="Widget.Sakura.Button" parent="Widget.Material3.Button">
+        <item name="cornerRadius">@dimen/radius_btn</item>
+        <item name="backgroundTint">?attr/sakuraAccent</item>
+        <item name="android:textColor">?attr/sakuraAccentDeep</item>
+    </style>
+
+    <!-- Вторичная кнопка: подложка panel2 — читается и на фоне окна, и на карточке, в обеих темах -->
+    <style name="Widget.Sakura.Button.Outlined" parent="Widget.Material3.Button.TonalButton">
+        <item name="cornerRadius">@dimen/radius_btn</item>
+        <item name="backgroundTint">?attr/sakuraPanel2</item>
+        <item name="strokeColor">?attr/sakuraLine</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="android:textColor">?attr/sakuraInk</item>
+    </style>
+
+    <style name="Widget.Sakura.Button.Tonal" parent="Widget.Material3.Button.TonalButton">
+        <item name="cornerRadius">@dimen/radius_btn</item>
+        <item name="backgroundTint">?attr/sakuraPanel2</item>
+        <item name="android:textColor">?attr/sakuraInk</item>
+        <item name="iconTint">?attr/sakuraInk</item>
+        <item name="android:paddingLeft">6dp</item>
+        <item name="android:paddingRight">6dp</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+
+    <!-- Значок на карточке -->
+    <style name="Widget.Sakura.IconButton" parent="Widget.Material3.Button.IconButton">
+        <item name="iconTint">?attr/sakuraInk</item>
+    </style>
+
+    <!-- Значок прямо на фоне окна -->
+    <style name="Widget.Sakura.IconButton.OnBg">
+        <item name="iconTint">?attr/sakuraOnBg</item>
+    </style>
+
+    <style name="Sakura.NavIndicator" parent="Widget.Material3.BottomNavigationView.ActiveIndicator">
+        <item name="android:color">?attr/sakuraAccentSoft</item>
+    </style>
+
+    <style name="Widget.Sakura.Field" parent="Widget.Material3.TextInputLayout.OutlinedBox.Dense">
+        <item name="boxCornerRadiusTopStart">@dimen/radius_btn</item>
+        <item name="boxCornerRadiusTopEnd">@dimen/radius_btn</item>
+        <item name="boxCornerRadiusBottomStart">@dimen/radius_btn</item>
+        <item name="boxCornerRadiusBottomEnd">@dimen/radius_btn</item>
+        <item name="boxStrokeColor">?attr/sakuraAccent</item>
+        <item name="hintTextColor">?attr/sakuraInkDim</item>
+    </style>
+</resources>

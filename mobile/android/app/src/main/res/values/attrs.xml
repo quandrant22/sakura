@@ -7,6 +7,8 @@
     <attr name="sakuraPanel2" format="color" />
     <attr name="sakuraLine" format="color" />
     <attr name="sakuraInk" format="color" />
+    <!-- Текст прямо на фоне окна (вне карточек): в «наброске» фон белый -->
+    <attr name="sakuraOnBg" format="color" />
     <attr name="sakuraInkDim" format="color" />
     <attr name="sakuraAccent" format="color" />
     <attr name="sakuraAccentDeep" format="color" />

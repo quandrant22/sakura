@@ -46,6 +46,8 @@ android {
                 maxHeapSize = '1536m'
                 maxParallelForks = 1
                 forkEvery = 100
+                // Paparazzi/ByteBuddy: агент подключается в своём процессе, без внешнего attach-процесса
+                jvmArgs '-Djdk.attach.allowAttachSelf=true', '-XX:+EnableDynamicAgentLoading'
             }
         }
     }

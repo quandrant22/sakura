@@ -23,6 +23,7 @@
         <item name="sakuraLine">@color/night_line</item>
         <item name="sakuraInk">@color/night_ink</item>
         <item name="sakuraInkDim">@color/night_ink_dim</item>
+        <item name="sakuraOnBg">@color/night_ink</item>
         <item name="android:colorBackground">@color/night_bg</item>
         <item name="colorSurface">@color/night_panel</item>
         <item name="colorSurfaceContainer">@color/night_panel</item>
@@ -41,6 +42,7 @@
         <item name="sakuraLine">@color/sketch_line</item>
         <item name="sakuraInk">@color/sketch_ink</item>
         <item name="sakuraInkDim">@color/sketch_ink_dim</item>
+        <item name="sakuraOnBg">@color/sketch_on_bg</item>
         <item name="android:colorBackground">@color/sketch_bg</item>
         <item name="colorSurface">@color/sketch_panel</item>
         <item name="colorSurfaceContainer">@color/sketch_panel</item>

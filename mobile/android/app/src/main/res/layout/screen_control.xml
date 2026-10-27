@@ -1,0 +1,307 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/sakuraBg"
+    android:orientation="vertical">
+
+    <TextView
+        style="@style/Sakura.Title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_margin="@dimen/edge"
+        android:text="Пульт" />
+
+    <app.sakura.mobile.ui.common.StateView
+        android:id="@+id/state"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingStart="@dimen/edge"
+                android:paddingEnd="@dimen/edge"
+                android:paddingBottom="@dimen/edge">
+
+                <HorizontalScrollView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:scrollbars="none">
+
+                    <LinearLayout
+                        android:id="@+id/pcs"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal" />
+                </HorizontalScrollView>
+
+                <TextView
+                    android:id="@+id/note"
+                    style="@style/Sakura.Dim"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/gap_small"
+                    android:textColor="?attr/sakuraWarn"
+                    android:visibility="gone" />
+
+                <!-- мини-плеер по track -->
+                <LinearLayout
+                    android:id="@+id/player"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/gap"
+                    android:background="@drawable/bg_card"
+                    android:orientation="vertical"
+                    android:padding="12dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <View
+                            android:layout_width="56dp"
+                            android:layout_height="56dp"
+                            android:background="@drawable/bg_accent_grad" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/track_title"
+                                style="@style/Sakura.Body"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:maxLines="1"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/track_artist"
+                                style="@style/Sakura.Dim"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:maxLines="1" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:gravity="center"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/m_dislike"
+                            style="@style/Widget.Sakura.IconButton"
+                            android:layout_width="@dimen/touch"
+                            android:layout_height="@dimen/touch"
+                            android:contentDescription="Не нравится"
+                            app:icon="@drawable/ic_dislike" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/m_prev"
+                            style="@style/Widget.Sakura.IconButton"
+                            android:layout_width="@dimen/touch"
+                            android:layout_height="@dimen/touch"
+                            android:contentDescription="Предыдущий"
+                            app:icon="@drawable/ic_prev" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/m_play"
+                            style="@style/Widget.Sakura.IconButton"
+                            android:layout_width="@dimen/touch"
+                            android:layout_height="@dimen/touch"
+                            android:contentDescription="Пауза или продолжить"
+                            app:icon="@drawable/ic_play"
+                            app:iconTint="?attr/sakuraAccent" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/m_next"
+                            style="@style/Widget.Sakura.IconButton"
+                            android:layout_width="@dimen/touch"
+                            android:layout_height="@dimen/touch"
+                            android:contentDescription="Следующий"
+                            app:icon="@drawable/ic_next" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/m_like"
+                            style="@style/Widget.Sakura.IconButton"
+                            android:layout_width="@dimen/touch"
+                            android:layout_height="@dimen/touch"
+                            android:contentDescription="Нравится"
+                            app:icon="@drawable/ic_like" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <TextView
+                    style="@style/Sakura.Section"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Музыка" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/a_wave"
+                        style="@style/Widget.Sakura.Button.Tonal"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Моя волна" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/a_vol_down"
+                        style="@style/Widget.Sakura.Button.Tonal"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="@dimen/gap_small"
+                        android:layout_weight="1"
+                        android:text="Громкость −" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/a_vol_up"
+                        style="@style/Widget.Sakura.Button.Tonal"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="@dimen/gap_small"
+                        android:layout_weight="1"
+                        android:text="Громкость +" />
+                </LinearLayout>
+
+                <TextView
+                    style="@style/Sakura.Section"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Компьютер" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/a_open_app"
+                        style="@style/Widget.Sakura.Button.Tonal"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Открыть…" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/a_screenshot"
+                        style="@style/Widget.Sakura.Button.Tonal"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="@dimen/gap_small"
+                        android:layout_weight="1"
+                        android:text="Скриншот" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/a_game"
+                        style="@style/Widget.Sakura.Button.Tonal"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="@dimen/gap_small"
+                        android:layout_weight="1"
+                        android:text="Игровой" />
+                </LinearLayout>
+
+                <TextView
+                    style="@style/Sakura.Section"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Чайник" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/a_kettle_boil"
+                        style="@style/Widget.Sakura.Button.Tonal"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Вскипятить" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/a_kettle_off"
+                        style="@style/Widget.Sakura.Button.Tonal"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="@dimen/gap_small"
+                        android:layout_weight="1"
+                        android:text="Выключить" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/a_kettle_status"
+                        style="@style/Widget.Sakura.Button.Tonal"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="@dimen/gap_small"
+                        android:layout_weight="1"
+                        android:text="Статус" />
+                </LinearLayout>
+
+                <TextView
+                    style="@style/Sakura.Section"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Питание" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/a_shutdown"
+                        style="@style/Widget.Sakura.Button.Tonal"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:contentDescription="Выключить компьютер"
+                        android:text="Выключить" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/a_restart"
+                        style="@style/Widget.Sakura.Button.Tonal"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="@dimen/gap_small"
+                        android:layout_weight="1"
+                        android:text="Перезагр." />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/a_sleep"
+                        style="@style/Widget.Sakura.Button.Tonal"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="@dimen/gap_small"
+                        android:layout_weight="1"
+                        android:text="Сон" />
+                </LinearLayout>
+            </LinearLayout>
+        </ScrollView>
+    </app.sakura.mobile.ui.common.StateView>
+</LinearLayout>

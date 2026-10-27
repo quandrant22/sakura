@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/sakuraBg"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/edge"
+        android:paddingEnd="@dimen/gap_small">
+
+        <app.sakura.mobile.core.SakuraCoreView
+            android:id="@+id/core"
+            android:layout_width="@dimen/core_small"
+            android:layout_height="@dimen/core_small"
+            android:transitionName="core" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/gap_small"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/core_status"
+                style="@style/Sakura.Title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Онлайн" />
+
+            <TextView
+                android:id="@+id/transcript"
+                style="@style/Sakura.Dim"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:maxLines="2" />
+        </LinearLayout>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_search"
+            style="@style/Widget.Sakura.IconButton.OnBg"
+            android:layout_width="@dimen/touch"
+            android:layout_height="@dimen/touch"
+            android:contentDescription="Поиск по переписке"
+            app:icon="@drawable/ic_search" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_export"
+            style="@style/Widget.Sakura.IconButton.OnBg"
+            android:layout_width="@dimen/touch"
+            android:layout_height="@dimen/touch"
+            android:contentDescription="Экспорт переписки"
+            app:icon="@drawable/ic_share" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/search_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/edge"
+        android:paddingEnd="@dimen/edge"
+        android:visibility="gone">
+
+        <EditText
+            android:id="@+id/search_query"
+            android:layout_width="0dp"
+            android:layout_height="@dimen/touch"
+            android:layout_weight="1"
+            android:background="@drawable/bg_panel2"
+            android:hint="Искать в переписке…"
+            android:imeOptions="actionSearch"
+            android:importantForAutofill="no"
+            android:inputType="text"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:textColor="?attr/sakuraInk"
+            android:textColorHint="?attr/sakuraInkDim" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/search_go"
+            style="@style/Widget.Sakura.Button.Outlined"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/gap_small"
+            android:text="Найти" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/note"
+        style="@style/Sakura.Dim"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="@dimen/edge"
+        android:paddingEnd="@dimen/edge"
+        android:visibility="gone" />
+
+    <app.sakura.mobile.ui.common.StateView
+        android:id="@+id/state"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/messages"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingStart="@dimen/edge"
+            android:paddingTop="@dimen/gap_small"
+            android:paddingEnd="@dimen/edge"
+            android:paddingBottom="@dimen/gap_small" />
+    </app.sakura.mobile.ui.common.StateView>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="@dimen/gap_small"
+        android:background="@drawable/bg_card"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:padding="4dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_mic"
+            style="@style/Widget.Sakura.IconButton"
+            android:layout_width="@dimen/touch"
+            android:layout_height="@dimen/touch"
+            android:contentDescription="Говорить"
+            app:icon="@drawable/ic_mic" />
+
+        <EditText
+            android:id="@+id/input"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="@null"
+            android:hint="Написать сообщение…"
+            android:importantForAutofill="no"
+            android:inputType="textMultiLine|textCapSentences"
+            android:maxLines="4"
+            android:minHeight="@dimen/touch"
+            android:textColor="?attr/sakuraInk"
+            android:textColorHint="?attr/sakuraInkDim" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_send"
+            style="@style/Widget.Sakura.IconButton"
+            android:layout_width="@dimen/touch"
+            android:layout_height="@dimen/touch"
+            android:contentDescription="Отправить"
+            app:icon="@drawable/ic_send"
+            app:iconTint="?attr/sakuraAccent" />
+    </LinearLayout>
+</LinearLayout>

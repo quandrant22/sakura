@@ -1,0 +1,864 @@
+{
+ "generator": "mobile/android/tools/gen_phone_triggers.py",
+ "phone_source": "mobile/android/tools/phone_triggers.seed.yaml (сервер ещё без phone.*)",
+ "triggers": [
+  {
+   "trigger": "пришли на телефон уведомление",
+   "action": "phone.notify"
+  },
+  {
+   "trigger": "предыдущий трек на телефоне",
+   "action": "phone.media_prev"
+  },
+  {
+   "trigger": "следующий трек на телефоне",
+   "action": "phone.media_next"
+  },
+  {
+   "trigger": "открой ссылку на телефоне",
+   "action": "phone.open_url"
+  },
+  {
+   "trigger": "отправь в буфер телефона",
+   "action": "phone.clipboard"
+  },
+  {
+   "trigger": "открой на телефоне сайт",
+   "action": "phone.open_url"
+  },
+  {
+   "trigger": "позвони мне на телефон",
+   "action": "phone.find"
+  },
+  {
+   "trigger": "выключи звук телефона",
+   "action": "phone.dnd_on"
+  },
+  {
+   "trigger": "выключи не беспокоить",
+   "action": "phone.dnd_off"
+  },
+  {
+   "trigger": "отключи не беспокоить",
+   "action": "phone.dnd_off"
+  },
+  {
+   "trigger": "сделай телефон громче",
+   "action": "phone.volume"
+  },
+  {
+   "trigger": "включи не беспокоить",
+   "action": "phone.dnd_on"
+  },
+  {
+   "trigger": "продолжи на телефоне",
+   "action": "phone.media_play_pause"
+  },
+  {
+   "trigger": "верни звук телефона",
+   "action": "phone.dnd_off"
+  },
+  {
+   "trigger": "запусти на телефоне",
+   "action": "phone.open_app"
+  },
+  {
+   "trigger": "режим не беспокоить",
+   "action": "phone.dnd_on"
+  },
+  {
+   "trigger": "сделай телефон тише",
+   "action": "phone.volume"
+  },
+  {
+   "trigger": "скопируй на телефон",
+   "action": "phone.clipboard"
+  },
+  {
+   "trigger": "громкость телефона",
+   "action": "phone.volume"
+  },
+  {
+   "trigger": "дальше на телефоне",
+   "action": "phone.media_next"
+  },
+  {
+   "trigger": "открой на телефоне",
+   "action": "phone.open_app"
+  },
+  {
+   "trigger": "тишина на телефоне",
+   "action": "phone.dnd_on"
+  },
+  {
+   "trigger": "назад на телефоне",
+   "action": "phone.media_prev"
+  },
+  {
+   "trigger": "напиши на телефон",
+   "action": "phone.notify"
+  },
+  {
+   "trigger": "пауза на телефоне",
+   "action": "phone.media_play_pause"
+  },
+  {
+   "trigger": "поставь будильник",
+   "action": "phone.alarm"
+  },
+  {
+   "trigger": "плей на телефоне",
+   "action": "phone.media_play_pause"
+  },
+  {
+   "trigger": "выключи фонарик",
+   "action": "phone.flashlight"
+  },
+  {
+   "trigger": "где мой телефон",
+   "action": "phone.find"
+  },
+  {
+   "trigger": "потерял телефон",
+   "action": "phone.find"
+  },
+  {
+   "trigger": "включи фонарик",
+   "action": "phone.flashlight"
+  },
+  {
+   "trigger": "поставь таймер",
+   "action": "phone.timer"
+  },
+  {
+   "trigger": "найди телефон",
+   "action": "phone.find"
+  },
+  {
+   "trigger": "не беспокоить",
+   "action": "phone.dnd_on"
+  },
+  {
+   "trigger": "будильник на",
+   "action": "phone.alarm"
+  },
+  {
+   "trigger": "разбуди меня",
+   "action": "phone.alarm"
+  },
+  {
+   "trigger": "где телефон",
+   "action": "phone.find"
+  },
+  {
+   "trigger": "таймер на",
+   "action": "phone.timer"
+  },
+  {
+   "trigger": "фонарик",
+   "action": "phone.flashlight"
+  },
+  {
+   "trigger": "засеки",
+   "action": "phone.timer"
+  }
+ ],
+ "actions": [
+  {
+   "id": "app.switch",
+   "desc": "Переключиться на приложение — переключись на дискорд, перейди в telegram",
+   "params": []
+  },
+  {
+   "id": "app.switch_open",
+   "desc": "Открыть установленное приложение — открой дискорд, покажи стим (не: погода, сайты, задачи)",
+   "params": []
+  },
+  {
+   "id": "audio.mic_mute",
+   "desc": "Выключить или включить микрофон",
+   "params": []
+  },
+  {
+   "id": "briefing.now",
+   "desc": "Что нового, сделай брифинг",
+   "params": []
+  },
+  {
+   "id": "browser.back",
+   "desc": "Назад",
+   "params": []
+  },
+  {
+   "id": "browser.forward",
+   "desc": "Вперёд",
+   "params": []
+  },
+  {
+   "id": "browser.scroll_down",
+   "desc": "Прокрутить вниз",
+   "params": []
+  },
+  {
+   "id": "browser.scroll_up",
+   "desc": "Прокрутить вверх",
+   "params": []
+  },
+  {
+   "id": "browser.tab_close",
+   "desc": "Закрыть вкладку, закрой это",
+   "params": []
+  },
+  {
+   "id": "browser.tab_dup",
+   "desc": "Дублировать/скопировать вкладку",
+   "params": []
+  },
+  {
+   "id": "browser.tab_new",
+   "desc": "Новая вкладка, открыть новую",
+   "params": []
+  },
+  {
+   "id": "browser.tab_next",
+   "desc": "Следующая вкладка",
+   "params": []
+  },
+  {
+   "id": "browser.tab_prev",
+   "desc": "Предыдущая вкладка",
+   "params": []
+  },
+  {
+   "id": "browser.tab_reload",
+   "desc": "Обновить страницу, перезагрузи",
+   "params": []
+  },
+  {
+   "id": "calendar.list",
+   "desc": "Показать ближайшие события из Google Calendar",
+   "params": []
+  },
+  {
+   "id": "capsule.list",
+   "desc": "Какие капсулы ждут вскрытия",
+   "params": []
+  },
+  {
+   "id": "clipboard.clear",
+   "desc": "Очистить буфер обмена",
+   "params": []
+  },
+  {
+   "id": "clipboard.read",
+   "desc": "Прочитать буфер обмена",
+   "params": []
+  },
+  {
+   "id": "clipboard.write",
+   "desc": "Положить текст в буфер обмена",
+   "params": []
+  },
+  {
+   "id": "close_window.браузер",
+   "desc": "Закрыть окно браузера",
+   "params": []
+  },
+  {
+   "id": "coding.build",
+   "desc": "Собрать проект/APK",
+   "params": []
+  },
+  {
+   "id": "coding.commit",
+   "desc": "Сделать git коммит",
+   "params": []
+  },
+  {
+   "id": "coding.create_module",
+   "desc": "Создать новый модуль",
+   "params": []
+  },
+  {
+   "id": "coding.fix",
+   "desc": "Найти и исправить баг",
+   "params": []
+  },
+  {
+   "id": "coding.git_status",
+   "desc": "Показать git статус",
+   "params": []
+  },
+  {
+   "id": "coding.read_file",
+   "desc": "Показать код файла",
+   "params": []
+  },
+  {
+   "id": "computer.do",
+   "desc": "Выполнить задачу на компьютере по шагам (сама кликает и печатает)",
+   "params": []
+  },
+  {
+   "id": "display.brightness",
+   "desc": "Яркость экрана, 0–100",
+   "params": []
+  },
+  {
+   "id": "display.night_light",
+   "desc": "Ночной свет (открывает настройки Windows)",
+   "params": []
+  },
+  {
+   "id": "ext.page_content",
+   "desc": "Что на странице, прочитай страницу",
+   "params": []
+  },
+  {
+   "id": "ext.page_content_youtube",
+   "desc": "Что на ютубе, что за видео",
+   "params": []
+  },
+  {
+   "id": "files.copy",
+   "desc": "Скопировать файл: что и куда",
+   "params": []
+  },
+  {
+   "id": "files.delete",
+   "desc": "Удалить файл в корзину",
+   "params": []
+  },
+  {
+   "id": "files.move",
+   "desc": "Переместить файл: что и куда",
+   "params": []
+  },
+  {
+   "id": "files.open",
+   "desc": "Найти и открыть файл",
+   "params": []
+  },
+  {
+   "id": "files.recent",
+   "desc": "Недавние файлы",
+   "params": []
+  },
+  {
+   "id": "files.reveal",
+   "desc": "Показать файл в проводнике",
+   "params": []
+  },
+  {
+   "id": "game_mode.off",
+   "desc": "Игровой режим выключить",
+   "params": []
+  },
+  {
+   "id": "game_mode.on",
+   "desc": "Игровой режим включить",
+   "params": []
+  },
+  {
+   "id": "kettle.boil",
+   "desc": "Вскипятить чайник",
+   "params": []
+  },
+  {
+   "id": "kettle.boil_heat",
+   "desc": "Вскипятить и держать температуру",
+   "params": []
+  },
+  {
+   "id": "kettle.heat",
+   "desc": "Нагреть воду до заданной температуры",
+   "params": []
+  },
+  {
+   "id": "kettle.off",
+   "desc": "Выключить чайник",
+   "params": []
+  },
+  {
+   "id": "kettle.status",
+   "desc": "Статус чайника",
+   "params": []
+  },
+  {
+   "id": "keys.hotkey",
+   "desc": "Нажать сочетание клавиш (из разрешённых)",
+   "params": []
+  },
+  {
+   "id": "keys.media",
+   "desc": "Медиаклавиша: пауза, следующий, предыдущий, громче, тише, без звука",
+   "params": []
+  },
+  {
+   "id": "keys.type",
+   "desc": "Напечатать текст в активное окно",
+   "params": []
+  },
+  {
+   "id": "memory.forget",
+   "desc": "«Забудь про Х», «удали из памяти Х»",
+   "params": []
+  },
+  {
+   "id": "music.dislike",
+   "desc": "Дизлайкнуть трек",
+   "params": []
+  },
+  {
+   "id": "music.history",
+   "desc": "История, плейлисты, любимые",
+   "params": []
+  },
+  {
+   "id": "music.like",
+   "desc": "Лайкнуть трек (не видео)",
+   "params": []
+  },
+  {
+   "id": "music.liked_tracks",
+   "desc": "История, плейлисты, любимые",
+   "params": []
+  },
+  {
+   "id": "music.mute",
+   "desc": "Список/пауза звука",
+   "params": []
+  },
+  {
+   "id": "music.next",
+   "desc": "Следующий трек/песня",
+   "params": []
+  },
+  {
+   "id": "music.now_playing",
+   "desc": "Что играет, текущий трек",
+   "params": []
+  },
+  {
+   "id": "music.play_pause",
+   "desc": "Пауза, стоп, продолжить воспроизведение",
+   "params": []
+  },
+  {
+   "id": "music.playlists",
+   "desc": "История, плейлисты, любимые",
+   "params": []
+  },
+  {
+   "id": "music.podcasts",
+   "desc": "Подкасты",
+   "params": []
+  },
+  {
+   "id": "music.prev",
+   "desc": "Предыдущий трек/песня (двойной шаг назад: одиночный «назад» в плеере лишь начинает текущий трек сначала)",
+   "params": []
+  },
+  {
+   "id": "music.repeat",
+   "desc": "Повтор трека/повторить плейлист",
+   "params": []
+  },
+  {
+   "id": "music.restart",
+   "desc": "Текущий трек сначала, перезапустить трек (не предыдущий трек)",
+   "params": []
+  },
+  {
+   "id": "music.restart_playing",
+   "desc": "Трек сначала (короткие «заново», «с начала» — только когда играет музыка)",
+   "params": []
+  },
+  {
+   "id": "music.seek_back",
+   "desc": "Перемотать вперёд/назад (10с)",
+   "params": []
+  },
+  {
+   "id": "music.seek_forward",
+   "desc": "Перемотать вперёд/назад (10с)",
+   "params": []
+  },
+  {
+   "id": "music.shuffle",
+   "desc": "Перемешать, случайный порядок",
+   "params": []
+  },
+  {
+   "id": "music.volume_down",
+   "desc": "Громче/тише (без числа)",
+   "params": []
+  },
+  {
+   "id": "music.volume_up",
+   "desc": "Громче/тише (без числа)",
+   "params": []
+  },
+  {
+   "id": "music.wave",
+   "desc": "Моя волна",
+   "params": []
+  },
+  {
+   "id": "music_stats.recent",
+   "desc": "Что я слушал сегодня/вчера/за неделю",
+   "params": []
+  },
+  {
+   "id": "music_stats.top",
+   "desc": "Кого слушаю чаще всего, топ исполнителей",
+   "params": []
+  },
+  {
+   "id": "net.bluetooth",
+   "desc": "Включить или выключить Bluetooth",
+   "params": []
+  },
+  {
+   "id": "net.wifi",
+   "desc": "Включить или выключить Wi-Fi",
+   "params": []
+  },
+  {
+   "id": "open.app",
+   "desc": "Запустить/включить/поставить/врубить музыку — любая просьба начать воспроизведение музыки",
+   "params": []
+  },
+  {
+   "id": "phone.alarm",
+   "desc": "Будильник на телефоне",
+   "params": [
+    "time"
+   ]
+  },
+  {
+   "id": "phone.clipboard",
+   "desc": "Скопировать текст в буфер телефона",
+   "params": [
+    "text"
+   ]
+  },
+  {
+   "id": "phone.dnd_off",
+   "desc": "Выключить «Не беспокоить»",
+   "params": []
+  },
+  {
+   "id": "phone.dnd_on",
+   "desc": "Не беспокоить на телефоне",
+   "params": []
+  },
+  {
+   "id": "phone.find",
+   "desc": "Найти телефон: громкий сигнал 30 с",
+   "params": []
+  },
+  {
+   "id": "phone.flashlight",
+   "desc": "Фонарик",
+   "params": [
+    "state"
+   ]
+  },
+  {
+   "id": "phone.media_next",
+   "desc": "Следующий трек на телефоне",
+   "params": []
+  },
+  {
+   "id": "phone.media_play_pause",
+   "desc": "Пауза / продолжить на телефоне",
+   "params": []
+  },
+  {
+   "id": "phone.media_prev",
+   "desc": "Предыдущий трек на телефоне",
+   "params": []
+  },
+  {
+   "id": "phone.notify",
+   "desc": "Уведомление на телефоне",
+   "params": [
+    "text"
+   ]
+  },
+  {
+   "id": "phone.open_app",
+   "desc": "Открыть приложение на телефоне",
+   "params": [
+    "app"
+   ]
+  },
+  {
+   "id": "phone.open_url",
+   "desc": "Открыть ссылку на телефоне",
+   "params": [
+    "url"
+   ]
+  },
+  {
+   "id": "phone.timer",
+   "desc": "Таймер на телефоне",
+   "params": [
+    "seconds"
+   ]
+  },
+  {
+   "id": "phone.volume",
+   "desc": "Громкость телефона",
+   "params": [
+    "level"
+   ]
+  },
+  {
+   "id": "power.display_off",
+   "desc": "Погасить экран (компьютер не спит)",
+   "params": []
+  },
+  {
+   "id": "power.lock",
+   "desc": "Заблокировать сеанс Windows",
+   "params": []
+  },
+  {
+   "id": "power.sleep",
+   "desc": "Усыпить компьютер (сон)",
+   "params": []
+  },
+  {
+   "id": "process.kill",
+   "desc": "Завершить процесс по имени или pid",
+   "params": []
+  },
+  {
+   "id": "process.list",
+   "desc": "Какие процессы больше всего едят память",
+   "params": []
+  },
+  {
+   "id": "reminder.add",
+   "desc": "Напомни через N минут/часов ЧТО, таймер на N минут",
+   "params": []
+  },
+  {
+   "id": "reminder.list",
+   "desc": "Какие у меня напоминания",
+   "params": []
+  },
+  {
+   "id": "screenshot.describe",
+   "desc": "CHECK",
+   "params": []
+  },
+  {
+   "id": "screenshot.run",
+   "desc": "Скриншот",
+   "params": []
+  },
+  {
+   "id": "steam.achievements",
+   "desc": "Ачивки/достижения за период (сегодня/вчера/неделя/месяц/всё время)",
+   "params": []
+  },
+  {
+   "id": "steam.current",
+   "desc": "Во что играет сейчас",
+   "params": []
+  },
+  {
+   "id": "steam.last",
+   "desc": "Какая последняя/крайняя ачивка или достижение, что выбил последнее, какую получил недавно",
+   "params": []
+  },
+  {
+   "id": "steam.playtime",
+   "desc": "Сколько наиграно в игру X (часы всего или за 2 недели)",
+   "params": []
+  },
+  {
+   "id": "steam.progress",
+   "desc": "Прогресс ачивок в игре X (сколько из скольких)",
+   "params": []
+  },
+  {
+   "id": "steam.recent",
+   "desc": "Во что играл недавно, последние игры",
+   "params": []
+  },
+  {
+   "id": "system.lock",
+   "desc": "Заблокировать компьютер",
+   "params": []
+  },
+  {
+   "id": "system.restart",
+   "desc": "Перезагрузить компьютер",
+   "params": []
+  },
+  {
+   "id": "system.shutdown",
+   "desc": "Выключить компьютер",
+   "params": []
+  },
+  {
+   "id": "system.shutdown_cancel",
+   "desc": "Отмена выключения компьютера",
+   "params": []
+  },
+  {
+   "id": "system.volume",
+   "desc": "Установить громкость",
+   "params": []
+  },
+  {
+   "id": "task.add",
+   "desc": "Добавить/создать задачу ТЕКСТ",
+   "params": []
+  },
+  {
+   "id": "task.done",
+   "desc": "Выполнил/сделал задачу N",
+   "params": []
+  },
+  {
+   "id": "task.list",
+   "desc": "Какие задачи, что по задачам",
+   "params": []
+  },
+  {
+   "id": "ui.click",
+   "desc": "Нажать кнопку или элемент в активном окне",
+   "params": []
+  },
+  {
+   "id": "ui.read",
+   "desc": "Прочитать текст активного окна",
+   "params": []
+  },
+  {
+   "id": "ui.scroll",
+   "desc": "Прокрутить активное окно",
+   "params": []
+  },
+  {
+   "id": "ui.type",
+   "desc": "Вписать текст в поле активного окна",
+   "params": []
+  },
+  {
+   "id": "vps.feeling",
+   "desc": "Как твоё самочувствие (сервер — твоё тело)",
+   "params": []
+  },
+  {
+   "id": "vps.status",
+   "desc": "Как сервер, нагрузка CPU/RAM",
+   "params": []
+  },
+  {
+   "id": "weather.now",
+   "desc": "Какая погода сейчас",
+   "params": []
+  },
+  {
+   "id": "window.focus",
+   "desc": "Вывести окно вперёд по названию",
+   "params": []
+  },
+  {
+   "id": "window.list",
+   "desc": "Какие окна открыты",
+   "params": []
+  },
+  {
+   "id": "window.maximize",
+   "desc": "Развернуть окно на весь экран",
+   "params": []
+  },
+  {
+   "id": "window.minimize",
+   "desc": "Свернуть окно (активное или по названию)",
+   "params": []
+  },
+  {
+   "id": "window.move_monitor",
+   "desc": "Перенести окно на другой монитор",
+   "params": []
+  },
+  {
+   "id": "window.restore",
+   "desc": "Вернуть окну прежний размер",
+   "params": []
+  },
+  {
+   "id": "window.snap",
+   "desc": "Прижать окно к краю экрана: влево, вправо, вверх",
+   "params": []
+  },
+  {
+   "id": "youtube.forward",
+   "desc": "Перемотать вперёд",
+   "params": []
+  },
+  {
+   "id": "youtube.fullscreen",
+   "desc": "Полный экран",
+   "params": []
+  },
+  {
+   "id": "youtube.like",
+   "desc": "Лайк видео на YouTube",
+   "params": []
+  },
+  {
+   "id": "youtube.mini",
+   "desc": "Мини-плеер",
+   "params": []
+  },
+  {
+   "id": "youtube.next",
+   "desc": "Следующее видео на YouTube",
+   "params": []
+  },
+  {
+   "id": "youtube.pause",
+   "desc": "Пауза/стоп/воспроизведение на YouTube",
+   "params": []
+  },
+  {
+   "id": "youtube.rewind",
+   "desc": "Перемотать назад",
+   "params": []
+  },
+  {
+   "id": "youtube.speed_down",
+   "desc": "Скорость воспроизведения медленнее",
+   "params": []
+  },
+  {
+   "id": "youtube.speed_up",
+   "desc": "Скорость воспроизведения быстрее",
+   "params": []
+  },
+  {
+   "id": "youtube.sub_toggle",
+   "desc": "Субтитры",
+   "params": []
+  },
+  {
+   "id": "youtube.theater",
+   "desc": "Театральный режим",
+   "params": []
+  },
+  {
+   "id": "youtube.trending",
+   "desc": "Популярное на YouTube",
+   "params": []
+  }
+ ]
+}

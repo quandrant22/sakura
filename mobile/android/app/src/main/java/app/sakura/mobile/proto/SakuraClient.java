@@ -35,7 +35,7 @@ public final class SakuraClient implements SecureLink.Listener, RequestClient.Tr
         public final boolean master;
         public final int closeCode;
 
-        Status(Conn conn, int proto, boolean master, int closeCode) {
+        public Status(Conn conn, int proto, boolean master, int closeCode) {
             this.conn = conn;
             this.proto = proto;
             this.master = master;

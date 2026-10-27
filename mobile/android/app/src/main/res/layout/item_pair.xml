@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="@dimen/gap_small"
+    android:background="@drawable/bg_panel2"
+    android:orientation="vertical"
+    android:padding="10dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            style="@style/Sakura.Dim"
+            android:layout_width="40dp"
+            android:layout_height="wrap_content"
+            android:text="Если" />
+
+        <Spinner
+            android:id="@+id/cond_type"
+            android:layout_width="0dp"
+            android:layout_height="@dimen/touch"
+            android:layout_weight="1"
+            android:contentDescription="Тип условия" />
+    </LinearLayout>
+
+    <EditText
+        android:id="@+id/cond_value"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="40dp"
+        android:hint="значение"
+        android:importantForAutofill="no"
+        android:inputType="text"
+        android:textColor="?attr/sakuraInk"
+        android:textColorHint="?attr/sakuraInkDim" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            style="@style/Sakura.Dim"
+            android:layout_width="40dp"
+            android:layout_height="wrap_content"
+            android:text="То" />
+
+        <Spinner
+            android:id="@+id/act_type"
+            android:layout_width="0dp"
+            android:layout_height="@dimen/touch"
+            android:layout_weight="1"
+            android:contentDescription="Тип действия" />
+    </LinearLayout>
+
+    <AutoCompleteTextView
+        android:id="@+id/act_value"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="40dp"
+        android:completionThreshold="1"
+        android:hint="значение"
+        android:importantForAutofill="no"
+        android:inputType="text"
+        android:textColor="?attr/sakuraInk"
+        android:textColorHint="?attr/sakuraInkDim" />
+</LinearLayout>

@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/sakuraBg">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="@dimen/edge">
+
+        <TextView
+            style="@style/Sakura.Title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Безопасность" />
+
+        <LinearLayout
+            style="@style/Sakura.Card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/gap"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/server_state"
+                style="@style/Sakura.Body"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/server_url"
+                style="@style/Sakura.Dim"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp" />
+
+            <TextView
+                android:id="@+id/server_fp"
+                style="@style/Sakura.Body"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:fontFamily="monospace" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/gap_small"
+                android:orientation="horizontal">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/pair_qr"
+                    style="@style/Widget.Sakura.Button"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Спарить по QR"
+                    app:icon="@drawable/ic_camera" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/pair_manual"
+                    style="@style/Widget.Sakura.Button.Outlined"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/gap_small"
+                    android:layout_weight="1"
+                    android:text="Ввести 8 слов" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            style="@style/Sakura.Card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/gap"
+            android:orientation="vertical">
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/always_on"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Всегда на связи (в фоне)"
+                android:textColor="?attr/sakuraInk" />
+        </LinearLayout>
+
+        <TextView
+            style="@style/Sakura.Section"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Устройства защищённого канала" />
+
+        <app.sakura.mobile.ui.common.StateView
+            android:id="@+id/devices_state"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <LinearLayout
+                android:id="@+id/devices"
+                style="@style/Sakura.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+        </app.sakura.mobile.ui.common.StateView>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/forget"
+            style="@style/Widget.Sakura.Button.Outlined"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/gap"
+            android:text="Забыть сервер"
+            android:textColor="?attr/sakuraWarn" />
+    </LinearLayout>
+</ScrollView>

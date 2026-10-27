@@ -208,6 +208,16 @@ public final class VoiceController implements SpeechInput.Listener, PlaybackCont
         client.voice(FollowUp.confirmWord(yes), "text", speakReplies(), true, null);
     }
 
+    /** Реплика ушла из чата (chat_send) — ядро «думает» до ответа. */
+    public void markThinking() {
+        startThinking();
+    }
+
+    /** Ответ на вопрос confirm ещё ждёт — следующая реплика считается ответом на него. */
+    public boolean confirmPending() {
+        return confirmPending;
+    }
+
     private void startThinking() {
         thinking = true;
         main.removeCallbacks(thinkingTimeout);

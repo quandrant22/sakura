@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/sakuraBg">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="@dimen/edge">
+
+        <TextView
+            style="@style/Sakura.Title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Голос" />
+
+        <LinearLayout
+            style="@style/Sakura.Card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/gap"
+            android:orientation="vertical">
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/text_replies"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/gap"
+            android:text="Ответы текстом (без озвучки)"
+            android:textColor="?attr/sakuraInk" />
+
+        <TextView
+            style="@style/Sakura.Dim"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="В беззвучном режиме телефона включается само" />
+
+        <TextView
+            style="@style/Sakura.Section"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Слово «Сакура»" />
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/wake_word"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Слушать «Сакура», пока приложение открыто"
+            android:textColor="?attr/sakuraInk" />
+
+        <TextView
+            android:id="@+id/model_status"
+            style="@style/Sakura.Dim"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+        <com.google.android.material.progressindicator.LinearProgressIndicator
+            android:id="@+id/model_progress"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:visibility="gone" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/model_download"
+            style="@style/Widget.Sakura.Button.Outlined"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Скачать модель (46 МБ)" />
+
+        <TextView
+            style="@style/Sakura.Section"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Дослушивание" />
+
+        <TextView
+            android:id="@+id/followup_label"
+            style="@style/Sakura.Body"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+        <com.google.android.material.slider.Slider
+            android:id="@+id/followup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:contentDescription="Окно дослушивания, секунды"
+            android:stepSize="1"
+            android:valueFrom="0"
+            android:valueTo="15" />
+
+        <TextView
+            android:id="@+id/recognizer"
+            style="@style/Sakura.Dim"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/gap" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

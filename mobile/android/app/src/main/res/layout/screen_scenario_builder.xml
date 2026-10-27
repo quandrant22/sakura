@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/sakuraBg">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="@dimen/edge">
+
+        <TextView
+            style="@style/Sakura.Title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Создание сценария" />
+
+        <LinearLayout
+            style="@style/Sakura.Card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/gap_small"
+            android:orientation="vertical">
+
+        <EditText
+            android:id="@+id/name"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/gap_small"
+            android:hint="Например: Режим сна"
+            android:importantForAutofill="no"
+            android:inputType="textCapSentences"
+            android:textColor="?attr/sakuraInk"
+            android:textColorHint="?attr/sakuraInkDim" />
+
+        <LinearLayout
+            android:id="@+id/pairs"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/gap_small"
+            android:orientation="vertical" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/add_pair"
+            style="@style/Widget.Sakura.Button.Outlined"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Добавить условие"
+            app:icon="@drawable/ic_add" />
+
+        <TextView
+            style="@style/Sakura.Section"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Или опишите словами" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/phrase"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="Создай сценарий: вечером включай тишину"
+                android:importantForAutofill="no"
+                android:inputType="textCapSentences"
+                android:textColor="?attr/sakuraInk"
+                android:textColorHint="?attr/sakuraInkDim" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/preview_btn"
+                style="@style/Widget.Sakura.Button.Tonal"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/gap_small"
+                android:text="Предпросмотр" />
+        </LinearLayout>
+
+        <app.sakura.mobile.ui.common.StateView
+            android:id="@+id/preview_state"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:id="@+id/preview"
+                style="@style/Sakura.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/gap_small"
+                android:orientation="vertical" />
+        </app.sakura.mobile.ui.common.StateView>
+
+        <TextView
+            android:id="@+id/note"
+            style="@style/Sakura.Dim"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/gap_small"
+            android:textColor="?attr/sakuraWarn"
+            android:visibility="gone" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/save"
+            style="@style/Widget.Sakura.Button"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/gap"
+            android:text="Сохранить" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>
