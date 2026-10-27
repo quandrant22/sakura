@@ -12,3 +12,7 @@ captures/
 *.jks
 memory/
 tools/.venv/
+# эталонные снимки Paparazzi (корневой .gitignore игнорирует *.png)
+!app/src/test/snapshots/images/*.png
+hs_err_pid*.log
+replay_pid*.log
