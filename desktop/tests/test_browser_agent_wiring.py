@@ -297,3 +297,47 @@ def test_extension_keys_validation(tmp_path):
             E.set_secret(str(env), key, bad)
     with pytest.raises(E.SecretError):
         E.set_secret(str(env), "DEVICE_ID", "")   # пустое — только для ключей расширения
+
+
+class ResumeBA(FakeBA):
+    def __init__(self, paused=()):
+        super().__init__()
+        self.tasks = {t: object() for t in paused}
+
+    def start(self, task_id, goal, start_url=None, step=1):
+        self.calls.append(("start", task_id, goal, start_url, step))
+        return True
+
+
+def test_browser_do_resume_paused_task_resumes_without_echo():
+    a = _agent([{"type": "browser.do", "task_id": "t1", "goal": "g", "resume": True}])
+    a.browser_agent = ResumeBA(paused=["t1"])
+    asyncio.run(a._recv_loop())
+    assert a.browser_agent.calls == [("resume", "t1", False)]
+
+
+def test_browser_do_resume_unknown_task_restarts_at_step_zero():
+    a = _agent([{"type": "browser.do", "task_id": "t9", "goal": "пройди тест", "resume": True}])
+    a.browser_agent = ResumeBA()
+    asyncio.run(a._recv_loop())
+    assert a.browser_agent.calls == [("start", "t9", "пройди тест", None, 0)]
+    assert a._browser_message("browser.do", {"task_id": "t9", "goal": "g"})["status"] == "done"
+    assert a.browser_agent.calls[-1] == ("start", "t9", "g", None, 1)
+
+
+def test_step_timeout_passed_to_server_request(monkeypatch):
+    from desktop.core import config
+    seen = {}
+
+    async def request(msg, timeout=None):
+        seen["timeout"] = timeout
+        return {}
+
+    monkeypatch.setattr(config, "BROWSER_STEP_TIMEOUT", 360.0)
+    a = _agent()
+    a.browser_agent = None
+    a.uploads = None
+    a.server_link = SimpleNamespace(handle=lambda d: False, master=True, online=True, request=request)
+    ba = a._browser()
+    asyncio.run(ba._request({"type": "browser_step"}))
+    assert seen["timeout"] == 360.0

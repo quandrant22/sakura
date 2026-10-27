@@ -513,6 +513,16 @@
 
   function describe(el) {
     const d = { role: roleOf(el), name: nameOf(el) };
+    const tag = tagOf(el);
+    // Поля ввода: тип (сервер отличает пароль и submit) и ошибка валидации тем же поиском, что в page.forms.
+    if (tag === "input" || tag === "textarea" || tag === "select") {
+      d.type = tag === "input" ? typeOf(el) : tag === "select" ? (el.multiple ? "select-multiple" : "select") : "textarea";
+      const err = fieldError(el);
+      if (err || el.getAttribute("aria-invalid") === "true" || userInvalid(el)) {
+        d.invalid = true;
+        if (err) d.error = cut(err, 200);
+      }
+    }
     const v = valueOf(el);
     if (v !== undefined) d.value = v;
     d.enabled = enabledOf(el);
@@ -536,7 +546,7 @@
     return el && el.isConnected ? el : null;
   }
 
-  const sig = (e) => JSON.stringify([e.role, e.name, e.value, e.enabled, e.checked]);
+  const sig = (e) => JSON.stringify([e.role, e.name, e.value, e.enabled, e.checked, e.invalid, e.error]);
 
   function pageText(limit) {
     if (!document.body) return "";
@@ -619,8 +629,12 @@
       items = items.filter((i) => keep.has(i));
     }
     S.snap = a.snapshot_id;
+    const prevRefs = S.byRef;
     S.byRef = new Map();
     const elements = items.map(({ el, d }) => Object.assign({ ref: refFor(el) }, d));
+    // Ссылки из page.forms / page.questions (блок вопроса, варианты) действуют и в следующих снимках,
+    // пока элемент на странице: сервер просит кадр вопроса по его ref уже после нового page_observe.
+    for (const [ref, el] of prevRefs) if (!S.byRef.has(ref) && el.isConnected) S.byRef.set(ref, el);
 
     const now = new Map(elements.map((e) => [e.ref, { sig: sig(e), role: e.role, name: e.name }]));
     let changed;
@@ -1332,7 +1346,10 @@
     } else if (typeof a.to === "number") {
       window.scrollTo(0, document.documentElement.scrollHeight * Math.max(0, Math.min(100, a.to)) / 100);
     } else {
-      window.scrollBy(0, Number(a.dy) || Math.round(window.innerHeight * 0.8));
+      // dy ±1 — маркер «экран вверх/вниз» (0.8 высоты окна); иначе пиксели; нет dy — экран вниз.
+      const dy = Number(a.dy) || 0;
+      const screen = Math.round(window.innerHeight * 0.8);
+      window.scrollBy(0, dy === 0 ? screen : Math.abs(dy) === 1 ? Math.sign(dy) * screen : dy);
     }
     return { status: "done", detail: `прокрутка ${Math.round(window.scrollY)}` };
   }

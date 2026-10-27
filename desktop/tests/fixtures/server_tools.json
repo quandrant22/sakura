@@ -1,0 +1,37 @@
+{
+  "_source": "sakura_core/browser_step.py (_tools, spec), ветка server/browser-step 8fa145c. Аргумент note (обязательный у всех) не передаётся в action.",
+  "server_actions": "Кроме навигатора, сервер сам шлёт page_shot {crop_ref, q_index} и page_fill_form {fields: [{ref, checked} | {ref, value} | {ref, option_ref, value} | {ref, order}]} (quiz_solver.fill_fields).",
+  "tools": {
+    "tabs_list": {"args": {}, "required": []},
+    "tabs_activate": {"args": {"tab_id": {"type": "INTEGER"}}, "required": ["tab_id"]},
+    "tabs_new": {"args": {"url": {"type": "STRING"}}, "required": ["url"]},
+    "tabs_close": {"args": {"tab_id": {"type": "INTEGER"}}, "required": ["tab_id"]},
+    "page_observe": {"args": {}, "required": []},
+    "page_act": {
+      "args": {
+        "ref": {"type": "STRING"},
+        "action": {"type": "STRING", "enum": ["click", "type", "select", "check", "uncheck", "press", "focus", "hover", "clear", "submit"]},
+        "text": {"type": "STRING"},
+        "key": {"type": "STRING"}
+      },
+      "required": ["ref", "action"]
+    },
+    "page_shot": {"args": {"crop_ref": {"type": "STRING"}, "q_index": {"type": "INTEGER"}}, "required": []},
+    "page_forms": {"args": {}, "required": []},
+    "page_questions": {"args": {}, "required": []},
+    "page_fill_form": {
+      "args": {
+        "fields": {"type": "ARRAY", "items": {"ref": "STRING", "value": "STRING", "checked": "BOOLEAN", "option_ref": "STRING"}},
+        "submit_ref": {"type": "STRING"}
+      },
+      "required": ["fields"]
+    },
+    "page_upload": {"args": {"ref": {"type": "STRING"}, "file": {"type": "STRING"}}, "required": ["ref", "file"]},
+    "page_scroll": {
+      "args": {"direction": {"type": "STRING", "enum": ["up", "down", "top", "bottom"]}, "ref": {"type": "STRING"}},
+      "required": ["direction"]
+    },
+    "done": {"args": {"summary": {"type": "STRING"}}, "required": ["summary"]},
+    "fail": {"args": {"reason": {"type": "STRING"}}, "required": ["reason"]}
+  }
+}

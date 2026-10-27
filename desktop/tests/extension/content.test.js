@@ -419,3 +419,64 @@ describe("разметка кадра (annotated)", () => {
     expect(document.getElementById("__sakura_annot__")).toBeNull();
   });
 });
+
+describe("describe(): type, invalid, error (для решений сервера)", () => {
+  test("type у input/textarea/select; ошибка из aria-describedby и соседнего .error", () => {
+    fixture("forms.html");
+    const o = A.observe({ snapshot_id: "s1" });
+    const by = (n) => byName(o, n);
+    expect(by("Пароль").type).toBe("password");
+    expect(by("Имя и фамилия").type).toBe("text");
+    expect(by("О себе").type).toBe("textarea");
+    expect(by("Город").type).toBe("select");
+    expect(by("Зарегистрироваться").type).toBeUndefined();   // кнопка — не поле ввода
+    expect(by("Электронная почта")).toMatchObject({ type: "email", invalid: true, error: "Введите корректный адрес почты" });
+    expect(by("Телефон")).toMatchObject({ invalid: true, error: "Телефон обязателен" });
+    expect(by("Имя и фамилия").invalid).toBeUndefined();     // пустое обязательное, не тронуто
+  });
+
+  test("aria-invalid без текста — invalid с общим текстом; длинная ошибка ≤ 200", () => {
+    document.body.innerHTML = '<div><input aria-label="Код" aria-invalid="true"></div>' +
+      `<div><input aria-label="Логин"><span class="error">${"о".repeat(400)}</span></div>`;
+    const o = A.observe({ snapshot_id: "s1" });
+    expect(byName(o, "Код")).toMatchObject({ invalid: true, error: "поле помечено как неверное" });
+    expect(byName(o, "Логин").invalid).toBe(true);
+    expect(byName(o, "Логин").error.length).toBeLessThanOrEqual(200);
+  });
+
+  test("ошибка после заполнения агентом попадает в changed", async () => {
+    document.body.innerHTML = '<form><input name="age" type="number" min="18" aria-label="Возраст"></form>';
+    const o = A.observe({ snapshot_id: "s1" });
+    await A.fill({ snapshot_id: "s1", values: { [byName(o, "Возраст").ref]: "12" }, settle_ms: 0 });
+    const o2 = A.observe({ snapshot_id: "s2" });
+    expect(byName(o2, "Возраст").invalid).toBe(true);
+    expect(o2.changed[0]).toMatchObject({ ref: byName(o, "Возраст").ref, change: "changed" });
+  });
+});
+
+describe("page.scroll: знак dy", () => {
+  test("dy −1 — экран вверх, +1 и без dy — экран вниз, иначе пиксели", () => {
+    const calls = [];
+    window.scrollBy = (x, y) => calls.push(y);
+    A.scroll({ dy: -1 });
+    A.scroll({ dy: 1 });
+    A.scroll({});
+    A.scroll({ dy: -250 });
+    const screen = Math.round(window.innerHeight * 0.8);
+    expect(calls).toEqual([-screen, screen, screen, -250]);
+  });
+});
+
+describe("ref из page.questions действуют в следующем снимке", () => {
+  test("crop по q_ref после нового observe — не stale; удалённый блок — stale", () => {
+    fixture("moodle_quiz.html");
+    A.observe({ snapshot_id: "s1" });
+    const [q1, q2] = A.questions({ snapshot_id: "s1" }).questions;
+    A.observe({ snapshot_id: "s2" });
+    expect(A.rect({ snapshot_id: "s2", ref: q1.q_ref })).not.toBeNull();
+    document.getElementById("question-5-2").remove();
+    A.observe({ snapshot_id: "s3" });
+    expect(A.rect({ snapshot_id: "s3", ref: q2.q_ref })).toBeNull();
+    expect(A.rect({ snapshot_id: "s3", ref: q1.q_ref })).not.toBeNull();
+  });
+});

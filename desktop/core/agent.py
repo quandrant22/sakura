@@ -946,7 +946,7 @@ class Agent:
             self.bus.emit("browser_task", **{k: v for k, v in ev.items() if k != "type"})
 
         self.browser_agent = BA.BrowserAgent(
-            request=lambda msg: link.request(msg, timeout=BA.STEP_TIMEOUT), send=send, ext=ext,
+            request=lambda msg: link.request(msg, timeout=config.BROWSER_STEP_TIMEOUT), send=send, ext=ext,
             ext_connected=lambda: bool(_ext_mod() and _ext_mod().is_connected()),
             online=lambda: link.online, uploads=self.uploads, emit=emit)
         return self.browser_agent
@@ -962,7 +962,7 @@ class Agent:
                 fields = {}
         elif isinstance(arg, str) and arg.strip():
             fields = {"goal": arg.strip()}
-        fields.update({k: data[k] for k in ("task_id", "goal", "start_url") if data.get(k) is not None})
+        fields.update({k: data[k] for k in ("task_id", "goal", "start_url", "resume") if data.get(k) is not None})
         task_id = str(fields.get("task_id") or "")
         ba = self._browser()
         if ba is None:
@@ -975,6 +975,15 @@ class Agent:
             return R.done("задача продолжена") if ba.resume(task_id, local=False) else R.noop("задача не на паузе")
         if getattr(self.server_link, "master", None) is False:
             return R.unsupported("агент браузера — только для master-устройства")
+        if fields.get("resume") is True:
+            # Сервер продолжает задачу (квота восстановилась): на паузе — дальше; задачи нет
+            # (ядро перезапускалось) — новый цикл с тем же task_id, step 0, первым page.observe.
+            if task_id in getattr(ba, "tasks", {}):
+                return R.done("задача продолжена") if ba.resume(task_id, local=False) \
+                    else R.noop("задача уже выполняется")
+            if not ba.start(task_id, str(fields.get("goal") or ""), fields.get("start_url"), step=0):
+                return R.noop("задача уже выполняется")
+            return R.done("задача в браузере продолжена после перезапуска")
         if not ba.start(task_id, str(fields.get("goal") or ""), fields.get("start_url")):
             return R.noop("задача уже выполняется")
         return R.done("задача в браузере начата")

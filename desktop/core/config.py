@@ -85,6 +85,8 @@ EXTENSION_PORTS = tuple(
 # Папка, файлы из которой агент браузера может загружать на сайты (page.upload);
 # пусто — загрузка выключена. Файл вне папки — отказ (desktop/core/upload_store.py).
 BROWSER_UPLOAD_DIR = os.getenv("BROWSER_UPLOAD_DIR", "").strip()
+# Сколько ждать ответа сервера на шаг (модель, повторы при квоте), с.
+BROWSER_STEP_TIMEOUT = float(os.getenv("BROWSER_STEP_TIMEOUT", "360"))
 
 # ── Пути ────────────────────────────────────────────────────────────
 # BASE_DIR — ресурсы пакета (command_packs); DATA_DIR — изменяемые данные пользователя.

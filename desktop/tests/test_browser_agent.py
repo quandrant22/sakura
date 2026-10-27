@@ -102,8 +102,8 @@ def run(coro):
 def test_full_cycle_until_done():
     async def scenario():
         agent, server, ext, events, _ = make([
-            act("page_act", snapshot_id="s1", ref="f0:e3", op="click"),
-            act("page_fill_form", snapshot_id="s2", values={"f0:e5": "Анна"}),
+            act("page_act", ref="f0:e3", action="click"),
+            act("page_fill_form", fields=[{"ref": "f0:e5", "value": "Анна"}]),
             {"type": "browser_step", "status": "done", "summary": "форма отправлена"},
         ])
         assert agent.start("t1", "заполни анкету", "https://forms.example/")
@@ -121,8 +121,9 @@ def test_full_cycle_until_done():
     # Результат действия — без observe; observe уходит как observation следующего шага.
     assert s2["last_result"] == {"ok": True, "status": "done", "detail": "сделано"}
     assert s2["observation"]["snapshot_id"] == "s2"
-    assert ("page.act", {"snapshot_id": "s1", "ref": "f0:e3", "op": "click", "tab_id": 11}) in ext.calls
-    assert ("page.fill_form", {"snapshot_id": "s2", "values": {"f0:e5": "Анна"}, "tab_id": 11}) in ext.calls
+    # Аргументы — по схеме сервера; snapshot_id — из последнего observation (адаптер).
+    assert ("page.act", {"tab_id": 11, "snapshot_id": "s1", "ref": "f0:e3", "op": "click"}) in ext.calls
+    assert ("page.fill_form", {"tab_id": 11, "snapshot_id": "s2", "values": {"f0:e5": "Анна"}}) in ext.calls
     assert s3["observation"]["snapshot_id"] == "s3"
     # Шот — окна агента по window_id (без активации вкладки).
     assert ("page.shot", {"window_id": 7, "mode": "plain"}) in ext.calls
@@ -283,7 +284,7 @@ def test_service_worker_unload_waits_for_extension_and_retries():
             return {"ok": False, "error": "Расширение не подключено"}
 
         ext.script["page.act"] = [down_then_up]
-        agent, server, _, _, sleeps = make([act("page_act", snapshot_id="s1", ref="f0:e1", op="click"),
+        agent, server, _, _, sleeps = make([act("page_act", ref="f0:e1", action="click"),
                                             {"status": "done"}], ext=ext)
 
         def connected():
@@ -306,7 +307,7 @@ def test_extension_timeout_on_action_is_not_repeated():
     async def scenario():
         ext = FakeExt()
         ext.script["page.act"] = [{"ok": False, "error": "Тайм-аут расширения"}]
-        agent, server, _, _, _ = make([act("page_act", snapshot_id="s1", ref="f0:e1", op="click"),
+        agent, server, _, _, _ = make([act("page_act", ref="f0:e1", action="click"),
                                        {"status": "done"}], ext=ext)
         agent.start("t11", "цель")
         await agent.wait("t11")
@@ -343,8 +344,8 @@ def test_upload_token_only_inside_folder(tmp_path):
 
     async def scenario():
         agent, server, ext, _, _ = make([
-            act("page_upload", ref="f0:e4", file="cv.pdf", snapshot_id="s1"),
-            act("page_upload", ref="f0:e4", path=str(tmp_path / "secret.txt")),
+            act("page_upload", ref="f0:e4", file="cv.pdf"),
+            act("page_upload", ref="f0:e4", file=str(tmp_path / "secret.txt")),
             {"status": "done"},
         ], uploads=store)
         agent.start("t13", "цель")
@@ -434,3 +435,107 @@ def test_wait_bounds(retry_after, expected):
         return sleeps
 
     assert expected in run(scenario())
+
+
+def test_fill_form_with_submit_ref_is_one_step_result():
+    async def scenario():
+        ext = FakeExt()
+        agent, server, _, _, _ = make([
+            act("page_fill_form", fields=[{"ref": "f0:e5", "value": "Анна"}, {"ref": "f0:e6", "checked": True}],
+                submit_ref="f0:e9"),
+            {"status": "done"},
+        ], ext=ext)
+        agent.start("t20", "цель")
+        await agent.wait("t20")
+        return server, ext
+
+    server, ext = run(scenario())
+    acts = [c for c in ext.calls if c[0] in ("page.fill_form", "page.act")]
+    assert acts == [
+        ("page.fill_form", {"tab_id": 11, "snapshot_id": "s1", "values": {"f0:e5": "Анна", "f0:e6": True}}),
+        # клик по кнопке — в снимке после заполнения (s2)
+        ("page.act", {"tab_id": 11, "snapshot_id": "s2", "ref": "f0:e9", "op": "click"}),
+    ]
+    assert len(server.steps) == 2                       # один результат шага на оба действия
+    lr = server.steps[1]["last_result"]
+    assert lr["status"] == "done" and "отправка" in lr["detail"]
+    assert server.steps[1]["observation"]["snapshot_id"] == "s3"
+
+
+def test_fill_form_failed_does_not_submit():
+    async def scenario():
+        ext = FakeExt()
+        ext.script["page.fill_form"] = [{"ok": False, "status": "stale", "detail": "снимок устарел"}]
+        agent, server, _, _, _ = make([
+            act("page_fill_form", fields=[{"ref": "f0:e5", "value": "x"}], submit_ref="f0:e9"),
+            {"status": "done"},
+        ], ext=ext)
+        agent.start("t21", "цель")
+        await agent.wait("t21")
+        return server, ext
+
+    server, ext = run(scenario())
+    assert "page.act" not in ext.actions()
+    assert server.steps[1]["last_result"]["status"] == "stale"
+
+
+def test_adapter_error_becomes_step_result_without_extension_call():
+    async def scenario():
+        agent, server, ext, _, _ = make([act("page_act", ref="f0:e1", action="type"), {"status": "done"}])
+        agent.start("t22", "цель")
+        await agent.wait("t22")
+        return server, ext
+
+    server, ext = run(scenario())
+    assert "page.act" not in ext.actions()
+    assert server.steps[1]["last_result"] == {"ok": False, "status": "error", "detail": "нет аргумента: text"}
+
+
+def test_questions_moved_to_last_result_in_server_form():
+    async def scenario():
+        ext = FakeExt()
+        ext.script["page.questions"] = [{"ok": True, "status": "done", "detail": "1 вопрос", "data": {
+            "snapshot_id": "s7", "questions": [
+                {"q_ref": "f0:e1", "index": 1, "kind": "text", "input_ref": "f0:e2", "options": [],
+                 "has_media": False}]}}]
+        agent, server, _, _, _ = make([act("page_questions"),
+                                       act("page_fill_form", fields=[{"ref": "f0:e2", "value": "Париж"}]),
+                                       {"status": "done"}], ext=ext)
+        agent.start("t23", "цель")
+        await agent.wait("t23")
+        return server, ext
+
+    server, ext = run(scenario())
+    lr = server.steps[1]["last_result"]
+    assert lr["questions"][0]["ref"] == "f0:e2" and lr["questions"][0]["index"] == 1
+    assert "questions" not in lr["data"] and lr["data"]["snapshot_id"] == "s7"
+    # snapshot_id — из последнего observation (после page_questions цикл снял страницу заново: s2).
+    assert ("page.fill_form", {"tab_id": 11, "snapshot_id": "s2", "values": {"f0:e2": "Париж"}}) in ext.calls
+
+
+def test_resumed_task_starts_at_step_zero_with_observe():
+    async def scenario():
+        agent, server, ext, _, _ = make([{"status": "done"}])
+        assert agent.start("t24", "цель", step=0)
+        await agent.wait("t24")
+        return server, ext
+
+    server, ext = run(scenario())
+    assert server.steps[0]["step"] == 0
+    assert server.steps[0]["observation"]["snapshot_id"] == "s1"
+    assert ext.actions()[:2] == ["agent_window.open", "page.observe"]
+
+
+def test_step_timeout_from_setting(monkeypatch):
+    import importlib
+
+    from desktop.core import config
+    monkeypatch.setenv("BROWSER_STEP_TIMEOUT", "42")
+    monkeypatch.setenv("SAKURA_NO_DOTENV", "1")
+    try:
+        assert importlib.reload(config).BROWSER_STEP_TIMEOUT == 42.0
+        monkeypatch.delenv("BROWSER_STEP_TIMEOUT")
+        assert importlib.reload(config).BROWSER_STEP_TIMEOUT == 360.0
+    finally:
+        importlib.reload(config)
+    assert BA.STEP_TIMEOUT == 360.0

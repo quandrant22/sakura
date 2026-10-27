@@ -2,13 +2,17 @@
 
 Состояние задачи и решения модели — на сервере; ядро ведёт цикл шагов и транзит к расширению:
 
-  server → desktop  browser.do {task_id, goal, start_url?}
+  server → desktop  browser.do {task_id, goal, start_url?, resume?}
   ядро открывает окно агента (agent_window.open, без фокуса) и на каждом шаге шлёт
   desktop → server  browser_step {request_id, task_id, step, last_result?, observation, frames}
   server → desktop  browser_step {action: {tool, args}} | {status: wait|done|fail|paused, ...}
   server → desktop  browser.cancel {task_id}
   desktop → server  browser.resume {task_id}   — после «готово» Мастера на капче/паузе
 
+Аргументы action — по схеме инструментов сервера; перевод в действия расширения —
+desktop.core.browser_adapter (snapshot_id — из последнего observation).
+browser.do с resume: true — задача на паузе продолжается; задачи нет (ядро перезапускалось) —
+новый цикл с тем же task_id и step 0, первым — page.observe: сервер продолжит по своему чекпоинту.
 Обрыв связи с сервером — ждём подключения и продолжаем с page.observe (тот же step);
 выгрузка service worker расширения — ждём переподключения расширения, затем page.observe.
 Кадры и текст страниц не логируются: в журнале task_id, шаг, tool, status, размеры.
@@ -21,22 +25,23 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
+from desktop.core import browser_adapter as A
+
 log = logging.getLogger("sakura.browser_agent")
 
 TOOLS = ("tabs_list", "tabs_activate", "tabs_new", "tabs_close", "page_observe", "page_act", "page_shot",
          "page_forms", "page_questions", "page_fill_form", "page_upload", "page_scroll", "done", "fail")
-# tool → действие расширения и тайм-аут, с.
-EXT_ACTIONS = {
-    "tabs_list": ("tabs.list", 10), "tabs_activate": ("tabs.activate", 10), "tabs_new": ("tabs.new", 15),
-    "tabs_close": ("tabs.close", 10), "page_observe": ("page.observe", 25), "page_act": ("page.act", 40),
-    "page_shot": ("page.shot", 25), "page_forms": ("page.forms", 30), "page_questions": ("page.questions", 30),
-    "page_fill_form": ("page.fill_form", 90), "page_upload": ("page.upload", 90), "page_scroll": ("page.scroll", 25),
+# Тайм-аут действия расширения, с.
+EXT_TIMEOUTS = {
+    "tabs.list": 10, "tabs.activate": 10, "tabs.new": 15, "tabs.close": 10, "page.observe": 25,
+    "page.act": 40, "page.shot": 25, "page.forms": 30, "page.questions": 30, "page.fill_form": 90,
+    "page.upload": 90, "page.scroll": 25,
 }
 EXT_LOST = ("Расширение не подключено", "Тайм-аут расширения")
 EXT_DOWN = "Расширение не подключено"   # команда не ушла — повтор безопасен
 # Чтение: после тайм-аута расширения можно повторить. Остальное могло выполниться — не повторяем.
 READ_ONLY = frozenset({"page.observe", "page.shot", "tabs.list", "page.forms", "page.questions"})
-STEP_TIMEOUT = 120.0       # ответ сервера на шаг (модель думает)
+STEP_TIMEOUT = 360.0       # ответ сервера на шаг по умолчанию (config.BROWSER_STEP_TIMEOUT)
 EXT_WAIT = 60.0            # ждать возвращения расширения (service worker выгружен)
 POLL = 1.0
 MAX_FAILURES = 5           # подряд ошибок сервера (кроме обрыва связи) — задача прекращается
@@ -49,6 +54,7 @@ class _Task:
     goal: str
     start_url: str | None
     step: int = 1
+    snapshot_id: str | None = None         # последний снимок: для ref в аргументах сервера
     window_id: int | None = None
     tab_id: int | None = None
     last_result: dict | None = None
@@ -116,10 +122,11 @@ class BrowserAgent:
         self.tasks: dict[str, _Task] = {}
 
     # ── управление задачами ────────────────────────────────────────
-    def start(self, task_id: str, goal: str, start_url: str | None = None) -> bool:
+    def start(self, task_id: str, goal: str, start_url: str | None = None, step: int = 1) -> bool:
+        """step 0 — продолжение задачи после перезапуска ядра (browser.do resume): первым page.observe."""
         if not task_id or task_id in self.tasks:
             return False
-        t = _Task(str(task_id), str(goal or ""), start_url or None)
+        t = _Task(str(task_id), str(goal or ""), start_url or None, step=step)
         self.tasks[t.task_id] = t
         t.runner = asyncio.ensure_future(self._run(t))
         log.info("[browser] task=%s старт", t.task_id)
@@ -136,6 +143,10 @@ class BrowserAgent:
     def cancel_all(self) -> None:
         for tid in list(self.tasks):
             self.cancel(tid)
+
+    def is_paused(self, task_id: str) -> bool:
+        t = self.tasks.get(str(task_id))
+        return bool(t and t.paused)
 
     def resume(self, task_id: str, local: bool = True) -> bool:
         """«Готово» Мастера (local — из интерфейса: ядро сообщит серверу browser.resume)."""
@@ -160,6 +171,8 @@ class BrowserAgent:
             while True:
                 obs = t.observe if t.observe is not None else await self._observe(t)
                 t.observe = None
+                if isinstance(obs, dict) and obs.get("snapshot_id"):
+                    t.snapshot_id = obs["snapshot_id"]
                 frames = list(t.frames)
                 t.frames.clear()
                 if self._step_shot and t.window_id is not None:
@@ -214,7 +227,7 @@ class BrowserAgent:
             text = "внутренняя ошибка ядра"
         finally:
             self.tasks.pop(t.task_id, None)
-            log.info("[browser] task=%s конец: %s, шагов %d", t.task_id, state, t.step - 1)
+            log.info("[browser] task=%s конец: %s на шаге %d", t.task_id, state, t.step)
             self._emit({"type": "browser_task", "task_id": t.task_id, "state": state, "text": text,
                         "window_id": t.window_id})
 
@@ -243,9 +256,9 @@ class BrowserAgent:
                 await self._open_window(t)
             if t.tab_id is None:
                 return None
-        r = await self._call(t, "page.observe", {"tab_id": t.tab_id}, EXT_ACTIONS["page_observe"][1])
+        r = await self._call(t, "page.observe", {"tab_id": t.tab_id}, EXT_TIMEOUTS["page.observe"])
         if r["status"] == "not_found" and await self._recover_tab(t):
-            r = await self._call(t, "page.observe", {"tab_id": t.tab_id}, EXT_ACTIONS["page_observe"][1])
+            r = await self._call(t, "page.observe", {"tab_id": t.tab_id}, EXT_TIMEOUTS["page.observe"])
         if r["ok"]:
             return r.get("data")
         if t.last_result is None or t.last_result.get("ok"):
@@ -283,54 +296,57 @@ class BrowserAgent:
 
     # ── действие ───────────────────────────────────────────────────
     async def _do(self, t: _Task, tool: str, args: dict) -> None:
-        if tool not in EXT_ACTIONS:
-            t.last_result = _result("unsupported", f"неизвестный tool: {str(tool)[:40]}")
-            return
         args = dict(args or {})
-        action, timeout = EXT_ACTIONS[tool]
-        if tool.startswith("page_") and tool != "page_shot":
-            args.setdefault("tab_id", t.tab_id)
-        if tool == "page_shot" and "window_id" not in args:
-            args.setdefault("tab_id", t.tab_id)
-        if tool == "tabs_new":
-            args.setdefault("window_id", t.window_id)
-            args.setdefault("active", True)
-        if tool == "page_upload":
-            r = self._issue_upload(args)
-            if r is not None:
-                t.last_result = r
-                return
-        r = await self._call(t, action, args, timeout)
-        if _ext_lost(r) or (r["status"] == "error" and r.get("detail") in EXT_LOST):
-            r = _result("error", "расширение перезапустилось — действие могло не выполниться")
+        try:
+            action, ext_args = A.to_ext(tool, args, t.snapshot_id, tab_id=t.tab_id, window_id=t.window_id,
+                                        issue_file=self._issue_file if self._uploads is not None else None)
+        except A.AdapterError as e:
+            t.last_result = _result(e.status, str(e))
+            log.info("[browser] task=%s step=%d tool=%s status=%s (аргументы)", t.task_id, t.step, tool, e.status)
+            return
+        r = await self._ext_action(t, action, ext_args)
+        # page_fill_form + submit_ref: после успешного заполнения — клик по кнопке; итог — один результат.
+        follow = None
+        if r["ok"]:
+            follow = A.submit_followup(tool, args, (r.get("observe") or {}).get("snapshot_id") or t.snapshot_id,
+                                       tab_id=t.tab_id)
+        if follow is not None:
+            s = await self._ext_action(t, *follow)
+            r = {**s, "detail": f"{r.get('detail') or ''}; отправка: {s.get('detail') or s['status']}",
+                 "data": r.get("data"), "observe": s.get("observe") or r.get("observe")}
 
-        if r["ok"] and tool == "tabs_new":
+        if r["ok"] and action == "tabs.new":
             t.tab_id = (r.get("data") or {}).get("tab_id", t.tab_id)
-        elif r["ok"] and tool == "tabs_activate":
-            t.tab_id = args.get("tab_id", t.tab_id)
-        elif r["ok"] and tool == "tabs_close" and args.get("tab_id") in (None, t.tab_id):
+        elif r["ok"] and action == "tabs.activate":
+            t.tab_id = ext_args["tab_id"]
+        elif r["ok"] and action == "tabs.close" and ext_args.get("tab_id") in (None, t.tab_id):
             await self._recover_tab(t)
-        elif r["ok"] and tool == "page_shot":
-            q = args.get("q_index")
+        elif r["ok"] and action == "page.shot":
+            q = args.get("q_index") if ext_args.get("crop_ref") else None
             t.frames.append(self._frame(r["data"], "question" if q is not None else "page", q))
-        elif r["ok"] and tool == "page_questions":
+        elif r["ok"] and action == "page.questions":
             await self._question_frames(t, (r.get("data") or {}).get("questions") or [])
+        if r["ok"] and action in ("page.forms", "page.questions"):
+            t.snapshot_id = (r.get("data") or {}).get("snapshot_id") or t.snapshot_id
 
         if isinstance(r.get("observe"), dict):
             t.observe = r["observe"]
+            t.snapshot_id = r["observe"].get("snapshot_id") or t.snapshot_id
         t.last_result = self._for_server(tool, r)
         log.info("[browser] task=%s step=%d tool=%s status=%s", t.task_id, t.step, tool, r["status"])
 
-    def _issue_upload(self, args: dict) -> dict | None:
-        """file/path из args → file_token (только из BROWSER_UPLOAD_DIR); отказ → результат шага."""
-        if self._uploads is None:
-            return _result("unsupported", "загрузка файлов не настроена (BROWSER_UPLOAD_DIR)")
-        name = args.pop("file", None) or args.pop("path", None)
+    async def _ext_action(self, t: _Task, action: str, ext_args: dict) -> dict:
+        r = await self._call(t, action, ext_args, EXT_TIMEOUTS.get(action, 30))
+        if _ext_lost(r) or (r["status"] == "error" and r.get("detail") in EXT_LOST):
+            r = _result("error", "расширение перезапустилось — действие могло не выполниться")
+        return r
+
+    def _issue_file(self, name: str) -> str:
+        """Имя файла из BROWSER_UPLOAD_DIR → одноразовый file_token; отказ — AdapterError."""
         try:
-            args["file_token"] = self._uploads.issue(name)
+            return self._uploads.issue(name)
         except ValueError as e:
-            return _result("error", str(e))
-        return None
+            raise A.AdapterError(str(e), "error") from None
 
     async def _question_frames(self, t: _Task, questions: list) -> None:
         for q in [q for q in questions if q.get("has_media")][:MAX_QUESTION_FRAMES]:
@@ -340,10 +356,15 @@ class BrowserAgent:
 
     @staticmethod
     def _for_server(tool: str, r: dict) -> dict:
-        """last_result без observe (уходит как observation) и без байтов кадра (уходят в frames)."""
+        """last_result без observe (уходит как observation) и без байтов кадра (уходят в frames);
+        вопросы page_questions — в last_result.questions, в форме решателя сервера."""
         out = {k: v for k, v in r.items() if k != "observe"}
         if tool == "page_shot" and isinstance(out.get("data"), dict):
             out["data"] = {k: v for k, v in out["data"].items() if k != "data_b64"}
+        if tool == "page_questions" and isinstance(out.get("data"), dict) and "questions" in out["data"]:
+            data = dict(out["data"])
+            out["questions"] = A.from_ext_questions(data.pop("questions"))
+            out["data"] = data
         return out
 
     # ── ожидания ───────────────────────────────────────────────────
