@@ -355,6 +355,44 @@ public class MockServerE2ETest {
     }
 
     @Test
+    public void phoneCommandColdPath() throws Exception {
+        pairAndConnect();
+        app.sakura.mobile.exec.FakePhone phone = new app.sakura.mobile.exec.FakePhone();
+        new app.sakura.mobile.exec.CommandRouter(client, new app.sakura.mobile.exec.PhoneExecutor(phone),
+                new app.sakura.mobile.exec.OfflineMatcher(java.util.Collections.emptyList()), Runnable::run);
+        srv.sendCommand("c7", "phone.flashlight", "on");
+        JSONObject r = srv.await(m -> "command_result".equals(m.optString("type")), 5000);
+        assertEquals("c7", r.getString("id"));
+        assertTrue(r.getBoolean("ok"));
+        assertEquals("done", r.getString("status"));
+        assertTrue(phone.calls.contains("torch true"));
+        phone.dndAccess = false;
+        srv.sendCommand("c8", "phone.dnd_on", JSONObject.NULL);
+        JSONObject u = srv.await(m -> "command_result".equals(m.optString("type")), 5000);
+        assertEquals("unsupported", u.getString("status"));
+        assertEquals("нет разрешения: Режим «Не беспокоить»", u.getString("detail"));
+        srv.sendCommand("c9", "music.next", JSONObject.NULL);
+        JSONObject pc = srv.await(m -> "command_result".equals(m.optString("type")), 5000);
+        assertEquals("unsupported", pc.getString("status"));
+    }
+
+    @Test
+    public void offlinePhraseRunsLocallyNotQueued() throws Exception {
+        keys.saveServer(new DeviceKeyStore.Server(srv.url(), srv.serverPub, "phone", 0));
+        client = new SakuraClient(http, keys, net, System::currentTimeMillis, INFO);   // не запущен: офлайн
+        app.sakura.mobile.exec.FakePhone phone = new app.sakura.mobile.exec.FakePhone();
+        app.sakura.mobile.exec.CommandRouter router = new app.sakura.mobile.exec.CommandRouter(client,
+                new app.sakura.mobile.exec.PhoneExecutor(phone),
+                app.sakura.mobile.exec.PhoneExecutorTest.matcher(), Runnable::run);
+        CompletableFuture<String> res = new CompletableFuture<>();
+        assertTrue(router.tryOffline("включи фонарик", res::complete));
+        assertTrue(res.get(5, TimeUnit.SECONDS).contains("фонарик включён"));
+        assertFalse(router.tryOffline("какая погода", r -> { }));
+        assertEquals(0, client.outboxSize());
+        client = null;
+    }
+
+    @Test
     public void byeOnStop() throws Exception {
         pairAndConnect();
         client.stop();

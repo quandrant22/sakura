@@ -76,6 +76,21 @@ public final class VoiceController implements SpeechInput.Listener, PlaybackCont
         client.bus().subscribe("reply", m -> main.post(() -> onReply(m)));
     }
 
+    private java.util.function.BiFunction<String, java.util.function.Consumer<String>, Boolean> offlinePath;
+
+    /** Офлайн-путь phone.* (CommandRouter.tryOffline). */
+    public void setOfflinePath(java.util.function.BiFunction<String, java.util.function.Consumer<String>, Boolean> p) {
+        offlinePath = p;
+    }
+
+    /** Без связи фраза-действие телефона выполняется локально; результат — в транскрипт. */
+    public boolean tryOffline(String text) {
+        if (offlinePath == null) {
+            return false;
+        }
+        return offlinePath.apply(text, r -> main.post(() -> transcript.setValue(r)));
+    }
+
     public LiveData<CoreFrame.State> state() {
         return state;
     }
@@ -194,6 +209,9 @@ public final class VoiceController implements SpeechInput.Listener, PlaybackCont
 
     /** Текст из поля ввода: voice_command channel:"text". */
     public void sendText(String text) {
+        if (tryOffline(text)) {
+            return;
+        }
         startThinking();
         client.voice(text, "text", speakReplies(), confirmPending, null);
         confirmPending = false;
@@ -245,6 +263,9 @@ public final class VoiceController implements SpeechInput.Listener, PlaybackCont
     public void onFinal(String text) {
         followUpOpen = false;
         transcript.setValue(text);
+        if (tryOffline(text)) {
+            return;
+        }
         startThinking();
         client.voice(text, "voice", speakReplies(), confirmPending, null);
         confirmPending = false;

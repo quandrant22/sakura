@@ -168,6 +168,10 @@ public final class ChatModel extends ViewModel {
         SakuraApp app = SakuraApp.get();
         boolean speak = app.voice().speakReplies();
         app.input().touch();
+        if (app.voice().tryOffline(text)) {
+            note("Без связи: команда выполнена на телефоне");
+            return;
+        }
         app.voice().markThinking();
         if (client.status().proto < 2 && client.status().conn == SakuraClient.Conn.ONLINE) {
             client.voice(text, "text", speak, app.voice().confirmPending(), null);

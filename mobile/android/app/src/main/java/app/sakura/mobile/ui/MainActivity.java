@@ -48,6 +48,8 @@ import app.sakura.mobile.voice.VoiceController;
 public class MainActivity extends AppCompatActivity {
     /** Открыть приложение и сразу слушать (уведомление, плитка, виджет, ассистент). */
     public static final String ACTION_LISTEN = "app.sakura.mobile.LISTEN";
+    /** Из уведомления «нет разрешения: …» — сразу экран «Разрешения». */
+    public static final String ACTION_PERMISSIONS = "app.sakura.mobile.PERMISSIONS";
     private static final long PTT_HOLD_MS = 600;
     private static final int[] TABS = {R.id.tab_dialog, R.id.tab_control, R.id.tab_summary, R.id.tab_scenarios,
             R.id.tab_more};
@@ -258,6 +260,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void handleIntent(Intent intent) {
+        if (intent != null && ACTION_PERMISSIONS.equals(intent.getAction())) {
+            intent.setAction(null);
+            ((BottomNavigationView) findViewById(R.id.nav)).setSelectedItemId(R.id.tab_more);
+            findViewById(R.id.main).post(() -> push(new app.sakura.mobile.ui.more.PermissionsFragment()));
+            return;
+        }
         if (intent != null && ACTION_LISTEN.equals(intent.getAction())) {
             intent.setAction(null);
             ((BottomNavigationView) findViewById(R.id.nav)).setSelectedItemId(R.id.tab_dialog);

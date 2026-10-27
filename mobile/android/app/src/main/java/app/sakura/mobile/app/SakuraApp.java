@@ -12,7 +12,15 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+import app.sakura.mobile.exec.AndroidPhoneApis;
+import app.sakura.mobile.exec.CommandRouter;
+import app.sakura.mobile.exec.OfflineMatcher;
+import app.sakura.mobile.exec.PhoneExecutor;
 import app.sakura.mobile.keys.DeviceKeyStore;
+import app.sakura.mobile.ui.model.ActionCatalog;
 import app.sakura.mobile.keys.KeystoreWrapper;
 import app.sakura.mobile.proto.SakuraClient;
 import app.sakura.mobile.voice.ModelInstaller;
@@ -31,6 +39,7 @@ public class SakuraApp extends Application {
     private DeviceKeyStore keys;
     private SakuraClient client;
     private VoiceController voice;
+    private CommandRouter router;
     private Settings settings;
     private final InputTracker input = new InputTracker();
     private int started;
@@ -57,7 +66,11 @@ public class SakuraApp extends Application {
                 .build();
         keys = new DeviceKeyStore(new File(getFilesDir(), "keys"), new KeystoreWrapper());
         client = new SakuraClient(http, keys, net, SystemClock::elapsedRealtime, new AndroidDeviceInfo(this, input));
+        ExecutorService exec = Executors.newSingleThreadExecutor(r -> new Thread(r, "sakura-exec"));
+        router = new CommandRouter(client, new PhoneExecutor(new AndroidPhoneApis(this)),
+                new OfflineMatcher(ActionCatalog.get(this).triggers), exec);
         voice = new VoiceController(this, client, settings, new ModelInstaller(new File(getFilesDir(), "vosk")));
+        voice.setOfflinePath(router::tryOffline);
         Notifications.createChannels(this);
         registerActivityLifecycleCallbacks(new Visibility());
         ConnectivityManager cm = getSystemService(ConnectivityManager.class);
@@ -76,6 +89,10 @@ public class SakuraApp extends Application {
 
     public SakuraClient client() {
         return client;
+    }
+
+    public CommandRouter router() {
+        return router;
     }
 
     public VoiceController voice() {
