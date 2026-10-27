@@ -37,6 +37,17 @@
 | M8 возможности телефона | ассистент (VoiceInteractionService, панель с ядром, экран блокировки — только голос и ответ, RecognitionService-посредник), плитка быстрых настроек, виджет (статичный кадр ядра, «Говорить», 3 кнопки action_run), плавающее ядро (overlay 56dp, состояния, прилипание к краю, зона «×»), Share-target (текст → chat_send «Мастер поделился:», картинка → vision_request source:"camera"), «Что это?» (CameraX в память, JPEG 1280/q70, общий элемент ядра). Снимки: + панель ассистента и виджет (90 всего). Прогон `testDebugUnitTest verifyPaparazziDebug lint assembleDebug assembleRelease` — BUILD SUCCESSFUL: 121 passed, lint 0 ошибок / 153 предупреждения |
 | M6 визуал (часть, 2026-10-26) | токены UI.md → colors/attrs/dimens, темы Theme.Sakura.Night (по умолчанию) и Theme.Sakura.Sketch; CoreFrame.java — порт coreFrame.ts (сверка с 180 кадрами `tools/export-core-frames.mjs`, допуск 1e-3, NaN/∞); CoreShading (AGSL-метаболы + та же формула на CPU), SakuraCoreView (Choreographer, fps 30/60/10, переход 250 мс, кольца 2dp, свечение, статичный кадр); Motion (пузыри 150 мс + 8dp, экраны 150 мс, тактильный отклик); тест-сканер хардкода цветов. Paparazzi 2.0.0-alpha05.1 подключён, снимки ядра не записаны: тестовой JVM не хватает памяти (см. «Блокер») |
 
+| Документы | ARCHITECTURE.md, CONTRACT.md (копия контракта + где в коде), PARITY.md (110 строк десктопа: 20 на телефоне, 70 через пульт, 20 не применимо), UI.md, DECISIONS.md (D1–D47), RUNBOOK.md (APK, /pair, каждое phone.*, голос, подтверждение питания, ассистент, отказ неизвестному ключу) |
+
+### Итог (2026-10-27)
+
+- Блоки M1–M8 закрыты, каждый — полным прогоном `testDebugUnitTest verifyPaparazziDebug lint assembleDebug assembleRelease`
+  (последний: 121 passed, 90 снимков, lint 0 ошибок).
+- `git diff --stat origin/master...feat/mobile-android` — только `mobile/android/**` и `docs/mobile/**`.
+- Живые проверки на телефоне и реальном сервере не выполнялись — RUNBOOK.md.
+- Ждёт сервер (server/phone): `phone.*` в `capabilities.yaml` (тогда `tools/gen_phone_triggers.py` перейдёт на реестр,
+  seed удалить — D29), `action_run`, `speak:false`, `active`/`track` в devices, `source:"camera"`.
+
 ### Блокер (2026-10-26) — снят перезагрузкой 2026-10-27
 
 Свободной commit-памяти в системе ~0,3 ГБ из 31 ГБ (занята не процессами сборки); тестовая JVM с heap 512 МБ не стартует («Could not reserve enough space for object heap»), периодически не создаются и простые процессы. Нужна перезагрузка машины или больший файл подкачки.
