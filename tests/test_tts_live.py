@@ -69,10 +69,11 @@ def test_style_s1_on_38(monkeypatch):
 # ── 3.4 тон ─────────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("tone", ["тепло", "сухо-иронично", "серьёзно", "тихо", "бодро"])
+@pytest.mark.parametrize("tone", ["тепло", "сухо-иронично", "серьёзно", "тихо", "бодро", "томно"])
 def test_tts_tone_goes_to_system_instruction(monkeypatch, tone):
+    # строка тона заменяет дефолтный голос S2 («сухой»), а не дописывается к нему
     monkeypatch.setattr(tts, "TTS_TONE", tone)
-    assert _si(tts._live_config(M38)) == f"{tts.S2_TEXT} {tts.TONES[tone]}"
+    assert _si(tts._live_config(M38)) == f"{tts.S2_BASE} {tts.TONES[tone]}"
 
 
 def test_unknown_tone_is_neutral(monkeypatch):

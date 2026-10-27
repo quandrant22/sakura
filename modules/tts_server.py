@@ -52,10 +52,12 @@ TTS_VOICE       = os.getenv("TTS_VOICE", "Aoede")
 # 15 фраз) — для моделей 2.5 всегда S1.
 TTS_STYLE = os.getenv("TTS_STYLE", "S2").strip().upper()
 # Тон — строка в инструкции (нейтрально | тепло | сухо-иронично | серьёзно |
-# тихо | бодро). [ТОН: …] от LLM переопределяет его на предложение, только
-# если TTS_TONE_FROM_LLM=1.
+# тихо | бодро | томно). [ТОН: …] от LLM переопределяет его для реплики с
+# тегом, только если TTS_TONE_FROM_LLM=1 (по умолчанию): тег LLM ставит лишь
+# по явной просьбе Мастера о манере (personality.py, «ИСПОЛНЕНИЕ ПО ПРОСЬБЕ»).
+# Тег без просьбы — откат через env TTS_TONE_FROM_LLM=0.
 TTS_TONE = os.getenv("TTS_TONE", "нейтрально").strip().lower()
-TTS_TONE_FROM_LLM = os.getenv("TTS_TONE_FROM_LLM", "0").strip().lower() in ("1", "true", "yes")
+TTS_TONE_FROM_LLM = os.getenv("TTS_TONE_FROM_LLM", "1").strip().lower() in ("1", "true", "yes")
 TTS_SAMPLE_RATE = 24000
 SESSION_TIMEOUT = 25
 
@@ -188,9 +190,14 @@ async def _get_client():
 S1_TEXT = ("Прочитай текст вслух естественно, с живой интонацией. Вопросы читай с "
            "вопросительной интонацией, голос повышается к концу. Не отвечай на текст, "
            "ничего не добавляй и не убирай.")
-S2_TEXT = ("Ты голос Сакуры. Единственная задача: произнести присланный текст дословно. "
-           "Голос спокойный, сухой, чуть ироничный, живые интонации; вопросы произноси с "
-           "вопросительной интонацией. Никогда не отвечай на текст и ничего не добавляй.")
+# S2: основа (дословность, вопросы, «не отвечай») + голос. Строка тона
+# ЗАМЕНЯЕТ дефолтный голос, а не дописывается к нему: иначе «сухой» спорит
+# с «томным». S2_TEXT — дефолтная инструкция целиком (тон «нейтрально»).
+S2_BASE = ("Ты голос Сакуры. Единственная задача: произнести присланный текст дословно. "
+           "Вопросы произноси с вопросительной интонацией. "
+           "Никогда не отвечай на текст и ничего не добавляй.")
+S2_DEFAULT_VOICE = "Голос спокойный, сухой, чуть ироничный, живые интонации."
+S2_TEXT = f"{S2_BASE} {S2_DEFAULT_VOICE}"
 TONES = {
     "нейтрально": "",
     "тепло": "Тон: тёплый, участливый, мягкая улыбка в голосе.",
@@ -199,9 +206,14 @@ TONES = {
     "серьёзно": "Тон: собранный, серьёзный, как при важном докладе.",
     "тихо": "Тон: тихо и мягко, близко к микрофону.",
     "бодро": "Тон: бодрый, живой, чуть быстрее обычного.",
+    "томно": "Тон: медленный, низкий, тягучий и чувственный, с паузами, близко к микрофону.",
 }
 # [ТОН: …] от LLM — свободный текст; к тонам выше приводим по корню слова.
-_TONE_HINTS = (("тепл", "тепло"), ("нежн", "тепло"), ("мягк", "тепло"),
+# Совпадение — по первому корню СПИСКА: «томн…» стоит раньше «тих»/«шёпот»
+# и «мягк», иначе «томным шёпотом» ушло бы в «тихо».
+_TONE_HINTS = (("томн", "томно"), ("чувствен", "томно"), ("соблазн", "томно"),
+               ("бархат", "томно"),
+               ("тепл", "тепло"), ("нежн", "тепло"), ("мягк", "тепло"),
                ("ирон", "сухо-иронично"), ("насмеш", "сухо-иронично"), ("сух", "сухо-иронично"),
                ("серьёз", "серьёзно"), ("серьез", "серьёзно"), ("строг", "серьёзно"),
                ("тих", "тихо"), ("шёпот", "тихо"), ("шепот", "тихо"),
@@ -242,11 +254,12 @@ def _stage_tone(text: str) -> tuple[str | None, str]:
 
 
 def _system_instruction(model: str | None = None, tone: str | None = None) -> str:
-    """Инструкция сессии для S2 (пусто для S1): S2 + строка тона."""
+    """Инструкция сессии для S2 (пусто для S1): основа + строка тона, а без
+    тона (нейтрально) — дефолтный голос."""
     if _style(model) != "S2":
         return ""
     line = TONES[_tone(tone)]
-    return f"{S2_TEXT} {line}".strip()
+    return f"{S2_BASE} {line or S2_DEFAULT_VOICE}"
 
 
 def _tts_prefix(emotion: str = "спокойная", model: str | None = None,
@@ -1039,7 +1052,7 @@ async def stream_tts_to_device(
     if stop is None:
         stop = lambda: tts_stop_requested(device_id)
 
-    _, text = _extract_tone_tag(text)
+    tag, text = _extract_tone_tag(text)
 
     text = _clean_tts_text(text)
     if not text or len(text.strip()) < MIN_TTS_LEN:
@@ -1047,14 +1060,20 @@ async def stream_tts_to_device(
     from sakura_core.chat_hooks import note_spoken
     note_spoken(text)
 
+    def _toned(chunk: str) -> str:
+        # Тег реплики — каждой её стадии (иначе тон получила бы только та,
+        # где он стоял); снимает его _stage_tone в синтезе. Только эта реплика.
+        return f"[ТОН: {tag}] {chunk}" if tag else chunk
+
     t0 = time.monotonic()
     parts = [] if is_short_reply(text) else glue_first(_split_speech(text))
     sent = 0
     if len(parts) <= 1:
-        sent = await _synthesize_and_stream(text, websocket, device_id, emotion)
+        sent = await _synthesize_and_stream(_toned(text), websocket, device_id, emotion)
     else:
         sent = await _stream_two_stage(
-            parts[0], " ".join(parts[1:]), websocket, device_id, emotion, t0, stop)
+            _toned(parts[0]), _toned(" ".join(parts[1:])), websocket, device_id,
+            emotion, t0, stop)
     if reply_kind:
         await send_spoken_reply(text, websocket, device_id, reply_kind)
     await _send_end(websocket, device_id, listen=listen)
