@@ -96,6 +96,81 @@ SUMMARY_PROMPT = """Сожми журнал задачи в браузере в 
 
 
 # ── инструменты навигатора (нативный function calling) ─────────────
+# Спецификация — данные в JSON Schema: из неё строятся FunctionDeclaration
+# и выгрузка для desktop (scripts/export_tool_schema.py). Имена инструментов
+# и аргументов не менять — их переводит desktop (desktop/core/browser_agent.py).
+
+NOTE_SCHEMA = {"type": "string", "description": "что делаю и зачем, до 200 символов"}
+_FIELD = {"type": "object", "properties": {"ref": {"type": "string"},
+                                           "value": {"type": "string"},
+                                           "checked": {"type": "boolean"}},
+          "required": ["ref"]}
+
+
+def _p(props: dict | None = None, required: tuple = ()) -> dict:
+    return {"type": "object", "properties": props or {}, "required": list(required)}
+
+
+TOOL_SPEC = {
+    "tabs_list": ("Список вкладок окна агента.", _p()),
+    "tabs_activate": ("Сделать вкладку активной.",
+                      _p({"tab_id": {"type": "integer"}}, ("tab_id",))),
+    "tabs_new": ("Открыть новую вкладку.", _p({"url": {"type": "string"}}, ("url",))),
+    "tabs_close": ("Закрыть вкладку.", _p({"tab_id": {"type": "integer"}}, ("tab_id",))),
+    "page_observe": ("Свежий снимок активной вкладки.", _p()),
+    "page_act": ("Действие над элементом по ref.", _p({
+        "ref": {"type": "string"},
+        "action": {"type": "string", "enum": ["click", "type", "select", "check", "uncheck",
+                                              "press", "focus", "hover", "clear", "submit"]},
+        "text": {"type": "string", "description": "для type/select"},
+        "key": {"type": "string", "description": "для press: Enter, Tab, Escape…"}},
+        ("ref", "action"))),
+    "page_shot": ("Кадр вкладки; crop_ref — вырезка элемента.",
+                  _p({"crop_ref": {"type": "string"}})),
+    "page_forms": ("Поля форм страницы со значениями и ошибками.", _p()),
+    "page_questions": ("Вопросы теста на странице (решает сервер).", _p()),
+    "page_fill_form": ("Заполнить несколько полей; submit_ref — нажать после.", _p({
+        "fields": {"type": "array", "items": _FIELD}, "submit_ref": {"type": "string"}},
+        ("fields",))),
+    "page_upload": ("Загрузить локальный файл Мастера в поле.", _p({
+        "ref": {"type": "string"}, "file": {"type": "string"}}, ("ref", "file"))),
+    "page_scroll": ("Прокрутка страницы или элемента.", _p({
+        "direction": {"type": "string", "enum": ["up", "down", "top", "bottom"]},
+        "ref": {"type": "string"}}, ("direction",))),
+    "done": ("Цель достигнута.", _p({"summary": {"type": "string"}}, ("summary",))),
+    "fail": ("Цель недостижима.", _p({"reason": {"type": "string"}}, ("reason",))),
+}
+# Аргументы, которые добавляет сервер (не модель): кадр вопроса для решателя.
+SERVER_ARGS = {"page_shot": {"q_index": {"type": "integer"}}}
+
+
+def tool_parameters(name: str) -> dict:
+    """JSON Schema аргументов инструмента так, как её видит модель (с note)."""
+    params = TOOL_SPEC[name][1]
+    return {"type": "object", "properties": {**params["properties"], "note": NOTE_SCHEMA},
+            "required": [*params["required"], "note"]}
+
+
+def export_tools() -> dict:
+    """Схема инструментов навигатора для desktop (фикстура server_tools.json)."""
+    return {"format": "sakura.browser_tools/1",
+            "tools": [{"name": name, "description": TOOL_SPEC[name][0],
+                       "parameters": tool_parameters(name)} for name in TOOLS],
+            "server_args": SERVER_ARGS}
+
+
+def _schema(js: dict):
+    from google.genai import types as T
+    kw = {"type": js["type"].upper()}
+    for key in ("description", "enum", "required"):
+        if js.get(key):
+            kw[key] = js[key]
+    if "items" in js:
+        kw["items"] = _schema(js["items"])
+    if "properties" in js:
+        kw["properties"] = {k: _schema(v) for k, v in js["properties"].items()}
+    return T.Schema(**kw)
+
 
 _tools_cache = None
 
@@ -105,46 +180,9 @@ def _tools():
     if _tools_cache is not None:
         return _tools_cache
     from google.genai import types as T
-
-    def S(t, **kw):
-        return T.Schema(type=t, **kw)
-
-    note = S("STRING", description="что делаю и зачем, до 200 символов")
-    field = S("OBJECT", properties={"ref": S("STRING"), "value": S("STRING"),
-                                    "checked": S("BOOLEAN")}, required=["ref"])
-    spec = {
-        "tabs_list": ("Список вкладок окна агента.", {}, []),
-        "tabs_activate": ("Сделать вкладку активной.", {"tab_id": S("INTEGER")}, ["tab_id"]),
-        "tabs_new": ("Открыть новую вкладку.", {"url": S("STRING")}, ["url"]),
-        "tabs_close": ("Закрыть вкладку.", {"tab_id": S("INTEGER")}, ["tab_id"]),
-        "page_observe": ("Свежий снимок активной вкладки.", {}, []),
-        "page_act": ("Действие над элементом по ref.", {
-            "ref": S("STRING"),
-            "action": S("STRING", enum=["click", "type", "select", "check", "uncheck",
-                                        "press", "focus", "hover", "clear", "submit"]),
-            "text": S("STRING", description="для type/select"),
-            "key": S("STRING", description="для press: Enter, Tab, Escape…")},
-            ["ref", "action"]),
-        "page_shot": ("Кадр вкладки; crop_ref — вырезка элемента.",
-                      {"crop_ref": S("STRING")}, []),
-        "page_forms": ("Поля форм страницы со значениями и ошибками.", {}, []),
-        "page_questions": ("Вопросы теста на странице (решает сервер).", {}, []),
-        "page_fill_form": ("Заполнить несколько полей; submit_ref — нажать после.", {
-            "fields": S("ARRAY", items=field), "submit_ref": S("STRING")}, ["fields"]),
-        "page_upload": ("Загрузить локальный файл Мастера в поле.", {
-            "ref": S("STRING"), "file": S("STRING")}, ["ref", "file"]),
-        "page_scroll": ("Прокрутка страницы или элемента.", {
-            "direction": S("STRING", enum=["up", "down", "top", "bottom"]),
-            "ref": S("STRING")}, ["direction"]),
-        "done": ("Цель достигнута.", {"summary": S("STRING")}, ["summary"]),
-        "fail": ("Цель недостижима.", {"reason": S("STRING")}, ["reason"]),
-    }
-    decls = []
-    for name, (desc, props, required) in spec.items():
-        decls.append(T.FunctionDeclaration(
-            name=name, description=desc,
-            parameters=S("OBJECT", properties={**props, "note": note},
-                         required=[*required, "note"])))
+    decls = [T.FunctionDeclaration(name=name, description=TOOL_SPEC[name][0],
+                                   parameters=_schema(tool_parameters(name)))
+             for name in TOOLS]
     _tools_cache = (
         [T.Tool(function_declarations=decls)],
         T.ToolConfig(function_calling_config=T.FunctionCallingConfig(mode="ANY")))
