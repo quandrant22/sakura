@@ -8,7 +8,7 @@
 | D2 | Тестовые зависимости сверх списка: Robolectric, `androidx.test:core`, OkHttp `mockwebserver3`, `org.json:json` | задача требует JUnit/Robolectric-тестов и мока на MockWebServer; `org.json` — настоящая реализация для чистых JVM-тестов (в android.jar только заглушки) |
 | D3 | `lifecycle-livedata` и `lifecycle-viewmodel` входят в «lifecycle» из списка зависимостей | состояние экранов без своих Rx/корутин |
 | D4 | Kotlin stdlib приходит транзитивно (OkHttp 5, androidx); прямых Kotlin-зависимостей и плагинов нет | разрешено задачей 0.1 |
-| D5 | Gradle: `-Xmx1g -XX:+UseSerialGC` | на машине сборки мало commit-памяти: демон с 1,5–3 ГБ падал (hs_err: mmap failed) |
+| D5 | Gradle: `-Xmx2g`, `workers.max=2`, idle 10 мин; тесты: heap 1536 МБ, одна форка, `forkEvery 100` (заменяет прежние 1 ГБ/SerialGC и D12) | Paparazzi с layoutlib не укладывается в 512 МБ; перед прогоном проверяется свободная commit-память ≥ 4 ГБ, после — `gradlew --stop` |
 | D7 | Нормализация 8 слов — как на сервере (`securechannel/pairing.py`): разделитель всё, кроме `[a-zа-я]` после `lower()` и `ё→е` | PSK считает сервер; десктопный порт (`[^\w]\|[\d_]`) расходится на экзотических символах — берём эталон сервера |
 | D8 | Счётчик rekey считает каждый отправленный кадр (и REKEY/PING/PONG), перед PING/PONG тоже проверяется rekey | так делает `securechannel/channel.py`; иначе транскрипты расходятся побайтно |
 | D9 | Ручное спаривание (адрес + 8 слов) без `k`: подлинность сервера — по кадру PAIRED (PSK) и отпечатку, который показывается для сверки с Telegram | в ручном вводе ключа нет; §3.3 разрешает |
