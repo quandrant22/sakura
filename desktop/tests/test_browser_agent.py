@@ -539,3 +539,43 @@ def test_step_timeout_from_setting(monkeypatch):
     finally:
         importlib.reload(config)
     assert BA.STEP_TIMEOUT == 360.0
+
+
+def test_server_arg_q_index_makes_question_frame():
+    """server_args схемы: page_shot.q_index — кадр-вырезка вопроса с его номером."""
+    async def scenario():
+        agent, server, ext, _, _ = make([act("page_shot", crop_ref="f0:e4", q_index=2, note="вопрос 2"),
+                                         {"status": "done"}])
+        agent.start("t30", "цель")
+        await agent.wait("t30")
+        return server, ext
+
+    server, ext = run(scenario())
+    assert ("page.shot", {"tab_id": 11, "crop_ref": "f0:e4", "snapshot_id": "s1"}) in ext.calls
+    assert [(f["kind"], f.get("q_index")) for f in server.steps[1]["frames"]] == [("question", 2), ("page", None)]
+
+
+def test_fill_form_pairs_from_questions_rows():
+    """rows вопроса → пары сервера → values расширения; снимок — последний observation (ref строк
+    расширение переносит между снимками, DECISIONS №80)."""
+    async def scenario():
+        ext = FakeExt()
+        ext.script["page.questions"] = [{"ok": True, "status": "done", "detail": "1 вопрос", "data": {
+            "snapshot_id": "s7", "questions": [{"q_ref": "f0:e1", "index": 1, "kind": "match", "text": "?",
+                                                "rows": [{"row_ref": "f0:e2", "text": "Италия"}],
+                                                "options": [{"text": "Рим"}]}]}}]
+        agent, server, _, _, _ = make([
+            act("page_questions"),
+            act("page_fill_form", fields=[{"ref": "f0:e1", "kind": "match",
+                                           "pairs": [{"row_ref": "f0:e2", "option_text": "Рим"}]}]),
+            {"status": "done"},
+        ], ext=ext)
+        agent.start("t31", "цель")
+        await agent.wait("t31")
+        return server, ext
+
+    server, ext = run(scenario())
+    q = server.steps[1]["last_result"]["questions"][0]
+    assert q["rows"] == [{"row_ref": "f0:e2", "text": "Италия"}] and q["options"][0]["name"] == "Рим"
+    assert ("page.fill_form", {"tab_id": 11, "snapshot_id": "s2", "values": {
+        "f0:e1": {"kind": "match", "pairs": [{"row_ref": "f0:e2", "option_text": "Рим"}]}}}) in ext.calls

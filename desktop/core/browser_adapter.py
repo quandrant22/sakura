@@ -1,13 +1,15 @@
 """desktop.core.browser_adapter — инструменты сервера → действия расширения 3.2.0.
 
 Источник истины для того, что приходит в action, — схема инструментов сервера
-(sakura_core/browser_step.py ветки server/browser-step; копия —
-desktop/tests/fixtures/server_tools.json). Расширение свои op не меняет: весь перевод
-аргументов — здесь, BrowserAgent._do только вызывает to_ext.
+(sakura_core/browser_step.py ветки server/browser-step; её выгрузка sakura.browser_tools/1 —
+desktop/tests/fixtures/server_tools.json, обновляет desktop/scripts/sync_server_tools.*).
+Расширение свои op не меняет: весь перевод аргументов — здесь, BrowserAgent._do только вызывает to_ext.
 
   page_act        action → op: type → fill, clear → fill "", submit → click, остальные как есть;
                   text → value (type/select), key → value (press)
   page_fill_form  fields [{ref, value | checked | option_ref}] → values {ref: value | checked};
+                  fields [{ref, pairs: [{row_ref, option_text}], kind?}] (match/order) и прежняя
+                  [{ref, order: [row_ref…]}] → values {ref: {pairs, kind?}};
                   submit_ref — отдельный page.act click после успешного заполнения (submit_followup)
   page_scroll     direction top|bottom → to; up → dy −1 (экран вверх); down → без dy; ref → к элементу
   page_shot       crop_ref → вырезка по ref (вкладка); без него — кадр окна агента
@@ -39,6 +41,7 @@ ACT_OPS = {
     "check": "check", "uncheck": "uncheck", "press": "press", "focus": "focus", "hover": "hover",
 }
 SCROLL_UP = -1        # маркер «экран вверх»: content.js листает на 0.8 высоты окна
+PAIR_KINDS = ("match", "order")
 
 
 class AdapterError(ValueError):
@@ -61,6 +64,31 @@ def _snapshot(snapshot_id: str | None) -> str:
     return snapshot_id
 
 
+def _pairs_value(f: dict) -> dict:
+    """match/order: pairs [{row_ref, option_text}] → {pairs, kind?}; прежняя форма order [row_ref…] —
+    пары с позициями 1…n (option_text порядка — позиция строки)."""
+    if "pairs" in f:
+        raw = f["pairs"]
+        if not isinstance(raw, list) or not raw:
+            raise AdapterError(f"поле {f['ref']}: pairs — непустой список", "error")
+        pairs = []
+        for p in raw:
+            if not isinstance(p, dict) or not p.get("row_ref") or p.get("option_text") in (None, ""):
+                raise AdapterError(f"поле {f['ref']}: пара без row_ref или option_text", "error")
+            pairs.append({"row_ref": p["row_ref"], "option_text": str(p["option_text"])})
+        kind = f.get("kind")
+    else:
+        order = f["order"]
+        if not isinstance(order, list) or not order or not all(isinstance(r, str) and r for r in order):
+            raise AdapterError(f"поле {f['ref']}: order — непустой список ref", "error")
+        pairs = [{"row_ref": r, "option_text": str(i)} for i, r in enumerate(order, 1)]
+        kind = "order"
+    out: dict = {"pairs": pairs}
+    if kind in PAIR_KINDS:
+        out["kind"] = kind
+    return out
+
+
 def _fill_values(fields) -> dict:
     if not isinstance(fields, list) or not fields:
         raise AdapterError("fields — непустой список", "error")
@@ -68,9 +96,9 @@ def _fill_values(fields) -> dict:
     for f in fields:
         if not isinstance(f, dict) or not f.get("ref"):
             raise AdapterError("поле без ref", "error")
-        if "order" in f:
-            raise AdapterError("порядок вариантов (перетаскивание) расширение не заполняет")
-        if isinstance(f.get("checked"), bool):
+        if "pairs" in f or "order" in f:
+            values[f["ref"]] = _pairs_value(f)
+        elif isinstance(f.get("checked"), bool):
             values[f["ref"]] = f["checked"]
         elif f.get("value") is not None:
             values[f["ref"]] = f["value"]          # select — по тексту варианта (option_ref — подсказка сервера)

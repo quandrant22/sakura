@@ -161,3 +161,11 @@ files.delete удалил по неточному имени C:\sakura-tmp\cpu.t
 - Контрактный тест desktop/tests/test_browser_adapter.py + fixtures/server_tools.json: все tool и значения enum → существующие действия расширения с обязательными аргументами.
 - Проверки: pytest 840 passed, 40 skipped; ruff — чисто; vitest 168/168 (ui) + 72/72 (расширение); tsc, eslint — чисто.
 - Не сделано: заполнение «порядка вариантов» (order) и вопросы на сопоставление (match) решателем сервера — у решателя нет формы для нескольких select в одном вопросе; живой прогон с сервером — серверная ветка ещё не выкачена.
+
+## Browser agent — схема сервера и пары match/order (27.10, ветка feat/browser-agent)
+- desktop/tests/fixtures/server_tools.json — точная копия выгрузки server/browser-step 9481b12 (blob 6a0704a, `sakura.browser_tools/1`); обновление одной командой: `desktop/scripts/sync_server_tools.ps1` (или `.sh`), оба проверены — blob совпал (DECISIONS №81).
+- Контрактный тест на этом формате: каждый tool и значение enum, а также server_args (page_shot.q_index) → существующее действие расширения; незнакомый format — падение. q_index из server_args даёт кадр question с номером (pytest цикла).
+- page.questions: match и order — rows [{row_ref, text}] и общий options; page.fill_form: pairs {row_ref, option_text} — select в строке по тексту, порядок перетаскиванием (DnD, затем pointer по bbox) с проверкой по DOM, отказ страницы — unsupported (DECISIONS №82).
+- Фикстура desktop/tests/fixtures/extension/moodle_match_order.html: сопоставление (select в строках), порядок списками номеров, список qtype_ordering; vitest — DnD-страница, pointer-страница (место по координатам), страница без обработчиков → unsupported, stale строки.
+- Проверки: pytest 855 passed, 40 skipped; ruff — чисто; vitest 168/168 (ui) + 83/83 (расширение); tsc, eslint — чисто.
+- Не проверено: перетаскивание на настоящем Moodle (qtype_ordering) — синтетические события isTrusted=false, библиотека может их не принять (тогда unsupported); формат pairs в выгрузке сервера пока отсутствует — при его появлении sync_server_tools и контрактный тест покажут расхождение.

@@ -1080,6 +1080,34 @@
     return nameOf(sel);
   }
 
+  // Сопоставление и порядок: строка — tr/li/role=row вокруг списка выбора (или сам список).
+  function rowOf(sel, box) {
+    const r = sel.closest("tr, li, [role=row]");
+    return r && r !== box && box.contains(r) ? r : sel;
+  }
+  function rowText(row, sel) {
+    if (row === sel) return nameOf(sel);
+    if (tagOf(row) === "tr") return rowLabel(sel);
+    let t = "";
+    const w = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+    for (let n = w.nextNode(); n; n = w.nextNode()) {
+      if (!n.parentElement.closest("select, .sr-only, .accesshide")) t += " " + n.nodeValue;
+    }
+    return cut(t, 150) || nameOf(sel);
+  }
+  // Варианты списка без заглушки «Выбрать...».
+  function choiceTexts(sel) {
+    return Array.from(sel.options).map((o) => cut(textOf(o), 80)).filter((t) => t && !/^(выбрать|choose)/i.test(t));
+  }
+  // Списки номеров 1…n в каждой строке — это порядок, а не сопоставление.
+  function numberedRows(selects) {
+    return selects.every((s) => {
+      const t = choiceTexts(s);
+      return t.length === selects.length && t.every((x, i) => x === String(i + 1));
+    });
+  }
+  const positionOptions = (n) => Array.from({ length: n }, (_, i) => ({ text: String(i + 1) }));
+
   function questionText(box, given) {
     if (norm(given)) return cut(given, 600);
     const pick = box.querySelector(".qtext, legend, h1, h2, h3, h4, h5, h6, p, [class*=question], [class*=Question]");
@@ -1101,14 +1129,17 @@
 
     const q = { q_ref: refFor(box), index, text: questionText(box, text), kind: "", options: [] };
     const take = (els) => els.forEach((e) => claimed.add(e));
+    // match/order: строки rows [{row_ref, text}] и общий список вариантов options [{text}];
+    // у порядка варианты — позиции 1…n. Ответ — пары {row_ref, option_text} (fill_form).
     if (order.length >= 2 && (box.classList.contains("ordering") || !radios.length && !checks.length && !texts.length)) {
       q.kind = "order";
-      q.options = order.map((li) => ({ ref: refFor(li), text: cut(textOf(li), 150), checked: false }));
+      q.rows = order.map((li) => ({ row_ref: refFor(li), text: cut(textOf(li), 150) }));
+      q.options = positionOptions(order.length);
       take(order);
     } else if (selects.length >= 2) {
-      q.kind = "match";
-      q.options = selects.map((s) => ({ ref: refFor(s), text: rowLabel(s), checked: false }));
-      q.choices = Array.from(selects[0].options).map((o) => cut(textOf(o), 80)).filter((t) => t && !/^(выбрать|choose)/i.test(t));
+      q.kind = numberedRows(selects) ? "order" : "match";
+      q.rows = selects.map((s) => { const row = rowOf(s, box); return { row_ref: refFor(row), text: rowText(row, s) }; });
+      q.options = q.kind === "order" ? positionOptions(selects.length) : choiceTexts(selects[0]).map((text) => ({ text }));
       take(selects);
     } else if (radios.length) {
       q.kind = "single";
@@ -1193,23 +1224,116 @@
     };
   }
 
+  // ── сопоставление и порядок: пары {row_ref, option_text} ───────
+  // Значение поля {pairs, kind?}: в строке есть список выбора — вариант по тексту (selectNative);
+  // строк без списков (порядок) — перестановка синтетическими DnD- и pointer-событиями по bbox,
+  // затем проверка порядка по DOM. option_text порядка — позиция с 1.
+  const isPairs = (v) => !!v && typeof v === "object" && !Array.isArray(v) && Array.isArray(v.pairs);
+  const pairRefs = (v) => (isPairs(v) ? v.pairs.map((p) => p && p.row_ref) : []);
+  const rowSelect = (row) => (tagOf(row) === "select" ? row : row.querySelector("select"));
+  const selectedText = (sel) => { const o = sel.options[sel.selectedIndex]; return o ? cut(textOf(o), 80) : ""; };
+
+  function targetOrder(rows) {
+    const nums = rows.map((r) => Number(norm(r.text)));
+    const ranked = nums.every((n) => Number.isInteger(n) && n >= 1) && new Set(nums).size === nums.length;
+    return ranked ? rows.slice().sort((x, y) => Number(norm(x.text)) - Number(norm(y.text))) : rows.slice();
+  }
+
+  // Сначала HTML5 DnD (dragstart/dragover/drop); не сдвинулось — pointer/mouse по прямоугольникам.
+  async function dragBefore(src, dst, moved) {
+    scrollTo(src);
+    const s = center(src);
+    const box = dst.getBoundingClientRect();
+    const d = { clientX: box.left + box.width / 2, clientY: box.top + Math.max(1, box.height / 4) };
+    const DE = typeof DragEvent === "function" ? DragEvent : MouseEvent;
+    const dt = typeof DataTransfer === "function" ? new DataTransfer() : null;
+    const drag = (el, type, at) => fire(el, type, DE, Object.assign({ dataTransfer: dt }, at));
+    drag(src, "dragstart", s);
+    drag(dst, "dragenter", d); drag(dst, "dragover", d); drag(dst, "drop", d);
+    drag(src, "dragend", d);
+    await sleep(50);
+    if (moved()) return true;
+
+    const under = (p, fallback) => (document.elementFromPoint && document.elementFromPoint(p.clientX, p.clientY)) || fallback;
+    const ptr = (el, type, p) => {
+      fire(el, "pointer" + type, PE, Object.assign({ pointerId: 1, isPrimary: true, buttons: type === "up" ? 0 : 1 }, p));
+      fire(el, "mouse" + type, MouseEvent, Object.assign({ buttons: type === "up" ? 0 : 1 }, p));
+    };
+    ptr(src, "down", s);
+    const steps = 6;
+    for (let i = 1; i <= steps; i += 1) {
+      const p = { clientX: s.clientX + (d.clientX - s.clientX) * i / steps, clientY: s.clientY + (d.clientY - s.clientY) * i / steps };
+      ptr(under(p, i < steps / 2 ? src : dst), "move", p);
+      await sleep(16);
+    }
+    ptr(under(d, dst), "up", d);
+    await sleep(50);
+    return moved();
+  }
+
+  async function reorder(rows) {
+    const els = rows.map((r) => r.el);
+    const parent = els[0].parentElement;
+    if (!parent || els.some((el) => el.parentElement !== parent)) {
+      return { status: "unsupported", detail: "строки не в одном списке" };
+    }
+    const want = targetOrder(rows);
+    const current = () => Array.from(parent.children).filter((c) => els.includes(c));
+    const texts = want.map((r) => cut(textOf(r.el), 40));
+    for (let i = 0; i < want.length; i += 1) {
+      const cur = current();
+      if (cur[i] === want[i].el) continue;
+      if (!(await dragBefore(want[i].el, cur[i], () => current()[i] === want[i].el))) break;
+    }
+    await sleep(100);
+    const final = current();
+    const ok = final.length === want.length && final.every((el, i) => el === want[i].el);
+    const rowsOut = final.map((el, i) => ({ row_ref: refFor(el), value: String(i + 1) }));
+    if (!ok) return { status: "unsupported", detail: "порядок не принят страницей", rows: rowsOut };
+    els.forEach((el) => S.touched.add(el));
+    return { status: "done", detail: "порядок: " + texts.join(" → "), rows: rowsOut };
+  }
+
+  async function fillPairs(box, spec, snapshotId) {
+    const rows = spec.pairs.map((p) => ({ ref: p.row_ref, el: resolve(snapshotId, p.row_ref), text: String(p.option_text) }));
+    if (!rows.length) return { status: "error", detail: "нет пар" };
+    const sels = rows.map((r) => rowSelect(r.el));
+    if (sels.every(Boolean)) {
+      const results = [];
+      for (let i = 0; i < rows.length; i += 1) results.push(await fillOne(sels[i], rows[i].text));
+      const bad = results.findIndex((r) => r.status !== "done");
+      const out = rows.map((r, i) => ({ row_ref: r.ref, value: selectedText(sels[i]) }));
+      if (bad >= 0) return { status: results[bad].status, detail: `строка ${bad + 1}: ${results[bad].detail}`, rows: out };
+      return { status: "done", detail: `выбрано в ${rows.length} строках`, rows: out };
+    }
+    if (sels.some(Boolean)) return { status: "unsupported", detail: "строки разного вида" };
+    if (spec.kind && spec.kind !== "order") return { status: "unsupported", detail: "сопоставление без списков выбора" };
+    return reorder(rows);
+  }
+
   // ── page.fill_form ─────────────────────────────────────────────
   async function fill(a) {
     if (!a.snapshot_id || a.snapshot_id !== S.snap) return { status: "stale", detail: "снимок устарел — нужен новый page_observe" };
     const entries = Object.entries(a.values || {});
-    const stale = entries.filter(([ref]) => !resolve(a.snapshot_id, ref)).map(([ref]) => ref);
+    const refs = entries.flatMap(([ref, value]) => [ref, ...pairRefs(value)]);
+    const stale = refs.filter((ref) => !resolve(a.snapshot_id, ref));
     if (stale.length) return { status: "stale", detail: "элементы из устаревшего снимка", stale_refs: stale };
     const results = [];
     for (const [ref, value] of entries) {
       const el = resolve(a.snapshot_id, ref);
       let r;
-      try { r = await fillOne(el, value); } catch (e) { r = { status: "error", detail: String(e && e.message || e) }; }
+      try {
+        r = isPairs(value) ? await fillPairs(el, value, a.snapshot_id) : await fillOne(el, value);
+      } catch (e) {
+        r = { status: "error", detail: String(e && e.message || e) };
+      }
       results.push(Object.assign({ ref }, r));
     }
     await sleep(Number(a.settle_ms) >= 0 ? Number(a.settle_ms) : 250);
     const fields = results.map((r) => {
       const el = resolve(a.snapshot_id, r.ref);
       const f = { ref: r.ref, status: r.status, detail: r.detail };
+      if (r.rows) f.rows = r.rows;
       if (!el) return f;
       const v = valueOf(el);
       if (v !== undefined) f.value = v;

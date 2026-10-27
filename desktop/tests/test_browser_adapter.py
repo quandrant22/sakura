@@ -1,8 +1,10 @@
 """browser_adapter: инструменты сервера (схема — источник истины) → действия расширения 3.2.0.
 
-Контракт: для каждого tool и каждого значения enum из fixtures/server_tools.json to_ext даёт
-действие, которое есть в расширении (lib/agent.js), op — из content.js act, а все обязательные
-аргументы действия расширения заполнены."""
+Контракт: fixtures/server_tools.json — точная копия выгрузки сервера (scripts/export_tool_schema.py
+ветки server/browser-step; обновляет desktop/scripts/sync_server_tools.*), формат
+sakura.browser_tools/1. Для каждого tool и каждого значения enum, с аргументами server_args и без,
+to_ext даёт действие, которое есть в расширении (lib/agent.js), op — из content.js act, а все
+обязательные аргументы действия расширения заполнены."""
 import itertools
 import json
 import re
@@ -13,7 +15,22 @@ import pytest
 from desktop.core import browser_adapter as A
 
 HERE = Path(__file__).resolve().parent
-SCHEMA = json.loads((HERE / "fixtures" / "server_tools.json").read_text(encoding="utf-8"))["tools"]
+FORMAT = "sakura.browser_tools/1"
+
+
+def load_schema(doc: dict) -> tuple[dict, dict]:
+    """Выгрузка сервера → ({tool: {props, required}}, server_args). Незнакомый формат — ошибка."""
+    if doc.get("format") != FORMAT:
+        raise ValueError(f"неизвестный формат схемы инструментов: {doc.get('format')!r}")
+    tools = {}
+    for t in doc["tools"]:
+        params = t["parameters"]
+        assert params["type"] == "object", t["name"]
+        tools[t["name"]] = {"props": params.get("properties", {}), "required": params.get("required", [])}
+    return tools, doc.get("server_args", {})
+
+
+SCHEMA, SERVER_ARGS = load_schema(json.loads((HERE / "fixtures" / "server_tools.json").read_text(encoding="utf-8")))
 EXT = HERE.parent / "extension"
 AGENT_JS = (EXT / "lib" / "agent.js").read_text(encoding="utf-8")
 CONTENT_JS = (EXT / "content.js").read_text(encoding="utf-8")
@@ -23,25 +40,55 @@ EXT_ACTIONS = set(re.findall(r'"((?:tabs|page|agent_window)\.[a-z_]+)"',
 _act = CONTENT_JS[CONTENT_JS.index("async function act(a)"):CONTENT_JS.index("// ── page.scroll")]
 CONTENT_OPS = set(re.findall(r'case "([a-z_]+)":', _act))
 
+SAMPLE_BY_TYPE = {"string": "f0:e3", "integer": 2, "boolean": True, "number": 1.5}
 SAMPLE = {"tab_id": 12, "url": "https://example.org/", "ref": "f0:e3", "text": "Анна", "key": "Enter",
-          "crop_ref": "f0:e7", "q_index": 2, "file": "cv.pdf", "submit_ref": "f0:e9",
-          "fields": [{"ref": "f0:e3", "value": "Анна"}, {"ref": "f0:e4", "checked": True}]}
+          "crop_ref": "f0:e7", "q_index": 2, "file": "cv.pdf", "submit_ref": "f0:e9", "note": "проверка"}
 CTX = {"tab_id": 11, "window_id": 7, "issue_file": lambda name: "tok-" + name}
+
+
+def _sample(name: str, spec: dict):
+    """Значение аргумента по его JSON Schema. Массив объектов — по элементу на каждое
+    необязательное свойство items (fields: [{ref, value}, {ref, checked}])."""
+    if name in SAMPLE:
+        return SAMPLE[name]
+    if spec.get("type") == "array":
+        props, required = spec["items"]["properties"], spec["items"].get("required", [])
+        base = {k: _sample(k, props[k]) for k in required}
+        return [base | {k: _sample(k, v)} for k, v in props.items() if k not in required]
+    return SAMPLE_BY_TYPE[spec["type"]]
 
 
 def _cases():
     for tool, spec in SCHEMA.items():
         if tool in ("done", "fail"):
             continue
-        enums = {k: v["enum"] for k, v in spec["args"].items() if "enum" in v}
+        props = spec["props"]
+        enums = {k: v["enum"] for k, v in props.items() if "enum" in v}
         names = list(enums)
+        extra = SERVER_ARGS.get(tool, {})
         for combo in itertools.product(*[enums[n] for n in names]) or [()]:
-            args = {k: SAMPLE[k] for k in spec["args"] if k not in enums}
+            args = {k: _sample(k, v) for k, v in props.items() if k not in enums}
             args.update(dict(zip(names, combo, strict=True)))
             yield pytest.param(tool, args, id=f"{tool}-{'-'.join(combo) or 'all'}")
+            if extra:
+                yield pytest.param(tool, args | {k: _sample(k, v) for k, v in extra.items()},
+                                   id=f"{tool}-{'-'.join(combo) or 'all'}-server_args")
         # только обязательные аргументы (без enum-кортежей — их покрывает полный набор)
         if not enums:
-            yield pytest.param(tool, {k: SAMPLE[k] for k in spec["required"]}, id=f"{tool}-required")
+            yield pytest.param(tool, {k: _sample(k, props[k]) for k in spec["required"]}, id=f"{tool}-required")
+
+
+def test_schema_format_is_checked():
+    with pytest.raises(ValueError, match="неизвестный формат"):
+        load_schema({"format": "sakura.browser_tools/2", "tools": []})
+    with pytest.raises(ValueError, match="неизвестный формат"):
+        load_schema({"tools": {}})       # прежняя рукописная схема без format
+
+
+def test_server_args_are_known():
+    assert SERVER_ARGS == {"page_shot": {"q_index": {"type": "integer"}}}
+    for tool, extra in SERVER_ARGS.items():
+        assert tool in SCHEMA and not set(extra) & set(SCHEMA[tool]["props"])
 
 
 def test_extension_sources_parsed():
@@ -70,8 +117,9 @@ def test_contract_every_server_tool_maps_to_extension(tool, args):
 
 
 def test_schema_enums_are_all_mapped():
-    assert set(SCHEMA["page_act"]["args"]["action"]["enum"]) == set(A.ACT_OPS)
-    assert set(SCHEMA["page_scroll"]["args"]["direction"]["enum"]) == {"up", "down", "top", "bottom"}
+    assert set(SCHEMA["page_act"]["props"]["action"]["enum"]) == set(A.ACT_OPS)
+    assert set(SCHEMA["page_scroll"]["props"]["direction"]["enum"]) == {"up", "down", "top", "bottom"}
+    assert all("note" in s["required"] for s in SCHEMA.values())
     assert set(SCHEMA) - {"done", "fail"} == {
         "tabs_list", "tabs_activate", "tabs_new", "tabs_close", "page_observe", "page_act", "page_shot",
         "page_forms", "page_questions", "page_fill_form", "page_upload", "page_scroll"}
@@ -136,9 +184,59 @@ def test_fill_form_fields_to_values():
         "page.act", {"tab_id": 2, "snapshot_id": "s2", "ref": "f0:e9", "op": "click"})
     assert A.submit_followup("page_fill_form", {"fields": fields}, "s2", tab_id=2) is None
     with pytest.raises(A.AdapterError):
-        A.to_ext("page_fill_form", {"fields": [{"ref": "f0:e1", "order": ["f0:e2"]}]}, "s1", tab_id=2)
-    with pytest.raises(A.AdapterError):
         A.to_ext("page_fill_form", {"fields": []}, "s1", tab_id=2)
+
+
+def test_fill_form_pairs_match_and_order():
+    match = {"ref": "f0:e1", "kind": "match",
+             "pairs": [{"row_ref": "f0:e2", "option_text": "Рим"}, {"row_ref": "f0:e3", "option_text": "Мадрид"}]}
+    order = {"ref": "f0:e5", "kind": "order",
+             "pairs": [{"row_ref": "f0:e6", "option_text": 2}, {"row_ref": "f0:e7", "option_text": "1"}]}
+    name, ext = A.to_ext("page_fill_form", {"fields": [match, order, {"ref": "f0:e9", "value": "x"}]}, "s1", tab_id=2)
+    assert name == "page.fill_form" and ext["snapshot_id"] == "s1"
+    assert ext["values"] == {
+        "f0:e1": {"kind": "match", "pairs": match["pairs"]},
+        "f0:e5": {"kind": "order", "pairs": [{"row_ref": "f0:e6", "option_text": "2"},
+                                             {"row_ref": "f0:e7", "option_text": "1"}]},
+        "f0:e9": "x"}
+    # без kind — расширение решает по строкам (select в строке или перестановка); чужой kind не передаётся
+    _, ext = A.to_ext("page_fill_form", {"fields": [{**match, "kind": "single"}]}, "s1", tab_id=2)
+    assert ext["values"]["f0:e1"] == {"pairs": match["pairs"]}
+
+
+def test_fill_form_legacy_order_becomes_positions():
+    _, ext = A.to_ext("page_fill_form", {"fields": [{"ref": "f0:e1", "order": ["f0:e4", "f0:e2", "f0:e3"]}]},
+                      "s1", tab_id=2)
+    assert ext["values"]["f0:e1"] == {"kind": "order", "pairs": [
+        {"row_ref": "f0:e4", "option_text": "1"}, {"row_ref": "f0:e2", "option_text": "2"},
+        {"row_ref": "f0:e3", "option_text": "3"}]}
+
+
+@pytest.mark.parametrize("field", [
+    {"ref": "f0:e1", "pairs": []},
+    {"ref": "f0:e1", "pairs": "f0:e2=Рим"},
+    {"ref": "f0:e1", "pairs": [{"row_ref": "f0:e2"}]},
+    {"ref": "f0:e1", "pairs": [{"option_text": "Рим"}]},
+    {"ref": "f0:e1", "pairs": [{"row_ref": "f0:e2", "option_text": ""}]},
+    {"ref": "f0:e1", "order": []},
+    {"ref": "f0:e1", "order": ["f0:e2", 3]},
+])
+def test_fill_form_bad_pairs(field):
+    with pytest.raises(A.AdapterError) as e:
+        A.to_ext("page_fill_form", {"fields": [field]}, "s1", tab_id=2)
+    assert e.value.status == "error"
+
+
+def test_pairs_reach_extension_rows_from_questions():
+    """Круг: rows из page.questions → пары сервера → values расширения с теми же row_ref."""
+    q = {"q_ref": "f0:e1", "index": 1, "kind": "match", "text": "?",
+         "rows": [{"row_ref": "f0:e2", "text": "Италия"}], "options": [{"text": "Рим"}]}
+    [sq] = A.from_ext_questions([q])
+    assert sq["ref"] == "f0:e1" and sq["rows"] == q["rows"] and sq["options"] == [{"text": "Рим", "name": "Рим"}]
+    field = {"ref": sq["ref"], "kind": sq["kind"],
+             "pairs": [{"row_ref": sq["rows"][0]["row_ref"], "option_text": sq["options"][0]["name"]}]}
+    _, ext = A.to_ext("page_fill_form", {"fields": [field]}, "s3", tab_id=2)
+    assert ext["values"] == {"f0:e1": {"kind": "match", "pairs": [{"row_ref": "f0:e2", "option_text": "Рим"}]}}
 
 
 def test_shot_tabs_upload():

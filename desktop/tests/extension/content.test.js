@@ -209,8 +209,8 @@ describe("page.questions", () => {
     expect(q2.has_media).toBe(false);
     expect(q3.text).toBe("Столица Франции?");
     expect(q3.input_ref).toMatch(/^e\d+$/);
-    expect(q4.options.map((o) => o.text)).toEqual(["Италия", "Испания"]);
-    expect(q4.choices).toEqual(["Рим", "Мадрид"]);
+    expect(q4.rows.map((r) => r.text)).toEqual(["Италия", "Испания"]);
+    expect(q4.options).toEqual([{ text: "Рим" }, { text: "Мадрид" }]);
   });
 
   test("radio (fieldset), role=radiogroup, checkbox по name, текст по нумерации, вопрос с картинкой", () => {
@@ -235,7 +235,7 @@ describe("page.questions", () => {
     const [q1, q2, q3, q4] = A.questions({ snapshot_id: "s1" }).questions;
     const r = await A.fill({
       snapshot_id: "s1", settle_ms: 0,
-      values: { [q1.q_ref]: "Треугольник", [q2.q_ref]: ["2", "7"], [q3.input_ref]: "Париж", [q4.options[0].ref]: "Рим" },
+      values: { [q1.q_ref]: "Треугольник", [q2.q_ref]: ["2", "7"], [q3.input_ref]: "Париж", [q4.rows[0].row_ref]: "Рим" },
     });
     expect(r.status).toBe("done");
     expect(document.getElementById("q5:1_answer1").checked).toBe(true);
@@ -478,5 +478,148 @@ describe("ref из page.questions действуют в следующем сн�
     A.observe({ snapshot_id: "s3" });
     expect(A.rect({ snapshot_id: "s3", ref: q2.q_ref })).toBeNull();
     expect(A.rect({ snapshot_id: "s3", ref: q1.q_ref })).not.toBeNull();
+  });
+});
+
+describe("сопоставление и порядок: rows/options и пары в fill_form", () => {
+  const listIds = () => Array.from(document.querySelectorAll("#id_ordering_q9_3 > li")).map((li) => li.id);
+  const PLANETS = { mercury: "1", venus: "2", earth: "3", mars: "4" };
+
+  function load() {
+    fixture("moodle_match_order.html");
+    A.observe({ snapshot_id: "s1" });
+    return A.questions({ snapshot_id: "s1" }).questions;
+  }
+  // Пары порядка планет: option_text — позиция строки (с 1).
+  function planetPairs(q) {
+    return q.rows.map((r) => ({ row_ref: r.row_ref, option_text: PLANETS[{ Марс: "mars", Меркурий: "mercury", Земля: "earth", Венера: "venus" }[r.text]] }));
+  }
+  // Раскладка списка: прямоугольник по текущему месту строки (страница двигает элементы).
+  function stubListRects(list) {
+    const base = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function () {
+      if (this.parentElement !== list) return base.call(this);
+      const y = 100 + Array.from(list.children).indexOf(this) * 30;
+      return { x: 20, y, left: 20, top: y, width: 200, height: 24, right: 220, bottom: y + 24, toJSON() {} };
+    };
+  }
+
+  test("questions: match и порядок — rows [{row_ref, text}] и общий список options", () => {
+    const [q1, q2, q3] = load();
+    expect(q1).toMatchObject({ index: 1, kind: "match" });
+    expect(q1.rows.map((r) => r.text)).toEqual(["Италия", "Испания", "Франция"]);
+    expect(q1.options).toEqual([{ text: "Рим" }, { text: "Мадрид" }, { text: "Париж" }]);
+    expect(q2).toMatchObject({ index: 2, kind: "order" });
+    expect(q2.rows.map((r) => r.text)).toEqual(["Тестирование", "Проектирование", "Программирование"]);
+    expect(q2.options).toEqual([{ text: "1" }, { text: "2" }, { text: "3" }]);
+    expect(q3).toMatchObject({ index: 3, kind: "order" });
+    expect(q3.rows.map((r) => r.text)).toEqual(["Марс", "Меркурий", "Земля", "Венера"]);
+    expect(q3.options.map((o) => o.text)).toEqual(["1", "2", "3", "4"]);
+    for (const q of [q1, q2, q3]) for (const r of q.rows) expect(r.row_ref).toMatch(/^e\d+$/);
+  });
+
+  test("ref строк стабильны: тот же ref в следующем снимке и повторном questions", () => {
+    const [q1] = load();
+    A.observe({ snapshot_id: "s2" });
+    expect(A.questions({ snapshot_id: "s2" }).questions[0].rows).toEqual(q1.rows);
+    expect(A.missing({ snapshot_id: "s2", refs: q1.rows.map((r) => r.row_ref) })).toEqual([]);
+  });
+
+  test("match: пары {row_ref, option_text} → вариант по тексту в select строки", async () => {
+    const [q1] = load();
+    A.observe({ snapshot_id: "s2" });
+    const pairs = q1.rows.map((r, i) => ({ row_ref: r.row_ref, option_text: ["Рим", "Мадрид", "Париж"][i] }));
+    const r = await A.fill({ snapshot_id: "s2", settle_ms: 0, values: { [q1.q_ref]: { kind: "match", pairs } } });
+    expect(r.status).toBe("done");
+    expect(["menuq9:1_sub0", "menuq9:1_sub1", "menuq9:1_sub2"].map((id) => document.getElementById(id).value)).toEqual(["1", "2", "3"]);
+    expect(r.fields[0].rows.map((x) => x.value)).toEqual(["Рим", "Мадрид", "Париж"]);
+  });
+
+  test("match: нет такого варианта — not_found с номером строки", async () => {
+    const [q1] = load();
+    const pairs = [{ row_ref: q1.rows[0].row_ref, option_text: "Берлин" }];
+    const r = await A.fill({ snapshot_id: "s1", settle_ms: 0, values: { [q1.q_ref]: { kind: "match", pairs } } });
+    expect(r.fields[0]).toMatchObject({ status: "not_found", detail: expect.stringContaining("строка 1") });
+  });
+
+  test("порядок списками номеров: позиция — вариант select в строке", async () => {
+    const [, q2] = load();
+    const pos = { Проектирование: "1", Программирование: "2", Тестирование: "3" };
+    const pairs = q2.rows.map((r) => ({ row_ref: r.row_ref, option_text: pos[r.text] }));
+    const r = await A.fill({ snapshot_id: "s1", settle_ms: 0, values: { [q2.q_ref]: { kind: "order", pairs } } });
+    expect(r.status).toBe("done");
+    expect(["pos_test", "pos_design", "pos_code"].map((id) => document.getElementById(id).value)).toEqual(["3", "1", "2"]);
+  });
+
+  test("перетаскивание HTML5 DnD: dragstart/dragover/drop, итоговый порядок по DOM", async () => {
+    const [, , q3] = load();
+    const list = document.getElementById("id_ordering_q9_3");
+    const seen = [];
+    let dragged = null;
+    list.addEventListener("dragstart", (e) => { dragged = e.target.closest("li"); seen.push(e.type); });
+    list.addEventListener("dragover", (e) => { e.preventDefault(); seen.push(e.type); });
+    list.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const t = e.target.closest("li");
+      if (dragged && t && t !== dragged) list.insertBefore(dragged, t);
+      dragged = null;
+    });
+    const r = await A.fill({ snapshot_id: "s1", settle_ms: 0, values: { [q3.q_ref]: { kind: "order", pairs: planetPairs(q3) } } });
+    expect(r.status).toBe("done");
+    expect(listIds()).toEqual(["ord_mercury", "ord_venus", "ord_earth", "ord_mars"]);
+    expect(seen.slice(0, 2)).toEqual(["dragstart", "dragover"]);
+    expect(r.fields[0].rows.map((x) => x.value)).toEqual(["1", "2", "3", "4"]);
+    expect(r.fields[0].detail).toBe("порядок: Меркурий → Венера → Земля → Марс");
+  });
+
+  test("перетаскивание pointer-событиями: страница ищет место по координатам bbox", async () => {
+    const [, , q3] = load();
+    const list = document.getElementById("id_ordering_q9_3");
+    stubListRects(list);
+    const stop = new AbortController();
+    let dragged = null;
+    let moves = 0;
+    list.addEventListener("pointerdown", (e) => { dragged = e.target.closest("li"); }, { signal: stop.signal });
+    document.addEventListener("pointermove", () => { if (dragged) moves += 1; }, { signal: stop.signal });
+    document.addEventListener("pointerup", (e) => {
+      if (!dragged) return;
+      const t = Array.from(list.children).find((li) => {
+        const b = li.getBoundingClientRect();
+        return e.clientY >= b.top && e.clientY < b.bottom;
+      });
+      if (t && t !== dragged) {
+        const b = t.getBoundingClientRect();
+        list.insertBefore(dragged, e.clientY < b.top + b.height / 2 ? t : t.nextSibling);
+      }
+      dragged = null;
+    }, { signal: stop.signal });
+    try {
+      const r = await A.fill({ snapshot_id: "s1", settle_ms: 0, values: { [q3.q_ref]: { pairs: planetPairs(q3) } } });
+      expect(r.status).toBe("done");
+      expect(listIds()).toEqual(["ord_mercury", "ord_venus", "ord_earth", "ord_mars"]);
+      expect(moves).toBeGreaterThan(0);
+    } finally {
+      stop.abort();
+    }
+  });
+
+  test("страница не принимает перетаскивание — unsupported, порядок не тронут", async () => {
+    const [, , q3] = load();
+    const before = listIds();
+    const r = await A.fill({ snapshot_id: "s1", settle_ms: 0, values: { [q3.q_ref]: { kind: "order", pairs: planetPairs(q3) } } });
+    expect(r.status).toBe("error");
+    expect(r.fields[0]).toMatchObject({ status: "unsupported", detail: "порядок не принят страницей" });
+    expect(listIds()).toEqual(before);
+  });
+
+  test("сопоставление без списков выбора — unsupported; устаревшая строка — stale", async () => {
+    const [, , q3] = load();
+    const pairs = planetPairs(q3);
+    const r = await A.fill({ snapshot_id: "s1", settle_ms: 0, values: { [q3.q_ref]: { kind: "match", pairs } } });
+    expect(r.fields[0]).toMatchObject({ status: "unsupported", detail: "сопоставление без списков выбора" });
+    document.getElementById("ord_venus").remove();
+    const s = await A.fill({ snapshot_id: "s1", settle_ms: 0, values: { [q3.q_ref]: { kind: "order", pairs } } });
+    expect(s.status).toBe("stale");
+    expect(s.stale_refs).toHaveLength(1);
   });
 });

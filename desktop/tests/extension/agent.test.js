@@ -190,6 +190,35 @@ describe("forms / questions через background", () => {
     expect(r.data.questions).toHaveLength(4);
     expect(r.data.questions[0].q_ref).toMatch(/^f0:e\d+$/);
     expect(r.data.questions[0].options[0].ref).toMatch(/^f0:e\d+$/);
+    const match = r.data.questions[3];
+    expect(match.rows.map((x) => x.row_ref)).toEqual([expect.stringMatching(/^f0:e\d+$/), expect.stringMatching(/^f0:e\d+$/)]);
+    expect(match.options).toEqual([{ text: "Рим" }, { text: "Мадрид" }]);   // общий список — без ref
+  });
+
+  test("fill_form с парами: row_ref кадра без префикса в content.js, в ответе — с префиксом", async () => {
+    fixture("moodle_match_order.html");
+    const { agent } = setup();
+    const q = (await agent.handle("page.questions", { tab_id: 11 })).data;
+    const m = q.questions[0];
+    const pairs = m.rows.map((x, i) => ({ row_ref: x.row_ref, option_text: ["Рим", "Мадрид", "Париж"][i] }));
+    const r = await agent.handle("page.fill_form", { tab_id: 11, snapshot_id: q.snapshot_id, values: { [m.q_ref]: { kind: "match", pairs } } });
+    expect(r.status).toBe("done");
+    expect(document.getElementById("menuq9:1_sub2").value).toBe("3");
+    expect(r.data.fields[0].rows.map((x) => x.row_ref)).toEqual(m.rows.map((x) => x.row_ref));
+  });
+
+  test("fill_form: строка пары из другого кадра или устаревшая — stale, ничего не заполнено", async () => {
+    fixture("moodle_match_order.html");
+    const { agent } = setup();
+    const q = (await agent.handle("page.questions", { tab_id: 11 })).data;
+    const m = q.questions[0];
+    const other = await agent.handle("page.fill_form", { tab_id: 11, snapshot_id: q.snapshot_id,
+      values: { [m.q_ref]: { pairs: [{ row_ref: "f5:e1", option_text: "Рим" }] } } });
+    expect(other).toMatchObject({ status: "stale", data: { stale_refs: ["f5:e1"] } });
+    const gone = await agent.handle("page.fill_form", { tab_id: 11, snapshot_id: other.observe.snapshot_id,
+      values: { [m.q_ref]: { pairs: [{ row_ref: "f0:e999", option_text: "Рим" }] } } });
+    expect(gone).toMatchObject({ status: "stale", data: { stale_refs: ["f0:e999"] } });
+    expect(document.getElementById("menuq9:1_sub0").value).toBe("0");
   });
 
   test("upload: файл по токену из ядра", async () => {

@@ -147,13 +147,15 @@
       })),
     }));
   }
+  const prefixRows = (frameId, rows) => rows.map((r) => Object.assign({}, r, { row_ref: pref(frameId, r.row_ref) }));
   function prefixQuestions(frameId, list, off) {
     return (list || []).map((q) => {
       const out = Object.assign({}, q, {
         q_ref: pref(frameId, q.q_ref),
-        options: (q.options || []).map((o) => Object.assign({}, o, { ref: pref(frameId, o.ref) })),
+        options: (q.options || []).map((o) => (o.ref ? Object.assign({}, o, { ref: pref(frameId, o.ref) }) : o)),
       });
       if (q.input_ref) out.input_ref = pref(frameId, q.input_ref);
+      if (q.rows) out.rows = prefixRows(frameId, q.rows);
       if (frameId !== 0) {
         if (off) out.bbox = [q.bbox[0] + off[0], q.bbox[1] + off[1], q.bbox[2], q.bbox[3]];
         else out.frame_local = true;
@@ -165,8 +167,24 @@
     return (fields || []).map((f) => Object.assign({}, f, {
       ref: pref(frameId, f.ref),
       ...(f.options ? { options: f.options.map((o) => Object.assign({}, o, { ref: pref(frameId, o.ref) })) } : {}),
+      ...(f.rows ? { rows: prefixRows(frameId, f.rows) } : {}),
     }));
   }
+
+  // Значение-пары fill_form {pairs: [{row_ref, option_text}], kind?}: строки — в кадре поля, ref локальные.
+  function localPairs(value, frameId) {
+    if (!value || typeof value !== "object" || Array.isArray(value) || !Array.isArray(value.pairs)) return { value };
+    const pairs = [];
+    const bad = [];
+    for (const p of value.pairs) {
+      const r = parseRef(p && p.row_ref);
+      if (!r || r.frameId !== frameId) bad.push(p && p.row_ref);
+      else pairs.push(Object.assign({}, p, { row_ref: r.local }));
+    }
+    return bad.length ? { bad } : { value: Object.assign({}, value, { pairs }) };
+  }
+  const valueRefs = (values) => Object.entries(values).flatMap(([ref, v]) =>
+    [ref, ...(v && Array.isArray(v.pairs) ? v.pairs.map((p) => p.row_ref) : [])]);
 
   /**
    * deps: chrome, capture(windowId, opts) — очередь захвата, codec?, sleep?, fetchUpload(token).
@@ -434,8 +452,10 @@
         for (const [ref, value] of Object.entries(a.values || {})) {
           const p = parseRef(ref);
           if (!p) { bad.push(ref); continue; }
+          const v = localPairs(value, p.frameId);
+          if (v.bad) { bad.push(...v.bad); continue; }
           if (!byFrame.has(p.frameId)) byFrame.set(p.frameId, {});
-          byFrame.get(p.frameId)[p.local] = value;
+          byFrame.get(p.frameId)[p.local] = v.value;
         }
         if (!a.snapshot_id || bad.length || !byFrame.size) {
           return result("stale", "нет snapshot_id или неверные ref", { data: { stale_refs: bad }, observe: await observeAfter(tab.id, a) });
@@ -447,9 +467,9 @@
           try {
             miss = await execFrame(tab.id, frameId,
               (x) => (globalThis.__sakuraAgent ? globalThis.__sakuraAgent.missing(x) : x.refs),
-              [{ snapshot_id: a.snapshot_id, refs: Object.keys(values) }]);
+              [{ snapshot_id: a.snapshot_id, refs: valueRefs(values) }]);
           } catch (_) {
-            miss = Object.keys(values);
+            miss = valueRefs(values);
           }
           for (const m of miss || []) stale.push(pref(frameId, m));
         }

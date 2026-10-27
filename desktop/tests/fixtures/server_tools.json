@@ -1,37 +1,332 @@
 {
-  "_source": "sakura_core/browser_step.py (_tools, spec), ветка server/browser-step 8fa145c. Аргумент note (обязательный у всех) не передаётся в action.",
-  "server_actions": "Кроме навигатора, сервер сам шлёт page_shot {crop_ref, q_index} и page_fill_form {fields: [{ref, checked} | {ref, value} | {ref, option_ref, value} | {ref, order}]} (quiz_solver.fill_fields).",
-  "tools": {
-    "tabs_list": {"args": {}, "required": []},
-    "tabs_activate": {"args": {"tab_id": {"type": "INTEGER"}}, "required": ["tab_id"]},
-    "tabs_new": {"args": {"url": {"type": "STRING"}}, "required": ["url"]},
-    "tabs_close": {"args": {"tab_id": {"type": "INTEGER"}}, "required": ["tab_id"]},
-    "page_observe": {"args": {}, "required": []},
-    "page_act": {
-      "args": {
-        "ref": {"type": "STRING"},
-        "action": {"type": "STRING", "enum": ["click", "type", "select", "check", "uncheck", "press", "focus", "hover", "clear", "submit"]},
-        "text": {"type": "STRING"},
-        "key": {"type": "STRING"}
-      },
-      "required": ["ref", "action"]
+  "format": "sakura.browser_tools/1",
+  "tools": [
+    {
+      "name": "tabs_list",
+      "description": "Список вкладок окна агента.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "note": {
+            "type": "string",
+            "description": "что делаю и зачем, до 200 символов"
+          }
+        },
+        "required": [
+          "note"
+        ]
+      }
     },
-    "page_shot": {"args": {"crop_ref": {"type": "STRING"}, "q_index": {"type": "INTEGER"}}, "required": []},
-    "page_forms": {"args": {}, "required": []},
-    "page_questions": {"args": {}, "required": []},
-    "page_fill_form": {
-      "args": {
-        "fields": {"type": "ARRAY", "items": {"ref": "STRING", "value": "STRING", "checked": "BOOLEAN", "option_ref": "STRING"}},
-        "submit_ref": {"type": "STRING"}
-      },
-      "required": ["fields"]
+    {
+      "name": "tabs_activate",
+      "description": "Сделать вкладку активной.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "tab_id": {
+            "type": "integer"
+          },
+          "note": {
+            "type": "string",
+            "description": "что делаю и зачем, до 200 символов"
+          }
+        },
+        "required": [
+          "tab_id",
+          "note"
+        ]
+      }
     },
-    "page_upload": {"args": {"ref": {"type": "STRING"}, "file": {"type": "STRING"}}, "required": ["ref", "file"]},
-    "page_scroll": {
-      "args": {"direction": {"type": "STRING", "enum": ["up", "down", "top", "bottom"]}, "ref": {"type": "STRING"}},
-      "required": ["direction"]
+    {
+      "name": "tabs_new",
+      "description": "Открыть новую вкладку.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string",
+            "description": "что делаю и зачем, до 200 символов"
+          }
+        },
+        "required": [
+          "url",
+          "note"
+        ]
+      }
     },
-    "done": {"args": {"summary": {"type": "STRING"}}, "required": ["summary"]},
-    "fail": {"args": {"reason": {"type": "STRING"}}, "required": ["reason"]}
+    {
+      "name": "tabs_close",
+      "description": "Закрыть вкладку.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "tab_id": {
+            "type": "integer"
+          },
+          "note": {
+            "type": "string",
+            "description": "что делаю и зачем, до 200 символов"
+          }
+        },
+        "required": [
+          "tab_id",
+          "note"
+        ]
+      }
+    },
+    {
+      "name": "page_observe",
+      "description": "Свежий снимок активной вкладки.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "note": {
+            "type": "string",
+            "description": "что делаю и зачем, до 200 символов"
+          }
+        },
+        "required": [
+          "note"
+        ]
+      }
+    },
+    {
+      "name": "page_act",
+      "description": "Действие над элементом по ref.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "click",
+              "type",
+              "select",
+              "check",
+              "uncheck",
+              "press",
+              "focus",
+              "hover",
+              "clear",
+              "submit"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "description": "для type/select"
+          },
+          "key": {
+            "type": "string",
+            "description": "для press: Enter, Tab, Escape…"
+          },
+          "note": {
+            "type": "string",
+            "description": "что делаю и зачем, до 200 символов"
+          }
+        },
+        "required": [
+          "ref",
+          "action",
+          "note"
+        ]
+      }
+    },
+    {
+      "name": "page_shot",
+      "description": "Кадр вкладки; crop_ref — вырезка элемента.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "crop_ref": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string",
+            "description": "что делаю и зачем, до 200 символов"
+          }
+        },
+        "required": [
+          "note"
+        ]
+      }
+    },
+    {
+      "name": "page_forms",
+      "description": "Поля форм страницы со значениями и ошибками.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "note": {
+            "type": "string",
+            "description": "что делаю и зачем, до 200 символов"
+          }
+        },
+        "required": [
+          "note"
+        ]
+      }
+    },
+    {
+      "name": "page_questions",
+      "description": "Вопросы теста на странице (решает сервер).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "note": {
+            "type": "string",
+            "description": "что делаю и зачем, до 200 символов"
+          }
+        },
+        "required": [
+          "note"
+        ]
+      }
+    },
+    {
+      "name": "page_fill_form",
+      "description": "Заполнить несколько полей; submit_ref — нажать после.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ref": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                },
+                "checked": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "ref"
+              ]
+            }
+          },
+          "submit_ref": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string",
+            "description": "что делаю и зачем, до 200 символов"
+          }
+        },
+        "required": [
+          "fields",
+          "note"
+        ]
+      }
+    },
+    {
+      "name": "page_upload",
+      "description": "Загрузить локальный файл Мастера в поле.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "file": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string",
+            "description": "что делаю и зачем, до 200 символов"
+          }
+        },
+        "required": [
+          "ref",
+          "file",
+          "note"
+        ]
+      }
+    },
+    {
+      "name": "page_scroll",
+      "description": "Прокрутка страницы или элемента.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "direction": {
+            "type": "string",
+            "enum": [
+              "up",
+              "down",
+              "top",
+              "bottom"
+            ]
+          },
+          "ref": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string",
+            "description": "что делаю и зачем, до 200 символов"
+          }
+        },
+        "required": [
+          "direction",
+          "note"
+        ]
+      }
+    },
+    {
+      "name": "done",
+      "description": "Цель достигнута.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string",
+            "description": "что делаю и зачем, до 200 символов"
+          }
+        },
+        "required": [
+          "summary",
+          "note"
+        ]
+      }
+    },
+    {
+      "name": "fail",
+      "description": "Цель недостижима.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string",
+            "description": "что делаю и зачем, до 200 символов"
+          }
+        },
+        "required": [
+          "reason",
+          "note"
+        ]
+      }
+    }
+  ],
+  "server_args": {
+    "page_shot": {
+      "q_index": {
+        "type": "integer"
+      }
+    }
   }
 }
