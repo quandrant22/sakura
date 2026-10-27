@@ -208,6 +208,30 @@ public class ScreensSnapshotTest {
         }
     }
 
+    /** Панель ассистента и виджет (RemoteViews-разметка, статичный кадр ядра). */
+    @Test
+    public void assistantAndWidget() {
+        View a = inflate(R.layout.assistant_panel);
+        freezeCores(a);
+        ((android.widget.TextView) a.findViewById(R.id.status)).setText("Говорю");
+        ((android.widget.TextView) a.findViewById(R.id.transcript)).setText("какая погода завтра");
+        ((android.widget.TextView) a.findViewById(R.id.reply)).setText("Завтра +12 и без дождя.");
+        snap(a, "assistant", Demo.Kind.NORMAL);
+        View locked = inflate(R.layout.assistant_panel);
+        freezeCores(locked);
+        locked.findViewById(R.id.open_app).setVisibility(View.GONE);
+        ((android.widget.TextView) locked.findViewById(R.id.status)).setText("Слушаю");
+        snap(locked, "assistant", Demo.Kind.EMPTY);
+
+        View w = inflate(R.layout.widget_core);
+        ((android.widget.ImageView) w.findViewById(R.id.w_core)).setImageBitmap(
+                SakuraCoreView.renderStatic(paparazzi.getContext(), CoreFrame.State.IDLE, 112));
+        ((android.widget.TextView) w.findViewById(R.id.w_a1)).setText("⏯ Пауза");
+        ((android.widget.TextView) w.findViewById(R.id.w_a2)).setText("⏭ Дальше");
+        ((android.widget.TextView) w.findViewById(R.id.w_a3)).setText("Чайник");
+        snap(w, "widget", Demo.Kind.NORMAL);
+    }
+
     private Settings settings() {
         Context c = paparazzi.getContext();
         return new Settings(c);   // в layoutlib SharedPreferences — заглушка: значения по умолчанию

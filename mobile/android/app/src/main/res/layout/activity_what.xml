@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/what_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/sakuraBg">
+
+    <androidx.camera.view.PreviewView
+        android:id="@+id/preview"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <app.sakura.mobile.core.SakuraCoreView
+        android:id="@+id/core"
+        android:layout_width="@dimen/core_small"
+        android:layout_height="@dimen/core_small"
+        android:layout_gravity="top|start"
+        android:layout_margin="@dimen/edge"
+        android:transitionName="core" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_margin="@dimen/edge"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/answer"
+            style="@style/Sakura.Body"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/gap_small"
+            android:background="@drawable/bg_card"
+            android:padding="@dimen/edge"
+            android:visibility="gone" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/shoot"
+            style="@style/Widget.Sakura.Button"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Что это?"
+            app:icon="@drawable/ic_camera"
+            app:iconTint="?attr/sakuraAccentDeep" />
+    </LinearLayout>
+</FrameLayout>

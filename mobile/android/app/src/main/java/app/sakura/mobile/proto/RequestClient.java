@@ -54,6 +54,11 @@ public final class RequestClient {
 
     /** Отправить запрос; message изменяется (добавляется request_id). Возвращает request_id или null. */
     public String request(JSONObject message, Callback callback) {
+        return request(message, TIMEOUT_MS, callback);
+    }
+
+    /** То же с собственным таймаутом (vision_request — ответ LLM дольше 10 с). */
+    public String request(JSONObject message, long timeoutMs, Callback callback) {
         if (!transport.ready()) {
             scheduler.execute(() -> callback.onError(new ApiError(ApiError.OFFLINE, "")));
             return null;
@@ -70,7 +75,7 @@ public final class RequestClient {
             } catch (JSONException e) {
                 return null;
             }
-            ScheduledFuture<?> timer = scheduler.schedule(() -> expire(id), TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            ScheduledFuture<?> timer = scheduler.schedule(() -> expire(id), timeoutMs, TimeUnit.MILLISECONDS);
             pending.put(id, new Pending(callback, timer));
         }
         if (!transport.send(message.toString())) {

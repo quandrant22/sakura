@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_card"
+    android:minWidth="280dp"
+    android:orientation="vertical"
+    android:padding="@dimen/edge">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Сакура"
+        android:textColor="?attr/sakuraInk"
+        android:textSize="@dimen/text_title"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/share_status"
+        style="@style/Sakura.Body"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/gap_small" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/share_close"
+        style="@style/Widget.Sakura.Button"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end"
+        android:layout_marginTop="@dimen/gap_small"
+        android:text="Готово" />
+</LinearLayout>

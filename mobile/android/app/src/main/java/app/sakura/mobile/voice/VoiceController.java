@@ -35,6 +35,8 @@ public final class VoiceController implements SpeechInput.Listener, PlaybackCont
 
     private final MutableLiveData<CoreFrame.State> state = new MutableLiveData<>(CoreFrame.State.OFFLINE);
     private final MutableLiveData<String> transcript = new MutableLiveData<>("");
+    private final MutableLiveData<String> lastReply = new MutableLiveData<>("");
+    private boolean assistantSession;
     private volatile float level;
 
     private boolean online;
@@ -97,6 +99,29 @@ public final class VoiceController implements SpeechInput.Listener, PlaybackCont
 
     public LiveData<String> transcript() {
         return transcript;
+    }
+
+    /** Текст последнего ответа Сакуры (панель ассистента). */
+    public LiveData<String> lastReply() {
+        return lastReply;
+    }
+
+    /**
+     * Панель ассистента (долгое нажатие питания): система показала наш интерфейс — микрофон разрешён,
+     * хотя приложение не открыто.
+     */
+    public void setAssistantSession(boolean on) {
+        assistantSession = on;
+        if (!on && !foreground) {
+            input.cancel();
+        }
+    }
+
+    public void listenForAssistant() {
+        if (speaking) {
+            interrupt();
+        }
+        listen();
     }
 
     /** Уровень звука для ядра (микрофон или озвучка). */
@@ -196,8 +221,8 @@ public final class VoiceController implements SpeechInput.Listener, PlaybackCont
     }
 
     private void listen() {
-        if (!foreground) {
-            return;   // микрофон — только из открытого приложения (D18)
+        if (!foreground && !assistantSession) {
+            return;   // микрофон — только из открытого приложения или панели ассистента (D18)
         }
         main.removeCallbacks(followUpTimeout);
         wake.pause(true);
@@ -292,6 +317,7 @@ public final class VoiceController implements SpeechInput.Listener, PlaybackCont
     private void onReply(JSONObject m) {
         lastKind = m.optString("kind", "llm");
         lastText = m.optString("text", "");
+        lastReply.setValue(lastText);
         if ("confirm".equals(lastKind)) {
             confirmPending = true;
         }

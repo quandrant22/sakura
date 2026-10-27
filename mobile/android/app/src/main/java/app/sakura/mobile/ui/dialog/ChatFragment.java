@@ -97,6 +97,16 @@ public class ChatFragment extends Fragment {
             }
         });
         activity.bindCore(screen.core);
+        view.findViewById(R.id.btn_what).setOnClickListener(v -> {
+            Intent i = new Intent(requireContext(), app.sakura.mobile.vision.WhatIsThisActivity.class);
+            if (app.sakura.mobile.ui.Motion.reduced()) {
+                startActivity(i);
+            } else {
+                // общий элемент: ядро «перелетает» в угол экрана камеры
+                startActivity(i, android.app.ActivityOptions.makeSceneTransitionAnimation(requireActivity(),
+                        screen.core, "core").toBundle());
+            }
+        });
         model.state().observe(getViewLifecycleOwner(), screen::render);
         voice.state().observe(getViewLifecycleOwner(),
                 s -> screen.renderCore(s, voice.transcript().getValue()));

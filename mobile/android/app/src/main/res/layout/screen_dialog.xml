@@ -43,6 +43,14 @@
         </LinearLayout>
 
         <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_what"
+            style="@style/Widget.Sakura.IconButton.OnBg"
+            android:layout_width="@dimen/touch"
+            android:layout_height="@dimen/touch"
+            android:contentDescription="Что это? (камера)"
+            app:icon="@drawable/ic_camera" />
+
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_search"
             style="@style/Widget.Sakura.IconButton.OnBg"
             android:layout_width="@dimen/touch"

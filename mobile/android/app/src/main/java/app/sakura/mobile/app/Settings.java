@@ -104,7 +104,7 @@ public final class Settings {
 
     /** Три действия виджета через запятую (action_run). */
     public String widgetActions() {
-        return prefs.getString(WIDGET_ACTIONS, "music.play_pause,music.next,kettle.on");
+        return prefs.getString(WIDGET_ACTIONS, "music.play_pause,music.next,kettle.boil");
     }
 
     public void setWidgetActions(String csv) {

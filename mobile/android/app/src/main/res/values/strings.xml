@@ -1,3 +1,8 @@
 <resources>
     <string name="app_name">Sakura</string>
+    <string name="widget_description">Ядро Сакуры: говорить и три кнопки пульта</string>
+    <string name="tile_label">Сакура</string>
+    <string name="assistant_label">Сакура</string>
+    <string name="share_label">Отправить Сакуре</string>
+    <string name="what_label">Что это?</string>
 </resources>

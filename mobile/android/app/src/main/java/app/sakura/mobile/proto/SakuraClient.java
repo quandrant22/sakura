@@ -237,9 +237,13 @@ public final class SakuraClient implements SecureLink.Listener, RequestClient.Tr
 
     /** Произвольный запрос v2 (history_request, devices_request, action_run, …). */
     public void request(JSONObject message, RequestClient.Callback callback) {
+        request(message, RequestClient.TIMEOUT_MS, callback);
+    }
+
+    public void request(JSONObject message, long timeoutMs, RequestClient.Callback callback) {
         scheduler.execute(() -> {
             Json.put(message, "device_id", deviceId());
-            requests.request(message, callback);
+            requests.request(message, timeoutMs, callback);
         });
     }
 

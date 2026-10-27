@@ -68,6 +68,17 @@
         <item name="iconTint">?attr/sakuraOnBg</item>
     </style>
 
+    <style name="Sakura.WidgetButton" parent="">
+        <item name="android:background">@drawable/bg_widget_button</item>
+        <item name="android:gravity">center</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+        <item name="android:paddingStart">6dp</item>
+        <item name="android:paddingEnd">6dp</item>
+        <item name="android:textColor">@color/night_ink</item>
+        <item name="android:textSize">@dimen/text_small</item>
+    </style>
+
     <style name="Sakura.NavIndicator" parent="Widget.Material3.BottomNavigationView.ActiveIndicator">
         <item name="android:color">?attr/sakuraAccentSoft</item>
     </style>

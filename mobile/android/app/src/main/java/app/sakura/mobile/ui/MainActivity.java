@@ -45,7 +45,8 @@ import app.sakura.mobile.voice.VoiceController;
  * Пять вкладок (Диалог, Пульт, Сводка, Сценарии, Ещё), подэкраны поверх вкладки со стеком «Назад»
  * (predictive back), переходы 150 мс, общий диалог подтверждения reply kind:"confirm".
  */
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity
+        implements app.sakura.mobile.ui.more.InterfaceFragment.FloatingCoreToggle {
     /** Открыть приложение и сразу слушать (уведомление, плитка, виджет, ассистент). */
     public static final String ACTION_LISTEN = "app.sakura.mobile.LISTEN";
     /** Из уведомления «нет разрешения: …» — сразу экран «Разрешения». */
@@ -270,6 +271,29 @@ public class MainActivity extends AppCompatActivity {
             intent.setAction(null);
             ((BottomNavigationView) findViewById(R.id.nav)).setSelectedItemId(R.id.tab_dialog);
             findViewById(R.id.main).post(() -> withMic(voice::tap));
+        }
+    }
+
+    /** «Плавающее ядро»: нужно разрешение «поверх окон» — без него открываем системный экран. */
+    @Override
+    public void setFloatingCore(boolean on) {
+        Settings s = SakuraApp.get().settings();
+        s.setFloatingCore(on);
+        if (!on) {
+            app.sakura.mobile.overlay.FloatingCoreService.stop(this);
+        } else if (android.provider.Settings.canDrawOverlays(this)) {
+            app.sakura.mobile.overlay.FloatingCoreService.start(this);
+        } else {
+            startActivity(app.sakura.mobile.app.Permissions.settingsIntent(this,
+                    app.sakura.mobile.app.Permissions.Kind.OVERLAY));
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (SakuraApp.get().settings().floatingCore() && android.provider.Settings.canDrawOverlays(this)) {
+            app.sakura.mobile.overlay.FloatingCoreService.start(this);
         }
     }
 
