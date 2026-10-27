@@ -1,17 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/main"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="?attr/sakuraBg"
+    android:gravity="center_horizontal"
+    android:orientation="vertical"
     tools:context=".ui.MainActivity">
 
     <app.sakura.mobile.core.SakuraCoreView
         android:id="@+id/core"
         android:layout_width="@dimen/core_size"
         android:layout_height="@dimen/core_size"
-        android:layout_gravity="center"
+        android:layout_marginTop="@dimen/gap"
         android:transitionName="core" />
 
-</FrameLayout>
+    <TextView
+        android:id="@+id/core_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="?attr/sakuraInk"
+        android:textSize="@dimen/text_title" />
+
+    <TextView
+        android:id="@+id/transcript"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="@dimen/edge"
+        android:gravity="center"
+        android:minLines="2"
+        android:textColor="?attr/sakuraInkDim"
+        android:textSize="@dimen/text_body" />
+
+</LinearLayout>

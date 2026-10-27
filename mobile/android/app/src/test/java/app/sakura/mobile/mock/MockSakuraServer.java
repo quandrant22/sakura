@@ -383,7 +383,7 @@ public final class MockSakuraServer implements Closeable {
             if (speak) {
                 byte[] pcm = new byte[480];
                 sendJson(Json.obj("type", "tts_chunk", "turn_id", "t1", "sample_rate", 24000,
-                        "data", Base64.getEncoder().encodeToString(pcm)));
+                        "audio", Base64.getEncoder().encodeToString(pcm)));
                 sendJson(Json.obj("type", "tts_end", "turn_id", "t1"));
             }
             sendJson(Json.obj("type", "chat_message", "message", message("42", "assistant", reply, channel)));

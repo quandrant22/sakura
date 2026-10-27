@@ -15,6 +15,8 @@ import java.util.concurrent.TimeUnit;
 import app.sakura.mobile.keys.DeviceKeyStore;
 import app.sakura.mobile.keys.KeystoreWrapper;
 import app.sakura.mobile.proto.SakuraClient;
+import app.sakura.mobile.voice.ModelInstaller;
+import app.sakura.mobile.voice.VoiceController;
 import okhttp3.OkHttpClient;
 
 /**
@@ -28,6 +30,7 @@ public class SakuraApp extends Application {
     private OkHttpClient http;
     private DeviceKeyStore keys;
     private SakuraClient client;
+    private VoiceController voice;
     private Settings settings;
     private final InputTracker input = new InputTracker();
     private int started;
@@ -54,6 +57,7 @@ public class SakuraApp extends Application {
                 .build();
         keys = new DeviceKeyStore(new File(getFilesDir(), "keys"), new KeystoreWrapper());
         client = new SakuraClient(http, keys, net, SystemClock::elapsedRealtime, new AndroidDeviceInfo(this, input));
+        voice = new VoiceController(this, client, settings, new ModelInstaller(new File(getFilesDir(), "vosk")));
         Notifications.createChannels(this);
         registerActivityLifecycleCallbacks(new Visibility());
         ConnectivityManager cm = getSystemService(ConnectivityManager.class);
@@ -72,6 +76,10 @@ public class SakuraApp extends Application {
 
     public SakuraClient client() {
         return client;
+    }
+
+    public VoiceController voice() {
+        return voice;
     }
 
     public DeviceKeyStore keys() {
