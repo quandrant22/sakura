@@ -153,6 +153,105 @@ def test_prompt_master_has_performance_block_guest_does_not():
     assert "ИСПОЛНЕНИЕ ПО ПРОСЬБЕ" not in guest and "[ТОН" not in guest
 
 
+def test_prompt_performance_block_is_own_section_after_master():
+    master = personality.get_system_prompt(for_master=True)
+    with_master = master.index("С МАСТЕРОМ")
+    perf = master.index("ИСПОЛНЕНИЕ ПО ПРОСЬБЕ")
+    # «С МАСТЕРОМ» цельный: все его правила до заголовка исполнения
+    assert with_master < master.index("Сухая ирония") < perf
+    assert master.index("личная территория") < perf < master.index("С ОСТАЛЬНЫМИ")
+    assert "\n\nИСПОЛНЕНИЕ ПО ПРОСЬБЕ\n" in master
+    assert ("Невозмутимость: тон ровный в любой ситуации — если Мастер сам не попросил "
+            "сыграть иначе. Не суетишься") in master
+
+
+# ── основной голосовой путь (adapters/voice.py): тег — всем стадиям ──
+
+def _voice_capture(monkeypatch, tokens=None, generated=None):
+    import adapters.voice as av
+    import config
+    from sakura_core import llm
+
+    stages = []
+
+    async def fake_stream_tokens(*args, **kwargs):
+        for t in tokens or ():
+            yield t
+
+    async def fake_synthesize(text, emotion, put, label=""):
+        stages.append(text)
+        await put(b"a")
+
+    async def fake_generate(*args, **kwargs):
+        return generated
+
+    async def fake_two_stage(first, rest, ws, dev, emotion, t0, stop=None):
+        stages.extend([first, rest])
+        return 2
+
+    def fake_sender(ws, device_id):
+        async def _s(packet):
+            pass
+        return _s
+
+    monkeypatch.setattr(tts, "TTS_TONE_FROM_LLM", True)
+    monkeypatch.setattr(config, "VOICE_MAX_CHARS", 0)
+    monkeypatch.setattr(llm, "stream_tokens", fake_stream_tokens)
+    monkeypatch.setattr(llm, "generate", fake_generate)
+    monkeypatch.setattr(av, "_live_synthesize", fake_synthesize)
+    monkeypatch.setattr(av, "_make_audio_sender", fake_sender)
+    monkeypatch.setattr(av, "_stream_two_stage", fake_two_stage)
+
+    def run():
+        return asyncio.run(av.stream_llm_to_tts(
+            contents="т", system="", websocket=object(), device_id="pc",
+            client=object(), model="m", api_key="test-key-cache-1"))
+    return stages, run
+
+
+def _tags(text):
+    return len(tts._TONE_RE.findall(text))
+
+
+SULTRY_STREAM = ("[ТОН: томно] Добрый вечер, Мастер. ", "Ночь сегодня тихая и долгая. ",
+                 "Я рядом и слушаю каждое ваше слово. ", "Скажите, чего вам хочется сейчас.")
+
+
+def test_voice_stream_tag_reaches_every_stage(monkeypatch):
+    stages, run = _voice_capture(monkeypatch, tokens=SULTRY_STREAM)
+    text, _ = run()
+    # длинный ответ: стадия 1 из pending, дальше — ветка started
+    assert len(stages) >= 3
+    assert [tts._stage_tone(s)[0] for s in stages] == ["томно"] * len(stages)
+    assert all(_tags(s) == 1 for s in stages)               # без двойного тега
+    assert " ".join(tts._stage_tone(s)[1] for s in stages) == tts.strip_tone(text)[1]
+
+
+def test_voice_stream_short_reply_single_stage_no_double_tag(monkeypatch):
+    stages, run = _voice_capture(monkeypatch, tokens=("[ТОН: томно] Добрый вечер. ", "Я здесь."))
+    run()
+    assert len(stages) == 1                                # одиночная стадия из pending
+    assert _tags(stages[0]) == 1
+    assert tts._stage_tone(stages[0]) == ("томно", "Добрый вечер. Я здесь.")
+
+
+def test_voice_stream_without_tag_has_no_tone(monkeypatch):
+    stages, run = _voice_capture(monkeypatch, tokens=tuple(
+        s.replace("[ТОН: томно] ", "") for s in SULTRY_STREAM))
+    run()
+    assert len(stages) >= 3
+    assert all(_tags(s) == 0 and tts._stage_tone(s)[0] is None for s in stages)
+
+
+def test_voice_fallback_two_stage_gets_tag_on_both(monkeypatch):
+    stages, run = _voice_capture(
+        monkeypatch, generated="[ТОН: томно] Добрый вечер, Мастер. Ночь тихая. Я рядом.")
+    run()
+    assert len(stages) == 2
+    assert [tts._stage_tone(s)[0] for s in stages] == ["томно", "томно"]
+    assert all(_tags(s) == 1 for s in stages)
+
+
 def test_sultry_protocol_id():
     assert TONE_IDS["томно"] == "sultry" and TONE_FROM_ID["sultry"] == "томно"
     assert set(TONE_IDS) == set(tts.TONES)

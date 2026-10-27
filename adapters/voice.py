@@ -31,6 +31,7 @@ from modules.tts_server import (
     _live_synthesize,
     _live_synthesize_preferred,
     _stream_two_stage,
+    strip_tone,
 )
 from modules.state import connected_devices
 import modules.tts_server as _tts
@@ -175,6 +176,15 @@ async def stream_llm_to_tts(
     max_chars = config.VOICE_MAX_CHARS
     changed = asyncio.Event()          # новая стадия или конец стрима
     stream_done = False
+    # Тег [ТОН: …] из первой реплики ответа — каждой его стадии (иначе тон
+    # получила бы только та, где он стоял); снимает его _stage_tone в
+    # синтезе. Живёт в рамках этого вызова, как в stream_tts_to_device.
+    reply_tag: str | None = None
+
+    def _toned(text: str) -> str:
+        if not reply_tag or strip_tone(text)[0]:
+            return text                # тега нет или он уже стоит в тексте
+        return f"[ТОН: {reply_tag}] {text}"
 
     async def _produce(text: str, q: asyncio.Queue, stage: int) -> None:
         try:
@@ -203,7 +213,7 @@ async def stream_llm_to_tts(
         log.info(f"[voice] стадия {len(queues)}: старт "
                  f"+{(time.monotonic()-base)*1000:.0f}мс от приёма, {len(text)} симв"
                  + (" (звук держится до вердикта)" if held else ""))
-        producers.append(asyncio.create_task(_produce(text, q, len(queues))))
+        producers.append(asyncio.create_task(_produce(_toned(text), q, len(queues))))
         changed.set()
 
     async def _drain(q: asyncio.Queue) -> bool:
@@ -298,6 +308,8 @@ async def stream_llm_to_tts(
                         break
                     stop_after = fitted != sentence
                     sentence = fitted
+                if not parts:
+                    reply_tag = strip_tone(sentence)[0] or None
                 parts.append(sentence)
                 if started:
                     await _before_stage()
@@ -351,10 +363,11 @@ async def stream_llm_to_tts(
                 # Вердикта ещё нет: команда → задача отменена здесь же,
                 # буфер выброшен, TTS не вызван.
                 await gate.wait_open()
+            reply_tag = strip_tone(clean)[0] or None
             first, _, rest = clean.partition(". ")
             if rest.strip():
-                await _stream_two_stage(first.strip() + ".", rest.strip(), websocket,
-                                        device_id, emotion, t0, stop=stop)
+                await _stream_two_stage(_toned(first.strip() + "."), _toned(rest.strip()),
+                                        websocket, device_id, emotion, t0, stop=stop)
             elif websocket:
                 await _live_synthesize_preferred(
                     clean, emotion, _make_audio_sender(websocket, device_id),
