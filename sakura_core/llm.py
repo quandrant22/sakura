@@ -584,7 +584,7 @@ async def generate_agent(contents, *, chain, system: str = "", tools=None,
                          thinking_level: str | None = None,
                          limiter=None, timeout: float = AGENT_TIMEOUT_S,
                          inline_wait: float = AGENT_INLINE_WAIT_S,
-                         sleep=asyncio.sleep) -> AgentResponse:
+                         sleep=asyncio.sleep, on_event=None) -> AgentResponse:
     """Вызов browser agent: модели цепочки по порядку через лимитер квот.
 
     Квоты нет дольше inline_wait — QuotaWait (desktop получит status:wait).
@@ -593,7 +593,16 @@ async def generate_agent(contents, *, chain, system: str = "", tools=None,
     затем так же следующая модель. Все выведены — ChainExhausted (пауза
     задачи). Прочие ошибки — AgentLLMError. thinking_level — для Gemma
     ThinkingConfig(thinking_level=…); без него мысли по умолчанию модели.
-    Параметры — через filter_params (S4)."""
+    Параметры — через filter_params (S4). on_event(kind, **data) — метрики:
+    "call" (model, latency, ok, code) на каждую попытку, "wait" (seconds) на
+    каждое ожидание лимитера внутри вызова."""
+    def emit(kind: str, **data) -> None:
+        if on_event is not None:
+            try:
+                on_event(kind, **data)
+            except Exception as error:  # noqa: BLE001 — метрики не ломают вызов
+                log.debug("[agent-llm] метрика: %s", type(error).__name__)
+
     from sakura_core import rate_limiter
     limiter = limiter or rate_limiter.get()
     models = tuple(dict.fromkeys(m for m in chain if m))
@@ -620,6 +629,7 @@ async def generate_agent(contents, *, chain, system: str = "", tools=None,
             if wait > inline_wait:
                 raise QuotaWait(wait, model)
             if wait > 0:
+                emit("wait", seconds=wait)
                 await sleep(wait)
                 continue
             limiter.take(model)
@@ -632,6 +642,8 @@ async def generate_agent(contents, *, chain, system: str = "", tools=None,
                 kind = _error_kind(error)
                 log.info("[agent-llm] model=%s code=%s elapsed=%.1fs", model,
                          _error_code(error), time.monotonic() - started)
+                emit("call", model=model, latency=time.monotonic() - started, ok=False,
+                     code="429" if kind == "rate_limit" else _error_code(error))
                 if kind == "rate_limit":
                     limiter.on_429(model, retry_delay(error), quota_per_day(error))
                     continue                            # wait()/exhausted решат
@@ -640,6 +652,7 @@ async def generate_agent(contents, *, chain, system: str = "", tools=None,
                     continue                            # 5→10→20 с, затем модель выведена
                 break
             limiter.on_success(model)
+            emit("call", model=model, latency=time.monotonic() - started, ok=True, code="")
             usage = getattr(response, "usage_metadata", None)
             tokens = int(getattr(usage, "total_token_count", 0) or 0)
             log.info("[agent-llm] success model=%s elapsed=%.1fs tokens=%d", model,

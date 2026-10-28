@@ -211,7 +211,7 @@ def _validate_pairs(kind: str, parts, pairs) -> list[dict]:
 
 
 async def solve(question: dict, crop: bytes | None = None, *, seconds_left=None,
-                limiter=None) -> dict:
+                limiter=None, on_event=None) -> dict:
     """{reasoning, answer, model, tokens}. Квотные исключения (QuotaWait,
     ChainExhausted) пробрасываются — их обрабатывает шаг задачи."""
     from google.genai import types as T
@@ -227,7 +227,8 @@ async def solve(question: dict, crop: bytes | None = None, *, seconds_left=None,
     for _attempt in (1, 2):
         result = await generate_agent(
             parts, chain=config.QUIZ_MODEL_CHAIN, response_mime_type="application/json",
-            response_schema=_schema(), max_tokens=512 if short else 2048, limiter=limiter)
+            response_schema=_schema(), max_tokens=512 if short else 2048, limiter=limiter,
+            on_event=on_event)
         tokens += result.tokens
         try:
             obj = parse_json(getattr(result.response, "text", "") or "")

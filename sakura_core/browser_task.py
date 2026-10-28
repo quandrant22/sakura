@@ -37,7 +37,7 @@ _PERSISTED = ("task_id", "goal", "start_url", "device_id", "window_id", "tab_id"
               "steps", "notes", "summary", "summarized_upto", "answers", "started_at",
               "tokens_used", "state", "step", "pause_kind", "pause_reason", "resume_at",
               "last_note", "last_url", "stale_streak", "form_retries", "finished_at",
-              "paused_s", "paused_since")
+              "paused_s", "paused_since", "metrics")
 
 
 @dataclass
@@ -81,6 +81,10 @@ class BrowserTask:
     finished_at: float | None = None
     paused_s: float = 0.0                         # сколько задача простояла на паузах
     paused_since: float | None = None
+    # Метрики (только числа): вызовы по роли:модели, ошибки по коду, ожидание
+    # лимитера, задержки удачных вызовов (browser_step.record_event).
+    metrics: dict = field(default_factory=lambda: {"calls": {}, "errors": {},
+                                                    "wait_s": 0.0, "lat": []})
     # ── только в памяти ──
     ws: object = field(default=None, repr=False)
     reasoning: dict = field(default_factory=dict, repr=False)   # index → рассуждение решателя

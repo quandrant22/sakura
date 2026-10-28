@@ -31,6 +31,7 @@ import base64
 import binascii
 import json
 import logging
+import math
 import re
 import time
 
@@ -346,7 +347,8 @@ async def navigate(task: bt.BrowserTask, obs: dict, hint: str = "") -> tuple[str
         result = await generate_agent(
             build_request(task, obs, hint + extra), chain=config.BROWSER_MODEL_CHAIN,
             system=SYSTEM, tools=tools, tool_config=tool_config, max_tokens=NAV_MAX_TOKENS,
-            thinking_level=config.BROWSER_NAV_THINKING or None)
+            thinking_level=config.BROWSER_NAV_THINKING or None,
+            on_event=recorder(task, "nav"))
         task.tokens_used += result.tokens
         parsed = parse_tool_call(result.response)
         if parsed is None:
@@ -373,7 +375,8 @@ async def summarize(task: bt.BrowserTask) -> None:
                                    journal=render_journal(task))
     result = await generate_agent([T.Part(text=prompt)], chain=config.BROWSER_MODEL_CHAIN,
                                   max_tokens=1024,
-                                  thinking_level=config.BROWSER_NAV_THINKING or None)
+                                  thinking_level=config.BROWSER_NAV_THINKING or None,
+                                  on_event=recorder(task, "nav"))
     task.tokens_used += result.tokens
     text = ""
     try:
@@ -660,7 +663,8 @@ async def _solve_batch(task: bt.BrowserTask, obs: dict) -> None:
     left = timer.get("seconds_left") if isinstance(timer, dict) else None
     todo = [idx for idx in q["batch"] if idx not in q["solved"]]
     results = await asyncio.gather(
-        *(qs.solve(q["questions"][idx], _crop(task, idx), seconds_left=left) for idx in todo),
+        *(qs.solve(q["questions"][idx], _crop(task, idx), seconds_left=left,
+                   on_event=recorder(task, "solver")) for idx in todo),
         return_exceptions=True)
     deferred, failed = [], set()
     for idx, res in zip(todo, results):
@@ -795,6 +799,90 @@ async def progress(task: bt.BrowserTask, *, force: bool = False) -> None:
         task.progress_msg = await tg_send(tg_text)
 
 
+# ── метрики задачи ───────────────────────────────────────────────────
+
+LAT_KEEP = 2000           # задержек на задачу храним не больше
+
+
+def _error_key(code: str) -> str:
+    code = str(code or "").upper()
+    return {"RESOURCE_EXHAUSTED": "429", "INTERNAL": "500", "UNAVAILABLE": "503"}.get(code, code)
+
+
+def recorder(task: bt.BrowserTask, role: str):
+    """on_event для generate_agent: роль nav | solver."""
+    def on_event(kind: str, **data) -> None:
+        m = task.metrics
+        if kind == "wait":
+            m["wait_s"] = m.get("wait_s", 0.0) + float(data.get("seconds") or 0.0)
+        elif kind == "call":
+            key = f"{role}:{data.get('model')}"
+            m.setdefault("calls", {})[key] = m["calls"].get(key, 0) + 1
+            if data.get("ok"):
+                lat = m.setdefault("lat", [])
+                if len(lat) < LAT_KEEP:
+                    lat.append(round(float(data.get("latency") or 0.0), 2))
+            else:
+                code = _error_key(data.get("code"))
+                m.setdefault("errors", {})[code] = m["errors"].get(code, 0) + 1
+    return on_event
+
+
+def _pct(values: list, p: float) -> float | None:
+    """Перцентиль по ближайшему рангу."""
+    if not values:
+        return None
+    v = sorted(values)
+    k = max(0, min(len(v) - 1, math.ceil(p / 100 * len(v)) - 1))
+    return v[k]
+
+
+def metrics_summary(task: bt.BrowserTask, now: float | None = None) -> dict:
+    m = task.metrics
+    now = time.time() if now is None else now
+    end = task.finished_at or now
+    by_role: dict = {"nav": {}, "solver": {}}
+    for key, n in sorted((m.get("calls") or {}).items()):
+        role, _, model = key.partition(":")
+        by_role.setdefault(role, {})[model] = n
+    lat = m.get("lat") or []
+    return {"task_id": task.task_id, "outcome": task.state, "steps": task.step,
+            "nav": by_role["nav"], "solver": by_role["solver"],
+            "errors": dict(sorted((m.get("errors") or {}).items())),
+            "wait_s": round(m.get("wait_s", 0.0), 1),
+            "lat_median_s": _pct(lat, 50), "lat_p90_s": _pct(lat, 90), "calls_ok": len(lat),
+            "time_s": round(end - task.started_at, 1),
+            "active_s": round(task.active_seconds(end), 1)}
+
+
+def _models(d: dict) -> str:
+    return ",".join(f"{k}:{v}" for k, v in d.items()) or "—"
+
+
+def metrics_line(task: bt.BrowserTask) -> str:
+    """Одна строка в лог на задачу: только числа и имена моделей."""
+    s = metrics_summary(task)
+    errors = s["errors"]
+    other = sum(v for k, v in errors.items() if k not in ("429", "500", "503"))
+    return (f"[browser-metrics] task={s['task_id']} итог={s['outcome']} шагов={s['steps']} "
+            f"nav={_models(s['nav'])} solver={_models(s['solver'])} "
+            f"429={errors.get('429', 0)} 500={errors.get('500', 0)} 503={errors.get('503', 0)} "
+            f"прочие_ошибки={other} ожидание_лимитера={s['wait_s']}с "
+            f"lat_med={s['lat_median_s']}с lat_p90={s['lat_p90_s']}с вызовов_ок={s['calls_ok']} "
+            f"время={s['time_s']}с активно={s['active_s']}с")
+
+
+def metrics_text(task: bt.BrowserTask) -> str:
+    """Метрики для отчёта Мастеру."""
+    s = metrics_summary(task)
+    nav, solver = sum(s["nav"].values()), sum(s["solver"].values())
+    errors = ", ".join(f"{k}×{v}" for k, v in s["errors"].items()) or "нет"
+    lat = (f"{s['lat_median_s']} / {s['lat_p90_s']} с" if s["lat_median_s"] is not None else "—")
+    return (f"Метрики: вызовов навигатора {nav} ({_models(s['nav'])}), решателя {solver} "
+            f"({_models(s['solver'])}); ошибки {errors}; ожидание лимитера {s['wait_s']} с; "
+            f"задержка медиана/p90 {lat}; время {s['time_s']} с (активно {s['active_s']} с)")
+
+
 def report(task: bt.BrowserTask, outcome: str) -> str:
     head = {"done": "✅ Готово", "fail": "❌ Не получилось",
             "cancelled": "⏹ Остановлено"}.get(task.state, task.state)
@@ -809,6 +897,7 @@ def report(task: bt.BrowserTask, outcome: str) -> str:
         mark = {"verified": "", "filled": "", "solved": " (не проверен)",
                 "failed": " (не вписан)"}.get(a.get("status"), "")
         lines.append(f"Вопрос {a['index']}: {answer}{mark}")
+    lines.append(metrics_text(task))
     return "\n".join(lines)
 
 
@@ -841,7 +930,9 @@ def unpause(task: bt.BrowserTask) -> None:
 
 async def _terminal(task: bt.BrowserTask, state: str, text: str) -> dict:
     task.state = state
+    task.finished_at = time.time()
     log.info(f"[browser] {task.task_id}: {state} на шаге {task.step}")
+    log.info(metrics_line(task))
     await orb(None)
     await tg_send(report(task, text))
     bt.finish(task, state)
@@ -885,7 +976,9 @@ async def cancel(task: bt.BrowserTask, reason: str) -> bool:
         return False
     await _send_device(task, {"type": "browser.cancel", "task_id": task.task_id})
     task.state = "cancelled"
+    task.finished_at = time.time()
     log.info(f"[browser] {task.task_id}: отменена на шаге {task.step}")
+    log.info(metrics_line(task))
     await orb(None)
     await tg_send(report(task, reason))
     bt.finish(task, "cancelled")
@@ -972,7 +1065,9 @@ async def decide(task: bt.BrowserTask, data: dict, obs: dict, frames: list) -> d
         task.pending.pop("llm_fails", None)
     except QuotaWait as e:
         log.info(f"[browser] {task.task_id}: шаг {task.step} — ждать квоту {e.retry_after:.0f}с")
-        return {"status": "wait", "retry_after": int(e.retry_after + 0.999)}
+        retry = int(e.retry_after + 0.999)
+        task.metrics["wait_s"] = task.metrics.get("wait_s", 0.0) + retry
+        return {"status": "wait", "retry_after": retry}
     except ChainExhausted as e:
         at = time.strftime("%H:%M", time.localtime(e.resume_at))
         why = ("Gemma не отвечает (ошибки сервера)" if e.reason == "unavailable"
