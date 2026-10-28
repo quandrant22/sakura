@@ -6,6 +6,8 @@ Run: python -m pytest tests/test_browser_capability.py -q
 import asyncio
 import json
 
+import pytest
+
 import config
 import sakura_core.bridge as br
 from sakura_core.registry import load
@@ -78,3 +80,33 @@ def test_phrase_starts_task_and_stop_cancels(monkeypatch, tmp_path):
     assert said[-1] == "Остановила задачу в браузере."
     assert ws.sent[-1] == {"type": "browser.cancel", "task_id": msg["task_id"]}
     bt.reset()
+
+
+@pytest.mark.parametrize("phrase,goal", [
+    ("пройди тест на http://10.0.0.5/quiz.html", "пройди тест на http://10.0.0.5/quiz.html"),
+    ("Пройди тест на http://10.0.0.5/Quiz.html", "Пройди тест на http://10.0.0.5/Quiz.html"),
+    ("реши тест на http://10.0.0.5/q.html", "реши тест на http://10.0.0.5/q.html"),
+    ("заполни форму на http://10.0.0.5/form.html", "заполни форму на http://10.0.0.5/form.html"),
+    ("заполни анкету http://10.0.0.5/form.html", "заполни анкету http://10.0.0.5/form.html"),
+    ("сделай в браузере: пройди тест на http://10.0.0.5/quiz.html",
+     "пройди тест на http://10.0.0.5/quiz.html"),
+])
+def test_quiz_and_form_phrases_route_to_browser_task(monkeypatch, phrase, goal):
+    """Команда с master-устройства «пройди тест на …» / «заполни форму на …»
+    запускает browser.task без «сделай в браузере»; цель — вся фраза."""
+    from sakura_core.router import Router
+    monkeypatch.setattr(config, "BROWSER_AGENT", True)
+    router = Router(declarations=br._gate(load()), llm_classify=_no_llm)
+    d = asyncio.run(router.route(phrase, None, source="pc"))
+    assert (d.action, d.param) == ("browser.task", goal)
+
+
+@pytest.mark.parametrize("phrase,action", [("стоп задача", "browser.stop"),
+                                           ("останови задачу", "browser.stop"),
+                                           ("стоп", "music.play_pause"),
+                                           ("пройди тестирование", None)])
+def test_stop_and_non_task_phrases(monkeypatch, phrase, action):
+    from sakura_core.router import Router
+    monkeypatch.setattr(config, "BROWSER_AGENT", True)
+    router = Router(declarations=br._gate(load()), llm_classify=_no_llm)
+    assert asyncio.run(router.route(phrase, None, source="pc")).action == action
