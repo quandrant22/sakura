@@ -971,6 +971,27 @@ async def _send_device(task: bt.BrowserTask, obj: dict) -> bool:
         return False
 
 
+async def on_device_registered(device_id: str | None) -> int:
+    """Master-устройство (пере)подключилось: каждой его активной задаче —
+    browser.do {resume: true}. Ядро desktop после перезапуска задач не помнит
+    и ждёт именно этого (новый цикл с тем же task_id, step 0); ядро, которое
+    задачу помнит, повтор игнорирует. Пауза по квоте — свой таймер (_auto_resume)."""
+    if not config.BROWSER_AGENT or not device_id:
+        return 0
+    ensure_loaded()
+    sent = 0
+    for task in bt.active_tasks():
+        if task.device_id != device_id or (task.state == "paused" and task.pause_kind == "quota"):
+            continue
+        task.pending.pop("intake_step", None)        # desktop начнёт заново с step 0
+        if await _send_device(task, {"type": "browser.do", "task_id": task.task_id,
+                                     "goal": task.goal, "resume": True}):
+            sent += 1
+            log.info(f"[browser] {task.task_id}: {device_id} переподключился — browser.do resume "
+                     f"(шаг {task.step}, {task.state})")
+    return sent
+
+
 async def cancel(task: bt.BrowserTask, reason: str) -> bool:
     if not task.active:
         return False
