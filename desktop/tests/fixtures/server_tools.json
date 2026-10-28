@@ -207,6 +207,24 @@
                 },
                 "checked": {
                   "type": "boolean"
+                },
+                "pairs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "row_ref": {
+                        "type": "string"
+                      },
+                      "option_text": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "row_ref",
+                      "option_text"
+                    ]
+                  }
                 }
               },
               "required": [

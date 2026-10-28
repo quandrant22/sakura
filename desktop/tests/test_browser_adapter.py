@@ -42,19 +42,23 @@ CONTENT_OPS = set(re.findall(r'case "([a-z_]+)":', _act))
 
 SAMPLE_BY_TYPE = {"string": "f0:e3", "integer": 2, "boolean": True, "number": 1.5}
 SAMPLE = {"tab_id": 12, "url": "https://example.org/", "ref": "f0:e3", "text": "Анна", "key": "Enter",
-          "crop_ref": "f0:e7", "q_index": 2, "file": "cv.pdf", "submit_ref": "f0:e9", "note": "проверка"}
+          "crop_ref": "f0:e7", "q_index": 2, "file": "cv.pdf", "submit_ref": "f0:e9", "note": "проверка",
+          "row_ref": "f0:e4", "option_text": "Рим"}
 CTX = {"tab_id": 11, "window_id": 7, "issue_file": lambda name: "tok-" + name}
 
 
 def _sample(name: str, spec: dict):
-    """Значение аргумента по его JSON Schema. Массив объектов — по элементу на каждое
-    необязательное свойство items (fields: [{ref, value}, {ref, checked}])."""
+    """Значение аргумента по его JSON Schema (рекурсивно). Массив объектов — всегда хотя бы один
+    элемент: base из обязательных свойств items, дополненный по очереди каждым необязательным
+    (fields: [{ref, value}, {ref, checked}, {ref, pairs: [{row_ref, option_text}]}]); нет
+    необязательных — [base] (pairs). Один base без необязательных для fields адаптер отклоняет —
+    это отдельный test_fill_form_field_with_only_ref_is_error."""
     if name in SAMPLE:
         return SAMPLE[name]
     if spec.get("type") == "array":
         props, required = spec["items"]["properties"], spec["items"].get("required", [])
         base = {k: _sample(k, props[k]) for k in required}
-        return [base | {k: _sample(k, v)} for k, v in props.items() if k not in required]
+        return [base | {k: _sample(k, v)} for k, v in props.items() if k not in required] or [base]
     return SAMPLE_BY_TYPE[spec["type"]]
 
 
@@ -263,3 +267,20 @@ def test_questions_to_server_form():
     assert out[0]["options"][0]["name"] == "Круг"
     assert [q["kind"] for q in out] == ["single", "text", "select"]
     assert out[0]["q_ref"] == "f0:e1"       # поля расширения сохраняются
+
+
+def test_sample_arrays_never_empty():
+    fields = _sample("fields", SCHEMA["page_fill_form"]["props"]["fields"])
+    assert {"ref": "f0:e3", "pairs": [{"row_ref": "f0:e4", "option_text": "Рим"}]} in fields
+    assert all(f["ref"] for f in fields) and len(fields) == len(SCHEMA["page_fill_form"]["props"]["fields"]
+                                                                ["items"]["properties"]) - 1
+
+
+def test_fill_form_field_with_only_ref_is_error():
+    """Минимум по схеме (только обязательный ref) — нечего заполнять: AdapterError status error."""
+    item = SCHEMA["page_fill_form"]["props"]["fields"]["items"]
+    field = {k: SAMPLE[k] for k in item["required"]}
+    assert field == {"ref": "f0:e3"}
+    with pytest.raises(A.AdapterError) as e:
+        A.to_ext("page_fill_form", {"fields": [field], "note": "x"}, "s1", tab_id=2)
+    assert e.value.status == "error"
