@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Тест: общие знания</title>
+<link rel="stylesheet" href="stand.css">
+</head>
+<body>
+<main>
+  <h1>Тест: общие знания</h1>
+  <p class="nav-info">Страница <span id="page-no">1</span> из 2</p>
+  <form id="responseform" novalidate></form>
+  <div id="quiz-error" class="error" role="alert" hidden></div>
+</main>
+
+<!-- Разметка вопросов — как у Moodle (.que, .qno, .qtext, .ablock): так её видит page.questions. -->
+<template id="page-1">
+  <div id="q1" class="que multichoice">
+    <div class="info"><h3 class="no">Вопрос <span class="qno">1</span></h3></div>
+    <div class="formulation">
+      <div class="qtext"><p>Какая планета ближе всех к Солнцу?</p></div>
+      <div class="ablock">
+        <label><input type="radio" name="q1" value="a"> a. Венера</label>
+        <label><input type="radio" name="q1" value="b"> b. Меркурий</label>
+        <label><input type="radio" name="q1" value="c"> c. Марс</label>
+      </div>
+    </div>
+  </div>
+
+  <div id="q2" class="que multichoice">
+    <div class="info"><h3 class="no">Вопрос <span class="qno">2</span></h3></div>
+    <div class="formulation">
+      <div class="qtext"><p>Какие из чисел простые? Отметьте все верные.</p></div>
+      <div class="ablock">
+        <label><input type="checkbox" name="q2" value="a"> a. 2</label>
+        <label><input type="checkbox" name="q2" value="b"> b. 4</label>
+        <label><input type="checkbox" name="q2" value="c"> c. 7</label>
+        <label><input type="checkbox" name="q2" value="d"> d. 9</label>
+      </div>
+    </div>
+  </div>
+
+  <div id="q3" class="que shortanswer">
+    <div class="info"><h3 class="no">Вопрос <span class="qno">3</span></h3></div>
+    <div class="formulation">
+      <div class="qtext"><p>Столица Франции?</p></div>
+      <div class="ablock"><label for="q3-answer">Ответ:</label> <input id="q3-answer" type="text" name="q3" autocomplete="off"></div>
+    </div>
+  </div>
+
+  <!-- Вопрос только на картинке: текста условия на странице нет. -->
+  <div id="q4" class="que multichoice">
+    <div class="info"><h3 class="no">Вопрос <span class="qno">4</span></h3></div>
+    <div class="formulation">
+      <div class="qtext"><img src="q4.svg" width="360" height="120" alt=""></div>
+      <div class="ablock">
+        <label><input type="radio" name="q4" value="a"> a. 36</label>
+        <label><input type="radio" name="q4" value="b"> b. 42</label>
+        <label><input type="radio" name="q4" value="c"> c. 48</label>
+      </div>
+    </div>
+  </div>
+
+  <div class="submitbtns"><button type="submit" name="next">Далее</button></div>
+</template>
+
+<template id="page-2">
+  <div id="q5" class="que match">
+    <div class="info"><h3 class="no">Вопрос <span class="qno">5</span></h3></div>
+    <div class="formulation">
+      <div class="qtext"><p>Сопоставьте страны и их столицы.</p></div>
+      <table class="answer"><tbody>
+        <tr><td class="text">Италия</td><td class="control"><select name="q5-it" aria-label="Ответ 1"><option value="">Выбрать...</option><option>Берлин</option><option>Рим</option><option>Мадрид</option></select></td></tr>
+        <tr><td class="text">Испания</td><td class="control"><select name="q5-es" aria-label="Ответ 2"><option value="">Выбрать...</option><option>Берлин</option><option>Рим</option><option>Мадрид</option></select></td></tr>
+        <tr><td class="text">Германия</td><td class="control"><select name="q5-de" aria-label="Ответ 3"><option value="">Выбрать...</option><option>Берлин</option><option>Рим</option><option>Мадрид</option></select></td></tr>
+      </tbody></table>
+    </div>
+  </div>
+
+  <div id="q6" class="que gapselect">
+    <div class="info"><h3 class="no">Вопрос <span class="qno">6</span></h3></div>
+    <div class="formulation">
+      <div class="qtext"><p>Расставьте события обычного утра по порядку (1 — самое раннее).</p></div>
+      <table class="answer"><tbody>
+        <tr><td class="text">Завтрак</td><td class="control"><select name="q6-breakfast" aria-label="Позиция"><option value="">Выбрать...</option><option>1</option><option>2</option><option>3</option></select></td></tr>
+        <tr><td class="text">Обед</td><td class="control"><select name="q6-lunch" aria-label="Позиция"><option value="">Выбрать...</option><option>1</option><option>2</option><option>3</option></select></td></tr>
+        <tr><td class="text">Пробуждение</td><td class="control"><select name="q6-wake" aria-label="Позиция"><option value="">Выбрать...</option><option>1</option><option>2</option><option>3</option></select></td></tr>
+      </tbody></table>
+    </div>
+  </div>
+
+  <div id="q7" class="que ordering">
+    <div class="info"><h3 class="no">Вопрос <span class="qno">7</span></h3></div>
+    <div class="formulation">
+      <div class="qtext"><p>Расположите планеты по удалённости от Солнца — от ближней к дальней. Перетащите строки.</p></div>
+      <ul class="sortablelist" id="q7-list">
+        <li class="sortableitem" draggable="true" data-id="mars">Марс</li>
+        <li class="sortableitem" draggable="true" data-id="earth">Земля</li>
+        <li class="sortableitem" draggable="true" data-id="mercury">Меркурий</li>
+        <li class="sortableitem" draggable="true" data-id="venus">Венера</li>
+      </ul>
+      <input type="hidden" name="q7" id="q7-order">
+    </div>
+  </div>
+
+  <div class="submitbtns"><button type="submit" name="finish">Завершить</button></div>
+</template>
+
+<template id="captcha">
+  <div class="g-recaptcha captcha-box" id="captcha-box">
+    <label><input type="checkbox" id="captcha-check"> Я не робот</label>
+    <span class="captcha-brand">reCAPTCHA (имитация стенда)</span>
+  </div>
+</template>
+
+<script src="quiz.js"></script>
+</body>
+</html>

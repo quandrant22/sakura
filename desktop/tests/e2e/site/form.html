@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Анкета участника</title>
+<link rel="stylesheet" href="stand.css">
+</head>
+<body>
+<main>
+  <h1>Анкета участника</h1>
+  <form id="signup" novalidate>
+    <div class="field">
+      <label for="name">Имя и фамилия</label>
+      <input id="name" name="name" type="text" required autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="email">Электронная почта</label>
+      <input id="email" name="email" type="email" required autocomplete="off" aria-describedby="email-error">
+      <div id="email-error" class="error" role="alert" hidden></div>
+    </div>
+    <div class="field">
+      <label for="city">Город</label>
+      <select id="city" name="city" required>
+        <option value="">Выберите город</option>
+        <option value="msk">Москва</option>
+        <option value="spb">Санкт-Петербург</option>
+        <option value="kzn">Казань</option>
+        <option value="nsk">Новосибирск</option>
+      </select>
+    </div>
+    <fieldset class="field">
+      <legend>Как с вами связаться</legend>
+      <label><input type="radio" name="contact" value="phone"> По телефону</label>
+      <label><input type="radio" name="contact" value="email"> По почте</label>
+    </fieldset>
+    <div class="field">
+      <label><input id="agree" type="checkbox" name="agree" required> Согласен на обработку персональных данных</label>
+    </div>
+    <div class="field">
+      <label for="comment">Комментарий</label>
+      <textarea id="comment" name="comment" rows="3"></textarea>
+    </div>
+    <div id="form-error" class="error" role="alert" hidden></div>
+    <button type="submit">Отправить</button>
+  </form>
+
+  <section id="done" hidden>
+    <h2>Заявка отправлена</h2>
+    <p>Спасибо! Мы получили вашу анкету.</p>
+    <pre id="result-json"></pre>
+  </section>
+</main>
+<script src="form.js"></script>
+</body>
+</html>

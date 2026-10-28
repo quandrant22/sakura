@@ -1,0 +1,25 @@
+{
+  "form": {
+    "goal": "Заполни анкету на {base}/form.html и отправь: имя Анна Смирнова, email anna@example.org, город Казань, связь — по почте, согласие на обработку данных, комментарий «Перезвоните после 18:00».",
+    "expected": {
+      "name": "Анна Смирнова",
+      "email": "anna@example.org",
+      "city": "kzn",
+      "contact": "email",
+      "agree": true,
+      "comment": "Перезвоните после 18:00"
+    }
+  },
+  "quiz": {
+    "goal": "Пройди тест на {base}/quiz.html: ответь на все вопросы обеих страниц и нажми «Завершить».",
+    "questions": {
+      "q1": {"kind": "single", "answer": "b"},
+      "q2": {"kind": "multi", "answer": ["a", "c"]},
+      "q3": {"kind": "text", "answer": ["париж", "paris"]},
+      "q4": {"kind": "single", "media": true, "answer": "b"},
+      "q5": {"kind": "match", "answer": {"it": "Рим", "es": "Мадрид", "de": "Берлин"}},
+      "q6": {"kind": "order", "answer": {"wake": "1", "breakfast": "2", "lunch": "3"}},
+      "q7": {"kind": "order", "drag": true, "answer": ["mercury", "venus", "earth", "mars"]}
+    }
+  }
+}
