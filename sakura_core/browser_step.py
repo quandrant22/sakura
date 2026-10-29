@@ -1102,6 +1102,18 @@ async def decide(task: bt.BrowserTask, data: dict, obs: dict, frames: list) -> d
             if reason:
                 action = {"tool": "page_shot", "args": {}, "note": f"кадр вкладки: {reason}"}
         if action is None:
+            loop = loop_guard(task)
+            if loop and loop[1] >= LOOP_FAIL:
+                tool_, n_, st_ = loop
+                return await _terminal(task, "fail", f"зациклилась: {tool_} {n_} раз за последние "
+                                       f"{LOOP_WINDOW} шагов вернул {st_}; последнее: "
+                                       f"{task.last_note or '—'}")
+            if loop and loop[1] >= LOOP_HINT:
+                tool_, n_, st_ = loop
+                hint = (hint + " " if hint else "") + (
+                    f"{tool_} уже {n_} раз за последние шаги вернул {st_}. Не повторяй его так же: "
+                    f"смени подход (page_observe, page_shot, другой ref), пропусти этот "
+                    f"вопрос или поле, либо заверши задачу (done/fail).")
             every = config.BROWSER_SUMMARIZE_EVERY
             if every and task.step % every == 0:
                 await summarize(task)
@@ -1147,6 +1159,23 @@ async def decide(task: bt.BrowserTask, data: dict, obs: dict, frames: list) -> d
     task.record(action["tool"], action.get("note") or "—")
     task.last_url = obs.get("url") or task.last_url
     return {"action": {"tool": action["tool"], "args": action["args"]}}
+
+
+LOOP_WINDOW = 12        # шагов, в которых ищем повторяющийся неуспех
+LOOP_HINT = 3           # с какого повтора — подсказка навигатору
+LOOP_FAIL = 8           # с какого — задача fail (навигатор подсказку не слушает)
+_LOOP_OK = ("done", "sent", "confirm")
+
+
+def loop_guard(task: bt.BrowserTask) -> tuple[str, int, str] | None:
+    """(tool, сколько раз, последний статус) — чаще всего неуспешный инструмент
+    последних LOOP_WINDOW шагов; None — неуспехов нет."""
+    fails = [s for s in task.steps[-LOOP_WINDOW:]
+             if s.get("status") not in _LOOP_OK and s.get("tool") not in ("done", "fail")]
+    if not fails:
+        return None
+    tool = fails[-1]["tool"]
+    return tool, sum(1 for s in fails if s["tool"] == tool), fails[-1]["status"]
 
 
 def _form_hint(task: bt.BrowserTask, obs: dict) -> str:

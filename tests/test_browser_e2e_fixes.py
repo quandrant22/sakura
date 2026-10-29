@@ -176,3 +176,52 @@ def test_fill_ok_still_filled_or_verified(env, monkeypatch):
     _quiz_steps(env, task, [{"ok": True, "status": "done", "questions": [ORDER_ROWS]},
                             {"ok": True, "status": "done", "detail": "заполнено 1 из 1"}])
     assert task.answers[0]["status"] == "filled" and "reason" not in task.answers[0]
+
+
+# ── петля навигатора ─────────────────────────────────────────────────
+
+def _fill_nav(monkeypatch, seen):
+    from sakura_core import llm
+
+    async def gen(contents, **kw):
+        seen.append("\n".join(p.text for p in contents if getattr(p, "text", None)))
+        return llm.AgentResponse("gemma-4-26b-a4b-it", SimpleNamespace(
+            function_calls=[SimpleNamespace(name="page_fill_form", args={
+                "fields": [{"ref": "f0:e1", "value": "1"}], "note": "заполняю вопрос 6"})],
+            text=None), 1)
+
+    monkeypatch.setattr(llm, "generate_agent", gen)
+
+
+def test_loop_guard_hints_then_fails(env, monkeypatch):
+    """Прогон 28.10: навигатор 15+ раз подряд повторял page_fill_form с error."""
+    seen = []
+    _fill_nav(monkeypatch, seen)
+    task = bt.new_task("форма", device_id="pc")
+    err = {"ok": False, "status": "error", "detail": "не поле ввода"}
+
+    async def run():
+        outs = []
+        for n in range(1, 11):
+            await bs.handle_step(env, {"request_id": f"r{n}", "task_id": task.task_id, "step": n,
+                                       "observation": _obs(),
+                                       "last_result": err if n > 1 else None, "frames": []})
+            outs.append(env.sent[-1])
+        return outs
+    outs = asyncio.run(run())
+    assert "уже 3 раз" not in seen[2] and "уже 3 раз за последние шаги вернул error" in seen[3]
+    fail = next(i for i, o in enumerate(outs) if o.get("status") == "fail")
+    assert fail == 8                                       # 8-я неудача подряд → fail
+    assert outs[fail]["reason"].startswith("зациклилась: page_fill_form 8 раз")
+    assert task.state == "fail"
+
+
+def test_loop_guard_counts_failures_not_successes():
+    task = bt.BrowserTask(task_id="t", goal="g")
+    for n, (tool, st) in enumerate([("page_fill_form", "error"), ("page_forms", "done"),
+                                    ("page_fill_form", "error"), ("page_forms", "done"),
+                                    ("page_fill_form", "stale")], 1):
+        task.steps.append({"n": n, "tool": tool, "status": st, "note": ""})
+    assert bs.loop_guard(task) == ("page_fill_form", 3, "stale")
+    task.steps = [{"n": 1, "tool": "page_act", "status": "done", "note": ""}]
+    assert bs.loop_guard(task) is None
