@@ -1,5 +1,6 @@
 -r requirements.txt
 
 pytest==9.1.1
-ruff==0.16.7hypothesis>=6.100   # свойства и фаззинг securechannel (MPL-2.0, только разработка)
+ruff==0.16.7
+hypothesis>=6.100   # свойства и фаззинг securechannel (MPL-2.0, только разработка)
 pytest-cov>=5       # покрытие securechannel
