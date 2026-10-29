@@ -1,0 +1,319 @@
+{
+ "description": "securechannel/1: детерминированные транскрипты IK (сеанс) и XXpsk3 (спаривание) с транспортом и rekey. Ключи — BLAKE2s(KEY_CONTEXT ‖ метка).",
+ "generator": "scripts/gen_interop_vectors.py",
+ "key_context": "73616b7572612d696e7465726f702f3100",
+ "transcripts": [
+  {
+   "name": "ik_session",
+   "protocol_name": "Noise_IK_25519_ChaChaPoly_BLAKE2s",
+   "pattern": "IK",
+   "prologue": "73616b7572612d7365637572656368616e6e656c2f310073657373696f6e",
+   "initiator_static": "367c7cac1b9dbabe615c501485a2deb5b4d08df113b30d46f01e2c2d0b805439",
+   "initiator_static_pub": "137dae46554a84ff9f527fe7ff33ce93bd5cf6b65bdcf0cf1d41fd965421a76f",
+   "initiator_ephemeral": "6a1bc2cd0643e04abeef76a030f8c127b616e9810014fdd825b89da2150026b6",
+   "responder_static": "399760ef9816c3322dde0ce308ffc67d94c3631a1f44e0030ea5d06fc9cdecf6",
+   "responder_static_pub": "e55200ead8a3364e492e52a12f49291b36dd38f31985384d05e95ec23421bf05",
+   "responder_ephemeral": "30ddbf3475457da15678fb6e80f994e477b9c83128cef5f0bb70075955a973af",
+   "pair_words": null,
+   "psk": null,
+   "handshake": [
+    {
+     "from": "initiator",
+     "frame_type": "IK_INIT",
+     "payload": "7b2276223a20312c20226465766963655f6964223a20226d6f7374656368222c20227473223a20313739313930303030302e307d",
+     "payload_text": "{\"v\": 1, \"device_id\": \"mostech\", \"ts\": 1791900000.0}",
+     "message": "18bea3fea97d88e0a3363f92578b99eebb627e4406c8508151e5541b88295e48dbf207b5d8cfde7004df967f53d0a98c8f4001d1ca221b50cf99b3cdda0dec94f9549e9f07166ada194e68acde5e949a1d80db9c153857e992848c4a24fe64be9e7e01d7e21efb2d2944b4013a3a90e96d7bb04567d8246474ce14754ccf988d103b8e8a9470dec7325e8d910c8aa0f8db4b59c6",
+     "frame": "534b01010000009418bea3fea97d88e0a3363f92578b99eebb627e4406c8508151e5541b88295e48dbf207b5d8cfde7004df967f53d0a98c8f4001d1ca221b50cf99b3cdda0dec94f9549e9f07166ada194e68acde5e949a1d80db9c153857e992848c4a24fe64be9e7e01d7e21efb2d2944b4013a3a90e96d7bb04567d8246474ce14754ccf988d103b8e8a9470dec7325e8d910c8aa0f8db4b59c6"
+    },
+    {
+     "from": "responder",
+     "frame_type": "IK_RESP",
+     "payload": "7b2276223a20312c202273657373696f6e223a202230313233343536373839616263646566222c202272656b65795f6d65737361676573223a20322c202272656b65795f7365636f6e6473223a20333630302e302c20227365727665725f74696d65223a20313739313930303030302e357d",
+     "payload_text": "{\"v\": 1, \"session\": \"0123456789abcdef\", \"rekey_messages\": 2, \"rekey_seconds\": 3600.0, \"server_time\": 1791900000.5}",
+     "message": "4db0a8f005b70bc8fa91a37125f79c745733cb4fd0c0426c06c0bff6325c5c33d4352c155ad950bb48f8268b33b11305e2ee2439991d723e4f623bcd02e9ad3974e2fc173aebef2b0cb053378429e7ded37d933fea53454575c9187a07b3d6bdf5779eafaf8af0d95d6898548e335d373bb4a610d0b41acd8477c2a81a96a6a38b93b2fb90f319d3c5b242dc206d88027dbeb83731f44f6ea173337f254d8ce7bf51",
+     "frame": "534b0102000000a24db0a8f005b70bc8fa91a37125f79c745733cb4fd0c0426c06c0bff6325c5c33d4352c155ad950bb48f8268b33b11305e2ee2439991d723e4f623bcd02e9ad3974e2fc173aebef2b0cb053378429e7ded37d933fea53454575c9187a07b3d6bdf5779eafaf8af0d95d6898548e335d373bb4a610d0b41acd8477c2a81a96a6a38b93b2fb90f319d3c5b242dc206d88027dbeb83731f44f6ea173337f254d8ce7bf51"
+    }
+   ],
+   "handshake_hash": "2776fb3352f8b143072f046a5ce3c627ee87ba947bd3e44ac89c47e5eb6c3b42",
+   "rekey_messages": 2,
+   "transport": [
+    {
+     "from": "initiator",
+     "op": "seal",
+     "inner": "DATA",
+     "data": "7b2274797065223a20227265676973746572222c20226465766963655f6964223a20226d6f7374656368227d",
+     "text": "{\"type\": \"register\", \"device_id\": \"mostech\"}",
+     "frames": [
+      "534b01200000003e545c97fbce3591e638fe7b713d6f98cdbb2fb4212ffed30c7bc3bae5239dc692acc04a9b897a38d21d3e055249de19539cfe0e074b778bc27e5a2120d454"
+     ],
+     "events": [
+      [
+       "DATA",
+       "7b2274797065223a20227265676973746572222c20226465766963655f6964223a20226d6f7374656368227d"
+      ]
+     ]
+    },
+    {
+     "from": "responder",
+     "op": "seal",
+     "inner": "DATA",
+     "data": "7b2274797065223a202272656769737465726564222c20226465766963655f6964223a20226d6f7374656368227d",
+     "text": "{\"type\": \"registered\", \"device_id\": \"mostech\"}",
+     "frames": [
+      "534b0120000000408b11d1c89e9f5043d38794fcb563b74b1305c64ff41c5f9ff6cc182870f6411a2c985b854bf6a43282c1572567e8e84567bb2bf88b0d2184cef37b2aa47df3fa"
+     ],
+     "events": [
+      [
+       "DATA",
+       "7b2274797065223a202272656769737465726564222c20226465766963655f6964223a20226d6f7374656368227d"
+      ]
+     ]
+    },
+    {
+     "from": "initiator",
+     "op": "control",
+     "inner": "PING",
+     "data": "70696e672d31",
+     "text": "ping-1",
+     "frames": [
+      "534b012000000018c51cbd7e7ee8a6d385c82a3e8417b9b8ddccc438fe852767"
+     ],
+     "events": [
+      [
+       "PING",
+       "70696e672d31"
+      ]
+     ]
+    },
+    {
+     "from": "initiator",
+     "op": "seal",
+     "inner": "DATA",
+     "data": "7b2274797065223a2022766f6963655f636f6d6d616e64222c202274657874223a20225c75303433665c75303434305c75303433385c75303433325c75303433355c7530343432227d",
+     "text": "{\"type\": \"voice_command\", \"text\": \"\\u043f\\u0440\\u0438\\u0432\\u0435\\u0442\"}",
+     "frames": [
+      "534b012000000012f71471432467a902d725c30aa5e30e5de408",
+      "534b01200000005b4729846b70aa69bf0bb1381535338c4febf4a25c2f04564f1f06cfb46af5588c9e87af3c8726bc45043b503b0f11fdfeda12f09323217732216fc7136c51412c7c01d2fe4d2bca9db4eb1c75789c38a65f4df59948aa3b852155ed"
+     ],
+     "events": [
+      [
+       "DATA",
+       "7b2274797065223a2022766f6963655f636f6d6d616e64222c202274657874223a20225c75303433665c75303434305c75303433385c75303433325c75303433355c7530343432227d"
+      ]
+     ]
+    },
+    {
+     "from": "responder",
+     "op": "seal",
+     "inner": "DATA",
+     "data": "7b2274797065223a20227265706c79222c202274657874223a20225c75303433665c75303434305c75303433385c75303433325c75303433355c75303434322c205c75303433635c75303433305c75303434315c75303434325c75303433355c7530343430227d",
+     "text": "{\"type\": \"reply\", \"text\": \"\\u043f\\u0440\\u0438\\u0432\\u0435\\u0442, \\u043c\\u0430\\u0441\\u0442\\u0435\\u0440\"}",
+     "frames": [
+      "534b0120000000795933f62fd03f6a3ef80c8451b4e90fcf4246b76d846f065a48fbcd5062b302bda7eab2e0cebf1155b91edd8adc76f4fd8c6f95fce1de0f2748ff37f040a0ee3263b30730b0996d05cb90d22721c78441a05e1a86018bfe37375a390471217007dd7663c3c16c61ebd8e2eb3c738ae72f8a36a4fed0cdf5fa34"
+     ],
+     "events": [
+      [
+       "DATA",
+       "7b2274797065223a20227265706c79222c202274657874223a20225c75303433665c75303434305c75303433385c75303433325c75303433355c75303434322c205c75303433635c75303433305c75303434315c75303434325c75303433355c7530343430227d"
+      ]
+     ]
+    },
+    {
+     "from": "responder",
+     "op": "control",
+     "inner": "PONG",
+     "data": "70696e672d31",
+     "text": "ping-1",
+     "frames": [
+      "534b0120000000129189da33ab877c8ea85963c9edcdbd2e7b76",
+      "534b012000000018eb9140901de3a56f55e3e2741e6817e82b0ab45ab09b0dd9"
+     ],
+     "events": [
+      [
+       "PONG",
+       "70696e672d31"
+      ]
+     ]
+    },
+    {
+     "from": "initiator",
+     "op": "seal",
+     "inner": "DATA",
+     "data": "7b2274797065223a202270696e67227d",
+     "text": "{\"type\": \"ping\"}",
+     "frames": [
+      "534b0120000000220a0bbaef7a1c9ed7709150a63a2f8479f12e2cbcdf267afecf29a1beb5c3f2b788af"
+     ],
+     "events": [
+      [
+       "DATA",
+       "7b2274797065223a202270696e67227d"
+      ]
+     ]
+    },
+    {
+     "from": "initiator",
+     "op": "close",
+     "inner": "CLOSE",
+     "data": "627965",
+     "text": "bye",
+     "frames": [
+      "534b012000000017f619cdee0338c25850f7d4f25cd9a0946fba17f0c56b91"
+     ],
+     "events": [
+      [
+       "CLOSE",
+       "03e8627965"
+      ]
+     ]
+    }
+   ],
+   "rekeys": {
+    "initiator": [
+     1,
+     1
+    ],
+    "responder": [
+     1,
+     1
+    ]
+   }
+  },
+  {
+   "name": "xxpsk3_pairing",
+   "protocol_name": "Noise_XXpsk3_25519_ChaChaPoly_BLAKE2s",
+   "pattern": "XXpsk3",
+   "prologue": "73616b7572612d7365637572656368616e6e656c2f310070616972",
+   "initiator_static": "367c7cac1b9dbabe615c501485a2deb5b4d08df113b30d46f01e2c2d0b805439",
+   "initiator_static_pub": "137dae46554a84ff9f527fe7ff33ce93bd5cf6b65bdcf0cf1d41fd965421a76f",
+   "initiator_ephemeral": "6af73290ecc19082626879133eaf38a8308f1a8f1da439a65b8d719840779bb6",
+   "responder_static": "399760ef9816c3322dde0ce308ffc67d94c3631a1f44e0030ea5d06fc9cdecf6",
+   "responder_static_pub": "e55200ead8a3364e492e52a12f49291b36dd38f31985384d05e95ec23421bf05",
+   "responder_ephemeral": "dd487d8b9083e0cea624fa1cbcdf7577711d80fec7ad7f1bdefc2366dc0b9216",
+   "pair_words": "лес кот мост река гора снег луна поле",
+   "psk": "f7bac56885a27eb53efdf33ca2ef0d67120960f9f217134c47192605b3826fc5",
+   "handshake": [
+    {
+     "from": "initiator",
+     "frame_type": "XX_1",
+     "payload": "",
+     "payload_text": "",
+     "message": "537794d2d8afb026b52095b5e4549ef1593bfd078a052fb47a0ea2b77cbef5767d626ef43bec8aefd9ad9a5a6c2bb4e2",
+     "frame": "534b011100000030537794d2d8afb026b52095b5e4549ef1593bfd078a052fb47a0ea2b77cbef5767d626ef43bec8aefd9ad9a5a6c2bb4e2"
+    },
+    {
+     "from": "responder",
+     "frame_type": "XX_2",
+     "payload": "",
+     "payload_text": "",
+     "message": "13c2ada89ccdfe423beebd880cd1bf19e6de9bd922f4d9ed6ea25771f6284b0b16106e959214db3c9c6dd927779a685ffefb34e1dc426ec2f574f126ec176932293a127e6689d6bc5f2700123331c5d7a991d10ec3d58329d8bc09fc0c53351a",
+     "frame": "534b01120000006013c2ada89ccdfe423beebd880cd1bf19e6de9bd922f4d9ed6ea25771f6284b0b16106e959214db3c9c6dd927779a685ffefb34e1dc426ec2f574f126ec176932293a127e6689d6bc5f2700123331c5d7a991d10ec3d58329d8bc09fc0c53351a"
+    },
+    {
+     "from": "initiator",
+     "frame_type": "XX_3",
+     "payload": "7b2276223a20312c20226e616d65223a20225c75303431645c75303433655c75303434335c75303434325c75303433315c75303434335c7530343361222c20226b696e64223a20227063222c20226465766963655f69645f68696e74223a20226d6f7374656368227d",
+     "payload_text": "{\"v\": 1, \"name\": \"\\u041d\\u043e\\u0443\\u0442\\u0431\\u0443\\u043a\", \"kind\": \"pc\", \"device_id_hint\": \"mostech\"}",
+     "message": "7bc7927605ed245f2dd630b93f473287f9f4ef1e4b3dbb758b3f23fdfead92f382a448cc037cb1e5bdf82efc43029b5d5bb853bbaa1ddc2ecf4667aeb9221ab5d56d63a8d588895edc576de5f3f7c98b6b2985e983036a7fd9ed07d9467fb3b083243c5de07aad054172ba7d4926b40833efc8bef8a47b02e57e7ddc1cebcacfd5aa5a5fa697470b5b72ef1fb7212c602ae0c9482249097c814cedb15342c54e38049416b26a0c2dd4",
+     "frame": "534b0113000000a97bc7927605ed245f2dd630b93f473287f9f4ef1e4b3dbb758b3f23fdfead92f382a448cc037cb1e5bdf82efc43029b5d5bb853bbaa1ddc2ecf4667aeb9221ab5d56d63a8d588895edc576de5f3f7c98b6b2985e983036a7fd9ed07d9467fb3b083243c5de07aad054172ba7d4926b40833efc8bef8a47b02e57e7ddc1cebcacfd5aa5a5fa697470b5b72ef1fb7212c602ae0c9482249097c814cedb15342c54e38049416b26a0c2dd4"
+    }
+   ],
+   "handshake_hash": "51c4365055e7a06e394def7a0c926979d825f271620fd757e04d62de494735ba",
+   "rekey_messages": 1,
+   "transport": [
+    {
+     "from": "responder",
+     "op": "control",
+     "inner": "PAIRED",
+     "data": "7b226465766963655f6964223a20226d6f7374656368222c20227365727665725f707562223a2022355649413674696a4e6b354a4c6c4b684c306b70477a62644f504d5a6854684e42656c65776a5168767755222c20227365727665725f6670223a202239316463203764376220633362352062643362227d",
+     "text": "{\"device_id\": \"mostech\", \"server_pub\": \"5VIA6tijNk5JLlKhL0kpGzbdOPMZhThNBelewjQhvwU\", \"server_fp\": \"91dc 7d7b c3b5 bd3b\"}",
+     "frames": [
+      "534b01200000008b97bed1296f3a213b3d0444a39058bb0b4e678b51c0308b5deb6b1d3e9339f1f272e00c22b945b0f93ec3e01ddfdeb55a118f1c9ad2230be5ffd682f6c702f67f32c43999918c037fc74848739cf56a10329e19be5d47d101cb774caa35059abe180c395c58e0ebcf1019c4a9d6214d65fa4d4b62665c47e330302c5e412b1ac27874ed38e012f1ebfaf743"
+     ],
+     "events": [
+      [
+       "PAIRED",
+       "7b226465766963655f6964223a20226d6f7374656368222c20227365727665725f707562223a2022355649413674696a4e6b354a4c6c4b684c306b70477a62644f504d5a6854684e42656c65776a5168767755222c20227365727665725f6670223a202239316463203764376220633362352062643362227d"
+      ]
+     ]
+    },
+    {
+     "from": "initiator",
+     "op": "seal",
+     "inner": "DATA",
+     "data": "7b2274797065223a202261636b227d",
+     "text": "{\"type\": \"ack\"}",
+     "frames": [
+      "534b0120000000219e5f01559fb925d09c3043c748412752037e3f0ca725a4cb3dd96d16c5c3ce41ff"
+     ],
+     "events": [
+      [
+       "DATA",
+       "7b2274797065223a202261636b227d"
+      ]
+     ]
+    },
+    {
+     "from": "responder",
+     "op": "seal",
+     "inner": "DATA",
+     "data": "7b2274797065223a20226e6f7465222c202274657874223a202272656b6579227d",
+     "text": "{\"type\": \"note\", \"text\": \"rekey\"}",
+     "frames": [
+      "534b0120000000121670ff86f226edc3f4e0463dce671b2f7fef",
+      "534b012000000033d85ff171ac74a7c52e69c9fcd5143c2816833b1cd6b85684f2475b32cb97bd701dbdaa6dc63e755462310674e90321f8d3df4a"
+     ],
+     "events": [
+      [
+       "DATA",
+       "7b2274797065223a20226e6f7465222c202274657874223a202272656b6579227d"
+      ]
+     ]
+    },
+    {
+     "from": "initiator",
+     "op": "seal",
+     "inner": "DATA",
+     "data": "7b2274797065223a202261636b222c20226e223a20327d",
+     "text": "{\"type\": \"ack\", \"n\": 2}",
+     "frames": [
+      "534b0120000000129db32c7f54bb3394c86121afa8ebccbe6078",
+      "534b012000000029f1beb83450f02194e83b6bfd645d64905c2c25f79e6e762393c7818938d35db028f4ee9f4c661f7375"
+     ],
+     "events": [
+      [
+       "DATA",
+       "7b2274797065223a202261636b222c20226e223a20327d"
+      ]
+     ]
+    },
+    {
+     "from": "responder",
+     "op": "close",
+     "inner": "CLOSE",
+     "data": "706169726564",
+     "text": "paired",
+     "frames": [
+      "534b01200000001a4c8d16542e799441449968d0d3198ff8bd7751f356dcb03203ec"
+     ],
+     "events": [
+      [
+       "CLOSE",
+       "03e8706169726564"
+      ]
+     ]
+    }
+   ],
+   "rekeys": {
+    "initiator": [
+     1,
+     1
+    ],
+    "responder": [
+     1,
+     1
+    ]
+   }
+  }
+ ]
+}

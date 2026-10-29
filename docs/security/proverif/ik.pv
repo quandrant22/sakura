@@ -1,80 +1,192 @@
-(* securechannel/1 — Noise_IK, символьная модель для ProVerif 2.x.
-   Упрощение: DH как примитив с уравнением, AEAD как symenc с ad, HKDF как
-   две проекции хеша. Запуск: proverif docs/security/proverif/ik.pv
-   Модель НЕ запускалась на сервере (ProVerif не установлен) — см. FORMAL.md. *)
+(* securechannel/1 — сеанс Noise_IK_25519_ChaChaPoly_BLAKE2s (PROTOCOL.md §3.1–3.2).
+   Символьная модель для ProVerif ≥ 2.04. Запуск — results/README.md.
+   Статус: ОЖИДАЕТ ЗАПУСКА (на VPS ProVerif не запускается, см. FORMAL.md).
 
-type key. type pkey.
-fun g(key): pkey.
-fun dh(key, pkey): key.
-equation forall a: key, b: key; dh(a, g(b)) = dh(b, g(a)).
+   Примитивы:
+     DH   — exp(gen, x) = открытый ключ, exp(P, x) = DH(x, P);
+            уравнение exp(exp(gen,x),y) = exp(exp(gen,y),x) (как в руководстве ProVerif);
+     HASH — hash; HKDF — три независимые проекции hkdf1/hkdf2/hkdf3 (выходы 1–3);
+     AEAD — aenc(k, n, ad, m) / adec, nonce символьный (n0 = 0, n1 = 1).
+   Порядок токенов, MixHash/MixKey, AD = h и nonce — буквально по спецификации
+   Noise и securechannel/noise/core.py:
+     h = HASH(имя протокола) (имя 33 байта > HASHLEN), ck = h,
+     MixHash(prologue_session), пред-сообщение <- s: MixHash(rs);
+     -> e, es, s, ss + payload (идентификация, публична);
+     <- e, ee, se + payload (параметры сеанса, публичны);
+     Split(): kIR = hkdf1(ck, ε) — клиент → сервер, kRI = hkdf2(ck, ε) — обратно;
+     транспорт: AD пустой (handshake._edu_cipher, noiseprotocol).
 
-fun h(bitstring): bitstring.
-fun hk1(key, key): key.          (* HKDF: новый ck *)
-fun hk2(key, key): key.          (* HKDF: ключ шифра *)
-fun k2b(key): bitstring [data].
-fun p2b(pkey): bitstring [data].
+   Участники:
+     C  — честное устройство (skC), зарегистрировано у S и у K;
+     S  — честный сервер (skS);
+     K  — сервер со СКОМПРОМЕТИРОВАННЫМ ключом (skK публичен) — сценарий KCI;
+     D  — устройство атакующего, зарегистрированное у S (skD публичен);
+     фаза 1 — утечка skS и skC после всех сеансов (прямая секретность).
+   Реестр — таблица registry(pub сервера, pub устройства); не нашёл — молчание.
 
-fun aenc(key, bitstring, bitstring): bitstring.                 (* k, ad, m *)
-reduc forall k: key, ad: bitstring, m: bitstring; adec(k, ad, aenc(k, ad, m)) = m.
+   Запросы и ОЖИДАЕМЫЙ результат (C = exp(gen,skC), S = exp(gen,skS), K = exp(gen,skK)):
+     Q1  attacker(payload_c)                                         true   G1, с фазой 1 = G6
+     Q2  attacker(payload_s)                                         true   G1, G6
+     Q3  inj ServerDone(C,S,..)    ==> inj ClientStarted(C,S,e1)     true   G3
+     Q4  inj ServerDone(C,S,..)    ==> inj ClientDone(C,S,..)        true   G3, согласие о ключе
+     Q5  inj ClientDone(C,S,..)    ==> inj ServerAccepted(C,S,..)    true   G4
+     Q6      ServerAccepted(C,S,..) ==>    ClientStarted(C,S,e1)     true   сообщение 1 подлинно
+     Q7  inj ServerAccepted(C,S,..) ==> inj ClientStarted(C,S,e1)    FALSE  ожидаемая атака ПОВТОРА IK_INIT
+     Q8      ServerAccepted(C,K,..) ==>    ClientStarted(C,K,e1)     FALSE  ожидаемая атака KCI на сообщение 1
+     Q9      ServerDone(C,K,..)     ==>    ClientStarted(C,K,e1)     true   KCI не идёт дальше сообщения 1
+     Q10 event(ServerDone(C,S,..))                                   FALSE  проверка достижимости (не пустая модель)
+   Q7 и Q8 подтверждают правило §3.2: сервер ПРИНИМАЕТ сообщение 1 от
+   повтора и (при утечке своего ключа) от подделки, поэтому payload IK_INIT —
+   только идентификация, а всё исполняемое — после ServerDone (транспорт). *)
+
+type key.
+
+const gen: bitstring [data].
+fun exp(bitstring, key): bitstring.
+equation forall x: key, y: key; exp(exp(gen, x), y) = exp(exp(gen, y), x).
+
+fun hash(bitstring): bitstring.
+fun hkdf1(bitstring, bitstring): bitstring.
+fun hkdf2(bitstring, bitstring): bitstring.
+fun hkdf3(bitstring, bitstring): bitstring.
+
+fun aenc(bitstring, bitstring, bitstring, bitstring): bitstring.
+reduc forall k: bitstring, n: bitstring, ad: bitstring, m: bitstring;
+  adec(k, n, ad, aenc(k, n, ad, m)) = m.
 
 free c: channel.
-const prologue, proto: bitstring.
-const ck0: key.
 
-free payload_s: bitstring [private].      (* транспорт сервер → клиент *)
-free payload_c: bitstring [private].      (* транспорт клиент → сервер *)
+const name_ik: bitstring.            (* "Noise_IK_25519_ChaChaPoly_BLAKE2s" *)
+const prologue_session: bitstring.   (* b"sakura-securechannel/1\x00session" *)
+const empty: bitstring.
+const n0: bitstring.
+const n1: bitstring.
+const ident_c: bitstring.            (* {"v":1,"device_id","ts"} — публично *)
+const params_s: bitstring.           (* {"v":1,"session","rekey_*","server_time"} — публично *)
+const pub_c: bitstring.              (* транспорт в сеансах с K — не секрет *)
+const pub_s: bitstring.
 
-event ClientStarted(pkey, pkey).          (* клиент, сервер *)
-event ServerAccepted(pkey, pkey).
-event ClientDone(pkey, pkey, key).
-event ServerDone(pkey, pkey, key).
+free skS: key [private].
+free skC: key [private].
+free skK: key.                        (* ключ K скомпрометирован *)
+free skD: key.                        (* устройство атакующего *)
 
-(* Ключи сервера и устройства — долговременные; LeakS/LeakC моделируют
-   компрометацию ПОСЛЕ сеанса (для прямой секретности). *)
+free payload_c: bitstring [private].  (* транспорт C → S *)
+free payload_s: bitstring [private].  (* транспорт S → C *)
 
-let client(sc: key, ss_pub: pkey) =
-  new e: key;
-  event ClientStarted(g(sc), ss_pub);
-  let h0 = h((proto, prologue, p2b(ss_pub))) in
-  let ck1 = hk1(ck0, dh(e, ss_pub)) in let k1 = hk2(ck0, dh(e, ss_pub)) in      (* es *)
-  let enc_s = aenc(k1, h((h0, p2b(g(e)))), p2b(g(sc))) in                       (* s *)
-  let ck2 = hk1(ck1, dh(sc, ss_pub)) in let k2 = hk2(ck1, dh(sc, ss_pub)) in    (* ss *)
-  out(c, (g(e), enc_s, aenc(k2, h(enc_s), proto)));                             (* IK_INIT: только идентификация *)
-  in(c, (re: pkey, m2: bitstring));
-  let ck3 = hk1(ck2, dh(e, re)) in                                               (* ee *)
-  let ck4 = hk1(ck3, dh(sc, re)) in let k4 = hk2(ck3, dh(sc, re)) in            (* se *)
-  let x = adec(k4, h(m2), m2) in
-  event ClientDone(g(sc), ss_pub, ck4);
-  out(c, aenc(ck4, proto, payload_c));
-  in(c, t: bitstring);
-  let y = adec(ck4, prologue, t) in 0.
+table registry(bitstring, bitstring).
 
-let server(ss: key, sc_pub_known: pkey) =
-  in(c, (re: pkey, enc_s: bitstring, m1tail: bitstring));
-  let h0 = h((proto, prologue, p2b(g(ss)))) in
-  let ck1 = hk1(ck0, dh(ss, re)) in let k1 = hk2(ck0, dh(ss, re)) in
-  let p2b(rs) = adec(k1, h((h0, p2b(re))), enc_s) in
-  if rs = sc_pub_known then                                    (* реестр устройств *)
-  let ck2 = hk1(ck1, dh(ss, rs)) in let k2 = hk2(ck1, dh(ss, rs)) in
-  let z = adec(k2, h(enc_s), m1tail) in
-  new e: key;
-  let ck3 = hk1(ck2, dh(e, re)) in
-  let ck4 = hk1(ck3, dh(e, rs)) in let k4 = hk2(ck3, dh(e, rs)) in
-  let m2 = aenc(k4, prologue, proto) in
-  event ServerAccepted(rs, g(ss));
-  out(c, (g(e), m2));
-  event ServerDone(rs, g(ss), ck4);
-  in(c, t: bitstring);
-  let q = adec(ck4, proto, t) in
-  out(c, aenc(ck4, prologue, payload_s)).
+event ClientStarted(bitstring, bitstring, bitstring).                          (* C, S, e_C *)
+event ServerAccepted(bitstring, bitstring, bitstring, bitstring).              (* C, S, e_C, e_S *)
+event ClientDone(bitstring, bitstring, bitstring, bitstring, bitstring).       (* C, S, e_C, e_S, kIR *)
+event ServerDone(bitstring, bitstring, bitstring, bitstring, bitstring).
 
-(* Свойства *)
-query attacker(payload_c).                                     (* G1 *)
+query attacker(payload_c).
 query attacker(payload_s).
-query a: pkey, b: pkey, k: key; event(ClientDone(a, b, k)) ==> event(ServerAccepted(a, b)).   (* G4 *)
-query a: pkey, b: pkey, k: key; inj-event(ServerDone(a, b, k)) ==> inj-event(ClientStarted(a, b)).  (* G3; inj — повтор IK_INIT не даёт второго ServerDone с тем же ключом? см. FORMAL.md *)
+query e1: bitstring, e2: bitstring, k: bitstring;
+  inj-event(ServerDone(exp(gen, skC), exp(gen, skS), e1, e2, k))
+  ==> inj-event(ClientStarted(exp(gen, skC), exp(gen, skS), e1)).
+query e1: bitstring, e2: bitstring, k: bitstring;
+  inj-event(ServerDone(exp(gen, skC), exp(gen, skS), e1, e2, k))
+  ==> inj-event(ClientDone(exp(gen, skC), exp(gen, skS), e1, e2, k)).
+query e1: bitstring, e2: bitstring, k: bitstring;
+  inj-event(ClientDone(exp(gen, skC), exp(gen, skS), e1, e2, k))
+  ==> inj-event(ServerAccepted(exp(gen, skC), exp(gen, skS), e1, e2)).
+query e1: bitstring, e2: bitstring;
+  event(ServerAccepted(exp(gen, skC), exp(gen, skS), e1, e2))
+  ==> event(ClientStarted(exp(gen, skC), exp(gen, skS), e1)).
+query e1: bitstring, e2: bitstring;
+  inj-event(ServerAccepted(exp(gen, skC), exp(gen, skS), e1, e2))
+  ==> inj-event(ClientStarted(exp(gen, skC), exp(gen, skS), e1)).
+query e1: bitstring, e2: bitstring;
+  event(ServerAccepted(exp(gen, skC), exp(gen, skK), e1, e2))
+  ==> event(ClientStarted(exp(gen, skC), exp(gen, skK), e1)).
+query e1: bitstring, e2: bitstring, k: bitstring;
+  event(ServerDone(exp(gen, skC), exp(gen, skK), e1, e2, k))
+  ==> event(ClientStarted(exp(gen, skC), exp(gen, skK), e1)).
+query e1: bitstring, e2: bitstring, k: bitstring;
+  event(ServerDone(exp(gen, skC), exp(gen, skS), e1, e2, k)).
+
+(* Инициатор (устройство). pkR — ключ сервера, известный из спаривания. *)
+let Client(skI: key, pkR: bitstring, msg: bitstring) =
+  new eI: key;
+  let pkI = exp(gen, skI) in
+  let eIPub = exp(gen, eI) in
+  event ClientStarted(pkI, pkR, eIPub);
+  let h0 = hash(name_ik) in
+  let ck0 = h0 in
+  let h1 = hash((h0, prologue_session)) in
+  let h2 = hash((h1, pkR)) in                       (* <- s *)
+  (* IK_INIT: -> e, es, s, ss *)
+  let h3 = hash((h2, eIPub)) in                     (* e *)
+  let ck1 = hkdf1(ck0, exp(pkR, eI)) in             (* es *)
+  let k1 = hkdf2(ck0, exp(pkR, eI)) in
+  let cS = aenc(k1, n0, h3, pkI) in                 (* s *)
+  let h4 = hash((h3, cS)) in
+  let ck2 = hkdf1(ck1, exp(pkR, skI)) in            (* ss *)
+  let k2 = hkdf2(ck1, exp(pkR, skI)) in
+  let cP1 = aenc(k2, n0, h4, ident_c) in            (* payload: только идентификация *)
+  let h5 = hash((h4, cP1)) in
+  out(c, (eIPub, cS, cP1));
+  (* IK_RESP: <- e, ee, se *)
+  in(c, (eR: bitstring, cP2: bitstring));
+  let h6 = hash((h5, eR)) in                        (* e *)
+  let ck3 = hkdf1(ck2, exp(eR, eI)) in              (* ee *)
+  let ck4 = hkdf1(ck3, exp(eR, skI)) in             (* se = DH(s_I, e_R) *)
+  let k4 = hkdf2(ck3, exp(eR, skI)) in
+  let p2 = adec(k4, n0, h6, cP2) in
+  let kIR = hkdf1(ck4, empty) in                    (* Split *)
+  let kRI = hkdf2(ck4, empty) in
+  event ClientDone(pkI, pkR, eIPub, eR, kIR);
+  out(c, aenc(kIR, n0, empty, msg));
+  in(c, t: bitstring);
+  let reply = adec(kRI, n0, empty, t) in 0.
+
+(* Ответчик (сервер). msgC — что отправить устройству C (другим — pub_s). *)
+let Server(skR: key, msgC: bitstring) =
+  let pkR = exp(gen, skR) in
+  in(c, (eI: bitstring, cS: bitstring, cP1: bitstring));
+  let h0 = hash(name_ik) in
+  let ck0 = h0 in
+  let h1 = hash((h0, prologue_session)) in
+  let h2 = hash((h1, pkR)) in
+  let h3 = hash((h2, eI)) in
+  let ck1 = hkdf1(ck0, exp(eI, skR)) in             (* es = DH(s_R, e_I) *)
+  let k1 = hkdf2(ck0, exp(eI, skR)) in
+  let sI = adec(k1, n0, h3, cS) in
+  let h4 = hash((h3, cS)) in
+  get registry(=pkR, =sI) in                        (* нет в реестре — молчание *)
+  let ck2 = hkdf1(ck1, exp(sI, skR)) in             (* ss *)
+  let k2 = hkdf2(ck1, exp(sI, skR)) in
+  let ident = adec(k2, n0, h4, cP1) in
+  let h5 = hash((h4, cP1)) in
+  new eR: key;
+  let eRPub = exp(gen, eR) in
+  event ServerAccepted(sI, pkR, eI, eRPub);
+  let h6 = hash((h5, eRPub)) in                     (* e *)
+  let ck3 = hkdf1(ck2, exp(eI, eR)) in              (* ee *)
+  let ck4 = hkdf1(ck3, exp(sI, eR)) in              (* se = DH(e_R, s_I) *)
+  let k4 = hkdf2(ck3, exp(sI, eR)) in
+  out(c, (eRPub, aenc(k4, n0, h6, params_s)));
+  let kIR = hkdf1(ck4, empty) in
+  let kRI = hkdf2(ck4, empty) in
+  in(c, t: bitstring);
+  let m = adec(kIR, n0, empty, t) in                (* первый транспортный кадр устройства *)
+  event ServerDone(sI, pkR, eI, eRPub, kIR);
+  if sI = exp(gen, skC) then
+    out(c, aenc(kRI, n0, empty, msgC))
+  else
+    out(c, aenc(kRI, n0, empty, pub_s)).
 
 process
-  new ss: key; new sc: key;
-  out(c, (g(ss), g(sc)));
-  ( !client(sc, g(ss)) | !server(ss, g(sc)) )
+  insert registry(exp(gen, skS), exp(gen, skC));
+  insert registry(exp(gen, skS), exp(gen, skD));
+  insert registry(exp(gen, skK), exp(gen, skC));
+  out(c, (exp(gen, skS), exp(gen, skC)));
+  (
+      (!Client(skC, exp(gen, skS), payload_c))
+    | (!Client(skC, exp(gen, skK), pub_c))
+    | (!Server(skS, payload_s))
+    | (!Server(skK, pub_s))
+    | (phase 1; out(c, (skS, skC)))
+  )
