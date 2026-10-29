@@ -13,6 +13,14 @@ load_dotenv(override=True)
 VPS_WS_URL   = os.getenv("VPS_WS_URL",   "ws://31.76.80.5:8765")
 DEVICE_ID    = os.getenv("DEVICE_ID",     "laptop")
 WS_TOKEN     = os.getenv("WS_TOKEN",      "")  # только из .env, без значения по умолчанию
+# Защищённый канал (Noise, docs/security/PROTOCOL.md), core/transport.py:
+#   off | prefer — без ключей устройства старый протокол с WS_TOKEN;
+#   required     — без ключей не подключаться («не спарено»).
+# Если устройство спарено (есть ключи) — только Noise в любом режиме,
+# отката на токен нет. Неизвестное значение = prefer.
+AGENT_SECURE = os.getenv("AGENT_SECURE", "prefer").strip().lower()
+if AGENT_SECURE not in ("off", "prefer", "required"):
+    AGENT_SECURE = "prefer"
 PING_INTERVAL = int(os.getenv("PING_INTERVAL", "25"))
 WINDOW_POLL   = int(os.getenv("WINDOW_POLL", "2"))
 RECONNECT_SEC = int(os.getenv("RECONNECT_SEC", "3"))

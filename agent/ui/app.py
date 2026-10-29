@@ -16,6 +16,7 @@ class UiBridge(QObject):
     orbDeparture      = pyqtSignal()
     micLevel          = pyqtSignal(list)
     agentAlert        = pyqtSignal(str)
+    secureStatus      = pyqtSignal(bool, str)
 
     def __init__(self, bus):
         super().__init__()
@@ -39,6 +40,8 @@ class UiBridge(QObject):
                 self.orbDeparture.emit()
             elif event == "agent_alert":
                 self.agentAlert.emit(data.get("text", ""))
+            elif event == "secure_status":
+                self.secureStatus.emit(bool(data.get("secure")), data.get("text", ""))
 
         bus.subscribe(_on_event)
 
@@ -51,7 +54,18 @@ def _make_icon(color: str = "#9a7fb5") -> QIcon:
 
 def build_tray(app: QApplication, overlay, bridge=None) -> QSystemTrayIcon:
     tray = QSystemTrayIcon(_make_icon(), app)
+    tray.setToolTip("Сакура")
     menu = QMenu()
+    # Статус канала: 🔒 только при Noise (conn.secure)
+    status_action = QAction("подключение…", app)
+    status_action.setEnabled(False)
+    menu.addAction(status_action)
+    if bridge is not None:
+        def _sync_secure(secure: bool, text: str):
+            status_action.setText(text)
+            tray.setToolTip(f"Сакура — {text}")
+        bridge.secureStatus.connect(_sync_secure)
+    menu.addSeparator()
     menu.addAction("Показать / скрыть", lambda: overlay.setVisible(not overlay.isVisible()))
     menu.addSeparator()
 
