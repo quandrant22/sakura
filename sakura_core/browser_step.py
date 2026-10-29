@@ -606,6 +606,7 @@ async def quiz_step(task: bt.BrowserTask, obs: dict, last_result) -> dict | None
         if q["phase"] == "fill":
             sent = q.get("sent") or []
             skipped = _unsupported(task, last_result, sent)
+            errors = _fill_errors(task, last_result, sent)
             refill = []
             for idx in sent:
                 question = q["questions"][idx]
@@ -613,6 +614,17 @@ async def quiz_step(task: bt.BrowserTask, obs: dict, last_result) -> dict | None
                     _set_answer(task, question, None, "skipped")
                     _answer_entry(task, idx)["reason"] = skipped[idx]
                     log.info(f"[browser] {task.task_id}: вопрос {idx} пропущен — заполнение не поддерживается")
+                    continue
+                if idx in errors:
+                    # Заполнение не прошло: ещё раз (новый снимок), потом — failed с причиной;
+                    # «filled» по пустой проверке снимка здесь был бы неправдой.
+                    if q["fills"].get(idx, 0) < FILL_ATTEMPTS:
+                        refill.append(question)
+                    else:
+                        _set_answer(task, question, None, "failed")
+                        _answer_entry(task, idx)["reason"] = errors[idx]
+                        log.info(f"[browser] {task.task_id}: вопрос {idx} не вписан после "
+                                 f"{FILL_ATTEMPTS} попыток")
                     continue
                 ok = qs.verify(question, (_answer_entry(task, idx) or {}).get("answer") or {},
                                obs.get("elements"))
@@ -715,6 +727,32 @@ def _unsupported(task: bt.BrowserTask, last_result, sent: list) -> dict:
     for f in fields if isinstance(fields, list) else []:
         if isinstance(f, dict) and f.get("status") == "unsupported" and owner.get(f.get("ref")) in sent:
             out.setdefault(owner[f["ref"]], " ".join(str(f.get("detail") or detail).split())[:160])
+    return out
+
+
+FILL_OK = ("done",)
+
+
+def _fill_errors(task: bt.BrowserTask, last_result, sent: list) -> dict:
+    """Вопросы последнего page_fill_form, которые не заполнились (error,
+    not_found, stale — не unsupported): по полям, а без полей — весь шаг."""
+    if not isinstance(last_result, dict) or not sent:
+        return {}
+    status = str(last_result.get("status") or "done")
+    detail = " ".join(str(last_result.get("detail") or status).split())[:160]
+    data = last_result.get("data") if isinstance(last_result.get("data"), dict) else {}
+    fields = last_result.get("fields") or data.get("fields") or []
+    owner = task.quiz.get("field_refs") or {}
+    out, owned = {}, False
+    for f in fields if isinstance(fields, list) else []:
+        if not isinstance(f, dict) or owner.get(f.get("ref")) not in sent:
+            continue
+        owned = True
+        st = f.get("status")
+        if st and st not in FILL_OK and st != "unsupported":
+            out.setdefault(owner[f["ref"]], " ".join(str(f.get("detail") or st).split())[:160])
+    if not owned and status not in FILL_OK and status != "unsupported":
+        out = {idx: detail for idx in sent}     # полей вопросов нет — ошибка всего шага
     return out
 
 
@@ -895,7 +933,8 @@ def report(task: bt.BrowserTask, outcome: str) -> str:
                          f" (ответ решателя: {answer})")
             continue
         mark = {"verified": "", "filled": "", "solved": " (не проверен)",
-                "failed": " (не вписан)"}.get(a.get("status"), "")
+                "failed": " (не вписан" + (f": {a['reason']}" if a.get("reason") else "") + ")"
+                }.get(a.get("status"), "")
         lines.append(f"Вопрос {a['index']}: {answer}{mark}")
     lines.append(metrics_text(task))
     return "\n".join(lines)

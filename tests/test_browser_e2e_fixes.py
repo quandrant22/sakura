@@ -103,3 +103,76 @@ def test_resumed_step_zero_continues_from_checkpoint(env, monkeypatch):
     asyncio.run(bs.handle_step(env, {"request_id": "r", "task_id": task.task_id, "step": 0,
                                      "observation": obs}))
     assert env.sent[-1]["action"]["tool"] == "page_observe" and task.step == 32
+
+
+# ── ошибка заполнения в конвейере теста ──────────────────────────────
+
+ORDER_ROWS = {"index": 6, "kind": "order", "text": "Порядок событий", "ref": "f0:e60",
+              "rows": [{"ref": "f0:e61", "name": "Обед"}, {"ref": "f0:e62", "name": "Пробуждение"}],
+              "options": [{"name": "1"}, {"name": "2"}], "has_media": False}
+PAIRS = [{"row_ref": "f0:e61", "option_text": "2"}, {"row_ref": "f0:e62", "option_text": "1"}]
+
+
+def _quiz_env(monkeypatch, solve_answers):
+    from sakura_core import llm
+
+    async def gen(contents, **kw):
+        if kw.get("response_schema") is not None:
+            return llm.AgentResponse("gemma-4-31b-it", SimpleNamespace(
+                text=json.dumps({"reasoning": "r", "answer": solve_answers.pop(0)}),
+                function_calls=None), 1)
+        return llm.AgentResponse("gemma-4-26b-a4b-it", SimpleNamespace(
+            function_calls=[SimpleNamespace(name="page_observe", args={"note": "смотрю"})],
+            text=None), 1)
+
+    monkeypatch.setattr(llm, "generate_agent", gen)
+    from sakura_core import quiz_solver
+    monkeypatch.setattr(quiz_solver, "needs_crop", lambda q: False)   # кадр вопроса здесь не нужен
+
+
+def _obs():
+    return {"snapshot_id": "s", "window_id": 9, "tab_id": 1, "url": "https://quiz/",
+            "elements": [{"ref": f"f0:e{i}", "role": "button", "name": "b"} for i in range(6)]}
+
+
+def _quiz_steps(env, task, results):
+    async def run():
+        outs = []
+        for n, res in enumerate(results, 1):
+            await bs.handle_step(env, {"request_id": f"r{n}", "task_id": task.task_id, "step": n,
+                                       "observation": _obs(), "last_result": res,
+                                       "frames": []})
+            outs.append(env.sent[-1])
+        return outs
+    return asyncio.run(run())
+
+
+@pytest.mark.parametrize("error", [
+    {"ok": False, "status": "error", "detail": "заполнено 0 из 1",
+     "data": {"fields": [{"ref": "f0:e60", "status": "error", "detail": "не поле ввода"}]}},
+    {"ok": False, "status": "error", "detail": "кадр недоступен"},          # без полей
+    {"ok": False, "status": "error", "detail": "x",
+     "data": {"fields": [{"ref": "f9:e1", "status": "error"}]}},             # поля не сопоставились
+])
+def test_fill_error_retries_then_failed_with_reason(env, monkeypatch, error):
+    _quiz_env(monkeypatch, [{"pairs": PAIRS}])
+    task = bt.new_task("тест", device_id="pc")
+    task.pending["await"] = "questions"
+    outs = _quiz_steps(env, task, [{"ok": True, "status": "done", "questions": [ORDER_ROWS]},
+                                   error, error])
+    assert outs[0]["action"]["tool"] == "page_fill_form"       # первая попытка
+    assert outs[1]["action"]["tool"] == "page_fill_form"       # повтор
+    assert outs[2]["action"]["tool"] == "page_observe"         # дальше — навигатор
+    entry = task.answers[0]
+    assert entry["status"] == "failed" and entry["reason"]
+    report = bs.report(task, "итог")
+    assert "Вопрос 6: " in report and f"(не вписан: {entry['reason']})" in report
+
+
+def test_fill_ok_still_filled_or_verified(env, monkeypatch):
+    _quiz_env(monkeypatch, [{"pairs": PAIRS}])
+    task = bt.new_task("тест", device_id="pc")
+    task.pending["await"] = "questions"
+    _quiz_steps(env, task, [{"ok": True, "status": "done", "questions": [ORDER_ROWS]},
+                            {"ok": True, "status": "done", "detail": "заполнено 1 из 1"}])
+    assert task.answers[0]["status"] == "filled" and "reason" not in task.answers[0]
