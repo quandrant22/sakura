@@ -225,3 +225,12 @@ def test_loop_guard_counts_failures_not_successes():
     assert bs.loop_guard(task) == ("page_fill_form", 3, "stale")
     task.steps = [{"n": 1, "tool": "page_act", "status": "done", "note": ""}]
     assert bs.loop_guard(task) is None
+
+
+def test_browser_messages_private_on_both_barriers():
+    """Кадры экрана браузера — приватный класс и в adapters/ws (secure_policy),
+    и в proto_v2: оба рубежа согласованы."""
+    from sakura_core import proto_v2, secure_policy
+    for kind in ("browser_step", "browser.resume"):
+        assert secure_policy.is_private(kind) and proto_v2.is_private(kind)
+    assert not secure_policy.is_private("status_request")

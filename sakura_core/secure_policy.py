@@ -24,7 +24,7 @@ import config
 log = logging.getLogger("sakura.securechannel")
 
 MODES = ("off", "optional", "required")
-PRIVATE_PREFIXES = ("chat_", "history_", "memory_", "profile_", "secure_")
+PRIVATE_PREFIXES = ("chat_", "history_", "memory_", "profile_", "secure_", "browser")
 PRIVATE_TYPES = frozenset({"vision_request", "computer_step"})
 SECURE_HINT = ("приватные данные — только по защищённому каналу: подключитесь "
                "через Noise (SECURE_CHANNEL) или VPN")
