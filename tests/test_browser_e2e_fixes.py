@@ -234,3 +234,11 @@ def test_browser_messages_private_on_both_barriers():
     for kind in ("browser_step", "browser.resume"):
         assert secure_policy.is_private(kind) and proto_v2.is_private(kind)
     assert not secure_policy.is_private("status_request")
+
+
+def test_system_prompt_forbids_retake_and_self_filling_quiz():
+    """Прогон 29.10 (d767281c): навигатор сам вписывал вопросы теста и нажал
+    «Пройти заново» после отправки. Правила в системном промпте навигатора."""
+    assert "Не проходи тест заново" in bs.SYSTEM
+    assert "Вопросы\n  теста сама не заполняй" in bs.SYSTEM
+    assert "страница результата — сразу done" in bs.SYSTEM
