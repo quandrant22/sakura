@@ -242,3 +242,44 @@ def test_system_prompt_forbids_retake_and_self_filling_quiz():
     assert "Не проходи тест заново" in bs.SYSTEM
     assert "Вопросы\n  теста сама не заполняй" in bs.SYSTEM
     assert "страница результата — сразу done" in bs.SYSTEM
+
+
+# ── «стоп задача» посреди шага ───────────────────────────────────────
+
+@pytest.mark.parametrize("phase", ["solver", "navigator"])
+def test_cancel_during_model_call_answers_fail(env, monkeypatch, phase):
+    """Прогон 29.10 (d767281c): «стоп задача», пока решатель думал, → KeyError
+    'questions' в фоне шага, desktop не получил ответа на запрос."""
+    from sakura_core import llm, quiz_solver
+    monkeypatch.setattr(quiz_solver, "needs_crop", lambda q: False)
+    gate = asyncio.Event()
+
+    async def gen(contents, **kw):
+        await gate.wait()
+        if kw.get("response_schema") is not None:
+            return llm.AgentResponse("gemma-4-31b-it", SimpleNamespace(
+                text=json.dumps({"reasoning": "r", "answer": {"pairs": PAIRS}}),
+                function_calls=None), 1)
+        return llm.AgentResponse("gemma-4-26b-a4b-it", SimpleNamespace(
+            function_calls=[SimpleNamespace(name="page_observe", args={"note": "смотрю"})],
+            text=None), 1)
+
+    monkeypatch.setattr(llm, "generate_agent", gen)
+    task = bt.new_task("тест", device_id="pc")
+    data = {"request_id": "r1", "task_id": task.task_id, "step": 1, "observation": _obs(),
+            "frames": []}
+    if phase == "solver":
+        task.pending["await"] = "questions"
+        data["last_result"] = {"ok": True, "status": "done", "questions": [ORDER_ROWS]}
+
+    async def run():
+        step = asyncio.create_task(bs.handle_step(env, data))
+        await asyncio.sleep(0.05)                 # шаг ждёт модель
+        await bs.cancel(task, "остановлено по команде")
+        gate.set()
+        await step                                # без исключения
+    asyncio.run(run())
+    replies = [m for m in env.sent if m.get("type") == "browser_step"]
+    assert replies == [{"type": "browser_step", "request_id": "r1", "task_id": task.task_id,
+                        "status": "fail", "reason": "задача cancelled"}]
+    assert {"type": "browser.cancel", "task_id": task.task_id} in env.sent

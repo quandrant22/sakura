@@ -656,6 +656,8 @@ async def quiz_step(task: bt.BrowserTask, obs: dict, last_result) -> dict | None
                         "args": {"crop_ref": question["ref"], "q_index": idx},
                         "note": f"вопрос {idx}: кадр вопроса"}
         await _solve_batch(task, obs)
+        if not task.active:
+            return None                     # отменена, пока решатель думал
         solved = [q["questions"][idx] for idx in batch if idx in q["solved"]]
         if not solved:
             q["batch"], q["phase"] = [], None
@@ -682,6 +684,8 @@ async def _solve_batch(task: bt.BrowserTask, obs: dict) -> None:
         *(qs.solve(q["questions"][idx], _crop(task, idx), seconds_left=left,
                    on_event=recorder(task, "solver")) for idx in todo),
         return_exceptions=True)
+    if not task.active or task.quiz is not q:
+        return                              # задачу отменили во время вызовов решателя
     deferred, failed = [], set()
     for idx, res in zip(todo, results):
         question = q["questions"][idx]
@@ -1097,6 +1101,8 @@ async def decide(task: bt.BrowserTask, data: dict, obs: dict, frames: list) -> d
             action, task.held_action, confirmed = task.held_action, None, True
         if action is None:
             action = await quiz_step(task, obs, last_result)
+            if not task.active:
+                return {"status": "fail", "reason": f"задача {task.state}"}
         hint = ""
         if action is None:
             hint = _form_hint(task, obs)
@@ -1122,6 +1128,8 @@ async def decide(task: bt.BrowserTask, data: dict, obs: dict, frames: list) -> d
             if every and task.step % every == 0:
                 await summarize(task)
             tool, args, note = await navigate(task, obs, hint)
+            if not task.active:
+                return {"status": "fail", "reason": f"задача {task.state}"}
             action = {"tool": tool, "args": args, "note": note}
             if tool in ("done", "fail"):
                 text = str(args.get("summary" if tool == "done" else "reason") or note)[:500]
@@ -1244,6 +1252,14 @@ async def handle_step(websocket, data: dict) -> None:
         task.device_id = task.device_id or str(data.get("device_id") or "")
         try:
             out = await decide(task, data, obs, frames)
+            if not task.active and out.get("action"):
+                out = {"status": "fail", "reason": f"задача {task.state}"}
+        except Exception:
+            if task.active:
+                raise
+            # отменена посреди шага (стоп задача): ответить, а не оставить запрос без ответа
+            log.info(f"[browser] {task.task_id}: шаг {task.step} прерван — задача {task.state}")
+            out = {"status": "fail", "reason": f"задача {task.state}"}
         finally:
             frames = None           # кадры живут только в deque задачи
         if task.active:
