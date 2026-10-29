@@ -155,6 +155,9 @@ NO_SAMPLING_MODELS = ("gemini-3.5-flash-lite",)
 # (sakura_core/rate_limiter.py; сутки — по тихоокеанскому времени).
 GEMMA_RPM = int(os.getenv("GEMMA_RPM", "15"))
 GEMMA_RPD = int(os.getenv("GEMMA_RPD", "1500"))
+# Токенов в минуту на модель (0 — без лимита): прогон 28.10 — 429 на 26b при
+# 5–8 вызовах/мин по 2–4 тыс. токенов, то есть упор в токены, а не в RPM.
+GEMMA_TPM = int(os.getenv("GEMMA_TPM", "15000"))
 
 # ── Browser agent (browser.do / browser_step, sakura_core/browser_step.py) ──
 # Модели агента — только Gemma 4 через тот же ключ Gemini API: навигатор

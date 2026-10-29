@@ -567,6 +567,16 @@ def _server_error(error: Exception) -> bool:
     return _error_code(error).upper() in ("500", "503", "INTERNAL", "UNAVAILABLE")
 
 
+def quota_ids(error: Exception) -> list[str]:
+    """quotaId из QuotaFailure ответа 429 (имена метрик, не секреты)."""
+    out = []
+    for item in _error_details(error):
+        if str(item.get("@type", "")).endswith("QuotaFailure"):
+            out += [str(v.get("quotaId") or v.get("quotaMetric") or "")[:80]
+                    for v in item.get("violations") or []]
+    return [q for q in out if q]
+
+
 def quota_per_day(error: Exception) -> bool:
     """429 из-за суточной квоты (QuotaFailure: quotaId …PerDay…)."""
     for item in _error_details(error):
@@ -632,19 +642,22 @@ async def generate_agent(contents, *, chain, system: str = "", tools=None,
                 emit("wait", seconds=wait)
                 await sleep(wait)
                 continue
-            limiter.take(model)
+            reserved = limiter.take(model) or 0.0
             params = {k: v for k, v in filter_params(model, cfg).items() if v is not None}
             started = time.monotonic()
             try:
                 response = await generate_raw(model, contents, timeout=timeout, **params)
             except Exception as error:  # noqa: BLE001 — разбор кода ошибки API ниже
                 last_error = error
+                limiter.on_tokens(model, 0, reserved)       # не дошёл — резерв назад
                 kind = _error_kind(error)
                 log.info("[agent-llm] model=%s code=%s elapsed=%.1fs", model,
                          _error_code(error), time.monotonic() - started)
                 emit("call", model=model, latency=time.monotonic() - started, ok=False,
                      code="429" if kind == "rate_limit" else _error_code(error))
                 if kind == "rate_limit":
+                    log.info("[agent-llm] 429 model=%s quota=%s retry_delay=%s", model,
+                             ",".join(quota_ids(error)) or "?", retry_delay(error))
                     limiter.on_429(model, retry_delay(error), quota_per_day(error))
                     continue                            # wait()/exhausted решат
                 if _server_error(error):
@@ -655,6 +668,7 @@ async def generate_agent(contents, *, chain, system: str = "", tools=None,
             emit("call", model=model, latency=time.monotonic() - started, ok=True, code="")
             usage = getattr(response, "usage_metadata", None)
             tokens = int(getattr(usage, "total_token_count", 0) or 0)
+            limiter.on_tokens(model, tokens or int(reserved), reserved)
             log.info("[agent-llm] success model=%s elapsed=%.1fs tokens=%d", model,
                      time.monotonic() - started, tokens)
             return AgentResponse(model, response, tokens)

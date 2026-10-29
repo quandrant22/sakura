@@ -1,7 +1,9 @@
 """Квоты Gemma для browser agent (S2/S3): RPM, RPD и блокировки после 429.
 
 На каждую модель — свой token bucket (ёмкость GEMMA_RPM, пополнение
-GEMMA_RPM/60 в секунду) и суточный счётчик GEMMA_RPD. Сутки квоты Gemini API
+GEMMA_RPM/60 в секунду), бакет токенов в минуту (GEMMA_TPM: перед вызовом
+резервируется оценка — медиана последних фактических расходов модели, после
+ответа резерв правится по usage) и суточный счётчик GEMMA_RPD. Сутки квоты Gemini API
 считаются по тихоокеанскому времени: счётчик сбрасывается в полночь
 America/Los_Angeles и хранится в data/gemma_quota.json (переживает рестарт).
 
@@ -33,6 +35,8 @@ PT = ZoneInfo("America/Los_Angeles")
 BACKOFF_S = (4.0, 8.0, 16.0, 32.0, 32.0)    # повторы 1…5; дальше — следующая модель
 MAX_429 = len(BACKOFF_S)
 MINUTE_BLOCK_S = 60.0
+TPM_DEFAULT_COST = 3000          # оценка цены вызова, пока нет фактических данных
+TPM_HISTORY = 8                  # по скольким последним вызовам оценивать цену
 SERVER_BACKOFF_S = (5.0, 10.0, 20.0)        # 500/503: повторы 1…3; дальше — следующая модель
 MAX_5XX = len(SERVER_BACKOFF_S)
 SERVER_BLOCK_S = 60.0                        # сколько модель выведена после 3 повторов 500
@@ -52,9 +56,14 @@ def next_reset(now: float) -> float:
 
 class RateLimiter:
     def __init__(self, rpm: int | None = None, rpd: int | None = None,
-                 path: Path | None = QUOTA_FILE, clock=time.time):
+                 path: Path | None = QUOTA_FILE, clock=time.time, tpm: int | None = None):
         self.rpm = max(1, int(rpm if rpm is not None else config.GEMMA_RPM))
         self.rpd = max(1, int(rpd if rpd is not None else config.GEMMA_RPD))
+        # 0 — без лимита токенов; по умолчанию — config.GEMMA_TPM
+        self.tpm = max(0, int(tpm if tpm is not None else getattr(config, "GEMMA_TPM", 0)))
+        self._tpm_level: dict[str, float] = {}
+        self._tpm_refilled: dict[str, float] = {}
+        self._costs: dict[str, list] = {}
         self.path = path
         self.clock = clock
         self._tokens: dict[str, float] = {}
@@ -113,6 +122,34 @@ class RateLimiter:
         self._refilled[model] = now
         return tokens
 
+    # ── TPM: бакет токенов ────────────────────────────────────────
+
+    def _tpm_refill(self, model: str, now: float) -> float:
+        level = self._tpm_level.get(model, float(self.tpm))
+        last = self._tpm_refilled.get(model, now)
+        level = min(float(self.tpm), level + (now - last) * self.tpm / 60.0)
+        self._tpm_level[model] = level
+        self._tpm_refilled[model] = now
+        return level
+
+    def estimate(self, model: str) -> float:
+        """Оценка цены следующего вызова модели в токенах."""
+        costs = sorted(self._costs.get(model) or [])
+        cost = costs[len(costs) // 2] if costs else TPM_DEFAULT_COST
+        return float(min(cost, self.tpm)) if self.tpm else float(cost)
+
+    def on_tokens(self, model: str, actual: int, reserved: float) -> None:
+        """Поправить резерв по факту (0 — вызов не дошёл: резерв вернуть)."""
+        if not self.tpm:
+            return
+        now = self.clock()
+        self._tpm_level[model] = min(float(self.tpm),
+                                     self._tpm_refill(model, now) + reserved - max(0, actual))
+        if actual > 0:
+            hist = self._costs.setdefault(model, [])
+            hist.append(int(actual))
+            del hist[:-TPM_HISTORY]
+
     # ── API ───────────────────────────────────────────────────────
 
     def used(self, model: str) -> int:
@@ -145,15 +182,25 @@ class RateLimiter:
         tokens = self._refill(model, now)
         if tokens < 1.0:
             wait = max(wait, (1.0 - tokens) * 60.0 / self.rpm)
+        if self.tpm:
+            need = self.estimate(model) - self._tpm_refill(model, now)
+            if need > 0:
+                wait = max(wait, need * 60.0 / self.tpm)
         return wait
 
-    def take(self, model: str) -> None:
-        """Забрать токен RPM и единицу RPD (вызов уходит в API)."""
+    def take(self, model: str) -> float:
+        """Забрать токен RPM, единицу RPD и резерв TPM (вызов уходит в API).
+        Возвращает резерв токенов — его поправит on_tokens."""
         now = self.clock()
         self._roll_day(now)
         self._tokens[model] = self._refill(model, now) - 1.0
         self._used[model] = self._used.get(model, 0) + 1
         self._save()
+        if not self.tpm:
+            return 0.0
+        reserved = self.estimate(model)
+        self._tpm_level[model] = self._tpm_refill(model, now) - reserved
+        return reserved
 
     def on_success(self, model: str) -> None:
         self._strikes.pop(model, None)

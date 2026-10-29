@@ -27,7 +27,7 @@ class Clock:
 
 def test_token_bucket_rpm(tmp_path):
     clock = Clock()
-    lim = rl.RateLimiter(rpm=15, rpd=1500, path=None, clock=clock)
+    lim = rl.RateLimiter(rpm=15, rpd=1500, path=None, clock=clock, tpm=0)
     for _ in range(15):
         assert lim.wait("m") == 0
         lim.take("m")
@@ -175,3 +175,52 @@ def test_503_long_wait_goes_to_desktop_and_all_down_pauses(monkeypatch):
     assert e.value.reason == "unavailable"
     assert e.value.resume_at == pytest.approx(clock2.t - 35 + rl.SERVER_BLOCK_S)
     assert lim2.exhausted_reason("a") == "unavailable"
+
+
+# ── TPM (прогон 28.10: 429 при 5–8 вызовах/мин по 2–4 тыс. токенов) ───
+
+def test_tpm_bucket_reserves_and_waits():
+    clock = Clock()
+    lim = rl.RateLimiter(rpm=100, rpd=1000, path=None, clock=clock, tpm=10000)
+    assert lim.estimate("m") == rl.TPM_DEFAULT_COST
+    for _ in range(3):
+        assert lim.wait("m") == 0
+        lim.take("m")                                   # 3 × 3000 → остаток 1000
+    assert lim.wait("m") == pytest.approx((3000 - 1000) * 60 / 10000)
+    clock.t += 12
+    assert lim.wait("m") == pytest.approx(0, abs=1e-6)
+    assert lim.wait("other") == 0                       # бакет — на модель
+
+
+def test_tpm_corrects_reservation_by_actual_usage():
+    clock = Clock()
+    lim = rl.RateLimiter(rpm=100, rpd=1000, path=None, clock=clock, tpm=6000)
+    r1 = lim.take("m")
+    r2 = lim.take("m")                                  # 6000 зарезервировано, 0 осталось
+    assert lim.wait("m") > 0
+    lim.on_tokens("m", 1000, r1)                        # факт 1000: 2000 назад
+    lim.on_tokens("m", 0, r2)                           # вызов не дошёл: 3000 назад
+    assert lim.wait("m") == 0
+    assert lim.estimate("m") == 1000                    # оценка — по факту
+
+
+def test_tpm_zero_disables():
+    lim = rl.RateLimiter(rpm=100, rpd=1000, path=None, tpm=0)
+    for _ in range(50):
+        assert lim.wait("m") == 0 and lim.take("m") == 0.0
+
+
+def test_quota_ids_logged_on_429(monkeypatch, caplog):
+    import logging
+    caplog.set_level(logging.INFO)
+    err = ApiError(429, delay=21)
+    err.details["error"]["details"].append(
+        {"@type": "type.googleapis.com/google.rpc.QuotaFailure",
+         "violations": [{"quotaId": "GenerateContentInputTokensPerModelPerMinute-FreeTier"}]})
+    assert llm.quota_ids(err) == ["GenerateContentInputTokensPerModelPerMinute-FreeTier"]
+    _raw_script(monkeypatch, {"a": [err], "b": []})
+    lim = rl.RateLimiter(rpm=100, rpd=100, path=None, tpm=0)
+    with pytest.raises(llm.QuotaWait):
+        asyncio.run(llm.generate_agent(["x"], chain=("a", "b"), limiter=lim))
+    assert ("429 model=a quota=GenerateContentInputTokensPerModelPerMinute-FreeTier "
+            "retry_delay=21.0") in caplog.text
