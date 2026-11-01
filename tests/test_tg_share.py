@@ -196,3 +196,54 @@ def test_voice_to_tg_plain_picture_request_stays_stock(monkeypatch):
     asyncio.run(send.voice_to_tg(text, text, send.strip_payload_words(text), "", none, none, search_image,
                                  none, none, lambda t: False, translate, None, 1))
     assert stock and shared == []
+
+
+# ── просьба «в телегу» с ошибками распознавания ────────────────────
+
+@pytest.mark.parametrize("text", [
+    "скинь в ттелегу, где найти?", "скинь в телегу где найти хлопок", "отправь в телеграмм рецепт",
+    "пришли на телегу это", "кинь в тг ссылку", "скинь мне в личку", "перешли в телеграм",
+])
+def test_tg_trigger_variants(text):
+    from sakura_core.send import has_tg_trigger
+    assert has_tg_trigger(text.lower())
+
+
+@pytest.mark.parametrize("text", [
+    "где найти хлопок", "телега сломалась", "скинь громкость", "открой телеграм",
+])
+def test_not_tg_requests(text):
+    from sakura_core.send import has_tg_trigger
+    assert not has_tg_trigger(text.lower())
+
+
+def test_payload_strips_garbled_target():
+    from sakura_core.send import strip_payload_words
+    assert strip_payload_words("скинь в ттелегу, где найти хлопок") == "где найти хлопок"
+
+
+def test_tg_request_not_taken_by_game_intent():
+    from sakura_core.vision import intent, seen
+    seen.reset()
+    seen.record("pc", "Scrap Mechanic", "лес", "ask", now=1000.0, subject="Scrap Mechanic")
+    try:
+        assert intent.wants_screen("где найти хлопок", None, now=1010.0)
+        assert not intent.wants_screen("Скинь в Ттелегу, где найти?", None, now=1010.0)
+    finally:
+        seen.reset()
+
+
+def test_short_topic_takes_last_question(monkeypatch):
+    import memory.memory as mem
+    monkeypatch.setattr(mem, "get_history", lambda: [
+        {"role": "user", "parts": ["Глянь на экран и скажи, где найти хлопок."]},
+        {"role": "model", "parts": ["Хлопок растёт на хлопковых цветах."]},
+    ])
+    assert tg_share.resolve_topic("где найти") == "Глянь на экран и скажи, где найти хлопок."
+    assert tg_share.resolve_topic("где найти хлопок в scrap mechanic") == "где найти хлопок в scrap mechanic"
+
+
+def test_short_topic_without_history_kept(monkeypatch):
+    import memory.memory as mem
+    monkeypatch.setattr(mem, "get_history", lambda: [])
+    assert tg_share.resolve_topic("рецепт верстака") == "рецепт верстака"

@@ -125,7 +125,19 @@ async def send_as_conversation(bot, master_id, chat_id: int, text: str):
         await send_safe(bot, master_id, chat_id, part)
 
 
+# «в телегу» с ошибками распознавания: «в ттелегу», «в телегуу», «в телеграмм»,
+# «на телегу» — удвоенные буквы и предлог «на».
+_TG_TARGET = re.compile(
+    r"(?<!\w)(?:в|на)\s+(?:т+е+л+е+г+\w*|тг|tg|telegram\w*|личк\w*)(?!\w)"
+    r"|(?<!\w)сообщением(?!\w)|(?<!\w)мне\s+в\s+чат(?!\w)",
+    re.IGNORECASE)
+_TG_VERB = re.compile(
+    r"(?<!\w)(пришли|прошли|отправь|отправ\w+|скинь|скиньте|кинь|сбрось|напиши|дай|перешли)(?!\w)",
+    re.IGNORECASE)
+
+
 def strip_payload_words(s: str, extra=()) -> str:
+    s = _TG_TARGET.sub(" ", s)
     for ph in _STRIP_PHRASES:
         s = re.sub(rf"(?<!\w){re.escape(ph)}(?!\w)", " ", s)
     for w in list(extra) + list(_STRIP_WORDS):
@@ -134,9 +146,9 @@ def strip_payload_words(s: str, extra=()) -> str:
 
 
 def has_tg_trigger(text_lower: str) -> bool:
-    _SEND = ("пришли", "прошли", "отправь", "скинь", "кинь", "сбрось", "напиши", "дай")
-    _TG = ("в тг", "в телеграм", "в телегу", "в телеге", "в личк", "сообщением", "мне в чат")
-    return any(v in text_lower for v in _SEND) and any(t in text_lower for t in _TG)
+    """Просьба прислать в Telegram: глагол отправки + «в телегу/тг/телеграм»
+    (с удвоенными буквами распознавания: «в ттелегу»)."""
+    return bool(_TG_VERB.search(text_lower or "")) and bool(_TG_TARGET.search(text_lower or ""))
 
 
 async def voice_to_tg(text: str, text_lower: str, payload: str,
