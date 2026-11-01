@@ -70,4 +70,7 @@ def wants_screen(text: str, active_window: str | None = None, *, now: float | No
     t = " ".join((text or "").split())
     if not t or _COMMAND.search(t) or not _GAME_TOPIC.search(t) or not _QUESTION.search(t):
         return False
+    from sakura_core.send import has_tg_trigger
+    if has_tg_trigger(t.lower()):           # «скинь в телегу, где найти …» — это отправка (tg_share)
+        return False
     return bool(_EXPLICIT_GAME.search(t)) or game_on(active_window, now=now)
