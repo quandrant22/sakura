@@ -21,6 +21,26 @@ _UNSURE = re.compile(
     re.IGNORECASE)
 SAW_MAX = 200
 
+# Отчёт модели о правилах вместо ответа: «имён на экране нет», «больше
+# ничего не заметила», «пароли не пересказываю». Такие предложения вырезаются.
+_META = re.compile(
+    r"(?<!\w)("
+    r"(?:им[её]н\w*|имени|подпис\w*)[^.!?…]*\b(?:нет|не\s+вижу|не\s+видно|не\s+написан\w*|не\s+указан\w*)|"
+    r"(?:нет|не\s+вижу|не\s+видно)[^.!?…]*\b(?:им[её]н\w*|имени)|"
+    r"больше\s+ничего[^.!?…]*\b(?:не\s+(?:заметил\w*|вижу|видно)|нет)|"
+    r"ничего\s+(?:особенного|примечательного)[^.!?…]*\b(?:не\s+(?:заметил\w*|вижу|видно)|нет)|"
+    r"по\s+лицу|не\s+(?:буду\s+)?(?:угадывать|гадать)|"
+    r"(?:пароли|личн\w+\s+переписк\w*)[^.!?…]*\bне\s+(?:пересказываю|называю|читаю)"
+    r")(?!\w)",
+    re.IGNORECASE)
+_SENTENCE_END = re.compile(r"(?<=[.!?…])\s+")
+
+
+def drop_meta(text: str) -> str:
+    """Убрать из ответа предложения-отчёты о правилах (см. _META)."""
+    kept = [s.strip() for s in _SENTENCE_END.split(text or "") if s.strip() and not _META.search(s)]
+    return " ".join(kept).strip()
+
 
 def _clean(text: str) -> str:
     text = re.sub(r"[*_`#]+", "", text or "")
@@ -44,7 +64,8 @@ def split_ask(reply: str) -> tuple[str, str]:
 
 
 def _clean_answer(text: str) -> str:
-    return "\n".join(line.rstrip() for line in (text or "").strip().splitlines()).strip()
+    lines = (drop_meta(line) for line in (text or "").strip().splitlines())
+    return "\n".join(line for line in lines if line).strip()
 
 
 def parse_glance(reply: str) -> tuple[str, str]:
@@ -58,7 +79,7 @@ def parse_glance(reply: str) -> tuple[str, str]:
     labels = list(_LABEL.finditer(text))
     if not labels:
         say = _clean(text)
-        return "", "" if is_skip(say) else say
+        return "", "" if is_skip(say) else drop_meta(say)
     saw = say = ""
     for i, m in enumerate(labels):
         end = labels[i + 1].start() if i + 1 < len(labels) else len(text)
@@ -73,4 +94,4 @@ def parse_glance(reply: str) -> tuple[str, str]:
         say = ""
     if saw and _UNSURE.search(saw):
         return "", ""
-    return saw[:SAW_MAX], say
+    return saw[:SAW_MAX], drop_meta(say)
