@@ -299,3 +299,35 @@ def test_parallel_items_parsed():
         {"url": "https://a", "title": "A", "excerpts": ["x", " y "]}, {"url": "https://b", "excerpts": []}]}}
     assert _parse_items(res) == [{"url": "https://a", "title": "A", "text": "x y"},
                                  {"url": "https://b", "title": "", "text": ""}]
+
+
+# ── просьба в Telegram — мимо разговорного слоя ────────────────────
+
+def test_share_request_vs_vip_message():
+    from sakura_core.send import is_share_request
+    assert is_share_request("Скинь в телегу, где найти хлопок.")
+    assert is_share_request("пришли в ттелегу рецепт")
+    assert not is_share_request("напиши Пете в телеграм что я опоздаю")
+    assert not is_share_request("где найти хлопок")
+
+
+def test_fear_does_not_take_tg_request():
+    from conversation import fears
+    assert fears.try_handle("Скинь в телегу, где найти хлопок.", {}) is None
+    assert fears.try_handle("кинь хлопок в тг", {}) is None
+
+
+def test_bridge_skips_router_for_share_request(monkeypatch):
+    import sakura_core.bridge as bridge
+    routed = []
+
+    class Router:
+        class session:
+            pending = None
+
+        async def route(self, text, context, **kw):
+            routed.append(text)
+    monkeypatch.setattr(bridge, "get_router", lambda: Router())
+    ok = asyncio.run(bridge.v3_fast_path("Скинь в телегу, где найти хлопок.", data={}, device_ws=None,
+                                         device_id="pc", register_command=None))
+    assert ok is False and routed == []

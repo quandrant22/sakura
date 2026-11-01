@@ -145,6 +145,17 @@ def strip_payload_words(s: str, extra=()) -> str:
     return " ".join(s.split()).strip(" ,.")
 
 
+_SHARE_VERB = re.compile(
+    r"(?<!\w)(пришли|прошли|отправь|скинь|скиньте|кинь|сбрось|перешли)(?!\w)", re.IGNORECASE)
+
+
+def is_share_request(text: str) -> bool:
+    """«Скинь/пришли/отправь в телегу …» — Мастеру в Telegram (tg_share). Не
+    «напиши Пете в телеграм» — это сообщение контакту (conversation/vip_message)."""
+    t = (text or "").lower()
+    return bool(_SHARE_VERB.search(t)) and bool(_TG_TARGET.search(t))
+
+
 def has_tg_trigger(text_lower: str) -> bool:
     """Просьба прислать в Telegram: глагол отправки + «в телегу/тг/телеграм»
     (с удвоенными буквами распознавания: «в ттелегу»)."""

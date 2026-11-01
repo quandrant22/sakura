@@ -170,6 +170,13 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
     (результат исполнения — cmd_id); голос «вооружает» подтверждение.
     """
     from modules.state import connected_devices, device_track, prompt_track
+    from sakura_core.send import is_share_request
+
+    if is_share_request(text):
+        # «Скинь в телегу …» — явная просьба: мимо роутера и разговорного слоя
+        # (страхи, шутки), её обрабатывает ветка отправки в Telegram вызывающего.
+        log.info("[v3] просьба прислать в Telegram → ветка отправки")
+        return False
 
     text, target = target_device(text)
     if target and target != device_id:
