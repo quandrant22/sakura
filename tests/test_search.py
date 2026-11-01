@@ -158,7 +158,7 @@ def wire(monkeypatch, *, results, plan_answer, judge_answer, page=("Полный
     async def gen(prompt, **kw):
         return plan_answer if "план веб-поиска" in prompt else judge_answer
 
-    async def fetch(queries, objective):
+    async def fetch(queries, objective, timeout=8.0):
         calls["queries"] = list(queries)
         return [dict(r) for r in results]
 
@@ -206,7 +206,7 @@ def test_search_failure_never_raises(monkeypatch):
     async def gen(prompt, **kw):
         raise RuntimeError("нет ключа")
 
-    async def fetch(queries, objective):
+    async def fetch(queries, objective, timeout=8.0):
         raise ConnectionError
     monkeypatch.setattr(llm, "generate", gen)
     monkeypatch.setattr(pipeline, "_fetch", fetch)
@@ -228,3 +228,99 @@ def test_no_model_memory_fallback(monkeypatch):
     import modules.web_search as ws
     wire(monkeypatch, results=[], plan_answer='{"entity": "", "queries": ["q"]}', judge_answer="[]")
     assert run(ws.search_and_fetch("новости 2026", max_results=2)) == ""
+
+
+# ── поставщики: Parallel + SearXNG ─────────────────────────────────
+
+def test_norm_url():
+    from sakura_core.search.providers import norm_url
+    assert norm_url("https://www.Example.com/a/?utm_source=x&id=2#top") == "example.com/a?id=2"
+    assert norm_url("http://example.com/a") == norm_url("https://example.com/a/")
+
+
+def test_merge_interleaves_and_dedupes():
+    from sakura_core.search.providers import merge
+    par = [{"url": "https://a.com/x", "title": "", "text": "длинная выдержка Parallel", "via": "parallel"},
+           {"url": "https://b.com", "title": "B", "text": "b", "via": "parallel"}]
+    sx = [{"url": "https://www.a.com/x/", "title": "A", "text": "коротко", "via": "searxng"},
+          {"url": "https://c.com", "title": "C", "text": "c", "via": "searxng"}]
+    out = merge(par, sx)
+    assert [o["url"] for o in out] == ["https://a.com/x", "https://b.com", "https://c.com"]
+    assert out[0]["title"] == "A" and out[0]["text"] == "длинная выдержка Parallel"
+    assert out[0]["via"] == "parallel+searxng"
+
+
+def test_parse_searxng():
+    from sakura_core.search.providers import parse_searxng
+    data = {"results": [
+        {"url": "https://scrapmechanic.fandom.com/wiki/Cotton", "title": "Cotton | Wiki",
+         "content": "Cotton is  harvested", "img_src": "https://img/c.png"},
+        {"title": "без адреса"}, "мусор"]}
+    assert parse_searxng(data) == [{"url": "https://scrapmechanic.fandom.com/wiki/Cotton", "title": "Cotton | Wiki",
+                                    "text": "Cotton is harvested", "via": "searxng", "thumb": "https://img/c.png"}]
+    assert parse_searxng({}) == []
+
+
+def test_providers_enabled(monkeypatch):
+    import config
+    from sakura_core.search import providers
+    monkeypatch.setattr(config, "SEARCH_PROVIDERS", "parallel,searxng", raising=False)
+    monkeypatch.setattr(config, "SEARXNG_URL", "", raising=False)
+    assert providers.enabled() == ["parallel"]                       # без адреса SearXNG выключен
+    monkeypatch.setattr(config, "SEARXNG_URL", "http://127.0.0.1:8888", raising=False)
+    assert providers.enabled() == ["parallel", "searxng"]
+    monkeypatch.setattr(config, "SEARCH_PROVIDERS", "searxng", raising=False)
+    assert providers.enabled() == ["searxng"]
+    monkeypatch.setattr(config, "SEARCH_PROVIDERS", "что-то", raising=False)
+    assert providers.enabled() == ["parallel"]
+
+
+def test_fetch_all_survives_one_provider_down(monkeypatch):
+    import config
+    from sakura_core.search import providers
+    monkeypatch.setattr(config, "SEARCH_PROVIDERS", "parallel,searxng", raising=False)
+    monkeypatch.setattr(config, "SEARXNG_URL", "http://127.0.0.1:8888", raising=False)
+
+    async def down(queries, objective, limit=8):
+        raise ConnectionError("parallel лежит")
+
+    async def sx(queries, base_url, timeout=8.0):
+        return [dict(FANDOM, via="searxng")]
+    monkeypatch.setattr(providers, "parallel", down)
+    monkeypatch.setattr(providers, "searxng", sx)
+    out = run(providers.fetch_all(["q"], "o", timeout=5))
+    assert [o["url"] for o in out] == [FANDOM["url"]]
+
+
+def test_searxng_queries_in_parallel_and_merged(monkeypatch):
+    from sakura_core.search import providers
+    asked = []
+
+    class Resp:
+        status_code = 200
+
+        def __init__(self, q):
+            self.q = q
+
+        def json(self):
+            return {"results": [{"url": f"https://site/{self.q}", "title": self.q, "content": "x"},
+                                {"url": "https://site/common", "title": "общий", "content": "y"}]}
+
+    class Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url, params=None):
+            asked.append((url, params["q"], params["format"]))
+            return Resp(params["q"])
+    import httpx
+    monkeypatch.setattr(httpx, "AsyncClient", Client)
+    out = run(providers.searxng(["a", "b"], base_url="http://127.0.0.1:8888/"))
+    assert asked == [("http://127.0.0.1:8888/search", "a", "json"), ("http://127.0.0.1:8888/search", "b", "json")]
+    assert [o["url"] for o in out] == ["https://site/a", "https://site/b", "https://site/common"]

@@ -163,6 +163,12 @@ GLANCE_AFTER_TURN_S = _env_int("GLANCE_AFTER_TURN_S", 120)        # тишина
 GLANCE_AFTER_SPOKEN_S = _env_int("GLANCE_AFTER_SPOKEN_S", 900)    # после своей реплики
 SEEN_TTL_S = _env_int("SEEN_TTL_S", 1800, 60)                     # «увиденное» в контексте
 
+# ── feat/search-searxng: поставщики поиска (sakura_core/search/providers.py) ──
+# parallel — Parallel Search MCP; searxng — свой метапоисковик (deploy/searxng).
+SEARCH_PROVIDERS = os.getenv("SEARCH_PROVIDERS", "parallel,searxng")
+# Пусто — SearXNG выключен. Установка: scripts/install_searxng.sh → http://127.0.0.1:8888
+SEARXNG_URL = os.getenv("SEARXNG_URL", "").strip()
+
 try:
     VOICE_MAX_TOKENS = max(1, int(os.getenv("VOICE_MAX_TOKENS", "120")))
 except (TypeError, ValueError):

@@ -128,3 +128,10 @@ golden, промпта — зелёные. **Перед выкатом: полн
 - Убран «поиск из памяти модели».
 - Тесты: `tests/test_search.py` (25) — тема по окну против догадки зрения, план, судья, дочитка, сценарий «хлопок»; переписаны `test_tg_share`, `test_vision_ask` под конвейер. Регрессия: новых падений нет.
 - Проверить на проде: строки `[search] канал=…` в журнале (время шагов, отобрано/найдено).
+
+## Поиск: SearXNG (feat/search-searxng, 2026-11-01)
+
+- `sakura_core/search/providers.py`: parallel + searxng, `merge`/`norm_url`, `fetch_all` (сбой одного не мешает); конвейер зовёт `providers.fetch_all`; DECISIONS Q9–Q11.
+- Установка: `deploy/searxng/` (compose, settings.yml), `scripts/install_searxng.sh`; в `.env`: `SEARXNG_URL=http://127.0.0.1:8888`.
+- Тесты: +6 в `tests/test_search.py` (разбор ответа, слияние, включение, отказ поставщика, параллельные запросы).
+- Живой запуск контейнера — на VPS (в среде разработки нет Docker-демона).
