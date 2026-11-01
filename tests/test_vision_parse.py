@@ -152,3 +152,24 @@ def test_prompt_has_dialogue_and_forbids_greeting():
     p = prompts.EXTRACT.format(dialogue="Мастер: найди паяльник", question="глянь")
     assert "найди паяльник" in p and "Без приветствий" in p
     assert "не здоровайся" in prompts.ANSWER_CONTEXT
+
+
+# ── маршрутизация фраз (реестр) ────────────────────────────────────
+
+@pytest.mark.parametrize("phrase, action", [
+    ("глянь на экран и скажи что нужно сделать", "vision.ask"),
+    ("посмотри сюда, что делать дальше", "vision.ask"),          # раньше — music.next по «дальше»
+    ("что мне делать дальше", "vision.ask"),
+    ("дальше", "music.next"),
+    ("включи дальше", "music.next"),
+])
+def test_screen_phrases_route_to_vision(phrase, action):
+    from pathlib import Path
+
+    import yaml
+
+    from sakura_core.registry import build_index, declaration_from_dict
+    raw = yaml.safe_load((Path(__file__).resolve().parent.parent / "sakura_core" / "capabilities.yaml")
+                         .read_text(encoding="utf-8"))
+    m = build_index([declaration_from_dict(r) for r in raw]).match(phrase, None)
+    assert m and m[1].id == action
