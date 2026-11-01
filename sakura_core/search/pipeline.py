@@ -78,17 +78,10 @@ def build_facts(items: list[dict], limit: int) -> str:
     return "\n\n".join(parts).strip()[:limit]
 
 
-async def _fetch(queries: list[str], objective: str) -> list[dict]:
-    from modules.parallel_search import parallel_search
-    items: list[dict] = []
-    await parallel_search(objective, max_results=MAX_RESULTS, queries=queries, items_out=items)
-    seen, out = set(), []
-    for it in items:
-        url = it.get("url") or ""
-        if url and url not in seen:
-            seen.add(url)
-            out.append(it)
-    return out
+async def _fetch(queries: list[str], objective: str, timeout: float = 8.0) -> list[dict]:
+    """Все включённые поставщики (search/providers.py), без дублей."""
+    from sakura_core.search import providers
+    return await providers.fetch_all(queries, objective, timeout=timeout)
 
 
 async def run(question: str, *, channel: str = "text", subject: str | None = None,
@@ -127,8 +120,9 @@ async def run(question: str, *, channel: str = "text", subject: str | None = Non
         return cached[1]
 
     try:
-        items = await asyncio.wait_for(_fetch(p.queries, question if not entity else f"{entity}: {question}"),
-                                       left())
+        remaining = left()
+        items = await asyncio.wait_for(_fetch(p.queries, question if not entity else f"{entity}: {question}",
+                                              remaining), remaining + 0.5)
     except Exception as e:
         log.info(f"[search] поиск: {type(e).__name__}")
         items = []

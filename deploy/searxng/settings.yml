@@ -1,0 +1,22 @@
+# Поверх стандартных настроек SearXNG — только то, что нужно Сакуре.
+use_default_settings: true
+
+general:
+  instance_name: "sakura-search"
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  formats:
+    - html
+    - json            # Сакура читает /search?format=json
+
+server:
+  # secret_key берётся из переменной SEARXNG_SECRET (searxng.env)
+  limiter: false       # слушает только 127.0.0.1, клиент один — Сакура
+  public_instance: false
+  image_proxy: false
+
+outgoing:
+  request_timeout: 4.0
+  max_request_timeout: 8.0

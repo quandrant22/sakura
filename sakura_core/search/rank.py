@@ -14,7 +14,7 @@ import re
 
 log = logging.getLogger("sakura.search")
 
-MAX_JUDGED = 8
+MAX_JUDGED = 10
 EXCERPT_CHARS = 280
 
 PROMPT = (
