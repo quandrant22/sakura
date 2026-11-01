@@ -40,6 +40,11 @@ def record(device_id: str, title: str, saw: str, purpose: str, *, now: float | N
                  time.monotonic() if now is None else now, (subject or "")[:80])
 
 
+def last_any() -> Seen | None:
+    """Последнее увиденное без учёта срока (для «то же ли окно сейчас»)."""
+    return _last
+
+
 def latest(*, now: float | None = None) -> Seen | None:
     if _last is None:
         return None

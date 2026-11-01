@@ -53,7 +53,16 @@ def game_on(active_window: str | None, *, now: float | None = None) -> bool:
     from sakura_core.vision import seen
     now = time.monotonic() if now is None else now
     s = seen.latest(now=now)
-    return bool(s and s.subject and now - s.at <= RECENT_SEEN_S)
+    if s and s.subject and now - s.at <= RECENT_SEEN_S:
+        return True
+    # То же окно, что Сакура видела раньше (любой давности): игра всё ещё открыта.
+    last = seen.last_any()
+    window = (active_window or "").lower()
+    if last and last.subject and window:
+        names = [n.lower() for n in (last.title, last.subject) if n and len(n) >= 3]
+        if any(n in window or window in n for n in names):
+            return True
+    return False
 
 
 def wants_screen(text: str, active_window: str | None = None, *, now: float | None = None) -> bool:
