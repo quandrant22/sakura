@@ -4,18 +4,14 @@ web_search.py — Умный веб-поиск для Сакуры.
 gc.collect() после работы с BeautifulSoup.
 """
 
-import asyncio
 import gc
 import logging
-import os
 import re
 import time
 from urllib.parse import urlparse
 
 import httpx
 from bs4 import BeautifulSoup
-from config import MAIN_MODEL
-from sakura_core.llm import generate as _llm_generate
 
 log = logging.getLogger(__name__)
 
@@ -290,60 +286,31 @@ async def _get_search_links(query: str, count: int = 4) -> list[str]:
         return []
 
 
-async def search_and_fetch(query: str, max_chars: int = 3000) -> str:
-    """Поиск: Brave Search → Gemini fallback (из памяти модели)."""
-    # 1. Brave Search — HTTP API (бесплатно 2000/мес)
-    brave_key = os.getenv("BRAVE_API_KEY", "").strip()
-    if brave_key:
-        try:
-            async with httpx.AsyncClient(timeout=5, headers=HEADERS) as client:
-                r = await client.get(
-                    "https://api.search.brave.com/res/v1/web/search",
-                    params={"q": query, "count": 3},
-                    headers={"X-Subscription-Token": brave_key, "Accept": "application/json"},
-                )
-                if r.status_code == 200:
-                    data = r.json()
-                    results = data.get("web", {}).get("results", [])
-                    parts = []
-                    urls = []
-                    for res in results[:3]:
-                        desc = res.get("description", "")
-                        url = res.get("url", "")
-                        title = res.get("title", "")
-                        if desc:
-                            parts.append(f"**{title}**\n{desc}")
-                        if url:
-                            urls.append(url)
-                    text = "\n\n".join(parts)
-                    if urls:
-                        text += "\n\nИсточники:\n" + "\n".join(f"• {u}" for u in urls)
-                    if len(text) > 50:
-                        log.info(f"[search] Brave: {len(results)} результатов")
-                        return text[:max_chars]
-        except Exception as e:
-            log.warning(f"[search] Brave error: {e}")
+async def search_and_fetch(query: str, max_chars: int = 3000, max_results: int | None = None) -> str:
+    """Факты из интернета текстом (+ источники) через единый конвейер поиска.
 
-    # 2. Fallback — Gemini без поиска (из памяти)
+    Раньше: Brave (без ключа не работал) → «ответ Gemini из памяти» под видом
+    интернета — источник выдумок. Теперь — только найденное; ничего — пусто.
+    max_results оставлен ради старых вызовов (modules/autonomous.py)."""
+    from sakura_core.search import run
     try:
-        text = await _llm_generate(
-            query,
-            model=MAIN_MODEL,
-            max_tokens=1000,
-            temperature=0.3,
-            safety=False,
-            thinking=False,
-        )
-        if text:
-            log.info(f"[search] Gemini fallback: {len(text)} символов")
-            return text[:max_chars]
+        ev = await run(query, channel="background")
     except Exception as e:
-        log.warning(f"[search] Gemini fallback error: {e}")
-
-    return ""
+        log.warning(f"[search] search_and_fetch: {type(e).__name__}: {e}")
+        return ""
+    if not ev.ok:
+        return ""
+    items = ev.items[:max_results] if max_results else ev.items
+    from sakura_core.search.pipeline import build_facts
+    text = build_facts(items, max_chars)
+    urls = [it["url"] for it in items if it.get("url")][:3]
+    if urls:
+        text += "\n\nИсточники:\n" + "\n".join(f"• {u}" for u in urls)
+    return text[:max_chars + 300]
 
 
 async def smart_search(query: str) -> str:
+    """Поиск, только если вопрос этого требует (needs_search)."""
     if not needs_search(query):
         return ""
     return await search_and_fetch(query)

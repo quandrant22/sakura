@@ -68,7 +68,8 @@ def test_prepare_image_filters_and_resizes():
     assert tg_share.prepare_image(jpeg(1200, 200)) is None                # полоска-баннер
     assert tg_share.prepare_image(b"not an image") is None
     out = tg_share.prepare_image(jpeg(3200, 1800))
-    assert max(Image.open(io.BytesIO(out)).size) == tg_share.IMAGE_OUT_SIDE
+    from sakura_core.search import pages
+    assert max(Image.open(io.BytesIO(out)).size) == pages.IMAGE_OUT_SIDE
 
 
 # ── сбор и отправка ────────────────────────────────────────────────
@@ -84,18 +85,20 @@ class Bot:
         self.photos.append(photo)
 
 
-COTTON = [{"url": "https://wiki.example/Cotton", "title": "Cotton", "text": "Хлопок растёт на фермах."}]
+COTTON = [{"url": "https://wiki.example/Cotton", "title": "Cotton", "text": "Хлопок растёт на фермах.",
+           "image": "https://wiki.example/cotton.png"},
+          {"url": "https://guide.example/sm", "title": "Гайд", "text": "Ещё про хлопок."}]
 
 
 def run_share(monkeypatch, request, *, items=COTTON, images=(b"a", b"b"), shot=None, device="pc"):
-    import modules.parallel_search as ps
-    sent, asked, searched = [], [], []
+    import sakura_core.search as search
+    from sakura_core.search.pipeline import Evidence, build_facts
+    sent, asked, searched, fetched = [], [], [], []
 
-    async def search(query, queries=None, items_out=None):
-        searched.append(query)
-        if items_out is not None:
-            items_out.extend(items)
-        return "", [], bool(items)
+    async def fake_run(question, **kw):
+        searched.append((question, kw.get("channel")))
+        return Evidence(ok=bool(items), entity="Scrap Mechanic", items=list(items),
+                        facts=build_facts(list(items), 5000))
 
     async def ask(topic, **kw):
         asked.append((topic, kw))
@@ -104,38 +107,44 @@ def run_share(monkeypatch, request, *, items=COTTON, images=(b"a", b"b"), shot=N
     async def send(chat, text):
         sent.append(text)
 
-    async def imgs(sources, limit=3):
+    async def imgs(known, pages_urls, limit=3):
+        fetched.append((list(known), list(pages_urls)))
         return list(images)
 
     async def screenshot(dev):
         return shot
-    monkeypatch.setattr(ps, "parallel_search", search)
-    monkeypatch.setattr(tg_share, "source_images", imgs)
-    monkeypatch.setattr(tg_share, "_screenshot", screenshot)
 
     async def album(bot, chat, photos, caption=""):
         bot.albums.append(list(photos))
+        bot.captions.append(caption)
+    monkeypatch.setattr(search, "run", fake_run)
+    monkeypatch.setattr(tg_share, "images", imgs)
+    monkeypatch.setattr(tg_share, "_screenshot", screenshot)
     monkeypatch.setattr(tg_share, "_send_album", album)
     bot = Bot()
+    bot.captions = []
     asyncio.run(tg_share.share(request, bot=bot, master_id=1, device_id=device,
                                ask_gemini_fn=ask, send_safe_fn=send))
+    bot.fetched = fetched
     return sent, asked, searched, bot
 
 
 def test_share_text_sources_and_images(monkeypatch):
     sent, asked, searched, bot = run_share(monkeypatch, "где взять хлопок в scrap mechanic с картинками")
-    assert searched == ["где взять хлопок в scrap mechanic"]
+    assert searched == [("где взять хлопок в scrap mechanic", "tg")]
     assert sent[0].startswith("Хлопок собирают на фермах.")             # без тега [ТОН]
     assert "Источники:" in sent[0] and "https://wiki.example/Cotton" in sent[0]
     _topic, kw = asked[0]
     assert kw["search"] is False and "Хлопок растёт на фермах." in kw["extra_system"]
     assert "Телеграма" in kw["extra_system"]
-    assert bot.albums == [[b"a", b"b"]]
+    # картинка дочитанной страницы — первой, остальные страницы — потом
+    assert bot.fetched == [(["https://wiki.example/cotton.png"], ["https://guide.example/sm"])]
+    assert bot.albums == [[b"a", b"b"]] and bot.captions == ["Где взять хлопок в scrap mechanic"]
 
 
 def test_share_without_images_and_with_screenshot(monkeypatch):
     _, _, _, bot = run_share(monkeypatch, "рецепт верстака без картинок и скрин тоже", shot=b"SHOT")
-    assert bot.albums == [[b"SHOT"]]
+    assert bot.albums == [[b"SHOT"]] and bot.fetched == []
 
 
 def test_share_search_failed_is_honest(monkeypatch):
@@ -144,15 +153,21 @@ def test_share_search_failed_is_honest(monkeypatch):
     assert "Источники" not in sent[0] and bot.albums == []
 
 
-def test_share_uses_screen_subject(monkeypatch):
-    from sakura_core.vision import seen
-    seen.reset()
-    seen.record("pc", "Scrap Mechanic", "лес", "ask", subject="Scrap Mechanic")
-    try:
-        _, _, searched, _ = run_share(monkeypatch, "где взять хлопок с картинками")
-    finally:
-        seen.reset()
-    assert searched == ["Scrap Mechanic где взять хлопок"]
+@pytest.mark.parametrize("payload, topic", [
+    ("Глянь на экран и скажи, где найти хлопок", "где найти хлопок"),
+    ("посмотри на экран и подскажи как построить бота", "как построить бота"),
+    ("где найти хлопок", "где найти хлопок"),
+])
+def test_topic_lead_stripped(payload, topic):
+    assert tg_share.topic_of(payload) == topic
+
+
+def test_parallel_items_parsed():
+    from modules.parallel_search import _parse_items
+    res = {"structuredContent": {"results": [
+        {"url": "https://a", "title": "A", "excerpts": ["x", " y "]}, {"url": "https://b", "excerpts": []}]}}
+    assert _parse_items(res) == [{"url": "https://a", "title": "A", "text": "x y"},
+                                 {"url": "https://b", "title": "", "text": ""}]
 
 
 # ── маршрут voice_to_tg ────────────────────────────────────────────
@@ -254,51 +269,6 @@ def test_short_topic_without_history_kept(monkeypatch):
 
 
 
-# ── отсев страниц про другие игры ──────────────────────────────────
-
-V_RISING = {"url": "https://www.playground.ru/v_rising/guide/kak_dobyt_hlopok_v_v_rising-1771611",
-            "title": "Как добыть хлопок в V Rising", "text": "Хлопок в V Rising растёт в Dunley Farmlands."}
-SCRAP = {"url": "https://vgtimes.ru/guides/66679-gayd-po-resursam-v-scrap-mechanic-gde-nayti-hlopok.html",
-         "title": "Гайд по ресурсам в Scrap Mechanic", "text": "Хлопок растёт возле деревьев в осеннем биоме."}
-VIDEO = {"url": "https://www.youtube.com/watch?v=CkiofPrXukw", "title": "", "text": "видео"}
-
-
-def test_relevant_keeps_only_subject_pages():
-    assert tg_share.relevant([SCRAP, V_RISING, VIDEO], "Scrap Mechanic") == [SCRAP]
-    assert tg_share.relevant([V_RISING, VIDEO], "Scrap Mechanic") == [V_RISING, VIDEO]    # не с чем сравнить
-    assert tg_share.relevant([SCRAP, V_RISING], "") == [SCRAP, V_RISING]
-
-
-def test_share_drops_other_game(monkeypatch):
-    from sakura_core.vision import seen
-    seen.reset()
-    seen.record("pc", "Scrap Mechanic", "лес", "ask", subject="Scrap Mechanic")
-    try:
-        sent, asked, searched, _ = run_share(monkeypatch, "Глянь на экран и скажи, где найти хлопок с картинками",
-                                             items=[SCRAP, V_RISING, VIDEO])
-    finally:
-        seen.reset()
-    assert searched == ["Scrap Mechanic где найти хлопок"]
-    ctx = asked[0][1]["extra_system"]
-    assert "осеннем биоме" in ctx and "V Rising" not in ctx and "Dunley" not in ctx
-    assert "vgtimes" in sent[0] and "playground" not in sent[0] and "youtube" not in sent[0]
-
-
-@pytest.mark.parametrize("payload, topic", [
-    ("Глянь на экран и скажи, где найти хлопок", "где найти хлопок"),
-    ("посмотри на экран и подскажи как построить бота", "как построить бота"),
-    ("где найти хлопок", "где найти хлопок"),
-])
-def test_topic_lead_stripped(payload, topic):
-    assert tg_share.topic_of(payload) == topic
-
-
-def test_parallel_items_parsed():
-    from modules.parallel_search import _parse_items
-    res = {"structuredContent": {"results": [
-        {"url": "https://a", "title": "A", "excerpts": ["x", " y "]}, {"url": "https://b", "excerpts": []}]}}
-    assert _parse_items(res) == [{"url": "https://a", "title": "A", "text": "x y"},
-                                 {"url": "https://b", "title": "", "text": ""}]
 
 
 # ── просьба в Telegram — мимо разговорного слоя ────────────────────

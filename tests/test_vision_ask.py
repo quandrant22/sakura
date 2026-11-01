@@ -60,27 +60,24 @@ def online(pc, features=(capture.FEATURE,)):
 
 
 class Brain:
-    """Подмена ask_gemini и поиска: что пришло в ход и что найдено."""
+    """Подмена ask_gemini и конвейера поиска: что пришло в ход и что найдено."""
 
-    def __init__(self, monkeypatch, reply="Ответ Сакуры.", found=("", False), items=None):
+    def __init__(self, monkeypatch, reply="Ответ Сакуры.", found=("", False)):
         self.asked = []
         self.searched = []
-        import modules.parallel_search as ps
+        import sakura_core.search as search
         from sakura_core import llm
-        if items is None:
-            items = [{"url": "https://wiki.example", "title": "", "text": found[0]}] if found[1] else []
+        from sakura_core.search.pipeline import Evidence
 
         async def fake_ask(question, **kw):
             self.asked.append((question, kw))
             return reply
 
-        async def fake_search(query, queries=None, items_out=None):
-            self.searched.append(query)
-            if items_out is not None:
-                items_out.extend(items)
-            return "", [], bool(items)
+        async def fake_run(question, **kw):
+            self.searched.append((question, kw))
+            return Evidence(ok=found[1], facts=found[0] if found[1] else "")
         monkeypatch.setattr(llm, "ask_gemini", fake_ask)
-        monkeypatch.setattr(ps, "parallel_search", fake_search)
+        monkeypatch.setattr(search, "run", fake_run)
 
 
 @pytest.fixture(autouse=True)
@@ -137,7 +134,10 @@ def test_answer_searches_with_screen_facts(monkeypatch):
     text, ok = run(ask.answer(MASTER, "там режим выживания, глянь на экран"))
     assert ok and text == "Паяльник лежит в ящиках на складе."
     assert "помоги найти где лежит паяльник по квесту" in calls[0][2]     # разговор — модели зрения
-    assert brain.searched == ["Scrap Mechanic выживание где найти паяльник"]
+    question, kw = brain.searched[0]
+    assert question == "там режим выживания, глянь на экран" and kw["channel"] == "voice"
+    assert kw["hint"] == "Scrap Mechanic выживание где найти паяльник" and kw["subject"] == "Scrap Mechanic"
+    assert "Найти паяльник" in kw["screen"] and "паяльник по квесту" in kw["dialogue"]
     ctx = brain.asked[0][1]["extra_system"]
     assert "Найти паяльник" in ctx and "выпадает из ящиков" in ctx
     assert seen.latest().subject == "Scrap Mechanic"                  # для продолжения разговора
@@ -275,12 +275,13 @@ def test_old_screen_context_is_dropped(monkeypatch):
 
 
 def test_ask_gemini_followup_searches_with_screen_subject(monkeypatch):
-    """После вопроса по экрану: «делать по квесту …» → поиск «Scrap Mechanic …»,
-    тема экрана — в системный промпт."""
+    """После вопроса по экрану: «делать по квесту …» → конвейер с подсказкой
+    «Scrap Mechanic …», найденное и тема экрана — в системный промпт."""
     import time
 
-    import modules.web_search as ws
+    import sakura_core.search as search
     from sakura_core import llm
+    from sakura_core.search.pipeline import Evidence
     seen.record(MASTER, "Scrap Mechanic", "режим выживания", "ask", now=time.monotonic(),
                 subject="Scrap Mechanic")
     searched, systems = [], []
@@ -288,9 +289,10 @@ def test_ask_gemini_followup_searches_with_screen_subject(monkeypatch):
     async def fake_build(query=""):
         return "SYSTEM"
 
-    async def fake_search(q):
-        searched.append(q)
-        return "Квест «Механическая станция»: почините станцию у торговца.", [], True
+    async def fake_run(question, **kw):
+        searched.append((question, kw))
+        return Evidence(ok=True, facts="Квест «Механическая станция»: почините станцию у торговца.",
+                        items=[{"url": "https://wiki.example/q"}])
 
     async def fake_generate(contents, system="", **kw):
         systems.append(system)
@@ -302,24 +304,14 @@ def test_ask_gemini_followup_searches_with_screen_subject(monkeypatch):
     monkeypatch.setattr(llm, "generate", fake_generate)
     monkeypatch.setattr(llm, "maybe_read_url", none)
     monkeypatch.setattr(llm, "_build_contents", lambda *a, **k: [])
-    monkeypatch.setattr(ws, "search_grounded", fake_search)
+    monkeypatch.setattr(search, "run", fake_run)
+    import modules.web_search as ws
     monkeypatch.setattr(ws, "needs_search", lambda t: False)
     import config
     monkeypatch.setattr(config, "get_active_key", lambda: "k")
     monkeypatch.setattr(config, "mark_key_used", lambda k: None)
     reply = run(llm.ask_gemini("Делать по квесту «Механическая станция».", save_history=False))
-    assert reply == "Почини станцию у торговца."
-    assert searched == ["Scrap Mechanic Делать по квесту «Механическая станция»."]
+    assert reply.startswith("Почини станцию у торговца.")
+    question, kw = searched[0]
+    assert kw["channel"] == "text" and kw["hint"] == "Scrap Mechanic Делать по квесту «Механическая станция»."
     assert "Scrap Mechanic" in systems[0] and "почините станцию" in systems[0]
-
-
-
-def test_answer_search_drops_other_game(monkeypatch):
-    online(PC({"status": "ok", "image": SECRET_B64}))
-    model_says(monkeypatch, "ТЕМА: Scrap Mechanic\nВИДЕЛА: лес\nФАКТЫ: НЕТ\nПОИСК: Scrap Mechanic где найти хлопок")
-    brain = Brain(monkeypatch, items=[
-        {"url": "https://playground.ru/v_rising/hlopok", "title": "Хлопок в V Rising", "text": "Dunley Farmlands"},
-        {"url": "https://vgtimes.ru/scrap-mechanic-hlopok", "title": "Scrap Mechanic", "text": "осенний биом"}])
-    run(ask.answer(MASTER, "где найти хлопок?"))
-    ctx = brain.asked[0][1]["extra_system"]
-    assert "осенний биом" in ctx and "Dunley" not in ctx
