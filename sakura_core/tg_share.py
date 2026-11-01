@@ -54,10 +54,17 @@ TG_FORMAT = (
 
 # ── запрос ─────────────────────────────────────────────────────────
 
+_LEAD = re.compile(
+    r"^(?:(?:глянь|посмотри|взгляни)(?:\s+на\s+(?:мой\s+)?экран)?\s*(?:,|и)?\s*)?"
+    r"(?:(?:скажи|подскажи|расскажи|напиши|найди)\s*,?\s*)?",
+    re.IGNORECASE)
+
+
 def topic_of(payload: str) -> str:
-    """Тема без «с картинками», «и скрин» и т.п."""
+    """Тема без «с картинками», «и скрин», «глянь на экран и скажи» и т.п."""
     t = _DECOR.sub(" ", payload or "")
-    return " ".join(t.split()).strip(" ,.")
+    t = " ".join(t.split()).strip(" ,.")
+    return _LEAD.sub("", t).strip(" ,.") or t
 
 
 def wants_images(text: str) -> bool:
@@ -94,6 +101,47 @@ def resolve_topic(topic: str) -> str:
     except Exception as e:
         log.debug(f"[tg_share] история: {type(e).__name__}")
     return topic
+
+
+def subject_now() -> str:
+    """Игра/программа, о которой речь: тема экрана (vision/seen) или игра Steam."""
+    try:
+        from sakura_core.vision import seen
+        s = seen.latest()
+        if s and s.subject:
+            return s.subject
+    except Exception as e:
+        log.debug(f"[tg_share] seen: {type(e).__name__}")
+    try:
+        from modules import steam_integration
+        game = steam_integration._current_game
+        if isinstance(game, dict) and game.get("name"):
+            return str(game["name"])
+    except Exception as e:
+        log.debug(f"[tg_share] steam: {type(e).__name__}")
+    return ""
+
+
+def _norm(text: str) -> str:
+    return " ".join(re.sub(r"[\W_]+", " ", (text or "").lower()).split())
+
+
+def relevant(items: list[dict], subject: str) -> list[dict]:
+    """Страницы про эту игру/программу: все слова названия есть в адресе,
+    заголовке или выдержках. Ни одной такой — оставляем как было (не знаем,
+    какие лишние). Хлопок есть и в V Rising — без отсева его гайд шёл в ответ."""
+    words = [w for w in _norm(subject).split() if len(w) >= 3]
+    if not words:
+        return items
+    keep = [it for it in items
+            if all(w in _norm(" ".join((it.get("url", ""), it.get("title", ""), it.get("text", ""))))
+                   for w in words)]
+    return keep or items
+
+
+def facts_from(items: list[dict]) -> str:
+    parts = [(f"{it['title']}: " if it.get("title") else "") + it.get("text", "") for it in items if it.get("text")]
+    return "\n\n".join(parts).strip()[:4000]
 
 
 def search_query(topic: str) -> str:
@@ -195,17 +243,26 @@ def format_sources(sources: list[str], limit: int = 3) -> str:
 async def share(request: str, *, bot, master_id: int, device_id: str | None = None,
                 ask_gemini_fn=None, send_safe_fn=None) -> bool:
     """Собрать и отправить ответ в Telegram. True — что-то ушло."""
-    from modules.web_search import facts_prompt, search_grounded
+    from modules.parallel_search import parallel_search
+    from modules.web_search import facts_prompt
     topic = resolve_topic(topic_of(request))
     if not topic:
         await send_safe_fn(master_id, "Что прислать, Мастер?")
         return False
+    topic = topic_of(topic)
     query = search_query(topic)
+    items: list[dict] = []
     try:
-        facts, sources, ok = await asyncio.wait_for(search_grounded(query), SEARCH_TIMEOUT_S)
+        await asyncio.wait_for(parallel_search(query, items_out=items), SEARCH_TIMEOUT_S)
     except Exception as e:
         log.info(f"[tg_share] поиск: {type(e).__name__}")
-        facts, sources, ok = "", [], False
+    subject = subject_now()
+    picked = relevant(items, subject)
+    if len(picked) < len(items):
+        log.info(f"[tg_share] отсеяно страниц не про «{subject}»: {len(items) - len(picked)}")
+    facts = facts_from(picked)
+    sources = [it["url"] for it in picked if it.get("url")]
+    ok = bool(facts)
     extra = (facts_prompt(facts) if ok and facts else
              "\n\nПоиск ничего не дал: если ответ нужен из интернета — честно скажи, что не нашла.")
     import config
@@ -226,7 +283,8 @@ async def share(request: str, *, bot, master_id: int, device_id: str | None = No
         if shot:
             photos.append(shot)
     if photos:
-        await _send_album(bot, master_id, photos, caption=topic[:200])
+        caption = (topic[:1].upper() + topic[1:])[:200]
+        await _send_album(bot, master_id, photos, caption=caption)
     log.info(f"[tg_share] отправлено: текст {len(text)} симв, картинок {len(photos)}, "
              f"источников {len(sources or []) if ok else 0}")
     return True

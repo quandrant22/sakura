@@ -77,15 +77,19 @@ def recent_dialogue() -> str:
     return "\n".join(lines) or "— (пусто)"
 
 
-async def _search(query: str) -> tuple[str, bool]:
-    from modules.web_search import search_grounded
+async def _search(query: str, subject: str = "") -> tuple[str, bool]:
+    """Поиск по готовому запросу; страницы не про игру с экрана отсеиваются
+    (хлопок есть и в V Rising — его гайд попадал в ответ про Scrap Mechanic)."""
+    from modules.parallel_search import parallel_search
+    from sakura_core.tg_share import facts_from, relevant
+    items: list[dict] = []
     try:
-        facts, _sources, ok = await asyncio.wait_for(search_grounded(query, queries=[query]),
-                                                     SEARCH_TIMEOUT_S)
+        await asyncio.wait_for(parallel_search(query, queries=[query], items_out=items), SEARCH_TIMEOUT_S)
     except Exception as e:
         log.info(f"[vision] поиск не удался: {type(e).__name__}")
         return "", False
-    return (facts or "").strip(), bool(ok and facts)
+    facts = facts_from(relevant(items, subject))
+    return facts, bool(facts)
 
 
 async def answer(device_id: str, question: str) -> tuple[str, bool]:
@@ -113,7 +117,7 @@ async def answer(device_id: str, question: str) -> tuple[str, bool]:
 
     context = prompts.ANSWER_CONTEXT.format(saw=saw or "—", facts=facts or "—")
     if query:
-        found, ok = await _search(query)
+        found, ok = await _search(query, subject)
         log.info(f"[vision] поиск по экрану: {'есть факты' if ok else 'пусто'} ({len(query)} симв запроса)")
         if ok:
             from modules.web_search import facts_prompt

@@ -84,14 +84,18 @@ class Bot:
         self.photos.append(photo)
 
 
-def run_share(monkeypatch, request, *, found=("Хлопок растёт на фермах.", ["https://wiki.example/Cotton"], True),
-              images=(b"a", b"b"), shot=None, device="pc"):
-    import modules.web_search as ws
+COTTON = [{"url": "https://wiki.example/Cotton", "title": "Cotton", "text": "Хлопок растёт на фермах."}]
+
+
+def run_share(monkeypatch, request, *, items=COTTON, images=(b"a", b"b"), shot=None, device="pc"):
+    import modules.parallel_search as ps
     sent, asked, searched = [], [], []
 
-    async def search(query, queries=None):
+    async def search(query, queries=None, items_out=None):
         searched.append(query)
-        return found
+        if items_out is not None:
+            items_out.extend(items)
+        return "", [], bool(items)
 
     async def ask(topic, **kw):
         asked.append((topic, kw))
@@ -105,7 +109,7 @@ def run_share(monkeypatch, request, *, found=("Хлопок растёт на ф
 
     async def screenshot(dev):
         return shot
-    monkeypatch.setattr(ws, "search_grounded", search)
+    monkeypatch.setattr(ps, "parallel_search", search)
     monkeypatch.setattr(tg_share, "source_images", imgs)
     monkeypatch.setattr(tg_share, "_screenshot", screenshot)
 
@@ -135,7 +139,7 @@ def test_share_without_images_and_with_screenshot(monkeypatch):
 
 
 def test_share_search_failed_is_honest(monkeypatch):
-    sent, asked, _, bot = run_share(monkeypatch, "где взять хлопок", found=("", [], False))
+    sent, asked, _, bot = run_share(monkeypatch, "где взять хлопок", items=[])
     assert "не нашла" in asked[0][1]["extra_system"]
     assert "Источники" not in sent[0] and bot.albums == []
 
@@ -247,3 +251,51 @@ def test_short_topic_without_history_kept(monkeypatch):
     import memory.memory as mem
     monkeypatch.setattr(mem, "get_history", lambda: [])
     assert tg_share.resolve_topic("рецепт верстака") == "рецепт верстака"
+
+
+
+# ── отсев страниц про другие игры ──────────────────────────────────
+
+V_RISING = {"url": "https://www.playground.ru/v_rising/guide/kak_dobyt_hlopok_v_v_rising-1771611",
+            "title": "Как добыть хлопок в V Rising", "text": "Хлопок в V Rising растёт в Dunley Farmlands."}
+SCRAP = {"url": "https://vgtimes.ru/guides/66679-gayd-po-resursam-v-scrap-mechanic-gde-nayti-hlopok.html",
+         "title": "Гайд по ресурсам в Scrap Mechanic", "text": "Хлопок растёт возле деревьев в осеннем биоме."}
+VIDEO = {"url": "https://www.youtube.com/watch?v=CkiofPrXukw", "title": "", "text": "видео"}
+
+
+def test_relevant_keeps_only_subject_pages():
+    assert tg_share.relevant([SCRAP, V_RISING, VIDEO], "Scrap Mechanic") == [SCRAP]
+    assert tg_share.relevant([V_RISING, VIDEO], "Scrap Mechanic") == [V_RISING, VIDEO]    # не с чем сравнить
+    assert tg_share.relevant([SCRAP, V_RISING], "") == [SCRAP, V_RISING]
+
+
+def test_share_drops_other_game(monkeypatch):
+    from sakura_core.vision import seen
+    seen.reset()
+    seen.record("pc", "Scrap Mechanic", "лес", "ask", subject="Scrap Mechanic")
+    try:
+        sent, asked, searched, _ = run_share(monkeypatch, "Глянь на экран и скажи, где найти хлопок с картинками",
+                                             items=[SCRAP, V_RISING, VIDEO])
+    finally:
+        seen.reset()
+    assert searched == ["Scrap Mechanic где найти хлопок"]
+    ctx = asked[0][1]["extra_system"]
+    assert "осеннем биоме" in ctx and "V Rising" not in ctx and "Dunley" not in ctx
+    assert "vgtimes" in sent[0] and "playground" not in sent[0] and "youtube" not in sent[0]
+
+
+@pytest.mark.parametrize("payload, topic", [
+    ("Глянь на экран и скажи, где найти хлопок", "где найти хлопок"),
+    ("посмотри на экран и подскажи как построить бота", "как построить бота"),
+    ("где найти хлопок", "где найти хлопок"),
+])
+def test_topic_lead_stripped(payload, topic):
+    assert tg_share.topic_of(payload) == topic
+
+
+def test_parallel_items_parsed():
+    from modules.parallel_search import _parse_items
+    res = {"structuredContent": {"results": [
+        {"url": "https://a", "title": "A", "excerpts": ["x", " y "]}, {"url": "https://b", "excerpts": []}]}}
+    assert _parse_items(res) == [{"url": "https://a", "title": "A", "text": "x y"},
+                                 {"url": "https://b", "title": "", "text": ""}]
