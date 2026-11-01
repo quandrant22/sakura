@@ -125,7 +125,7 @@ def test_answer_searches_with_screen_facts(monkeypatch):
         {"role": "model", "parts": ["Какая игра и какой режим?"]},
     ])
     online(PC({"status": "ok", "image": SECRET_B64, "window": {"title": "Scrap Mechanic"}}))
-    calls = model_says(monkeypatch, "ВИДЕЛА: Scrap Mechanic, режим выживания, лес\n"
+    calls = model_says(monkeypatch, "ТЕМА: Scrap Mechanic\nВИДЕЛА: Scrap Mechanic, режим выживания, лес\n"
                                     "ФАКТЫ: задание «Найти паяльник»\n"
                                     "ПОИСК: Scrap Mechanic выживание где найти паяльник")
     brain = Brain(monkeypatch, reply="Паяльник лежит в ящиках на складе.",
@@ -136,6 +136,7 @@ def test_answer_searches_with_screen_facts(monkeypatch):
     assert brain.searched == ["Scrap Mechanic выживание где найти паяльник"]
     ctx = brain.asked[0][1]["extra_system"]
     assert "Найти паяльник" in ctx and "выпадает из ящиков" in ctx
+    assert seen.latest().subject == "Scrap Mechanic"                  # для продолжения разговора
 
 
 def test_answer_search_failed_is_honest(monkeypatch):
@@ -267,3 +268,42 @@ def test_old_screen_context_is_dropped(monkeypatch):
     monkeypatch.setattr(ws_protocol, "spawn", lambda *a, **k: spawned.append(a))
     run(ws_protocol.handle_screen_context(None, {"device_id": MASTER, "screenshot": SECRET_B64}, {}))
     assert spawned == [] and seen.latest() is None
+
+
+def test_ask_gemini_followup_searches_with_screen_subject(monkeypatch):
+    """После вопроса по экрану: «делать по квесту …» → поиск «Scrap Mechanic …»,
+    тема экрана — в системный промпт."""
+    import time
+
+    import modules.web_search as ws
+    import sakura_core.llm as llm
+    seen.record(MASTER, "Scrap Mechanic", "режим выживания", "ask", now=time.monotonic(),
+                subject="Scrap Mechanic")
+    searched, systems = [], []
+
+    async def fake_build(query=""):
+        return "SYSTEM"
+
+    async def fake_search(q):
+        searched.append(q)
+        return "Квест «Механическая станция»: почините станцию у торговца.", [], True
+
+    async def fake_generate(contents, system="", **kw):
+        systems.append(system)
+        return "Почини станцию у торговца."
+
+    async def none(*a, **k):
+        return ""
+    monkeypatch.setattr(llm, "_build_system", fake_build)
+    monkeypatch.setattr(llm, "generate", fake_generate)
+    monkeypatch.setattr(llm, "maybe_read_url", none)
+    monkeypatch.setattr(llm, "_build_contents", lambda *a, **k: [])
+    monkeypatch.setattr(ws, "search_grounded", fake_search)
+    monkeypatch.setattr(ws, "needs_search", lambda t: False)
+    import config
+    monkeypatch.setattr(config, "get_active_key", lambda: "k")
+    monkeypatch.setattr(config, "mark_key_used", lambda k: None)
+    reply = run(llm.ask_gemini("Делать по квесту «Механическая станция».", save_history=False))
+    assert reply == "Почини станцию у торговца."
+    assert searched == ["Scrap Mechanic Делать по квесту «Механическая станция»."]
+    assert "Scrap Mechanic" in systems[0] and "почините станцию" in systems[0]

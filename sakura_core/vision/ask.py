@@ -105,10 +105,10 @@ async def answer(device_id: str, question: str) -> tuple[str, bool]:
     except Exception as e:
         log.error(f"[vision] ask {device_id}: модель: {type(e).__name__}")
         return "Не получилось рассмотреть экран.", False
-    saw, facts, query = parse.parse_extract(reply)
+    saw, facts, query, subject = parse.parse_extract(reply)
     if not saw and not facts:
         return "Не получилось рассмотреть экран.", False
-    seen.record(device_id, result.title, saw or facts, "ask")
+    seen.record(device_id, result.title, saw or facts, "ask", subject=subject)
 
     context = prompts.ANSWER_CONTEXT.format(saw=saw or "—", facts=facts or "—")
     if query:
