@@ -571,6 +571,28 @@ VOICE_FACTS_MAX = 2500
 VOICE_EMPTY_REPLY = "Не успела ответить — повтори, пожалуйста."
 
 
+SEARCH_NOT_FOUND = (
+    "\n\nПоиск в интернете подходящих данных не дал. Если для ответа нужны "
+    "актуальные или точные данные — честно скажи Мастеру, что не нашла, и не "
+    "выдумывай факты; общеизвестное можно сказать, но не выдавай за найденное."
+)
+
+
+async def _web_search(user_message: str, channel: str, *, hint: str = ""):
+    """Поиск через единый конвейер с разговором для контекста; сбой — пусто."""
+    from sakura_core.search import Evidence, run
+    try:
+        from sakura_core.vision.ask import recent_dialogue
+        dialogue = recent_dialogue()
+    except Exception:
+        dialogue = ""
+    try:
+        return await run(user_message, channel=channel, hint=hint, dialogue=dialogue)
+    except Exception as e:
+        log.warning(f"[search] конвейер: {type(e).__name__}: {e}")
+        return Evidence()
+
+
 def _vision_followup(user_message: str) -> tuple[str | None, str]:
     """(запрос поиска, контекст) для реплики после вопроса по экрану
     (sakura_core/vision/followup.py); сбой — как будто экрана не было."""
@@ -625,16 +647,14 @@ async def ask_gemini(
     if vf_context:
         full_system += "\n\n" + vf_context
     if search is not False and (vf_query or needs_search(user_message)):
-        from modules.web_search import search_grounded as _grounded
-        g_answer, g_sources, g_ok = await _grounded(vf_query or user_message)
-        if g_ok and g_answer:
-            search_facts = g_answer.strip()
-            search_sources = list(g_sources or [])
-            log.info("[search] parallel → факты в контекст LLM")
+        # Единый конвейер (sakura_core/search). Не нашли — честно, без «ответа
+        # из памяти модели» под видом интернета.
+        ev = await _web_search(user_message, "text", hint=vf_query or "")
+        if ev.ok:
+            search_facts = ev.facts
+            search_sources = ev.sources
         else:
-            web_ctx = await maybe_fetch_web(user_message)
-            if web_ctx:
-                full_system += f"\n\nКОНТЕНТ ИЗ ИНТЕРНЕТА:\n{web_ctx}"
+            full_system += SEARCH_NOT_FOUND
 
     url_ctx = await maybe_read_url(user_message)
     if url_ctx:
@@ -785,15 +805,8 @@ async def ask_gemini_voice(
     search_needed = bool(vf_query) or needs_search(user_message)
     search_facts  = None
     if search_needed:
-        from modules.web_search import search_grounded as _grounded
-        g_ans, _g_srcs, g_ok = await _grounded(vf_query or user_message)
-        if g_ok and g_ans:
-            search_facts = g_ans.strip()
-            log.info("[search] parallel → голосовой контекст")
-        else:
-            web_ctx = await maybe_fetch_web(user_message)
-            if web_ctx:
-                search_facts = web_ctx.strip()
+        ev = await _web_search(user_message, "voice", hint=vf_query or "")
+        search_facts = ev.facts if ev.ok else None
 
     # С фактами из поиска промпт длиннее: потолок ответа 14 с вместо 8 (ход
     # целиком всё равно под сторожем TURN_TIMEOUT_S), факты для голоса — короче.
@@ -801,11 +814,7 @@ async def ask_gemini_voice(
     if search_facts:
         full_system += facts_prompt(search_facts[:VOICE_FACTS_MAX])
     elif search_needed:
-        full_system += (
-            "\n\nПоиск свежих данных в интернете сейчас не удался. Если для ответа "
-            "нужны актуальные данные — честно скажи Мастеру, что не нашла, и не "
-            "выдумывай факты."
-        )
+        full_system += SEARCH_NOT_FOUND
 
     try:
         if websocket:

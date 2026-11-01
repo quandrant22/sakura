@@ -10,7 +10,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 log = logging.getLogger("sakura.vision")
@@ -55,7 +54,6 @@ def pick_device(source_device: str | None) -> str | None:
 
 DIALOGUE_TURNS = 6
 DIALOGUE_CHARS = 240
-SEARCH_TIMEOUT_S = 12.0
 
 
 def recent_dialogue() -> str:
@@ -75,21 +73,6 @@ def recent_dialogue() -> str:
         if text:
             lines.append(f"{who}: {text}")
     return "\n".join(lines) or "— (пусто)"
-
-
-async def _search(query: str, subject: str = "") -> tuple[str, bool]:
-    """Поиск по готовому запросу; страницы не про игру с экрана отсеиваются
-    (хлопок есть и в V Rising — его гайд попадал в ответ про Scrap Mechanic)."""
-    from modules.parallel_search import parallel_search
-    from sakura_core.tg_share import facts_from, relevant
-    items: list[dict] = []
-    try:
-        await asyncio.wait_for(parallel_search(query, queries=[query], items_out=items), SEARCH_TIMEOUT_S)
-    except Exception as e:
-        log.info(f"[vision] поиск не удался: {type(e).__name__}")
-        return "", False
-    facts = facts_from(relevant(items, subject))
-    return facts, bool(facts)
 
 
 async def answer(device_id: str, question: str) -> tuple[str, bool]:
@@ -113,15 +96,20 @@ async def answer(device_id: str, question: str) -> tuple[str, bool]:
     saw, facts, query, subject = parse.parse_extract(reply)
     if not saw and not facts:
         return "Не получилось рассмотреть экран.", False
+    # Заголовок окна пишет сама программа — он точнее догадки модели по кадру
+    # (01.11: на экране Scrap Mechanic, модель назвала Craftopia).
+    from sakura_core.search.context import clean_title
+    subject = clean_title(result.title) or subject
     seen.record(device_id, result.title, saw or facts, "ask", subject=subject)
 
     context = prompts.ANSWER_CONTEXT.format(saw=saw or "—", facts=facts or "—")
     if query:
-        found, ok = await _search(query, subject)
-        log.info(f"[vision] поиск по экрану: {'есть факты' if ok else 'пусто'} ({len(query)} симв запроса)")
-        if ok:
+        from sakura_core.search import run
+        ev = await run(question, channel="voice", subject=subject, dialogue=recent_dialogue(),
+                       screen=facts or saw, hint=query)
+        if ev.ok:
             from modules.web_search import facts_prompt
-            context += facts_prompt(found)
+            context += facts_prompt(ev.facts)
         else:
             context += prompts.NO_SEARCH_RESULT.format(query=query)
 
