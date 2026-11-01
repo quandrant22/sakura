@@ -175,7 +175,11 @@ async def proactive_loop():
                 from modules.state import _pending_event_check
                 from adapters.voice import _get_active_ws as _gaw
                 ws_game, dev_game = _gaw()
-                if ws_game and dev_game and await asyncio.to_thread(should_check_event, dev_game):
+                # Кадр игры — тоже снимок экрана: только с согласия Мастера
+                # («поглядывай на экран», sakura_core/vision/settings).
+                from sakura_core.vision.glance import instance as _glance
+                if ws_game and dev_game and _glance().enabled() \
+                        and await asyncio.to_thread(should_check_event, dev_game):
                     await ws_game.send(__import__("json").dumps({"type": "command", "action": "screenshot:"}))
                     _pending_event_check[dev_game] = True
             except Exception as e:

@@ -1,11 +1,10 @@
-"""Анализ приложений и скриншотов: analyze_apps, _analyze_screen_context.
+"""Анализ приложений и скриншотов: analyze_apps.
 
 Перенесено из main.py (stage 7D).
 """
 
 from __future__ import annotations
 
-import base64
 import json
 import logging
 import os
@@ -76,44 +75,3 @@ async def analyze_apps(apps: dict, device_id: str):
     except Exception as e:
         log.error(f"Apps analyze error: {e}")
 
-
-async def analyze_screen_context(screenshot_b64: str, active_window: str, device_id: str):
-    key = get_active_key()
-    if not key:
-        return
-
-    try:
-        img_bytes = base64.b64decode(screenshot_b64)
-        if len(img_bytes) < 1000:
-            return
-
-        from sakura_core.llm import generate as _llm_generate
-        from google.genai import types
-        prompt = (
-            "Кратко опиши что на этом скриншоте (1-2 предложения). "
-            "Чем занят человек? Какая обстановка? "
-            "Только факты, без советов."
-        )
-
-        r = await _llm_generate(
-            [types.Content(parts=[
-                types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=img_bytes)),
-                types.Part(text=prompt),
-            ])],
-            model=MAIN_MODEL,
-            max_tokens=100,
-            chain=BACKGROUND_MODEL_CHAIN,
-        )
-        description = r
-        mark_key_used(key)
-
-        if description:
-            try:
-                from modules.context import set_screen_context
-                set_screen_context(active_window, description)
-            except Exception as e:
-                log.debug(f"[main] _analyze_screen_context: {type(e).__name__}: {e}")
-
-            log.debug(f"[screen] Контекст: {description[:60]}")
-    except Exception as e:
-        log.debug(f"[screen] Анализ ошибки: {e}")

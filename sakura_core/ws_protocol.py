@@ -16,12 +16,9 @@ import re
 import time as _time
 
 import modules.state as st
-from config import (
-    MASTER_ID, get_active_key, mark_key_used, MAIN_MODEL, VOICE_MODEL_CHAIN,
-)
+from config import MASTER_ID, VOICE_MODEL_CHAIN
 from sakura_core import voice_turns
 from sakura_core.tasks import spawn
-from sakura_core.llm import generate as _llm_generate
 from modules.tts_server import stream_tts_to_device
 from modules.device_manager import update_device
 from modules.window_watcher import update as watcher_update
@@ -95,6 +92,8 @@ async def handle_register(websocket, data, ctx) -> None:
     bind_device_socket(device_id, websocket)
     from sakura_core import proto_devices, proto_v2
     await proto_v2.on_register(websocket, data)
+    from sakura_core.vision import capture as _vision_capture
+    _vision_capture.note_features(device_id, data)
     update_device(device_id,
         active_window = data.get("active_window"),
         context       = data.get("context"),
@@ -250,15 +249,14 @@ async def handle_apps_list(websocket, data, ctx) -> None:
     spawn(ctx["analyze_apps"](apps, device_id), name="analyze-installed-apps")
 
 
-# ── screen_context ─────────────────────────────────────────────────────
+# ── screen_context (устарело) ──────────────────────────────────────────
 
 async def handle_screen_context(websocket, data, ctx) -> None:
-    screenshot = data.get("screenshot")
-    active_win = data.get("active_window", "")
-    if screenshot:
-        spawn(ctx["_analyze_screen_context"](
-            screenshot, active_win, data.get("device_id")
-        ), name="analyze-screen-context")
+    """Старые клиенты (agent/, desktop/ до fix/no-silent-capture) раз в 5 мин
+    молча шлют скриншот. Сервер его больше не анализирует и не хранит:
+    кадр экрана — только по запросу (sakura_core/vision). Тип принимается,
+    чтобы не сыпать «unknown msg_type» в лог."""
+    log.debug(f"[screen_context] {data.get('device_id')}: устаревший тихий кадр отброшен")
 
 
 # ── kettle_ready ───────────────────────────────────────────────────────
@@ -557,40 +555,31 @@ async def _handle_command_result(websocket, data, ctx) -> None:
                                            reply_kind="llm")
             await bot.send_message(MASTER_ID, music_reply)
     elif screenshot:
-        _should_describe = data.get("describe") or st._pending_describe.pop(dev_name, False)
-        if _should_describe:
+        # Три случая, строго один: описание по просьбе (screenshot.describe →
+        # vision.ask для старого клиента), игровой event-тик, явный
+        # «сделай скриншот» (screenshot.run) — только он уходит фото в Telegram.
+        _question = st._pending_describe.pop(dev_name, None)
+        if not _question and data.get("describe"):
+            from sakura_core.vision.ask import DEFAULT_QUESTION as _q_default
+            _question = _q_default
+        if _question:
+            st._pending_event_check.pop(dev_name, None)
             try:
+                from sakura_core.vision.ask import describe_legacy
+                from sakura_core.vision.capture import _mime as _shot_mime
                 img_bytes = base64.b64decode(screenshot)
-                key = get_active_key()
-                if key:
-                    from google.genai import types as _gt
-                    _vtext = await _llm_generate(
-                        [
-                            _gt.Part(inline_data=_gt.Blob(
-                                mime_type="image/jpeg",
-                                data=img_bytes
-                            )),
-                            _gt.Part(text=(
-                                "Это скриншот экрана Мастера. "
-                                "Скажи коротко что видишь — одно-два предложения, "
-                                "в своём стиле. Не представляйся, просто опиши."
-                            )),
-                        ],
-                        model=MAIN_MODEL,
-                        safety=False,
-                        thinking=False,
-                    )
-                    mark_key_used(key)
-                    if _vtext:
-                        log.info(f"[vision] ответ: {_vtext!r}")
-                        _dev_ws = st.connected_devices.get(dev_name)
-                        if _dev_ws:
-                            await stream_tts_to_device(
-                                _vtext, _dev_ws, dev_name, literal=True, reply_kind="llm"
-                            )
+                _vmime = _shot_mime(img_bytes)
+                _vtext = await describe_legacy(dev_name, img_bytes, _vmime, str(_question)) \
+                    if _vmime else ""
+                img_bytes = None
+                _dev_ws = st.connected_devices.get(dev_name)
+                if _dev_ws:
+                    await stream_tts_to_device(
+                        _vtext or "Не получилось рассмотреть экран.", _dev_ws, dev_name,
+                        literal=True, reply_kind="llm" if _vtext else "error")
             except Exception as _ve:
-                log.error(f"[vision] {_ve}")
-        if st._pending_event_check.pop(dev_name, False):
+                log.error(f"[vision] describe {dev_name}: {type(_ve).__name__}")
+        elif st._pending_event_check.pop(dev_name, False):
             try:
                 event = await detect_game_event(screenshot, dev_name)
                 if event:
