@@ -1,5 +1,6 @@
 """Домен «система/приложения» (этап 5): game_mode.*, open.app,
-close_window.*, screenshot.*, system.* — все executor=agent.
+close_window.*, screenshot.run, system.* — все executor=agent.
+(screenshot.describe — legacy-имя vision.ask, capabilities/vision.py.)
 
 На провод уходит только канонический id. Агент принимает канонические
 имена в дополнение к старым; удаление старых написаний — этап 8.
@@ -23,7 +24,6 @@ SYSTEM_AGENT_ACTIONS = (
     "app.switch_open",
     "close_window.браузер",
     "screenshot.run",
-    "screenshot.describe",
     "system.shutdown",
     "system.shutdown_cancel",
     "system.restart",

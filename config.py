@@ -142,6 +142,27 @@ VOICE_MODEL_CHAIN = _parse_model_chain("VOICE_MODEL_CHAIN", MODEL_CHAIN)
 BACKGROUND_MODEL_CHAIN = _parse_model_chain("BACKGROUND_MODEL_CHAIN", MODEL_CHAIN)
 VISION_MODEL_CHAIN = _parse_model_chain("VISION_MODEL_CHAIN", MODEL_CHAIN)
 
+
+# ── feat/vision: зрение по запросу и редкий «взгляд» (sakura_core/vision) ──
+def _env_int(name: str, default: int, minimum: int = 0) -> int:
+    try:
+        return max(minimum, int(os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        log.warning(f"Invalid {name}; using default {default}")
+        return default
+
+
+# Глобальный выключатель взгляда (поверх голосового «поглядывай»): 0 — никогда.
+VISION_GLANCE = _flag("VISION_GLANCE", "1")
+VISION_SETTINGS_PATH = os.getenv("VISION_SETTINGS_PATH", "memory/vision_settings.json")
+VISION_CAPTURE_TIMEOUT_S = 5.0
+GLANCE_BASE_MIN = _env_int("GLANCE_BASE_MIN", 30, 5)              # средний интервал
+GLANCE_SPOKEN_PER_DAY = _env_int("GLANCE_SPOKEN_PER_DAY", 6, 0)
+GLANCE_ATTEMPTS_PER_HOUR = _env_int("GLANCE_ATTEMPTS_PER_HOUR", 3, 1)
+GLANCE_AFTER_TURN_S = _env_int("GLANCE_AFTER_TURN_S", 120)        # тишина после хода
+GLANCE_AFTER_SPOKEN_S = _env_int("GLANCE_AFTER_SPOKEN_S", 900)    # после своей реплики
+SEEN_TTL_S = _env_int("SEEN_TTL_S", 1800, 60)                     # «увиденное» в контексте
+
 try:
     VOICE_MAX_TOKENS = max(1, int(os.getenv("VOICE_MAX_TOKENS", "120")))
 except (TypeError, ValueError):

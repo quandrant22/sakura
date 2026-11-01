@@ -486,31 +486,11 @@ def get_focus_context() -> str:
     return f"Мастер уже {mins} минут в «{win[:40]}»."
 
 
-# ── Контекст экрана (из screen analysis) ──────────────────────────────
-
-_screen_context: dict = {}  # window → {"description": str, "updated": float}
-
-def set_screen_context(window: str, description: str):
-    """Сохраняет описание экрана от Gemini Vision."""
-    import time as _t
-    if not window:
-        return
-    _screen_context["current"] = {
-        "window":      window[:60],
-        "description": description[:200],
-        "updated":     _t.time(),
-    }
+# ── Контекст экрана (feat/vision) ─────────────────────────────────────
 
 def get_screen_context() -> str:
-    """Строка для промпта — что на экране."""
-    ctx = _screen_context.get("current")
-    if not ctx:
-        return ""
-    import time as _t
-    # Не старше 10 минут
-    if _t.time() - ctx.get("updated", 0) > 600:
-        return ""
-    desc = ctx.get("description", "")
-    if not desc:
-        return ""
-    return f"НА ЭКРАНЕ: {desc}"
+    """Строка для промпта — что Сакура недавно видела на экране Мастера
+    (по его просьбе или своим взглядом). Тихих снимков больше нет:
+    источник — sakura_core/vision/seen.py."""
+    from sakura_core.vision import seen
+    return seen.context_line()

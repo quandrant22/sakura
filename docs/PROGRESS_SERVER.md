@@ -92,3 +92,25 @@ venv/bin/python scripts/cleanup_tasks.py               # копия в memory/ba
 
 - Хэш до выката (откат: `git checkout 1b6f189d0ba99b2a346980078bc887898d3bc7bb`, `systemctl restart sakura`): **1b6f189d0ba99b2a346980078bc887898d3bc7bb**.
 - Причина: на проде телефон стал «активным устройством» (`Фокус переехал: none → phone`); теперь активным может быть только ПК.
+
+## Зрение (feat/vision, 2026-11-01)
+
+| пункт | что сделано |
+|---|---|
+| транспорт | `sakura_core/vision/capture.py`: `vision.capture` → ожидание `vision.frame` (5 с), features в `register`, снятие при отключении |
+| вопрос | `vision.ask` (бывший `screenshot.describe`): «глянь на экран» → кадр → `VISION_MODEL_CHAIN` → ответ на ход; старый клиент — через `command_result` |
+| взгляд | `vision/glance.py` + фоновая задача `vision_glance` в `main.py`; `vision.glance.on/off` |
+| память | `vision/seen.py` → `modules/context.get_screen_context()` |
+| анти-повтор | `modules/repeat_guard.py` |
+| удалено | анализ `screen_context` (`apps.analyze_screen_context`, `_analyze_screen_context` в ctx), прямой вызов модели в ветке describe |
+| исправлено | «что у меня на экране» → фото в Telegram вместо описания (V6) |
+| реестр | 122 → 124; golden — точечно (V16) |
+| тесты | `tests/test_vision_{capture,ask,glance,parse}.py` — 94; мутационная проверка: снятие secure-проверки, проверки перед репликой и `need_change` роняют тесты |
+
+Прогон: PyPI в сессии разработки был закрыт — набор гонялся с заглушками `google.genai/aiogram/websockets`.
+Новых падений относительно master нет (150 падений окружения одинаковы до и после), тесты зрения, реестра,
+golden, промпта — зелёные. **Перед выкатом: полный `pytest` в боевом venv.**
+
+Перед включением на проде:
+- клиент `desktop/` с `vision.capture` (ТЗ-2, ветка `feat/vision-client`); до него `vision.ask` работает через старый путь, взгляд не планируется;
+- `VISION_GLANCE` по умолчанию `1`, но сам взгляд выключен до голосового «поглядывай на экран».

@@ -60,7 +60,7 @@ def test_all_youtube_actions_registered():
 
 def test_all_system_actions_registered():
     want = {"game_mode.on", "game_mode.off", "open.app",
-            "close_window.браузер", "screenshot.run", "screenshot.describe",
+            "close_window.браузер", "screenshot.run", "vision.ask",
             "system.shutdown", "system.restart", "power.sleep"}  # system.sleep — legacy-синоним power.sleep
     assert not (want - set(registered())), f"нет хендлеров: {want - set(registered())}"
 
@@ -68,8 +68,9 @@ def test_all_system_actions_registered():
 def test_all_vps_actions_registered():
     # 19 доменов VPS этапа 5 + 7 развязанных на этапе 7 (coding.* и
     # calendar.list): их реализация тоже серверная, поэтому executor=vps.
+    # feat/vision: vision.ask (бывший screenshot.describe), vision.glance.on/off.
     want = {d.id for d in load() if d.executor == "vps"}
-    assert len(want) == 26
+    assert len(want) == 29
     assert not (want - set(registered())), f"нет хендлеров: {want - set(registered())}"
 
 

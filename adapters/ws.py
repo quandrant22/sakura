@@ -162,7 +162,7 @@ async def ws_handler(websocket):
     from modules.rituals import should_farewell, get_farewell_prompt
     from modules.app_mapping import find_vip_by_name
     from sakura_core.memory_tasks import clean_slate
-    from sakura_core.apps import analyze_apps, analyze_screen_context
+    from sakura_core.apps import analyze_apps
     from sakura_core.llm import ask_gemini, ask_gemini_voice
     from adapters.voice import _get_active_ws
 
@@ -276,7 +276,6 @@ async def ws_handler(websocket):
                     "_resolve_command_status": _resolve_command_status,
                     "_get_active_ws": _get_active_ws,
                     "analyze_apps": analyze_apps,
-                    "_analyze_screen_context": analyze_screen_context,
                     "_gemini_client": None,
                     "bot": bot,
                     "PLAN_WAIT_ACK": PLAN_WAIT_ACK,
@@ -304,6 +303,11 @@ async def ws_handler(websocket):
                     from sakura_core import vision_request
                     spawn(vision_request.handle(websocket, data),
                           name=f"vision-request-{dev_from_msg}")
+                elif msg_type == "vision.frame":
+                    # Ответ ПК на vision.capture: отдать ожидающему запросу
+                    # (sakura_core/vision/capture.py); кадр не логируется.
+                    from sakura_core.vision import capture as _vision_capture
+                    await _vision_capture.handle_frame(websocket, data)
                 elif msg_type == "computer_step":
                     # Шаг computer.do: модель смотрит кадр — задачей, цикл
                     # сокета читает дальше.
@@ -346,6 +350,8 @@ async def ws_handler(websocket):
             connected_devices.pop(device_id, None)
             from sakura_core import proto_devices, proto_v2
             proto_v2.forget(device_id)
+            from sakura_core.vision import capture as _vision_capture
+            _vision_capture.forget(device_id)
             await proto_devices.on_disconnect(device_id)
             set_device_offline(device_id)
             await asyncio.to_thread(ps_offline, device_id)

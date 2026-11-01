@@ -44,6 +44,7 @@ def _load_capabilities() -> None:
         import capabilities.computer     # noqa: F401
         import capabilities.system       # noqa: F401
         import capabilities.vps_domains  # noqa: F401
+        import capabilities.vision       # noqa: F401
         import capabilities.youtube      # noqa: F401
     except Exception:
         log.exception("[v3] не удалось загрузить таблицы доменов")
