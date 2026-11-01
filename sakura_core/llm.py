@@ -565,6 +565,17 @@ _LEN_HINT = {
 }
 
 
+def _vision_followup(user_message: str) -> tuple[str | None, str]:
+    """(запрос поиска, контекст) для реплики после вопроса по экрану
+    (sakura_core/vision/followup.py); сбой — как будто экрана не было."""
+    try:
+        from sakura_core.vision.followup import plan
+        return plan(user_message)
+    except Exception as e:
+        log.debug(f"[llm] vision followup: {type(e).__name__}: {e}")
+        return None, ""
+
+
 async def ask_gemini(
     user_message: str, save_history: bool = True, history_limit: int = 60,
     chain=None, *, extra_system: str = "", search: bool | None = None,
@@ -603,9 +614,13 @@ async def ask_gemini(
     search_facts = None
     search_sources = []
     from modules.web_search import needs_search, facts_prompt, format_sources
-    if search is not False and needs_search(user_message):
+    # Продолжение разговора после вопроса по экрану: поиск с темой экрана.
+    vf_query, vf_context = _vision_followup(user_message) if search is not False else (None, "")
+    if vf_context:
+        full_system += "\n\n" + vf_context
+    if search is not False and (vf_query or needs_search(user_message)):
         from modules.web_search import search_grounded as _grounded
-        g_answer, g_sources, g_ok = await _grounded(user_message)
+        g_answer, g_sources, g_ok = await _grounded(vf_query or user_message)
         if g_ok and g_answer:
             search_facts = g_answer.strip()
             search_sources = list(g_sources or [])
@@ -757,11 +772,15 @@ async def ask_gemini_voice(
     full_text = ""
 
     from modules.web_search import needs_search, facts_prompt
-    search_needed = needs_search(user_message)
+    # Продолжение разговора после вопроса по экрану: поиск с темой экрана.
+    vf_query, vf_context = _vision_followup(user_message)
+    if vf_context:
+        full_system += "\n\n" + vf_context
+    search_needed = bool(vf_query) or needs_search(user_message)
     search_facts  = None
     if search_needed:
         from modules.web_search import search_grounded as _grounded
-        g_ans, _g_srcs, g_ok = await _grounded(user_message)
+        g_ans, _g_srcs, g_ok = await _grounded(vf_query or user_message)
         if g_ok and g_ans:
             search_facts = g_ans.strip()
             log.info("[search] parallel → голосовой контекст")

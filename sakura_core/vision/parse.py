@@ -97,7 +97,8 @@ def parse_glance(reply: str) -> tuple[str, str]:
     return saw[:SAW_MAX], drop_meta(say)
 
 
-_EXTRACT_LABEL = re.compile(r"(?im)^\s*[*_]*(?P<label>ВИДЕЛА|ФАКТЫ|ПОИСК)[*_]*\s*[:—-][*_]*")
+_EXTRACT_LABEL = re.compile(r"(?im)^\s*[*_]*(?P<label>ТЕМА|ВИДЕЛА|ФАКТЫ|ПОИСК)[*_]*\s*[:—-][*_]*")
+SUBJECT_MAX = 80
 QUERY_MAX = 120
 FACTS_MAX = 600
 
@@ -106,12 +107,12 @@ def _none(text: str) -> bool:
     return not text or bool(re.fullmatch(r"[\[(«\"]?\s*(НЕТ|NONE|-|—)\s*[\])»\"]?[.!]*", text, re.IGNORECASE))
 
 
-def parse_extract(reply: str) -> tuple[str, str, str]:
-    """Ответ модели зрения на разовый вопрос → (видела, факты, запрос поиска).
+def parse_extract(reply: str) -> tuple[str, str, str, str]:
+    """Ответ модели зрения на разовый вопрос → (видела, факты, запрос поиска, тема).
 
     «НЕТ» → пусто. Запрос — одна строка до QUERY_MAX, без кавычек."""
     text = reply or ""
-    found = {"ВИДЕЛА": "", "ФАКТЫ": "", "ПОИСК": ""}
+    found = {"ТЕМА": "", "ВИДЕЛА": "", "ФАКТЫ": "", "ПОИСК": ""}
     labels = list(_EXTRACT_LABEL.finditer(text))
     for i, m in enumerate(labels):
         end = labels[i + 1].start() if i + 1 < len(labels) else len(text)
@@ -124,4 +125,6 @@ def parse_extract(reply: str) -> tuple[str, str, str]:
     saw = "" if _none(saw) else saw[:SAW_MAX]
     facts = "" if _none(facts) else facts[:FACTS_MAX]
     query = "" if _none(query) else query.strip("«»\"' ")[:QUERY_MAX]
-    return saw, facts, query
+    subject = found["ТЕМА"].strip("«»\"' .")
+    subject = "" if _none(subject) else subject[:SUBJECT_MAX]
+    return saw, facts, query, subject

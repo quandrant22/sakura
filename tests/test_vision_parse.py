@@ -139,12 +139,12 @@ def test_prompts_do_not_bait_rule_reports():
 
 def test_parse_extract():
     from sakura_core.vision.parse import parse_extract
-    assert parse_extract("ВИДЕЛА: Scrap Mechanic, лес\nФАКТЫ: задание «Найти паяльник»\n"
+    assert parse_extract("ТЕМА: Scrap Mechanic\nВИДЕЛА: Scrap Mechanic, лес\nФАКТЫ: задание «Найти паяльник»\n"
                          "ПОИСК: «Scrap Mechanic где найти паяльник»") == \
-        ("Scrap Mechanic, лес", "задание «Найти паяльник»", "Scrap Mechanic где найти паяльник")
-    assert parse_extract("**ВИДЕЛА:** рабочий стол\nФАКТЫ: НЕТ\nПОИСК: нет.") == ("рабочий стол", "", "")
-    assert parse_extract("Просто текст без меток") == ("Просто текст без меток", "", "")
-    assert parse_extract("") == ("", "", "")
+        ("Scrap Mechanic, лес", "задание «Найти паяльник»", "Scrap Mechanic где найти паяльник", "Scrap Mechanic")
+    assert parse_extract("ТЕМА: НЕТ\n**ВИДЕЛА:** рабочий стол\nФАКТЫ: НЕТ\nПОИСК: нет.") == ("рабочий стол", "", "", "")
+    assert parse_extract("Просто текст без меток") == ("Просто текст без меток", "", "", "")
+    assert parse_extract("") == ("", "", "", "")
 
 
 def test_prompt_has_dialogue_and_forbids_greeting():
@@ -173,3 +173,45 @@ def test_screen_phrases_route_to_vision(phrase, action):
                          .read_text(encoding="utf-8"))
     m = build_index([declaration_from_dict(r) for r in raw]).match(phrase, None)
     assert m and m[1].id == action
+
+
+# ── продолжение разговора после вопроса по экрану ──────────────────
+
+@pytest.fixture
+def screen_seen():
+    from sakura_core.vision import seen
+    seen.reset()
+    seen.record("laptop", "Scrap Mechanic", "режим выживания, лес", "ask", now=1000.0, subject="Scrap Mechanic")
+    yield
+    seen.reset()
+
+
+def test_followup_searches_with_screen_subject(screen_seen):
+    from sakura_core.vision.followup import plan
+    query, ctx = plan("Делать по квесту «Механическая станция».", now=1060.0)
+    assert query == "Scrap Mechanic Делать по квесту «Механическая станция»."
+    assert "Scrap Mechanic" in ctx and "не здоровайся" in ctx
+
+
+def test_followup_keeps_message_when_subject_named(screen_seen):
+    from sakura_core.vision.followup import plan
+    assert plan("а в scrap mechanic есть квесты?", now=1060.0)[0] == "а в scrap mechanic есть квесты?"
+
+
+@pytest.mark.parametrize("msg", ["спасибо большое тебе", "ок", "понятно, иду туда сейчас"])
+def test_followup_small_talk_no_search(screen_seen, msg):
+    from sakura_core.vision.followup import plan
+    query, ctx = plan(msg, now=1060.0)
+    assert query is None and ctx                     # контекст есть, поиска нет
+
+
+def test_followup_window_and_purpose():
+    from sakura_core.vision import seen
+    from sakura_core.vision.followup import FOLLOWUP_S, plan
+    seen.reset()
+    assert plan("где найти паяльник по квесту", now=1.0) == (None, "")
+    seen.record("laptop", "t", "лес", "ask", now=1000.0, subject="Scrap Mechanic")
+    assert plan("где найти паяльник по квесту", now=1000.0 + FOLLOWUP_S + 1) == (None, "")
+    seen.record("laptop", "t", "лес", "glance", now=1000.0, subject="Scrap Mechanic")
+    assert plan("где найти паяльник по квесту", now=1001.0) == (None, "")   # взгляд — не вопрос Мастера
+    seen.reset()

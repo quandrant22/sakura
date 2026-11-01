@@ -22,12 +22,14 @@ class Seen:
     saw: str
     purpose: str
     at: float          # time.monotonic()
+    subject: str = ""  # название игры/программы на экране (для продолжения разговора)
 
 
 _last: Seen | None = None
 
 
-def record(device_id: str, title: str, saw: str, purpose: str, *, now: float | None = None) -> None:
+def record(device_id: str, title: str, saw: str, purpose: str, *, now: float | None = None,
+           subject: str = "") -> None:
     global _last
     saw = " ".join((saw or "").split())
     if not saw:
@@ -35,7 +37,7 @@ def record(device_id: str, title: str, saw: str, purpose: str, *, now: float | N
     if len(saw) > SAW_MAX:
         saw = saw[:SAW_MAX].rstrip() + "…"
     _last = Seen(device_id, (title or "")[:200], saw, purpose,
-                 time.monotonic() if now is None else now)
+                 time.monotonic() if now is None else now, (subject or "")[:80])
 
 
 def latest(*, now: float | None = None) -> Seen | None:
