@@ -192,8 +192,10 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
         device_track(device_id) or prompt_track() or None
     )
     route_source = {"source": source} if source is not None else {}
-    decision = await get_router().route(text, context, on_llm=on_llm,
-                                        **route_source)
+    decision = _vision_intent(text, (data or {}).get("active_window"))
+    if decision is None:
+        decision = await get_router().route(text, context, on_llm=on_llm,
+                                            **route_source)
     if on_command is not None and (decision.action or decision.reply is not None):
         await on_command()
     if decision.reply is not None:
@@ -255,6 +257,24 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
         except Exception as e:
             log.debug(f"[v3] ответ не доставлен: {type(e).__name__}: {e}")
     return True
+
+
+def _vision_intent(text: str, active_window: str | None):
+    """Вопрос про игру во время игры → vision.ask до классификатора
+    (sakura_core/vision/intent.py). Висит вопрос подтверждения — не трогаем:
+    «да/нет» решает роутер."""
+    try:
+        if get_router().session.pending is not None:
+            return None
+        from sakura_core.vision.intent import wants_screen
+        if not wants_screen(text, active_window):
+            return None
+    except Exception as e:
+        log.debug(f"[v3] vision intent: {type(e).__name__}: {e}")
+        return None
+    from sakura_core.router import Decision
+    log.info("[v3] вопрос про игру → vision.ask (до классификатора)")
+    return Decision(action="vision.ask", source="vision_intent")
 
 
 def confirms_via_executor(action: str | None) -> bool:
