@@ -132,3 +132,33 @@ def test_bridge_pending_confirm_goes_to_router(monkeypatch):
     asyncio.run(bridge.v3_fast_path("где найти бота-мастера?", data={}, device_ws=None,
                                     device_id="pc", register_command=None))
     assert routed == ["где найти бота-мастера?"]
+
+
+def test_same_window_as_seen_long_ago_is_game():
+    """Окно игры то же, что Сакура видела час назад: игра идёт (Scrap Mechanic нет
+    в списке игр по заголовку)."""
+    seen.record("pc", "Scrap Mechanic", "лес", "ask", now=1000.0, subject="Scrap Mechanic")
+    later = 1000.0 + 3600
+    assert intent.game_on("Scrap Mechanic", now=later)
+    assert intent.wants_screen("Где взять хлопок в Скраэбмеханик?", "Scrap Mechanic", now=later)
+    assert not intent.game_on("Telegram", now=later)
+    assert not intent.game_on(None, now=later)
+
+
+# ── страхи не перехватывают вопросы ────────────────────────────────
+
+@pytest.mark.parametrize("phrase", [
+    "Где взять хлопок в Скраэбмеханик?",
+    "как сделать хлопок",
+    "почему ты боишься грома",
+    "в игре был такой громкий взрыв что я подпрыгнул на стуле",
+])
+def test_fears_skip_questions_and_long_phrases(phrase):
+    from conversation import fears
+    assert fears.try_handle(phrase, {}) is None
+
+
+@pytest.mark.parametrize("phrase", ["гроза за окном", "ой как громко", "хлопок!"])
+def test_fears_still_react_to_short_exclamations(phrase):
+    from conversation import fears
+    assert fears.try_handle(phrase, {}) is not None
