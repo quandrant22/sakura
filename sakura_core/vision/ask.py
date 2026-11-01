@@ -80,7 +80,8 @@ def recent_dialogue() -> str:
 async def _search(query: str) -> tuple[str, bool]:
     from modules.web_search import search_grounded
     try:
-        facts, _sources, ok = await asyncio.wait_for(search_grounded(query), SEARCH_TIMEOUT_S)
+        facts, _sources, ok = await asyncio.wait_for(search_grounded(query, queries=[query]),
+                                                     SEARCH_TIMEOUT_S)
     except Exception as e:
         log.info(f"[vision] поиск не удался: {type(e).__name__}")
         return "", False

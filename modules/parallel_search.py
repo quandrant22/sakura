@@ -144,6 +144,9 @@ def _fallback_query(query: str) -> str:
     return _keywords(q)[0]
 
 
+QUERY_TIMEOUT_S = 4.0
+
+
 async def _model_queries(query: str) -> list[str]:
     """Один дешёвый вызов MAIN_MODEL: фраза Мастера → 1-3 поисковых запроса.
 
@@ -157,7 +160,10 @@ async def _model_queries(query: str) -> list[str]:
         max_tokens=300,
         temperature=0.2,
         safety=False,
-        thinking=True,
+        # Без «размышления» и с потолком: в голосе поиск ждёт этот вызов
+        # (было thinking=True без таймаута — 15 с на 3 запроса, ход молчал).
+        thinking=False,
+        timeout=QUERY_TIMEOUT_S,
     )
     return _parse_model_queries(raw)
 
@@ -233,7 +239,8 @@ def _parse_result(res: dict, max_results: int = 5) -> tuple[str, list[str], bool
     return text, urls, True
 
 
-async def parallel_search(query: str, max_results: int = 5) -> tuple[str, list[str], bool]:
+async def parallel_search(query: str, max_results: int = 5,
+                          queries: list[str] | None = None) -> tuple[str, list[str], bool]:
     """Поиск через Parallel Search MCP. → (текст_выдержек, источники, ok).
 
     initialize → notifications/initialized → tools/call web_search.
@@ -271,7 +278,13 @@ async def parallel_search(query: str, max_results: int = 5) -> tuple[str, list[s
 
             # 3) tools/call web_search — запросы составляет MAIN_MODEL
             # (лог "[parallel] queries (model|fallback)" — в build_search_queries)
-            queries = await build_search_queries(query)
+            if queries:
+                # Запрос уже составлен (зрение: точное название игры и предмета) —
+                # модель не зовём.
+                queries = [q.replace("«", '"').replace("»", '"') for q in queries if q.strip()][:3]
+                log.info(f"[parallel] queries (given): {queries}")
+            else:
+                queries = await build_search_queries(query)
             args = {
                 "objective": query,
                 "search_queries": queries,
