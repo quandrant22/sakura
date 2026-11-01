@@ -27,7 +27,7 @@ _META = re.compile(
     r"(?<!\w)("
     r"(?:им[её]н\w*|имени|подпис\w*)[^.!?…]*\b(?:нет|не\s+вижу|не\s+видно|не\s+написан\w*|не\s+указан\w*)|"
     r"(?:нет|не\s+вижу|не\s+видно)[^.!?…]*\b(?:им[её]н\w*|имени)|"
-    r"больше\s+ничего[^.!?…]*\b(?:не\s+(?:заметил\w*|вижу|видно)|нет)|"
+    r"больше\s+ничего[^.!?…]*\b(?:не\s+(?:заметил\w*|вижу|видно|могу)|нет)|"
     r"ничего\s+(?:особенного|примечательного)[^.!?…]*\b(?:не\s+(?:заметил\w*|вижу|видно)|нет)|"
     r"по\s+лицу|не\s+(?:буду\s+)?(?:угадывать|гадать)|"
     r"(?:пароли|личн\w+\s+переписк\w*)[^.!?…]*\bне\s+(?:пересказываю|называю|читаю)"
@@ -57,13 +57,13 @@ def split_ask(reply: str) -> tuple[str, str]:
     for m in re.finditer(rf"(?im)^\s*{_SAW}[*_]*\s*[:—-]", reply or ""):
         pass
     if m is None:
-        return _clean_answer(reply), ""
+        return clean_answer(reply), ""
     answer = (reply or "")[:m.start()]
     saw = _clean((reply or "")[m.end():])[:SAW_MAX]
-    return _clean_answer(answer), saw
+    return clean_answer(answer), saw
 
 
-def _clean_answer(text: str) -> str:
+def clean_answer(text: str) -> str:
     lines = (drop_meta(line) for line in (text or "").strip().splitlines())
     return "\n".join(line for line in lines if line).strip()
 
@@ -95,3 +95,33 @@ def parse_glance(reply: str) -> tuple[str, str]:
     if saw and _UNSURE.search(saw):
         return "", ""
     return saw[:SAW_MAX], drop_meta(say)
+
+
+_EXTRACT_LABEL = re.compile(r"(?im)^\s*[*_]*(?P<label>ВИДЕЛА|ФАКТЫ|ПОИСК)[*_]*\s*[:—-][*_]*")
+QUERY_MAX = 120
+FACTS_MAX = 600
+
+
+def _none(text: str) -> bool:
+    return not text or bool(re.fullmatch(r"[\[(«\"]?\s*(НЕТ|NONE|-|—)\s*[\])»\"]?[.!]*", text, re.IGNORECASE))
+
+
+def parse_extract(reply: str) -> tuple[str, str, str]:
+    """Ответ модели зрения на разовый вопрос → (видела, факты, запрос поиска).
+
+    «НЕТ» → пусто. Запрос — одна строка до QUERY_MAX, без кавычек."""
+    text = reply or ""
+    found = {"ВИДЕЛА": "", "ФАКТЫ": "", "ПОИСК": ""}
+    labels = list(_EXTRACT_LABEL.finditer(text))
+    for i, m in enumerate(labels):
+        end = labels[i + 1].start() if i + 1 < len(labels) else len(text)
+        key = m.group("label").upper()
+        if not found[key]:
+            found[key] = _clean(text[m.end():end])
+    if not labels:
+        found["ВИДЕЛА"] = _clean(text)
+    saw, facts, query = (found[k] for k in ("ВИДЕЛА", "ФАКТЫ", "ПОИСК"))
+    saw = "" if _none(saw) else saw[:SAW_MAX]
+    facts = "" if _none(facts) else facts[:FACTS_MAX]
+    query = "" if _none(query) else query.strip("«»\"' ")[:QUERY_MAX]
+    return saw, facts, query

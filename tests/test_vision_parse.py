@@ -133,3 +133,22 @@ def test_prompts_do_not_bait_rule_reports():
     from sakura_core.vision import prompts
     assert "называй человека" not in prompts.RULES
     assert "Мастеру о них не говори" in prompts.RULES
+
+
+# ── разовый вопрос: ВИДЕЛА / ФАКТЫ / ПОИСК ─────────────────────────
+
+def test_parse_extract():
+    from sakura_core.vision.parse import parse_extract
+    assert parse_extract("ВИДЕЛА: Scrap Mechanic, лес\nФАКТЫ: задание «Найти паяльник»\n"
+                         "ПОИСК: «Scrap Mechanic где найти паяльник»") == \
+        ("Scrap Mechanic, лес", "задание «Найти паяльник»", "Scrap Mechanic где найти паяльник")
+    assert parse_extract("**ВИДЕЛА:** рабочий стол\nФАКТЫ: НЕТ\nПОИСК: нет.") == ("рабочий стол", "", "")
+    assert parse_extract("Просто текст без меток") == ("Просто текст без меток", "", "")
+    assert parse_extract("") == ("", "", "")
+
+
+def test_prompt_has_dialogue_and_forbids_greeting():
+    from sakura_core.vision import prompts
+    p = prompts.EXTRACT.format(dialogue="Мастер: найди паяльник", question="глянь")
+    assert "найди паяльник" in p and "Без приветствий" in p
+    assert "не здоровайся" in prompts.ANSWER_CONTEXT
