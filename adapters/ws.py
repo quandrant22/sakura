@@ -842,12 +842,15 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
                 return
 
             aw = data.get("active_window", "")
-            await _voice_to_tg(
+            # Сбор с поиском и картинками — десятки секунд: голос отвечает
+            # сразу, отправка идёт фоном (ход не держим, сторож хода не нужен).
+            await _say("Отправляю в Телеграм.", kind="ack")
+            spawn(_voice_to_tg(
                 text, text_lower, payload, aw,
                 ask_gemini, send_safe, search_image, download_bytes,
                 search_and_fetch, needs_search, _translate_en, bot, MASTER_ID,
-            )
-            await _say("Готово, Мастер.", kind="ack")
+                device_id=device_id,
+            ), name="voice-to-tg")
             return
 
         active_win = data.get("active_window", "")
