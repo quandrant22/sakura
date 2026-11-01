@@ -810,7 +810,6 @@ class Agent:
 
         spawn(self._heartbeat(), name="agent-heartbeat")
         spawn(self._state_watchdog(), name="state-watchdog")
-        spawn(self._screen_analysis_loop(), name="screen-analysis-loop")
         self.hearing.start()
 
         # Фоновый индекс — не блокируем event loop
@@ -850,37 +849,3 @@ class Agent:
             self.bus.emit("connection", online=False)
             await asyncio.sleep(_backoff)
             _backoff = min(_backoff * 2, 60)
-
-    async def _screen_analysis_loop(self):
-        """
-        Периодический анализ экрана — не для команды, а для понимания.
-        Раз в 5 минут, когда пользователь активен.
-        """
-        import base64
-        await asyncio.sleep(120)  # ждём 2 минуты после старта
-        while True:
-            await asyncio.sleep(300)  # каждые 5 минут
-
-            # Только если пользователь активен
-            if self._activity_level < 0.1:
-                continue
-
-            # Только если есть WS
-            if not self._ws:
-                continue
-
-            try:
-                from core.hands import execute_command
-                result = await asyncio.to_thread(execute_command, "screenshot:")
-                if result.get("screenshot"):
-                    # Отправляем на VPS для анализа (не для команды)
-                    await self._ws.send(json.dumps({
-                        "type":      "screen_context",
-                        "device_id": config.DEVICE_ID,
-                        "token":     config.WS_TOKEN,
-                        "screenshot": result["screenshot"],
-                        "active_window": get_active_window(),
-                    }))
-                    log.debug("[screen] Скриншот отправлен для анализа")
-            except Exception as e:
-                log.debug(f"[screen] Ошибка: {e}")

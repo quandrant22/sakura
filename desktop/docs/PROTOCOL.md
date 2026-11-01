@@ -22,7 +22,8 @@
 | ядро → сервер | `voice_command` | `device_id`, `token`, `text`, `active_window`, `context`; **новое (необяз.):** `channel: voice\|text` |
 | ядро → сервер | `apps_list` | `device_id`, `token`, `apps` — только master-устройства |
 | ядро → сервер | `command_result` | `id`, `device_id`, `token`, `ok`, `detail`, … |
-| ядро → сервер | `screen_context`, `kettle_ready` | как сейчас |
+| ядро → сервер | `kettle_ready` | как сейчас |
+| ядро → сервер | ~~`screen_context`~~ | **удалено**: ядро само экран не снимает и не шлёт; кадр — только по запросу сервера (`vision.capture`) или по явному действию пользователя (`window_ask`) |
 | сервер → ядро | `command` | `id`, `action`, `arg` — выполнить действие из реестра |
 | сервер → ядро | `reply` | `text` |
 | сервер → ядро | `tts_chunk` / бинарные кадры / `tts_end` | озвучка (24 кГц, 16 бит) |
