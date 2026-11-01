@@ -567,14 +567,22 @@ _LEN_HINT = {
 
 async def ask_gemini(
     user_message: str, save_history: bool = True, history_limit: int = 60,
-    chain=None,
+    chain=None, *, extra_system: str = "", search: bool | None = None,
 ) -> str:
+    """Ответ Сакуры с характером, историей и (при необходимости) поиском.
+
+    extra_system — дополнительный контекст хода (например, что на экране
+    Мастера: sakura_core/vision/ask.py); search=None — поиск по
+    needs_search(user_message), False — не искать (вызывающий уже нашёл и
+    передал факты в extra_system)."""
     from config import MAIN_MODEL, get_active_key, mark_key_used
 
     _t_mono = __import__("time").monotonic
     _t0 = _t_mono()
 
     full_system = await _build_system(query="")
+    if extra_system:
+        full_system += "\n\n" + extra_system
     _t_build = _t_mono() - _t0
 
     try:
@@ -595,7 +603,7 @@ async def ask_gemini(
     search_facts = None
     search_sources = []
     from modules.web_search import needs_search, facts_prompt, format_sources
-    if needs_search(user_message):
+    if search is not False and needs_search(user_message):
         from modules.web_search import search_grounded as _grounded
         g_answer, g_sources, g_ok = await _grounded(user_message)
         if g_ok and g_answer:

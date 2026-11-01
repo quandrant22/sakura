@@ -59,6 +59,32 @@ def online(pc, features=(capture.FEATURE,)):
     return pc
 
 
+class Brain:
+    """Подмена ask_gemini и поиска: что пришло в ход и что найдено."""
+
+    def __init__(self, monkeypatch, reply="Ответ Сакуры.", found=("", False)):
+        self.asked = []
+        self.searched = []
+        import modules.web_search as ws
+        from sakura_core import llm
+
+        async def fake_ask(question, **kw):
+            self.asked.append((question, kw))
+            return reply
+
+        async def fake_search(query):
+            self.searched.append(query)
+            return found[0], ["https://example.org"], found[1]
+        monkeypatch.setattr(llm, "ask_gemini", fake_ask)
+        monkeypatch.setattr(ws, "search_grounded", fake_search)
+
+
+@pytest.fixture(autouse=True)
+def no_history(monkeypatch):
+    import memory.memory as mem
+    monkeypatch.setattr(mem, "get_history", list)
+
+
 def model_says(monkeypatch, text):
     calls = []
 
@@ -77,12 +103,54 @@ def run(coro):
 
 def test_answer_ok_and_remembers(monkeypatch):
     online(PC({"status": "ok", "image": SECRET_B64, "window": {"title": "Steam"}}))
-    calls = model_says(monkeypatch, "Открыт Steam, библиотека игр.\nВИДЕЛА: Steam, библиотека")
+    calls = model_says(monkeypatch, "ВИДЕЛА: Steam, библиотека игр\nФАКТЫ: НЕТ\nПОИСК: НЕТ")
+    brain = Brain(monkeypatch, reply="Открыт Steam, библиотека игр.")
     text, ok = run(ask.answer(MASTER, "что у меня тут?"))
     assert (text, ok) == ("Открыт Steam, библиотека игр.", True)
     assert "что у меня тут?" in calls[0][2]
+    assert brain.searched == []                                     # поиск не нужен
+    question, kw = brain.asked[0]
+    assert question == "что у меня тут?" and kw["search"] is False
+    assert "Steam, библиотека игр" in kw["extra_system"] and "не здоровайся" in kw["extra_system"]
     s = seen.latest()
-    assert (s.saw, s.title, s.purpose) == ("Steam, библиотека", "Steam", "ask")
+    assert (s.saw, s.title, s.purpose) == ("Steam, библиотека игр", "Steam", "ask")
+
+
+def test_answer_searches_with_screen_facts(monkeypatch):
+    """Квест на экране + «где найти предмет» → поиск с названием игры и предмета,
+    найденное — в контекст ответа Сакуры."""
+    import memory.memory as mem
+    monkeypatch.setattr(mem, "get_history", lambda: [
+        {"role": "user", "parts": ["помоги найти где лежит паяльник по квесту"]},
+        {"role": "model", "parts": ["Какая игра и какой режим?"]},
+    ])
+    online(PC({"status": "ok", "image": SECRET_B64, "window": {"title": "Scrap Mechanic"}}))
+    calls = model_says(monkeypatch, "ВИДЕЛА: Scrap Mechanic, режим выживания, лес\n"
+                                    "ФАКТЫ: задание «Найти паяльник»\n"
+                                    "ПОИСК: Scrap Mechanic выживание где найти паяльник")
+    brain = Brain(monkeypatch, reply="Паяльник лежит в ящиках на складе.",
+                  found=("Паяльник в Scrap Mechanic выпадает из ящиков на складах.", True))
+    text, ok = run(ask.answer(MASTER, "там режим выживания, глянь на экран"))
+    assert ok and text == "Паяльник лежит в ящиках на складе."
+    assert "помоги найти где лежит паяльник по квесту" in calls[0][2]     # разговор — модели зрения
+    assert brain.searched == ["Scrap Mechanic выживание где найти паяльник"]
+    ctx = brain.asked[0][1]["extra_system"]
+    assert "Найти паяльник" in ctx and "выпадает из ящиков" in ctx
+
+
+def test_answer_search_failed_is_honest(monkeypatch):
+    online(PC({"status": "ok", "image": SECRET_B64}))
+    model_says(monkeypatch, "ВИДЕЛА: игра\nФАКТЫ: квест\nПОИСК: игра где найти ключ")
+    brain = Brain(monkeypatch, found=("", False))
+    run(ask.answer(MASTER, "где ключ?"))
+    assert "ничего не дал" in brain.asked[0][1]["extra_system"]
+
+
+def test_answer_drops_greeting_style_meta(monkeypatch):
+    online(PC({"status": "ok", "image": SECRET_B64}))
+    model_says(monkeypatch, "ВИДЕЛА: лес\nФАКТЫ: НЕТ\nПОИСК: НЕТ")
+    Brain(monkeypatch, reply="Ты в лесу у обломков техники. Больше ничего сказать не могу, окружение не видно.")
+    assert run(ask.answer(MASTER, "?"))[0] == "Ты в лесу у обломков техники."
 
 
 @pytest.mark.parametrize("reason, phrase", [
@@ -112,7 +180,8 @@ def test_question_from():
 def test_handler_v2_client(monkeypatch):
     import capabilities.vision as cv
     online(PC({"status": "ok", "image": SECRET_B64}))
-    model_says(monkeypatch, "Вижу рабочий стол.")
+    model_says(monkeypatch, "ВИДЕЛА: рабочий стол\nФАКТЫ: НЕТ\nПОИСК: НЕТ")
+    Brain(monkeypatch, reply="Вижу рабочий стол.")
     monkeypatch.setattr(ask, "pick_device", lambda d: MASTER)
     out = run(cv._vision_ask(ExecutionContext(device_id=MASTER, extra={"text": "глянь на экран"})))
     assert out == ("Вижу рабочий стол.", True)
@@ -181,7 +250,8 @@ def test_prompt_screen_context_comes_from_seen():
 def test_frame_never_logged(monkeypatch, caplog):
     caplog.set_level(logging.DEBUG)
     online(PC({"status": "ok", "image": SECRET_B64, "window": {"title": "t"}}))
-    model_says(monkeypatch, "Ответ.\nВИДЕЛА: что-то")
+    model_says(monkeypatch, "ВИДЕЛА: что-то\nФАКТЫ: НЕТ\nПОИСК: НЕТ")
+    Brain(monkeypatch)
     run(ask.answer(MASTER, "?"))
     online(PC({"status": "ok", "image": "плохой"}))
     run(ask.answer(MASTER, "?"))
