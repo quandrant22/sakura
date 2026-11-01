@@ -14,6 +14,7 @@ import { AppsSection } from "./AppsSection";
 import { ConnectionWizard } from "./ConnectionWizard";
 import { SecretsSection } from "./SecretsSection";
 import { SecuritySection } from "./SecuritySection";
+import { VisionSection } from "./VisionSection";
 import { VoiceSection } from "./VoiceSection";
 import {
   DiagnosticsSection, ExtensionSection, GameModeSection, LanguageSection, NetworkSection, SoundSection, UpdateSection,
@@ -189,6 +190,7 @@ export function Settings() {
       <Card title="Игровой режим"><GameModeSection /></Card>
       <Card title="Система"><AutostartRow /></Card>
       <Card title="Приложения"><AppsSection /></Card>
+      <Card title="Зрение"><VisionSection /></Card>
       <Card title="Безопасность"><SecuritySection /></Card>
       <Card title="Секреты"><SecretsSection /></Card>
       <Card title="Диагностика"><DiagnosticsSection /></Card>

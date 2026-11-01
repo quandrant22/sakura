@@ -20,11 +20,15 @@ DEFAULT_SETTINGS = {
     "quick_prompts": ["Что у меня сегодня?", "Погода", "Включи музыку"],
     "language": "ru",
     "theme": "sakura-night",
+    # Зрение (docs/VISION.md): поглядывать без просьбы — только с разрешения.
+    "vision_glance_allowed": False,
+    "vision_private": [],
 }
 # Ключи настроек, которые интерфейс может менять (остальное — через .env).
 SETTINGS_KEYS = frozenset(DEFAULT_SETTINGS) | {"autostart", "game_processes", "wake_sensitivity",
                                                "stt_model", "hotkey_talk", "input_device",
-                                               "output_device", "music_accessibility", "stt_replacements"}
+                                               "output_device", "music_accessibility", "stt_replacements",
+                                               "vision_glance_allowed", "vision_private"}
 # Встроенный сценарий «Фокус» на сервере.
 FOCUS_SCENARIO_ID = "focus"
 
@@ -60,6 +64,7 @@ class CoreService:
         self.media = media or None
         if self._agent is not None:
             self._agent.media = self.media
+            self._attach_vision()
         self._state = "idle"
         # Ходы чата: все реплики Сакуры, результаты команд, заглушка «звук без текста».
         from desktop.core.chat_turns import ChatTurns
@@ -172,6 +177,12 @@ class CoreService:
             self._emit({"type": "channel", **self._channel})
         elif event in ("confirm_request", "confirm_done"):
             self._emit({"type": event, **data})
+        elif event == "vision_look":
+            # Индикатор «Сакура смотрит на экран» (взгляд/слежение, не по просьбе).
+            active = bool(data.get("active"))
+            self._emit({"type": "vision_look", "active": active, "purpose": data.get("purpose")})
+            if active:
+                self._emit({"type": "notify", "text": "Сакура глянула на экран", "level": "info"})
         elif event == "pc_action":
             # Индикатор в трее на время действия с компьютером.
             self._emit({"type": "pc_action", "active": bool(data.get("active"))})
@@ -426,6 +437,14 @@ class CoreService:
         snap = self.settings_snapshot()
         self._emit({"type": "settings", "settings": snap})
         return {"settings": snap}
+
+    def _attach_vision(self):
+        """Кадр по запросу сервера читает разрешения из настроек интерфейса;
+        момент снятия (взгляд, слежение) — событием шины для индикатора."""
+        from desktop.core.vision_capture import VisionCapture
+        self._agent.vision = VisionCapture(
+            self.settings, on_look=lambda purpose, active: self.bus.emit(
+                "vision_look", purpose=purpose, active=active))
 
     def _apply_voice_settings(self):
         """Голос: чувствительность «Сакура» — в слух, таблица замен — в агента."""
@@ -716,6 +735,7 @@ class CoreService:
             # Конструктор тяжёлый (модели STT) — в потоке, чтобы API отвечал.
             self._agent = await asyncio.to_thread(factory, self.bus, server_link=self.link)
             self._agent.media = self.media
+            self._attach_vision()
             self._apply_voice_settings()
             self._emit({"type": "settings", "settings": self.settings_snapshot()})
         await self._agent.run()

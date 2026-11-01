@@ -410,6 +410,8 @@ class Agent:
         }
         if kind == "register":
             payload["proto"] = 2
+            # Сервер может попросить кадр экрана (docs/VISION.md).
+            payload["features"] = ["vision.capture"]
         # Добавляем текущий трек — ТОЛЬКО из кэша heartbeat (не блокируем
         # loop-поток: SMTC-вызовы из loop давали задержки command_result)
         track = self._current_track
@@ -522,6 +524,11 @@ class Agent:
                     spawn(self._run_command(_action, _cmd_id, _arg, confirmed=data.get("confirmed") is True),
                           name="command-execution")
 
+                elif kind == "vision.capture":
+                    # Кадр экрана по запросу сервера: проверка приватности и снятие —
+                    # в потоке, цикл сокета читает дальше.
+                    spawn(self._vision_capture(data), name="vision-capture")
+
                 elif kind == "tts_chunk":
                     # При первом чанке нового ответа — сбрасываем буфер
                     if self._state != "speaking":
@@ -572,6 +579,31 @@ class Agent:
 
             except Exception as e:
                 log.error(f"recv: {e}")
+
+    async def _vision_capture(self, data: dict):
+        """vision.capture → vision.frame (desktop/core/vision_capture.py).
+
+        Без настроек интерфейса (vision не подключён сервисом) разрешён
+        только явный вопрос (purpose=ask)."""
+        vision = getattr(self, "vision", None)
+        if vision is None:
+            from desktop.core.vision_capture import VisionCapture
+            vision = self.vision = VisionCapture()
+        try:
+            reply = await asyncio.wait_for(asyncio.to_thread(vision.capture, data), timeout=3.0)
+        except Exception as e:
+            log.warning("[vision] кадр не снят: %s", type(e).__name__)
+            reply = {"type": "vision.frame", "request_id": data.get("request_id"),
+                     "status": "skipped", "reason": "capture_failed"}
+        reply["device_id"] = config.DEVICE_ID
+        reply["token"] = config.WS_TOKEN.strip()
+        ws = self._ws
+        if ws is None:
+            return
+        try:
+            await ws.send(json.dumps(reply))
+        except Exception as e:
+            log.warning("[vision] ответ не ушёл: %s", type(e).__name__)
 
     def _media_playing(self) -> bool:
         """Играют встроенные плееры Сакуры (музыка, видео)."""

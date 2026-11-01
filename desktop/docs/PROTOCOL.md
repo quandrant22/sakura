@@ -44,6 +44,28 @@
 Если ответа `registered` нет или `proto < 2` — ядро считает сервер «v1» и на
 запросы v2 сразу отвечает интерфейсу ошибкой `unsupported` (без отправки на сервер).
 
+Вместе с `proto` ядро объявляет возможности: `"features": ["vision.capture"]`.
+
+### 1.2a Кадр экрана по запросу сервера (feat/vision-client)
+
+Сервер → ядро:
+```json
+{"type": "vision.capture", "request_id": "vc-…", "purpose": "ask|glance|watch",
+ "max_side": 1280, "quality": 70, "need_change": false}
+```
+Ядро → сервер, ровно один ответ (снятие ≤ 3 с, сервер ждёт 5 с):
+```json
+{"type": "vision.frame", "request_id": "vc-…", "device_id": "…", "status": "ok",
+ "image": "<JPEG base64 ≤ 2 000 000>", "window": {"title": "…", "process": "…"}, "changed": true}
+{"type": "vision.frame", "request_id": "vc-…", "device_id": "…", "status": "skipped",
+ "reason": "private_window|unchanged|disabled|capture_failed|no_display"}
+```
+Порядок в ядре (`desktop/core/vision_capture.py`): `purpose != ask` без разрешения
+(`vision_glance_allowed`) → `disabled`; приватное окно (`vision_privacy.py`: менеджеры паролей,
+инкогнито, банки, вход, поле пароля, список `vision_private`) → `private_window` **без снятия экрана**;
+чёрный кадр → `no_display`; `need_change` и отпечаток 64×36 не изменился → `unchanged`;
+иначе JPEG (`max_side` 320–1920, `quality` 30–90, при превышении лимита качество снижается).
+
 ### 1.3 Запросы v2 (только master-устройства)
 
 Каждый запрос несёт `request_id` (строка, уникальна в соединении); ответ
@@ -163,6 +185,7 @@
 | `memory_items` | как у сервера (не логируется) |
 | `profile` | как у сервера |
 | `notify` | `text`, `level: info\|warn\|error` |
+| `vision_look` | `active: bool`, `purpose: glance\|watch` — Сакура снимает экран сама (не по просьбе); при `active` ещё `notify` «Сакура глянула на экран» |
 | `settings` | `settings: {...}` — текущие локальные настройки ядра |
 | `log` | `level`, `text` (для диагностической страницы) |
 | `connection` | `server: online\|offline`, `proto: 1\|2` |

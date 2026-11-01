@@ -103,7 +103,7 @@
 | 15 | Сервер | Обработка command → command_result | agent.py `_recv_loop`, `_run_command` | core/agent.py | test_command_parity.py | перенесено |
 | 16 | Сервер | reply, mood_update, context_transfer | agent.py `_recv_loop` | core/agent.py | test_core_recv.py::test_reply_mood_and_context_transfer | перенесено |
 | 17 | Сервер | apps_list после подключения | agent.py `run` → hands.py `scan_apps` | core/agent.py | ручная проверка на мок-сервере (лог «Приложений: 160», STATE.md) | перенесено |
-| 18 | Сервер | screen_context (анализ экрана) | agent.py `_screen_analysis_loop` | — (удалено: тихий скриншот раз в 5 мин без согласия; заменяется `vision.capture` по запросу сервера) | test_no_silent_capture.py | удалено |
+| 18 | Сервер | screen_context (анализ экрана) | agent.py `_screen_analysis_loop` | — (удалено: тихий скриншот раз в 5 мин без согласия; заменено `vision.capture` по запросу сервера, core/vision_capture.py) | test_no_silent_capture.py, test_vision_capture.py | удалено → vision.capture |
 | 19 | Сервер | Требование WS_TOKEN (без него не стартует) | config.py, sakura.py | core/config.py, core/agent.py | agent_port/test_ws_token_required.py | перенесено |
 | 20 | Расширение | extension_server: порты 8766–8769, проверка Origin и SAKURA_EXTENSION_ID | extension_server.py `_allowed_origins`, `_origin_allowed`, `run_forever` | core/extension_server.py | agent_port/test_extension_server.py | перенесено |
 | 21 | Расширение | Все 76 обработчиков background.js (tabs, page_*, youtube_*, bookmarks, history, downloads, zoom…) | extension/background.js | agent/extension/background.js (общий) | agent_port/test_extension_actions.py | перенесено |

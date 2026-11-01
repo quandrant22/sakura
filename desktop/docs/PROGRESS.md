@@ -151,3 +151,10 @@ PROTOCOL.md и THREAT_MODEL.md; клиент сделан по специфик�
   Снимки: C:\sakura-tmp\screens\final (26 файлов; home/settings/devices/scenarios/memory/profile, 1440x1024 и 1180x760).
   Холодный старт ярлыком не повторён: уже работает экземпляр Sakura, не запущенный мной (последняя успешная проверка — 14.10, шаг Д).
   Замечание: на «Настройках» при 1180 px остаётся горизонтальная прокрутка у колонки (не от мастера).
+## Зрение по запросу сервера (feat/vision-client, 01.11)
+- `desktop/core/vision_capture.py`, `vision_privacy.py`: ответ на `vision.capture` (docs/PROTOCOL.md §1.2a); `features: ["vision.capture"]` в `register`.
+- Настройки → «Зрение»: «Поглядывать на экран» (`vision_glance_allowed`, выкл.) и «Приватные окна» (`vision_private`).
+- Индикатор: `vision_look` + `notify` на каждый взгляд.
+- Тесты: `desktop/tests/test_vision_capture.py` (33) — приватное окно не снимается (мутация «проверка после снятия» роняет 10 тестов), разрешение, отпечаток, чёрный экран, лимит размера, кадр не в логах, ответ ядра на сбой; vitest `VisionSection.test.tsx` (2).
+- Прогон в среде разработки: PyPI и npm закрыты — pytest с заглушками (`sounddevice`, `websockets`): +35 прохождений, падения окружения идентичны до/после; ruff `desktop` — чисто. tsc/eslint/vitest — **в desktop-ci** (draft PR).
+- Живая проверка на ПК (по регламенту): «глянь на экран» → ответ; KeePass/инкогнито на переднем плане → «Это окно приватное», в журнале нет «кадр … КиБ»; галка «Поглядывать» выкл. → `disabled`.
