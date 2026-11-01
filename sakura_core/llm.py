@@ -565,6 +565,12 @@ _LEN_HINT = {
 }
 
 
+VOICE_LLM_TIMEOUT_S = 8.0
+VOICE_SEARCH_TIMEOUT_S = 14.0
+VOICE_FACTS_MAX = 2500
+VOICE_EMPTY_REPLY = "Не успела ответить — повтори, пожалуйста."
+
+
 def _vision_followup(user_message: str) -> tuple[str | None, str]:
     """(запрос поиска, контекст) для реплики после вопроса по экрану
     (sakura_core/vision/followup.py); сбой — как будто экрана не было."""
@@ -789,8 +795,11 @@ async def ask_gemini_voice(
             if web_ctx:
                 search_facts = web_ctx.strip()
 
+    # С фактами из поиска промпт длиннее: потолок ответа 14 с вместо 8 (ход
+    # целиком всё равно под сторожем TURN_TIMEOUT_S), факты для голоса — короче.
+    llm_timeout = VOICE_SEARCH_TIMEOUT_S if search_facts else VOICE_LLM_TIMEOUT_S
     if search_facts:
-        full_system += facts_prompt(search_facts)
+        full_system += facts_prompt(search_facts[:VOICE_FACTS_MAX])
     elif search_needed:
         full_system += (
             "\n\nПоиск свежих данных в интернете сейчас не удался. Если для ответа "
@@ -812,7 +821,7 @@ async def ask_gemini_voice(
                 temperature = 0.85,
                 api_key     = key,
                 emotion     = get_current_emotion(),
-                timeout     = 8.0,
+                timeout     = llm_timeout,
                 chain       = config.VOICE_MODEL_CHAIN,
                 gate        = gate,
                 received_at = received_at,
@@ -820,7 +829,7 @@ async def ask_gemini_voice(
         else:
             response  = await generate(contents, system=full_system, model=MAIN_MODEL,
                                        max_tokens=max_tok, temperature=0.85,
-                                       timeout=8.0, chain=config.VOICE_MODEL_CHAIN)
+                                       timeout=llm_timeout, chain=config.VOICE_MODEL_CHAIN)
             full_text = response
             mark_key_used(key)
     except Exception as e:
@@ -852,6 +861,16 @@ async def ask_gemini_voice(
                     log.debug(f"[llm] ask_gemini_voice: {type(e).__name__}: {e}")
 
     clean_text = clean_reply(full_text.strip()) if full_text else ""
+
+    if not clean_text and websocket:
+        # Модель не успела: не молчать — сказать прямо (раньше ход кончался тишиной).
+        log.warning("[голос] пустой ответ модели — говорю, что не успела")
+        try:
+            from modules.tts_server import stream_tts_to_device
+            await stream_tts_to_device(VOICE_EMPTY_REPLY, websocket, device_id,
+                                       literal=True, reply_kind="error")
+        except Exception as e:
+            log.debug(f"[llm] пустой ответ: {type(e).__name__}: {e}")
 
     if clean_text and websocket:
         # Текст ответа в окно клиента — до tts_end хода (его шлёт

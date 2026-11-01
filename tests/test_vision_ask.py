@@ -72,7 +72,7 @@ class Brain:
             self.asked.append((question, kw))
             return reply
 
-        async def fake_search(query):
+        async def fake_search(query, queries=None):
             self.searched.append(query)
             return found[0], ["https://example.org"], found[1]
         monkeypatch.setattr(llm, "ask_gemini", fake_ask)

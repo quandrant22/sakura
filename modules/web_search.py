@@ -503,7 +503,7 @@ def facts_prompt(facts: str) -> str:
     )
 
 
-async def search_grounded(query: str) -> tuple[str, list[str], bool]:
+async def search_grounded(query: str, queries: list[str] | None = None) -> tuple[str, list[str], bool]:
     """Интернет-поиск Сакуры через Parallel Search MCP.
 
     Имя сохранено ради контракта с main.py (раньше был Gemini grounding).
@@ -527,7 +527,8 @@ async def search_grounded(query: str) -> tuple[str, list[str], bool]:
 
     from modules.parallel_search import parallel_search
     try:
-        answer, sources, ok = await parallel_search(query)
+        answer, sources, ok = await (parallel_search(query, queries=queries) if queries
+                                     else parallel_search(query))
     except Exception as e:
         # параноидальная защита: parallel_search ловит всё сам, но если
         # что-то улетело — честный отказ вместо падения бота
