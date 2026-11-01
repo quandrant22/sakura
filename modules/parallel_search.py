@@ -196,6 +196,28 @@ async def build_search_queries(query: str) -> list[str]:
     return _keywords(query)
 
 
+def _parse_items(res: dict, max_results: int = 5) -> list[dict]:
+    """Результаты по страницам: [{"url", "title", "text"}] (text — выдержки)."""
+    data = res.get("structuredContent") or {}
+    if not data.get("results"):
+        raw = "".join(
+            i.get("text", "") for i in (res.get("content") or [])
+            if isinstance(i, dict) and i.get("type") == "text"
+        )
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            data = {}
+    items = []
+    for item in ((data or {}).get("results") or [])[:max_results]:
+        if not isinstance(item, dict):
+            continue
+        excerpts = [e.strip() for e in (item.get("excerpts") or []) if isinstance(e, str) and e.strip()]
+        items.append({"url": (item.get("url") or "").strip(), "title": (item.get("title") or "").strip(),
+                      "text": " ".join(excerpts)})
+    return items
+
+
 def _parse_result(res: dict, max_results: int = 5) -> tuple[str, list[str], bool]:
     """tools/call web_search → (текст выдержек, URL, ok).
 
@@ -240,7 +262,8 @@ def _parse_result(res: dict, max_results: int = 5) -> tuple[str, list[str], bool
 
 
 async def parallel_search(query: str, max_results: int = 5,
-                          queries: list[str] | None = None) -> tuple[str, list[str], bool]:
+                          queries: list[str] | None = None,
+                          items_out: list | None = None) -> tuple[str, list[str], bool]:
     """Поиск через Parallel Search MCP. → (текст_выдержек, источники, ok).
 
     initialize → notifications/initialized → tools/call web_search.
@@ -302,6 +325,9 @@ async def parallel_search(query: str, max_results: int = 5,
                 log.warning(f"[parallel] json-rpc error: {json.dumps(called['error'], ensure_ascii=False)[:200]}")
                 return "", [], False
             text, urls, ok = _parse_result(called.get("result") or {}, max_results)
+            if items_out is not None and ok:
+                # Вызывающему нужны результаты по страницам (tg_share: отсев чужих игр).
+                items_out.extend(_parse_items(called.get("result") or {}, max_results))
             if ok:
                 log.info(f"[parallel] ok: {len(urls)} источников, {len(text)} симв")
             return text, urls, ok

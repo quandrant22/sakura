@@ -62,21 +62,25 @@ def online(pc, features=(capture.FEATURE,)):
 class Brain:
     """Подмена ask_gemini и поиска: что пришло в ход и что найдено."""
 
-    def __init__(self, monkeypatch, reply="Ответ Сакуры.", found=("", False)):
+    def __init__(self, monkeypatch, reply="Ответ Сакуры.", found=("", False), items=None):
         self.asked = []
         self.searched = []
-        import modules.web_search as ws
+        import modules.parallel_search as ps
         from sakura_core import llm
+        if items is None:
+            items = [{"url": "https://wiki.example", "title": "", "text": found[0]}] if found[1] else []
 
         async def fake_ask(question, **kw):
             self.asked.append((question, kw))
             return reply
 
-        async def fake_search(query, queries=None):
+        async def fake_search(query, queries=None, items_out=None):
             self.searched.append(query)
-            return found[0], ["https://example.org"], found[1]
+            if items_out is not None:
+                items_out.extend(items)
+            return "", [], bool(items)
         monkeypatch.setattr(llm, "ask_gemini", fake_ask)
-        monkeypatch.setattr(ws, "search_grounded", fake_search)
+        monkeypatch.setattr(ps, "parallel_search", fake_search)
 
 
 @pytest.fixture(autouse=True)
@@ -276,7 +280,7 @@ def test_ask_gemini_followup_searches_with_screen_subject(monkeypatch):
     import time
 
     import modules.web_search as ws
-    import sakura_core.llm as llm
+    from sakura_core import llm
     seen.record(MASTER, "Scrap Mechanic", "режим выживания", "ask", now=time.monotonic(),
                 subject="Scrap Mechanic")
     searched, systems = [], []
@@ -307,3 +311,15 @@ def test_ask_gemini_followup_searches_with_screen_subject(monkeypatch):
     assert reply == "Почини станцию у торговца."
     assert searched == ["Scrap Mechanic Делать по квесту «Механическая станция»."]
     assert "Scrap Mechanic" in systems[0] and "почините станцию" in systems[0]
+
+
+
+def test_answer_search_drops_other_game(monkeypatch):
+    online(PC({"status": "ok", "image": SECRET_B64}))
+    model_says(monkeypatch, "ТЕМА: Scrap Mechanic\nВИДЕЛА: лес\nФАКТЫ: НЕТ\nПОИСК: Scrap Mechanic где найти хлопок")
+    brain = Brain(monkeypatch, items=[
+        {"url": "https://playground.ru/v_rising/hlopok", "title": "Хлопок в V Rising", "text": "Dunley Farmlands"},
+        {"url": "https://vgtimes.ru/scrap-mechanic-hlopok", "title": "Scrap Mechanic", "text": "осенний биом"}])
+    run(ask.answer(MASTER, "где найти хлопок?"))
+    ctx = brain.asked[0][1]["extra_system"]
+    assert "осенний биом" in ctx and "Dunley" not in ctx
