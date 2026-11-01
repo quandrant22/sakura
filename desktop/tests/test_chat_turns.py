@@ -132,3 +132,30 @@ def test_each_voice_turn_gets_text_or_placeholder_once():
         answers = [m for m in h.msgs() if m[0] == "assistant" and m[3] == t]
         assert len(answers) == 1, (i, answers)
         assert answers[0][1] == ("llm" if i % 2 == 0 else "voice_only")
+
+
+def test_server_turn_id_binds_to_current_turn_no_placeholder():
+    """Сервер присылает свой turn_id («v…»): текст и звук — один ход, заглушки нет."""
+    h = Harness()
+    t = h.chat.user("глянь на экран", source="mic")
+    h.chat.audio()
+    h.chat.reply("Вижу Scrap Mechanic.", kind="llm", turn_id="v41")
+    h.chat.reply("Вижу Scrap Mechanic.", kind="llm", turn_id="v41")       # повтор того же
+    h.chat.tts_end()
+    h.fire()
+    assert h.msgs() == [("user", None, "глянь на экран", t), ("assistant", "llm", "Вижу Scrap Mechanic.", t)]
+    t2 = h.chat.user("а дальше?", source="mic")
+    h.chat.audio()
+    h.chat.reply("Иди на склад.", kind="llm", turn_id="v42")
+    h.chat.tts_end()
+    h.fire()
+    assert h.msgs()[-1] == ("assistant", "llm", "Иди на склад.", t2)
+    assert all(m[2] != VOICE_ONLY_TEXT for m in h.msgs())
+
+
+def test_proactive_with_server_turn_id_not_bound():
+    h = Harness()
+    t = h.chat.user("привет")
+    h.chat.reply("Напоминание!", kind="proactive", turn_id="v9")
+    h.chat.reply("Привет!", kind="llm", turn_id="v10")
+    assert h.msgs()[-1] == ("assistant", "llm", "Привет!", t)

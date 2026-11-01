@@ -41,6 +41,12 @@ class ChatTurns:
         self._texted: set[str] = set()         # ходы, где Сакура ответила текстом
         self._checking: set[str] = set()       # ходы, для которых проверка текста уже назначена
         self._seen: set[tuple] = set()         # (turn_id, kind, text) — защита от повторов
+        # Сервер нумерует ходы сам (turn_id «v…»), ядро — своими «t…». Первый серверный
+        # номер после реплики пользователя привязывается к текущему ходу ядра: иначе текст
+        # уходил в «чужой» ход, а звук текущего оставался «без текста» (заглушка каждый раз).
+        self._local: set[str] = set()          # номера ходов ядра
+        self._server: dict[str, str] = {}      # серверный turn_id → ход ядра
+        self._bound: dict[str, str] = {}       # ход ядра → серверный turn_id
         self._msg_ids = itertools.count(1)
 
     @property
@@ -68,6 +74,7 @@ class ChatTurns:
         # Прошлый ход со звуком, но без tts_end (озвучку прервали) — тоже проверить на текст.
         self._schedule_checks()
         self._turn = f"t{next(self._ids)}"
+        self._local.add(self._turn)
         self._message("user", text, self._turn, None, source)
         return self._turn
 
@@ -77,7 +84,7 @@ class ChatTurns:
         text = (text or "").strip()
         if not text:
             return None
-        turn = turn_id or self._turn
+        turn = self._resolve(turn_id, kind) if turn_id else self._turn
         kind = kind if kind in KINDS else ("llm" if turn else "proactive")
         if turn is None:
             kind = "proactive"
@@ -85,6 +92,17 @@ class ChatTurns:
         if msg is not None and turn:
             self._texted.add(turn)
         return msg
+
+    def _resolve(self, turn_id: str, kind: str | None) -> str:
+        """Серверный turn_id → ход ядра (см. _server). Свои номера и проактив — как есть."""
+        if turn_id in self._local or turn_id in self._server:
+            return self._server.get(turn_id, turn_id)
+        current = self._turn
+        if kind != "proactive" and current and current not in self._bound:
+            self._server[turn_id] = current
+            self._bound[current] = turn_id
+            return current
+        return turn_id
 
     def command(self, detail: str, status: str, action: str = "") -> dict | None:
         """Результат команды — приглушённой строкой «действие» в текущем ходе."""
