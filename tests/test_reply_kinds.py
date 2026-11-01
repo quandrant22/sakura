@@ -151,7 +151,8 @@ def test_tg_voice_trigger_done_is_ack(devices, monkeypatch):
     monkeypatch.setattr(wh, "_voice_to_tg", AsyncMock())
     asyncio.run(wh.handle_voice_command(None, _data("отправь в телеграм привет"),
                                         _mk_ctx(AsyncMock())))
-    assert [(r["kind"], r["text"]) for r in replies(devices[MASTER])] == [("ack", "Готово, Мастер.")]
+    # feat/tg-share: голос отвечает до сборки (поиск и картинки идут фоном).
+    assert [(r["kind"], r["text"]) for r in replies(devices[MASTER])] == [("ack", "Отправляю в Телеграм.")]
 
 
 def test_streamed_llm_answer_is_llm(devices, monkeypatch):

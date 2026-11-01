@@ -143,7 +143,7 @@ async def voice_to_tg(text: str, text_lower: str, payload: str,
                        active_window: str, ask_gemini_fn, send_safe_fn,
                        search_image_fn, download_bytes_fn,
                        search_and_fetch_fn, needs_search_fn,
-                       translate_en_fn, bot, master_id) -> None:
+                       translate_en_fn, bot, master_id, device_id: str | None = None) -> None:
     from config import VOICE_MODEL_CHAIN
 
     if not payload:
@@ -154,7 +154,11 @@ async def voice_to_tg(text: str, text_lower: str, payload: str,
                   ("это", "этого", "на экране", "что вижу", "тут", "здесь", "по этому"))
     query = f"{payload} {active_window}".strip() if (use_ctx and active_window) else payload
 
-    is_img = (len(payload.split()) <= 8 and any(w in payload for w in
+    # «Найди картинку кота» — стоковое фото (Unsplash). Вопрос с картинками
+    # («где взять хлопок … с картинками») — это ответ с картинками со страниц.
+    _question = re.search(r"(?<!\w)(где|как|что|почему|зачем|какой|какая|какие|сколько|куда|откуда)(?!\w)",
+                          payload)
+    is_img = (not _question and len(payload.split()) <= 8 and any(w in payload for w in
               ("картинк", "фото", "изображени", "рисунок", "арт", "мем", "пикч", "нарисуй")))
     try:
         if is_img:
@@ -173,9 +177,6 @@ async def voice_to_tg(text: str, text_lower: str, payload: str,
                     photo=BufferedInputFile(img, "image.jpg"), caption=q)
             elif urls:
                 await bot.send_message(master_id, urls[0])
-        elif needs_search_fn(payload):
-            res = await search_and_fetch_fn(query)
-            await send_safe_fn(master_id, res or "По запросу ничего не нашла.")
         elif any(text_lower.lstrip().startswith(w) for w in
                  ("список", "текст", "заметку", "заметка", "запиши", "дословно")) \
              or any(w in text_lower for w in ("следующий список", "такой текст", "дословно")):
@@ -189,10 +190,11 @@ async def voice_to_tg(text: str, text_lower: str, payload: str,
                 save_history=False, chain=VOICE_MODEL_CHAIN)
             await send_safe_fn(master_id, formatted)
         else:
-            answer = await ask_gemini_fn(
-                payload, save_history=False, chain=VOICE_MODEL_CHAIN,
-            )
-            await send_safe_fn(master_id, answer)
+            # Ответ по теме: поиск, подробный текст, картинки со страниц,
+            # скриншот по просьбе (sakura_core/tg_share.py).
+            from sakura_core.tg_share import share
+            await share(query, bot=bot, master_id=master_id, device_id=device_id,
+                        ask_gemini_fn=ask_gemini_fn, send_safe_fn=send_safe_fn)
     except Exception as e:
         log.error(f"voice->tg: {e}")
         await send_safe_fn(master_id, "Не получилось, Мастер.")
