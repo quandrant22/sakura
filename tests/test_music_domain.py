@@ -47,8 +47,9 @@ def test_all_music_actions_registered():
 
 
 def test_all_browser_actions_registered():
+    # 10 браузерных действий этапа 5 + browser.task/browser.stop (server/browser-step)
     want = {d.id for d in load() if d.id.startswith("browser.")}
-    assert len(want) == 10
+    assert len(want) == 12
     assert not (want - set(registered())), f"нет хендлеров: {want - set(registered())}"
 
 
@@ -68,9 +69,9 @@ def test_all_system_actions_registered():
 def test_all_vps_actions_registered():
     # 19 доменов VPS этапа 5 + 7 развязанных на этапе 7 (coding.* и
     # calendar.list): их реализация тоже серверная, поэтому executor=vps.
-    # feat/vision: vision.ask (бывший screenshot.describe), vision.glance.on/off.
+    # feat/vision: vision.ask, vision.glance.on/off; server/browser-step: browser.task/browser.stop.
     want = {d.id for d in load() if d.executor == "vps"}
-    assert len(want) == 29
+    assert len(want) == 31
     assert not (want - set(registered())), f"нет хендлеров: {want - set(registered())}"
 
 

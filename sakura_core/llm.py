@@ -16,6 +16,7 @@ import logging
 import random
 import re
 import time
+from dataclasses import dataclass
 from typing import AsyncIterator, Optional
 
 import config
@@ -198,6 +199,41 @@ def _initial_key(api_key: Optional[str]) -> Optional[str]:
         return None
 
 
+# ── Параметры генерации по модели (S4) ───────────────────────────────────
+
+def filter_params(model: str, cfg: dict) -> dict:
+    """Параметры GenerateContentConfig, которые модель принимает.
+
+    gemma-* — только подтверждённые scripts/probe_gemma.py (config.GEMMA_PARAMS),
+    thinking_config — только с полем thinking_level (остальное вырезается);
+    модели из config.NO_SAMPLING_MODELS (gemini-3.5-flash-lite) не принимают
+    пользовательские temperature/top_p — они не передаются."""
+    name = (model or "").lower()
+    out = dict(cfg)
+    if name.startswith("gemma-"):
+        allowed = set(getattr(config, "GEMMA_PARAMS", ()))
+        out = {k: v for k, v in out.items() if k in allowed or v is None}
+        if cfg.get("thinking_config") is not None:
+            # Gemma 4 принимает только thinking_level; thinking_budget — 400.
+            tc = _gemma_thinking(cfg["thinking_config"])
+            if tc is not None:
+                out["thinking_config"] = tc
+    if name.startswith(tuple(getattr(config, "NO_SAMPLING_MODELS", ()))):
+        out.pop("temperature", None)
+        out.pop("top_p", None)
+    dropped = sorted(k for k in cfg if k not in out and cfg[k] is not None)
+    if dropped:
+        log.debug("[llm] model=%s: не передаю %s", model, ",".join(dropped))
+    return out
+
+
+def _gemma_thinking(tc):
+    """ThinkingConfig только с thinking_level; без него — None (не передавать)."""
+    from google.genai import types as _t
+    level = tc.get("thinking_level") if isinstance(tc, dict) else getattr(tc, "thinking_level", None)
+    return _t.ThinkingConfig(thinking_level=level) if level else None
+
+
 # ── Клиент ───────────────────────────────────────────────────────────────
 
 
@@ -281,7 +317,7 @@ async def generate(contents, *, system: str = "", model: Optional[str] = None,
                     return c.models.generate_content(
                         model=m,
                         contents=contents,
-                        config=_t.GenerateContentConfig(**cfg_kwargs),
+                        config=_t.GenerateContentConfig(**filter_params(m, cfg_kwargs)),
                     )
 
                 response = await asyncio.wait_for(asyncio.to_thread(
@@ -355,7 +391,7 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
                 for chunk in client.models.generate_content_stream(
                     model=model_name,
                     contents=contents,
-                    config=_t.GenerateContentConfig(**cfg_kwargs),
+                    config=_t.GenerateContentConfig(**filter_params(model_name, cfg_kwargs)),
                 ):
                     text = getattr(chunk, "text", None)
                     if text:
@@ -452,6 +488,196 @@ CLASSIFY_SYSTEM = (
 )
 
 _ID_RE = re.compile(r"[a-z0-9_.]+")
+
+
+async def generate_raw(model: str, contents, *, api_key: str | None = None,
+                       timeout: float = 120.0, **cfg):
+    """Один вызов одной модели без фолбэков, повторов и фильтра параметров:
+    сырой ответ (function_calls, usage_metadata) или исключение API как есть.
+    Для scripts/probe_gemma.py и вызовов browser agent (generate_agent)."""
+    key = _initial_key(api_key)
+    if not key:
+        raise RuntimeError("нет активного ключа Gemini")
+    client = get_client(key)
+
+    def _invoke():
+        from google.genai import types as _t
+        return client.models.generate_content(
+            model=model, contents=contents, config=_t.GenerateContentConfig(**cfg))
+
+    return await asyncio.wait_for(asyncio.to_thread(_invoke), timeout=timeout)
+
+
+# ── Вызовы browser agent: квоты Gemma и 429 (S2/S3) ──────────────────────
+
+AGENT_TIMEOUT_S = 120.0                 # Gemma на API отвечает 15–75 с (probe_gemma)
+AGENT_INLINE_WAIT_S = 5.0               # ждать квоту дольше — status:wait на desktop
+
+
+class QuotaWait(Exception):
+    """Квоты сейчас нет: повторить шаг через retry_after секунд."""
+
+    def __init__(self, retry_after: float, model: str = ""):
+        super().__init__(f"quota wait {retry_after:.0f}s ({model})")
+        self.retry_after = max(1.0, float(retry_after))
+        self.model = model
+
+
+class ChainExhausted(Exception):
+    """Все модели цепочки выведены; resume_at — когда первая вернётся;
+    reason — quota (429/RPD) или unavailable (500/503 после повторов)."""
+
+    def __init__(self, resume_at: float, reason: str = "quota"):
+        super().__init__(f"chain exhausted ({reason}) until {resume_at:.0f}")
+        self.resume_at = resume_at
+        self.reason = reason
+
+
+class AgentLLMError(Exception):
+    """Модели цепочки не ответили (сбой, таймаут, отказ запроса)."""
+
+
+@dataclass(frozen=True)
+class AgentResponse:
+    model: str
+    response: object
+    tokens: int
+
+
+def _error_details(error: Exception) -> list:
+    details = getattr(error, "details", None)
+    err = details.get("error", details) if isinstance(details, dict) else None
+    items = err.get("details") if isinstance(err, dict) else None
+    return items if isinstance(items, list) else []
+
+
+def retry_delay(error: Exception) -> float | None:
+    """retryDelay из RetryInfo ответа 429 («37s»), иначе из текста ошибки."""
+    for item in _error_details(error):
+        if str(item.get("@type", "")).endswith("RetryInfo"):
+            m = re.match(r"([\d.]+)s", str(item.get("retryDelay") or ""))
+            if m:
+                return float(m.group(1))
+    m = re.search(r"retry in ([\d.]+)\s*s", str(error), re.IGNORECASE)
+    return float(m.group(1)) if m else None
+
+
+def _server_error(error: Exception) -> bool:
+    """500/503 (INTERNAL/UNAVAILABLE) — сбой бэкенда, не отказ запроса."""
+    return _error_code(error).upper() in ("500", "503", "INTERNAL", "UNAVAILABLE")
+
+
+def quota_ids(error: Exception) -> list[str]:
+    """quotaId из QuotaFailure ответа 429 (имена метрик, не секреты)."""
+    out = []
+    for item in _error_details(error):
+        if str(item.get("@type", "")).endswith("QuotaFailure"):
+            out += [str(v.get("quotaId") or v.get("quotaMetric") or "")[:80]
+                    for v in item.get("violations") or []]
+    return [q for q in out if q]
+
+
+def quota_per_day(error: Exception) -> bool:
+    """429 из-за суточной квоты (QuotaFailure: quotaId …PerDay…)."""
+    for item in _error_details(error):
+        if str(item.get("@type", "")).endswith("QuotaFailure"):
+            for v in item.get("violations") or []:
+                if "perday" in f"{v.get('quotaId', '')}{v.get('quotaMetric', '')}".lower():
+                    return True
+    return False
+
+
+async def generate_agent(contents, *, chain, system: str = "", tools=None,
+                         tool_config=None, response_schema=None,
+                         response_mime_type: str | None = None,
+                         max_tokens: int = 2048, temperature: float | None = None,
+                         thinking_level: str | None = None,
+                         limiter=None, timeout: float = AGENT_TIMEOUT_S,
+                         inline_wait: float = AGENT_INLINE_WAIT_S,
+                         sleep=asyncio.sleep, on_event=None) -> AgentResponse:
+    """Вызов browser agent: модели цепочки по порядку через лимитер квот.
+
+    Квоты нет дольше inline_wait — QuotaWait (desktop получит status:wait).
+    429 — модель блокируется на retry delay (иначе 4→8→16→32 с), до 5
+    повторов, затем следующая модель. 500/503 — до 3 повторов через 5→10→20 с,
+    затем так же следующая модель. Все выведены — ChainExhausted (пауза
+    задачи). Прочие ошибки — AgentLLMError. thinking_level — для Gemma
+    ThinkingConfig(thinking_level=…); без него мысли по умолчанию модели.
+    Параметры — через filter_params (S4). on_event(kind, **data) — метрики:
+    "call" (model, latency, ok, code) на каждую попытку, "wait" (seconds) на
+    каждое ожидание лимитера внутри вызова."""
+    def emit(kind: str, **data) -> None:
+        if on_event is not None:
+            try:
+                on_event(kind, **data)
+            except Exception as error:  # noqa: BLE001 — метрики не ломают вызов
+                log.debug("[agent-llm] метрика: %s", type(error).__name__)
+
+    from sakura_core import rate_limiter
+    limiter = limiter or rate_limiter.get()
+    models = tuple(dict.fromkeys(m for m in chain if m))
+    if not models:
+        raise AgentLLMError("пустая цепочка моделей")
+    cfg = {"system_instruction": system or None, "max_output_tokens": max_tokens,
+           "temperature": temperature, "tools": tools, "tool_config": tool_config,
+           "response_schema": response_schema,
+           "response_mime_type": response_mime_type}
+    if tools is not None or thinking_level:
+        from google.genai import types as _t
+        if tools is not None:
+            cfg["automatic_function_calling"] = _t.AutomaticFunctionCallingConfig(disable=True)
+        if thinking_level:
+            cfg["thinking_config"] = _t.ThinkingConfig(thinking_level=thinking_level)
+    last_error: Exception | None = None
+    for model in models:
+        while True:
+            if limiter.exhausted_until(model) is not None:
+                break                                   # следующая модель
+            # Квота проверяется заново после каждого сна: параллельные вызовы
+            # (решатель) не должны забрать один и тот же токен.
+            wait = limiter.wait(model)
+            if wait > inline_wait:
+                raise QuotaWait(wait, model)
+            if wait > 0:
+                emit("wait", seconds=wait)
+                await sleep(wait)
+                continue
+            reserved = limiter.take(model) or 0.0
+            params = {k: v for k, v in filter_params(model, cfg).items() if v is not None}
+            started = time.monotonic()
+            try:
+                response = await generate_raw(model, contents, timeout=timeout, **params)
+            except Exception as error:  # noqa: BLE001 — разбор кода ошибки API ниже
+                last_error = error
+                limiter.on_tokens(model, 0, reserved)       # не дошёл — резерв назад
+                kind = _error_kind(error)
+                log.info("[agent-llm] model=%s code=%s elapsed=%.1fs", model,
+                         _error_code(error), time.monotonic() - started)
+                emit("call", model=model, latency=time.monotonic() - started, ok=False,
+                     code="429" if kind == "rate_limit" else _error_code(error))
+                if kind == "rate_limit":
+                    log.info("[agent-llm] 429 model=%s quota=%s retry_delay=%s", model,
+                             ",".join(quota_ids(error)) or "?", retry_delay(error))
+                    limiter.on_429(model, retry_delay(error), quota_per_day(error))
+                    continue                            # wait()/exhausted решат
+                if _server_error(error):
+                    limiter.on_server_error(model)
+                    continue                            # 5→10→20 с, затем модель выведена
+                break
+            limiter.on_success(model)
+            emit("call", model=model, latency=time.monotonic() - started, ok=True, code="")
+            usage = getattr(response, "usage_metadata", None)
+            tokens = int(getattr(usage, "total_token_count", 0) or 0)
+            limiter.on_tokens(model, tokens or int(reserved), reserved)
+            log.info("[agent-llm] success model=%s elapsed=%.1fs tokens=%d", model,
+                     time.monotonic() - started, tokens)
+            return AgentResponse(model, response, tokens)
+    resumes = [(t, m) for m in models if (t := limiter.exhausted_until(m)) is not None]
+    if len(resumes) == len(models):
+        at, first = min(resumes)
+        raise ChainExhausted(at, limiter.exhausted_reason(first))
+    code = _error_code(last_error) if last_error else "none"
+    raise AgentLLMError(f"модели не ответили: {code}")
 
 
 async def classify_action(text: str, catalog: str, *, model: Optional[str] = None,

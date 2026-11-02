@@ -23,6 +23,7 @@ from typing import Awaitable, Callable
 
 import config
 import modules.state as st
+from sakura_core.tasks import spawn
 
 log = logging.getLogger(__name__)
 
@@ -36,13 +37,15 @@ V2_REQUESTS = frozenset({
     "scenario_run", "scenario_from_text",
     "memory_list", "memory_search", "memory_update", "memory_delete",
     "profile_get", "profile_set",
+    "browser_step", "browser.resume",
 })
 
 Handler = Callable[[object, dict, dict], Awaitable[dict | None]]
 
-# Приватные классы (чат, история, память, профиль): только secure-соединение
-# (docs/security/PROTOCOL.md §5.1). Второй рубеж после adapters/ws.
-PRIVATE_PREFIXES = ("chat_", "history_", "memory_", "profile_", "secure_")
+# Приватные классы (чат, история, память, профиль, кадры browser agent):
+# только secure-соединение (docs/security/PROTOCOL.md §5.1). Второй рубеж
+# после adapters/ws.
+PRIVATE_PREFIXES = ("chat_", "history_", "memory_", "profile_", "secure_", "browser")
 
 
 def is_private(kind: str | None) -> bool:
@@ -116,6 +119,10 @@ async def on_register(websocket, data: dict) -> None:
     except Exception as e:
         log.debug(f"[v2] registered не отправлен: {type(e).__name__}: {e}")
     log.info(f"[v2] {device_id}: proto {PROTO}, master={_is_master(device_id)}")
+    if _is_master(device_id) and getattr(config, "BROWSER_AGENT", False):
+        # browser agent: задачи устройства продолжаются после перезапуска ядра desktop
+        from sakura_core import browser_step
+        spawn(browser_step.on_device_registered(device_id), name=f"browser-resume-{device_id}")
 
 
 def forget(device_id: str | None) -> None:
@@ -182,6 +189,7 @@ def _load_portions() -> None:
     from sakura_core import proto_memory  # noqa: F401
     from sakura_core import proto_profile  # noqa: F401
     from sakura_core import proto_scenarios  # noqa: F401
+    from sakura_core import browser_step  # noqa: F401
 
 
 _load_portions()
