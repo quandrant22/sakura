@@ -5,7 +5,7 @@
 
   venv/bin/python scripts/quiz_eval.py                    # весь набор, модели QUIZ_MODEL_CHAIN
   venv/bin/python scripts/quiz_eval.py --cat math,image   # только категории
-  venv/bin/python scripts/quiz_eval.py --chain gemini-3.5-flash --tag gemini
+  venv/bin/python scripts/quiz_eval.py --chain gemini-3.5-flash-lite --tag flashlite
   venv/bin/python scripts/quiz_eval.py --no-crops         # без кадров-вырезок
   venv/bin/python scripts/quiz_eval.py --dry-run          # без модели: проверка набора и кадры в папку
   venv/bin/python scripts/quiz_eval.py --compare A.json B.json

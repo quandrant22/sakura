@@ -27,7 +27,7 @@
 ```bash
 venv/bin/python scripts/quiz_eval.py --dry-run                 # набор и кадры, без модели
 venv/bin/python scripts/quiz_eval.py --tag base                # весь набор, текущие модели
-venv/bin/python scripts/quiz_eval.py --chain gemini-3.5-flash --tag flash
+venv/bin/python scripts/quiz_eval.py --chain gemini-3.5-flash-lite --tag flashlite
 venv/bin/python scripts/quiz_eval.py --compare data/quiz_eval/A.json data/quiz_eval/B.json
 ```
 
