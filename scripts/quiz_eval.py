@@ -42,6 +42,8 @@ def _args(argv=None):
     p.add_argument("--no-crops", action="store_true", help="решать только текстом")
     p.add_argument("--crop", choices=("media", "all"), default="",
                    help="правило кадров (по умолчанию QUIZ_CROP): media — только с картинкой, all — прежнее")
+    p.add_argument("--temperature", type=float, default=None,
+                   help="температура первой попытки (по умолчанию QUIZ_TEMPERATURE / модели)")
     p.add_argument("--tag", default="", help="метка в имени отчёта")
     p.add_argument("--dry-run", action="store_true", help="без модели: проверка набора, кадры в data/quiz_eval/crops")
     p.add_argument("--compare", nargs=2, metavar=("A", "B"))
@@ -85,16 +87,21 @@ def main(argv=None) -> int:
         config.QUIZ_MODEL_CHAIN = tuple(m.strip() for m in a.chain.split(",") if m.strip())
     if a.crop:
         config.QUIZ_CROP = a.crop
+    if a.temperature is not None:
+        config.QUIZ_TEMPERATURE = a.temperature
     parallel = a.parallel or config.QUIZ_PARALLEL
     meta = {"started": datetime.now().strftime("%Y-%m-%d %H:%M"), "chain": list(config.QUIZ_MODEL_CHAIN),
-            "parallel": parallel, "crops": not a.no_crops, "crop_rule": config.QUIZ_CROP, "bank": str(a.bank or qe.BANK_PATH),
+            "parallel": parallel, "crops": not a.no_crops, "crop_rule": config.QUIZ_CROP,
+            "temperature": config.QUIZ_TEMPERATURE, "bank": str(a.bank or qe.BANK_PATH),
             "tag": a.tag}
     print(f"Вопросов {len(items)}, модели {', '.join(meta['chain'])}, параллельно {parallel}, "
           f"кадры {'да' if meta['crops'] else 'нет'}")
 
     def progress(done, total, r):
         mark = "✓" if r.ok else ("!" if r.error else "✗")
-        print(f"  [{done:>3}/{total}] {mark} {r.id:<8} {r.seconds:>6.1f} с  {r.model or r.error}", flush=True)
+        extra = f"  попыток {len(r.attempts)}" + (f", ждал {r.wait_seconds:.0f} с" if r.wait_seconds else "") \
+            + (f", ошибки {','.join(r.call_errors)}" if r.call_errors else "")
+        print(f"  [{done:>3}/{total}] {mark} {r.id:<8} {r.seconds:>6.1f} с  {r.model or r.error}{extra}", flush=True)
 
     t0 = time.monotonic()
     results = asyncio.run(qe.run(items, parallel=parallel, crops=not a.no_crops, progress=progress))

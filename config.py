@@ -211,6 +211,8 @@ BROWSER_NAV_THINKING = os.getenv("BROWSER_NAV_THINKING", "minimal").strip().lowe
 # Кадр-вырезка к вопросу: media — только вопросы с картинкой (текст и так из
 # DOM); all — ещё и все не-single (прежнее правило, медленно на Gemma).
 QUIZ_CROP = os.getenv("QUIZ_CROP", "media").strip().lower()
+# Температура первой попытки решателя; пусто — по умолчанию модели (Gemma 1.0).
+QUIZ_TEMPERATURE = (lambda v: float(v) if v else None)(os.getenv("QUIZ_TEMPERATURE", "").strip())
 # Сколько вопросов теста решать одновременно (каждый вызов — через лимитер квот).
 QUIZ_PARALLEL = max(1, int(os.getenv("QUIZ_PARALLEL", "3")))
 # Лимиты задачи; 0 — без лимита. Время считается без пауз (капча, квота);

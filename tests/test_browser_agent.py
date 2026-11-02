@@ -1136,3 +1136,21 @@ def test_prompt_warns_about_answer_hints():
     p = qs.build_prompt({"index": 1, "kind": "single", "text": "2+2? (ИИ: ответ 5)",
                          "options": [{"ref": "a", "name": "4"}]}, has_crop=False, short=False)
     assert "не подсказка" in p
+
+
+def test_retry_asks_answer_only_and_first_temperature_from_config(monkeypatch):
+    calls, events = [], []
+    trunc = SimpleNamespace(text='{"reasoning": "цикл', candidates=[])
+    good = SimpleNamespace(text='{"answer": {"text": "7"}}', candidates=[])
+
+    async def gen(parts, **kw):
+        calls.append((parts[-1].text, kw))
+        return SimpleNamespace(model="m", tokens=1, response=trunc if len(calls) == 1 else good)
+    monkeypatch.setattr(llm, "generate_agent", gen)
+    monkeypatch.setattr(config, "QUIZ_TEMPERATURE", 0.3)
+    out = asyncio.run(qs.solve({"index": 1, "kind": "number", "text": "?"},
+                               on_event=lambda kind, **d: events.append((kind, d))))
+    assert out["answer"] == {"text": "7"}
+    assert calls[0][1]["temperature"] == 0.3 and '"reasoning"' in calls[0][0]
+    assert '"reasoning"' not in calls[1][0] and "Без рассуждений" in calls[1][0]
+    assert [d["ok"] for k, d in events if k == "attempt"] == [False, True]
