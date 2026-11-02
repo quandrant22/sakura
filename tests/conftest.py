@@ -21,6 +21,8 @@ if _root not in sys.path:
 _tmpdir = tempfile.mkdtemp(prefix="sakura_test_")
 os.environ["MEMORY_DB_PATH"] = os.path.join(_tmpdir, "test.db")
 os.environ["CHAT_DB_PATH"] = os.path.join(_tmpdir, "chat.db")
+# Рабочий образ Сакуры — во временном каталоге, не memory/persona/
+os.environ["PERSONA_DIR"] = os.path.join(_tmpdir, "persona")
 
 
 @pytest.fixture(autouse=True)
@@ -117,3 +119,12 @@ def clean_pending_power():
     st._pending_power = {}
     yield
     st._pending_power = {}
+
+
+@pytest.fixture(autouse=True)
+def _intimacy_off():
+    """Режим 18+ глушит запись памяти и проактив — между тестами он выключен."""
+    import modules.intimacy_mode as im
+    im._reset_state()
+    yield
+    im._reset_state()

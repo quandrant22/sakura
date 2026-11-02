@@ -127,14 +127,32 @@ def light_blocks_for(query: str) -> frozenset[str]:
     return frozenset(out)
 
 
+def _persona_mode(channel: str | None) -> str:
+    """intimate — только канал Мастера с активным режимом 18+, иначе master."""
+    if not channel:
+        return "master"
+    try:
+        from modules.intimacy_mode import CHANNELS, is_active
+        if channel in CHANNELS and is_active(channel):
+            return "intimate"
+    except ImportError as e:
+        log.debug(f"[prompt] persona mode: {type(e).__name__}: {e}")
+    return "master"
+
+
 async def _build_system(
     include_calendar: bool = False,
     active_window: str | None = None,
     query: str = "",
     blocks_out: list[str] | None = None,
     profile: str = "full",
+    channel: str | None = None,
 ) -> str:
     """Строит системный промпт. Кэшируется для повторных вызовов без query.
+
+    channel — канал хода Мастера (voice | tg_private). Только при нём и
+    активном режиме 18+ в этом канале берётся образ intimate; без канала
+    (фоновые вызовы, уведомления, проактив) — всегда обычный образ.
 
     Блоки — независимые чтения, собираются параллельно (gather поверх
     to_thread): время сборки растёт как max, а не как сумма, и новые
@@ -151,7 +169,9 @@ async def _build_system(
     _track_sig = f"{(_current_track or {}).get('title', '')}|{(_current_track or {}).get('status', '')}"
     _emotion_sig = get_current_emotion()
     _hour_sig = __import__('datetime').datetime.now().hour
-    _raw_key = f"{profile}:{include_calendar}:{_window_category(active_window)}:{bool(query)}:{tuple(sorted(_get_online_devices()))}:{_track_sig}:{_emotion_sig}:{_hour_sig}"
+    persona_mode = _persona_mode(channel)
+    from sakura_core import persona as _persona
+    _raw_key = f"{persona_mode}:{_persona.version()}:{profile}:{include_calendar}:{_window_category(active_window)}:{bool(query)}:{tuple(sorted(_get_online_devices()))}:{_track_sig}:{_emotion_sig}:{_hour_sig}"
     cache_key = hashlib.md5(_raw_key.encode("utf-8")).hexdigest()
     if not query:
         with _build_system_lock:
@@ -183,9 +203,10 @@ async def _build_system(
                     active_window=active_window,
                     ctx_location=master.get("location"),
                     ctx_status=master.get("status"),
+                    mode=persona_mode,
                 )
             else:
-                persona = get_system_prompt()
+                persona = get_system_prompt(mode=persona_mode)
         except Exception as e:
             log.debug(f"[prompt] identity: {type(e).__name__}: {e}")
         self_blk, session_blk = await asyncio.gather(

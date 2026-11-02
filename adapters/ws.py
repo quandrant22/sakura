@@ -495,10 +495,10 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
     ctx_str    = f"\n\nПассивный контекст: {' | '.join(context)}" if context else ""
     ws_dev     = st.connected_devices.get(device_id)
     text_lower = text.lower()
-    log.info(f"[voice] получено: {text!r}")
-
-    # Интим-режим: детект на каждое сообщение Мастера
-    _im_mark(text)
+    # Интим-режим: детект на каждое сообщение Мастера (voice_command — только мастер-устройство)
+    _im_mark(text, "voice")
+    from modules.intimacy_mode import redact as _im_redact
+    log.info(f"[voice] получено: {_im_redact(text, 'voice')}")
 
     # ── СТОП долгой озвучки («стоп», «хватит», «достаточно») ─────────
     # Если идёт чтение полного списка и Мастер просит остановить — ставим

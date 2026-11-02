@@ -61,6 +61,27 @@ def _no_safety():
     ]
 
 
+AUDIENCES = ("master", "guest")
+
+
+def _guest_safety():
+    """Фильтры для гостей, Химари и общего чата: откровенное режется уже на
+    среднем уровне, остальное — только высокое (I5)."""
+    from google.genai import types as _t
+    return [
+        _t.SafetySetting(category="HARM_CATEGORY_HARASSMENT",        threshold="BLOCK_ONLY_HIGH"),
+        _t.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH",       threshold="BLOCK_ONLY_HIGH"),
+        _t.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_MEDIUM_AND_ABOVE"),
+        _t.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_ONLY_HIGH"),
+        _t.SafetySetting(category="HARM_CATEGORY_CIVIC_INTEGRITY",   threshold="BLOCK_ONLY_HIGH"),
+    ]
+
+
+def _safety_settings(audience: str):
+    """Настройки безопасности по аудитории ответа. Неизвестная → гостевые."""
+    return _no_safety() if audience == "master" else _guest_safety()
+
+
 def _part_value(part, name):
     if isinstance(part, dict):
         return part.get(name)
@@ -271,7 +292,7 @@ async def generate(contents, *, system: str = "", model: Optional[str] = None,
                    api_key: Optional[str] = None,
                    safety: bool = True, thinking: bool = True,
                    response_mime_type: Optional[str] = None,
-                   chain=None) -> str:
+                   chain=None, audience: str = "master") -> str:
     """Generate with bounded retries and a single request-wide time budget."""
     models = _models_to_try(model, chain, contents)
     chain_path = _chain_path(chain, contents)
@@ -307,7 +328,7 @@ async def generate(contents, *, system: str = "", model: Optional[str] = None,
                         temperature=temperature,
                     )
                     if safety:
-                        cfg_kwargs["safety_settings"] = _no_safety()
+                        cfg_kwargs["safety_settings"] = _safety_settings(audience)
                     if thinking:
                         tc = _thinking(m)
                         if tc is not None:
@@ -359,7 +380,7 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
                         timeout: float = DEFAULT_TIMEOUT_S,
                         api_key: Optional[str] = None,
                         safety: bool = True, thinking: bool = True,
-                        chain=None) -> AsyncIterator[str]:
+                        chain=None, audience: str = "master") -> AsyncIterator[str]:
     """Stream incrementally, retrying only before the first emitted token."""
     loop = asyncio.get_running_loop()
     import threading
@@ -383,7 +404,7 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
                     temperature=temperature,
                 )
                 if safety:
-                    cfg_kwargs["safety_settings"] = _no_safety()
+                    cfg_kwargs["safety_settings"] = _safety_settings(audience)
                 if thinking:
                     tc = _thinking(model_name)
                     if tc is not None:
@@ -843,6 +864,7 @@ def _vision_followup(user_message: str) -> tuple[str | None, str]:
 async def ask_gemini(
     user_message: str, save_history: bool = True, history_limit: int = 60,
     chain=None, *, extra_system: str = "", search: bool | None = None,
+    channel: str | None = None,
 ) -> str:
     """Ответ Сакуры с характером, историей и (при необходимости) поиском.
 
@@ -855,7 +877,7 @@ async def ask_gemini(
     _t_mono = __import__("time").monotonic
     _t0 = _t_mono()
 
-    full_system = await _build_system(query="")
+    full_system = await _build_system(query="", channel=channel)
     if extra_system:
         full_system += "\n\n" + extra_system
     _t_build = _t_mono() - _t0
@@ -1015,7 +1037,8 @@ async def ask_gemini_voice(
 
     _t_build = __import__("time").monotonic()
     full_system = await _build_system(query=user_message,
-                                      profile=config.VOICE_PROMPT_PROFILE)
+                                      profile=config.VOICE_PROMPT_PROFILE,
+                                      channel="voice")
     len_hint = _LEN_HINT.get(length, "")
     if len_hint:
         full_system = f"{full_system}\n\n{len_hint}"
@@ -1128,7 +1151,8 @@ async def ask_gemini_voice(
 
     add_to_history("user",  user_message)
     add_to_history("model", clean_text)
-    log.info(f"[голос] ответ: {clean_text!r}")
+    from modules.intimacy_mode import redact as _im_redact
+    log.info(f"[голос] ответ: {_im_redact(clean_text, 'voice')}")
 
     try:
         from modules.mood_broadcast import broadcast_mood_after_reply
@@ -1185,7 +1209,7 @@ async def ask_gemini_as_guest(
 
         response = await generate(
             contents, system=full_system, model=MAIN_MODEL,
-            chain=config.MODEL_CHAIN,
+            chain=config.MODEL_CHAIN, audience="guest",
         )
         reply    = clean_reply(response)
         mark_key_used(key)

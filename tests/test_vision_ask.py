@@ -286,7 +286,7 @@ def test_ask_gemini_followup_searches_with_screen_subject(monkeypatch):
                 subject="Scrap Mechanic")
     searched, systems = [], []
 
-    async def fake_build(query=""):
+    async def fake_build(query="", channel=None):
         return "SYSTEM"
 
     async def fake_run(question, **kw):

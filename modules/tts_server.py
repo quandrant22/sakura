@@ -1032,6 +1032,10 @@ async def stream_tts_to_device(
         log.info(f"[TTS] ход {voice_turns.current_id()} вытеснен — озвучка пропущена | {device_id}")
         return
     if reply_kind == "proactive":
+        from modules.intimacy_mode import is_active as _im_active
+        if _im_active():
+            log.info(f"[TTS] режим 18+ — проактив не озвучиваю на {device_id}")
+            return
         from modules.presence_sync import pc_voice_allowed
         if not pc_voice_allowed():
             log.info(f"[TTS] Мастер не у ПК — проактив не озвучиваю на {device_id} (только Telegram)")

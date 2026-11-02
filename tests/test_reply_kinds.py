@@ -170,7 +170,7 @@ def test_streamed_llm_answer_is_llm(devices, monkeypatch):
     monkeypatch.setattr(config, "get_active_key", lambda: "k")
     monkeypatch.setattr(config, "mark_key_used", lambda k: None)
 
-    async def _bs(query="", profile="full"):
+    async def _bs(query="", profile="full", channel=None):
         return "s"
     monkeypatch.setattr(llm, "_build_system", _bs)
     monkeypatch.setattr(llm, "_build_contents", lambda *a, **k: [])

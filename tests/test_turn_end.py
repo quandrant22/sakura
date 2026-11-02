@@ -132,7 +132,7 @@ def _setup(monkeypatch, ws_dev, *, decision, executed=False):
     monkeypatch.setattr(wh.st, "_pending_system", {})
     monkeypatch.setattr(wh.st, "_pending_plan", {})
     monkeypatch.setattr(wh.st, "_pending_clarify", {})
-    monkeypatch.setattr(wh, "_im_mark", lambda t: None)
+    monkeypatch.setattr(wh, "_im_mark", lambda *a: None)
     monkeypatch.setattr(wh, "pending_forget_active", lambda: False)
     monkeypatch.setattr(wh, "should_prank", lambda t: False)
     monkeypatch.setattr(wh, "match_voice_trigger", lambda t: None)

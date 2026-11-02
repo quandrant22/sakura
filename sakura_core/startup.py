@@ -13,7 +13,7 @@ def guarded_add(db_add_to_category, cat: str, item: str):
         log.info("[memory] reflection write skipped: intimacy in window")
         return False
     if is_intimate_content(item):
-        log.info(f"[memory] интимный фильтр (reflection): {item[:40]}")
+        log.info("[memory] интимный фильтр (reflection): cat=%s, %d симв.", cat, len(item))
         return False
     return db_add_to_category(cat, item)
 

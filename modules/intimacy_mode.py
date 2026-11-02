@@ -1,13 +1,30 @@
 """
-modules/intimacy_mode.py — Режим интимного общения (18+).
+modules/intimacy_mode.py — режим интимного общения (18+), v2.
 
-Режим живёт ТОЛЬКО в оперативной памяти. Никаких файлов, никакой БД.
-Перезапуск = выключен. Инициатор — только Мастер.
+Режим живёт ТОЛЬКО в оперативной памяти: ни файлов, ни БД. Перезапуск —
+выключен. Инициатор — только Мастер, и только в своём канале:
 
-Слои защиты:
-  1. mark() — детектор по триггерам + явная активация + продление по теме
-  2. is_intimate_content() — фильтр памяти при извлечении фактов
+    voice       — голос с мастер-устройства
+    tg_private  — личный чат Мастера в Telegram
+
+Режим, включённый в одном канале, не действует в другом. Общий чат и
+гости режим не включают и не видят (I1).
+
+Детектор (I2):
+  • ручная команда («режим 18+», «интимный режим») — включает;
+  • сильный маркер — включает;
+  • слабые маркеры — включают только при двух разных в одном сообщении
+    (или продлевают уже включённый режим);
+  • нейтральный текст продлевает включённый режим ненадолго и не дальше
+    CONTINUATION_CAP от последнего маркера: ложное срабатывание не может
+    держать режим бесконечно.
+
+Барьер памяти (I3): is_intimate_content — сильный маркер или два слабых.
+
+В журнал — только канал и причина, никогда текст сообщения (I4).
 """
+
+from __future__ import annotations
 
 import logging
 import re
@@ -15,152 +32,176 @@ import time as _time
 
 log = logging.getLogger("sakura.intimacy")
 
-_active_until: float = 0.0
-TTL_SECONDS = 900  # 15 минут с последнего триггера/продления
+CHANNELS: tuple[str, ...] = ("voice", "tg_private")
 
-# Флаги для ночной рефлексии
+TTL_SECONDS = 900              # 15 мин после маркера
+CONTINUATION_TTL = 300         # нейтральная реплика продлевает на 5 мин…
+CONTINUATION_CAP = 1800        # …но не дальше 30 мин от последнего маркера
+
+# channel → (active_until, last_marker_at); monotonic
+_state: dict[str, tuple[float, float]] = {}
+
+# Флаг для ночной рефлексии: был ли режим хоть в одном канале
 _was_active_since_reflection: bool = False
 
-# ── Триггеры (широкий спектр) ───────────────────────────────────────
-_TRIGGERS = [
-    # Прямое обозначение темы
-    "секс", "18+", "18 плюс", "взросл", "для взрослых",
-    "интим", "приват", "между нами", "закрытая тема",
-    # Эвфемизмы и разговорные
-    "постель", "постельн", "в постели", "в кровати", "кровать",
-    "нагота", "обнаж", "голая", "голый", "раздет", "раздевай",
-    "раздеваться", "снять одежду", "без одежды",
-    # Отношения и близость
-    "сексуальн", "эротичн", "эротика", "похоть", "возбужден",
-    "страсть", "страстн", "влечени", "желани", "хотелка",
-    "хотелки", "фантази", "фантазир", "грязн", "похотно",
-    # Медицинские/анатомические
-    "орган", "генит", "половой", "вагин", "пенис",
-    "грудь", "соски", "попка", "задниц",
-    # Действия
-    "трахн", "ебать", "ебш", "ебёт", "ебал", "выебать",
-    "минет", "дроч", "мастурб", "оргазм", "orgasm",
-    "лесб", "трах", "порно", "порнхаб", "хентай",
-    # Разговорные/молодёжные
-    "замутить", "потраха", "переспать", "сношени",
-    "кекс", "сасай", "дропнуть", "скинуть нуд",
-    "голенькая", "без одежды", "без трусов",
+
+# ── Словари ──────────────────────────────────────────────────────────
+# Каждая запись — регулярное выражение для основы слова; левая граница
+# слова обязательна, правая — нет (ловим словоформы).
+
+_STRONG = [
+    r"секс(?!изм|ист)", r"интим", r"эротик", r"эротичн", r"порно", r"хентай",
+    r"трахн", r"трахат", r"трахал", r"трахать", r"потрахат",
+    r"переспат", r"минет", r"дроч", r"мастурб", r"оргазм", r"orgasm",
+    r"вагин", r"пенис", r"клитор", r"эрекци", r"нюдс", r"скинуть нюд",
+    r"без трусов",
+]
+
+_WEAK = [
+    r"18\+", r"18 плюс", r"для взрослых",
+    r"постел", r"в кровати",
+    r"нагот", r"обнаж", r"голая", r"голый", r"голенькая", r"раздет", r"раздева",
+    r"снять одежду", r"без одежды",
+    r"возбужд", r"страст", r"похот", r"влечени", r"фантази",
+    r"грудь", r"груди", r"сосок", r"соски", r"попк", r"задниц",
+    r"ебать", r"ебал", r"ебёт", r"ебет", r"выебат", r"ебш",
+    r"поцелу", r"целуй", r"ласкать", r"ласкай", r"ласки\b",
 ]
 
 _STOP_PHRASES = [
-    "хватит", "стоп", "смени тему", "переключись",
-    "другая тема", "хватит об этом", "выключи режим",
-    "отключи режим", "обычный режим", "приват офф",
+    "хватит", "стоп", "смени тему", "переключись", "другая тема",
+    "хватит об этом", "выключи режим", "отключи режим", "обычный режим",
+    "приват офф",
 ]
 
-# Явные команды включения (минуя детектор)
 _MANUAL_ACTIVATE = [
-    "включи режим", "приватный режим", "включи приват",
-    "режим 18+", "18+ режим", "открой режим",
-    "переключи режим", "между нами режим",
-    "начни приват", "давай без фильтров", "без ограничений",
-    "сними ограничения", "отключи фильтры", "интим режим",
+    "режим 18+", "18+ режим", "включи режим 18", "интим режим",
+    "интимный режим", "приватный режим", "включи приват", "начни приват",
 ]
 
-# Паттерны: левая граница \w, правой НЕТ — ловим основу в слове
-_TRIGGER_PATTERNS = [re.compile(rf"(?<!\w){re.escape(t)}", re.IGNORECASE) for t in _TRIGGERS]
-_STOP_PATTERNS = [re.compile(rf"(?<!\w){re.escape(s)}(?!\w)", re.IGNORECASE) for s in _STOP_PHRASES]
-_MANUAL_PATTERNS = [re.compile(rf"(?<!\w){re.escape(m)}(?!\w)", re.IGNORECASE) for m in _MANUAL_ACTIVATE]
+_STRONG_RX = [re.compile(rf"(?<!\w){p}", re.IGNORECASE) for p in _STRONG]
+_WEAK_RX = [re.compile(rf"(?<!\w){p}", re.IGNORECASE) for p in _WEAK]
+_STOP_RX = [re.compile(rf"(?<!\w){re.escape(s)}(?!\w)", re.IGNORECASE) for s in _STOP_PHRASES]
+_MANUAL_RX = [re.compile(rf"(?<!\w){re.escape(m)}(?![\w+])", re.IGNORECASE) for m in _MANUAL_ACTIVATE]
 
 
-def _is_triggered(text: str) -> bool:
-    """Проверяет текст на наличие интимных триггеров."""
-    for pat in _TRIGGER_PATTERNS:
-        if pat.search(text):
-            return True
-    return False
+# ── Классификация текста ─────────────────────────────────────────────
+
+def _strong_hits(text: str) -> int:
+    return sum(1 for rx in _STRONG_RX if rx.search(text))
+
+
+def _weak_hits(text: str) -> int:
+    return sum(1 for rx in _WEAK_RX if rx.search(text))
 
 
 def _is_manual_activate(text: str) -> bool:
-    """Проверяет, является ли текст явной командой включения."""
-    tl = text.lower().strip().rstrip(".!?,;:")
-    for pat in _MANUAL_PATTERNS:
-        if pat.search(tl):
-            return True
-    return False
+    tl = (text or "").lower().strip().rstrip(".!?,;:")
+    return any(rx.search(tl) for rx in _MANUAL_RX)
 
 
 def _is_stop(text: str) -> bool:
-    """Проверяет, является ли текст командой выключения."""
-    for pat in _STOP_PATTERNS:
-        if pat.search(text):
-            return True
-    return False
+    return any(rx.search(text or "") for rx in _STOP_RX)
 
 
-def mark(text: str) -> None:
-    """Вызывается на КАЖДОЕ сообщение Мастера. Определяет активность режима.
-
-    Порядок:
-      1. Явные команды выключения
-      2. Явная активация по команде (минуя детектор)
-      3. Детектор триггеров
-      4. Продление по теме (если уже активен — продлить даже без явного триггера)
-    """
-    global _active_until, _was_active_since_reflection
-
-    # 1. Явные команды выключения
-    if _is_stop(text):
-        if is_active():
-            log.info("[intimacy] mode off (explicit stop)")
-        _active_until = 0.0
-        return
-
-    # 2. Явная активация по команде
+def classify(text: str) -> str:
+    """'manual' | 'strong' | 'weak2' | 'weak1' | 'none' — без побочных эффектов."""
+    text = text or ""
     if _is_manual_activate(text):
-        now = _time.monotonic()
-        was_already_active = is_active()
-        _active_until = now + TTL_SECONDS
-        _was_active_since_reflection = True
-        if was_already_active:
-            log.info("[intimacy] mode extended (manual)")
-        else:
-            log.info("[intimacy] mode on (manual)")
-        return
-
-    # 3. Детектор триггеров
-    if _is_triggered(text):
-        now = _time.monotonic()
-        _active_until = now + TTL_SECONDS
-        _was_active_since_reflection = True
-        log.info("[intimacy] mode on (trigger)")
-        return
-
-    # 4. Продление по теме (если режим уже активен)
-    if is_active():
-        _active_until = _time.monotonic() + TTL_SECONDS
-        log.info("[intimacy] mode extended (topic continuation)")
-
-
-def is_active() -> bool:
-    """Режим активен и не истёк по TTL."""
-    return _time.monotonic() < _active_until
+        return "manual"
+    if _strong_hits(text):
+        return "strong"
+    weak = _weak_hits(text)
+    if weak >= 2:
+        return "weak2"
+    if weak == 1:
+        return "weak1"
+    return "none"
 
 
 def is_intimate_content(text: str) -> bool:
-    """Второй барьер: проверяет, содержит ли текст интимный контент.
+    """Барьер памяти: сильный маркер, ручная команда или два слабых маркера.
 
-    Используется при извлечении фактов для памяти — чтобы даже при промахе
-    детектора интимный контент не попадал в долговременную память.
+    Используется при извлечении фактов — даже при промахе детектора режима
+    интимное не попадает в долговременную память, а обычные факты
+    («давнее желание», «болит грудь») — попадают.
     """
-    return _is_triggered(text) or _is_manual_activate(text)
+    return classify(text) in ("manual", "strong", "weak2")
 
 
-def deactivate() -> None:
-    """Явное выключение."""
-    global _active_until
-    if is_active():
-        log.info("[intimacy] mode off (explicit)")
-    _active_until = 0.0
+# ── Состояние ────────────────────────────────────────────────────────
+
+def _check_channel(channel: str) -> str:
+    if channel not in CHANNELS:
+        raise ValueError(f"режим 18+ не работает в канале {channel!r}")
+    return channel
+
+
+def _activate(channel: str, now: float, reason: str) -> None:
+    global _was_active_since_reflection
+    was = is_active(channel)
+    _state[channel] = (now + TTL_SECONDS, now)
+    _was_active_since_reflection = True
+    log.info("[intimacy] %s channel=%s reason=%s", "extended" if was else "on", channel, reason)
+
+
+def _off(channel: str, reason: str) -> None:
+    if is_active(channel):
+        log.info("[intimacy] off channel=%s reason=%s", channel, reason)
+    _state.pop(channel, None)
+
+
+def mark(text: str, channel: str) -> None:
+    """Вызывается на КАЖДОЕ сообщение Мастера в его канале.
+
+    Порядок: стоп → ручная команда → сильный → два слабых → продление.
+    """
+    _check_channel(channel)
+    now = _time.monotonic()
+
+    if _is_stop(text):
+        _off(channel, "stop")
+        return
+
+    kind = classify(text)
+    if kind in ("manual", "strong", "weak2"):
+        _activate(channel, now, kind)
+        return
+
+    if not is_active(channel):
+        return
+
+    until, last_marker = _state[channel]
+    if kind == "weak1":
+        _activate(channel, now, "weak1")
+        return
+    # Нейтральная реплика внутри режима: короткое продление с потолком.
+    new_until = min(max(until, now + CONTINUATION_TTL), last_marker + CONTINUATION_CAP)
+    if new_until > until:
+        _state[channel] = (new_until, last_marker)
+
+
+def is_active(channel: str | None = None) -> bool:
+    """Активен ли режим. channel=None — в любом канале (для барьеров памяти)."""
+    now = _time.monotonic()
+    if channel is None:
+        return any(now < until for until, _ in _state.values())
+    st = _state.get(channel)
+    return bool(st and now < st[0])
+
+
+def active_channels() -> tuple[str, ...]:
+    return tuple(c for c in CHANNELS if is_active(c))
+
+
+def deactivate(channel: str | None = None) -> None:
+    """Явное выключение: в одном канале или во всех."""
+    for c in ([channel] if channel else list(_state)):
+        _off(c, "explicit")
 
 
 def consume_check() -> bool:
-    """Проверяет был ли режим со времени последней рефлексии. НЕ сбрасывает флаг."""
+    """Был ли режим со времени последней рефлексии. НЕ сбрасывает флаг."""
     return _was_active_since_reflection
 
 
@@ -170,9 +211,17 @@ def reset_reflection_flag() -> None:
     _was_active_since_reflection = False
 
 
-# ── Для тестов: сброс состояния ─────────────────────────────────────
 def _reset_state() -> None:
     """Сброс всего состояния (только для тестов)."""
-    global _active_until, _was_active_since_reflection
-    _active_until = 0.0
+    global _was_active_since_reflection
+    _state.clear()
     _was_active_since_reflection = False
+
+
+def redact(text: str, channel: str | None) -> str:
+    """Для журнала: в активном режиме канала (или для интимного текста) —
+    только длина. Текст реплик 18+ не попадает в логи сервера."""
+    text = text or ""
+    if (channel and channel in CHANNELS and is_active(channel)) or is_intimate_content(text):
+        return f"<скрыто: {len(text)} симв.>"
+    return repr(text)

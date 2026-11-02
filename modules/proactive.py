@@ -262,6 +262,11 @@ def can_send_message(is_critical: bool = False, topic: str = "") -> bool:
     if is_critical:
         return True
 
+    # Режим 18+ в любом канале — некритичные проактивные реплики молчат (I6)
+    from modules.intimacy_mode import is_active as _im_active
+    if _im_active():
+        return False
+
     if status == "busy":
         return False
 

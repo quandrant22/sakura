@@ -81,7 +81,7 @@ def voice(monkeypatch):
     monkeypatch.setattr(config, "get_active_key", lambda: "test-key")
     monkeypatch.setattr(config, "mark_key_used", lambda key: None)
 
-    async def _build_system(query="", profile="full"):
+    async def _build_system(query="", profile="full", channel=None):
         return "system"
     monkeypatch.setattr(llm, "_build_system", _build_system)
     monkeypatch.setattr(llm, "_build_contents", lambda *a, **k: [])
