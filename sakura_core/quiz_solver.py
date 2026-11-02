@@ -68,7 +68,11 @@ STYLE_SHORT = "Времени мало: reasoning — одно короткое 
 
 
 class SolveError(Exception):
-    pass
+    """Ответ модели не годен; raw — что вернула модель (для замера и журнала)."""
+
+    def __init__(self, message: str, raw=None):
+        super().__init__(message)
+        self.raw = raw
 
 
 def kind_of(question: dict) -> str:
@@ -104,8 +108,13 @@ def pair_parts(question: dict) -> tuple[list[dict], list[str]] | None:
 
 
 def needs_crop(question: dict) -> bool:
-    """Решать по кадру: есть медиа или вопрос не «один из вариантов»."""
-    return bool(question.get("has_media")) or kind_of(question) != "single"
+    """Решать по кадру. QUIZ_CROP=media (по умолчанию) — только вопрос с
+    картинкой: текст вопроса и вариантов уже есть из DOM. all — прежнее
+    правило (медиа или вид ≠ single); замер 02.11: кадр к каждому
+    не-single вопросу — таймауты Gemma на 59 из 63 вызовов."""
+    if question.get("has_media"):
+        return True
+    return getattr(config, "QUIZ_CROP", "media") == "all" and kind_of(question) != "single"
 
 
 def _schema():
@@ -168,14 +177,22 @@ def validate(question: dict, answer: dict) -> dict:
     if parts is not None:
         return {"pairs": _validate_pairs(kind, parts, answer.get("pairs"))}
     option_refs = [o.get("ref") for o in question.get("options") or [] if o.get("ref")]
+    by_label = {_norm(_label(o)): o.get("ref") for o in question.get("options") or [] if o.get("ref")}
+
+    def as_ref(value):
+        """ref варианта; модель иногда пишет текст варианта вместо ref."""
+        if value in option_refs:
+            return value
+        return by_label.get(_norm(value))
+
     if kind in ("single", "select", "multi"):
-        refs = [r for r in answer.get("refs") or [] if r in option_refs]
+        refs = [r for r in (as_ref(v) for v in answer.get("refs") or []) if r]
         refs = list(dict.fromkeys(refs))
         if not refs or (kind != "multi" and len(refs) != 1):
             raise SolveError(f"{kind}: refs не из вариантов или не то число")
         return {"refs": refs}
     if kind == "order":
-        order = [r for r in answer.get("order") or [] if r in option_refs]
+        order = [r for r in (as_ref(v) for v in answer.get("order") or []) if r]
         if sorted(order) != sorted(option_refs) or len(set(order)) != len(order):
             raise SolveError("order: не перестановка вариантов")
         return {"order": order}
@@ -224,22 +241,25 @@ async def solve(question: dict, crop: bytes | None = None, *, seconds_left=None,
     parts.append(T.Part(text=build_prompt(question, has_crop=bool(crop), short=short)))
     tokens = 0
     last_error = None
+    raw_answer = None
     for _attempt in (1, 2):
         result = await generate_agent(
             parts, chain=config.QUIZ_MODEL_CHAIN, response_mime_type="application/json",
             response_schema=_schema(), max_tokens=512 if short else 2048, limiter=limiter,
             on_event=on_event)
         tokens += result.tokens
+        obj = None
         try:
             obj = parse_json(getattr(result.response, "text", "") or "")
             answer = validate(question, obj.get("answer"))
         except (ValueError, SolveError) as e:
             last_error = e
+            raw_answer = obj.get("answer") if isinstance(obj, dict) else None
             log.info(f"[quiz] вопрос {question.get('index')}: ответ не годен ({type(e).__name__})")
             continue
         return {"reasoning": str(obj.get("reasoning") or "")[:2000], "answer": answer,
                 "model": result.model, "tokens": tokens}
-    raise SolveError(f"нет годного ответа: {last_error}")
+    raise SolveError(f"нет годного ответа: {last_error}", raw=raw_answer)
 
 
 # ── применение и проверка ─────────────────────────────────────────

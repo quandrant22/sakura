@@ -40,6 +40,8 @@ def _args(argv=None):
     p.add_argument("--chain", default="", help="модели решателя через запятую (по умолчанию QUIZ_MODEL_CHAIN)")
     p.add_argument("--parallel", type=int, default=0, help="одновременно (по умолчанию QUIZ_PARALLEL)")
     p.add_argument("--no-crops", action="store_true", help="решать только текстом")
+    p.add_argument("--crop", choices=("media", "all"), default="",
+                   help="правило кадров (по умолчанию QUIZ_CROP): media — только с картинкой, all — прежнее")
     p.add_argument("--tag", default="", help="метка в имени отчёта")
     p.add_argument("--dry-run", action="store_true", help="без модели: проверка набора, кадры в data/quiz_eval/crops")
     p.add_argument("--compare", nargs=2, metavar=("A", "B"))
@@ -81,9 +83,11 @@ def main(argv=None) -> int:
     import config
     if a.chain:
         config.QUIZ_MODEL_CHAIN = tuple(m.strip() for m in a.chain.split(",") if m.strip())
+    if a.crop:
+        config.QUIZ_CROP = a.crop
     parallel = a.parallel or config.QUIZ_PARALLEL
     meta = {"started": datetime.now().strftime("%Y-%m-%d %H:%M"), "chain": list(config.QUIZ_MODEL_CHAIN),
-            "parallel": parallel, "crops": not a.no_crops, "bank": str(a.bank or qe.BANK_PATH),
+            "parallel": parallel, "crops": not a.no_crops, "crop_rule": config.QUIZ_CROP, "bank": str(a.bank or qe.BANK_PATH),
             "tag": a.tag}
     print(f"Вопросов {len(items)}, модели {', '.join(meta['chain'])}, параллельно {parallel}, "
           f"кадры {'да' if meta['crops'] else 'нет'}")

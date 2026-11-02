@@ -208,6 +208,9 @@ QUIZ_MODEL_CHAIN = _gemma_only("QUIZ_MODEL_CHAIN", _parse_model_chain(
 # Мысли навигатора: thinking_level для Gemma 4 (minimal — почти без мыслей,
 # быстрее); пусто — по умолчанию модели. Решатель думает по умолчанию.
 BROWSER_NAV_THINKING = os.getenv("BROWSER_NAV_THINKING", "minimal").strip().lower()
+# Кадр-вырезка к вопросу: media — только вопросы с картинкой (текст и так из
+# DOM); all — ещё и все не-single (прежнее правило, медленно на Gemma).
+QUIZ_CROP = os.getenv("QUIZ_CROP", "media").strip().lower()
 # Сколько вопросов теста решать одновременно (каждый вызов — через лимитер квот).
 QUIZ_PARALLEL = max(1, int(os.getenv("QUIZ_PARALLEL", "3")))
 # Лимиты задачи; 0 — без лимита. Время считается без пауз (капча, квота);

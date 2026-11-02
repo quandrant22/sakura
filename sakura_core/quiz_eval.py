@@ -349,7 +349,10 @@ async def solve_one(item: dict, index: int, *, crops: bool, limiter, solve=None,
             res.seconds = round(time.monotonic() - started, 2)
             return res
         except Exception as e:  # noqa: BLE001 — сбой одного вопроса не роняет замер
-            res.error = type(e).__name__
+            res.error = f"{type(e).__name__}: {str(e)[:160]}".rstrip(": ")
+            raw = getattr(e, "raw", None)
+            if raw is not None:
+                res.got = "сырой ответ: " + json.dumps(raw, ensure_ascii=False)[:200]
             res.seconds = round(time.monotonic() - started, 2)
             return res
     res.seconds = round(time.monotonic() - started, 2)

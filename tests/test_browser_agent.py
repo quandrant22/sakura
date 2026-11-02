@@ -440,7 +440,13 @@ def solve_resp(answer, reasoning="REASONING_SECRET"):
     return text_resp(json.dumps({"reasoning": reasoning, "answer": answer}))
 
 
-def test_quiz_flow_solve_fill_verify_and_isolation(env, fake):
+@pytest.fixture
+def crop_all(monkeypatch):
+    """Прежнее правило кадров: вырезка ко всем не-single (механика кадра)."""
+    monkeypatch.setattr(config, "QUIZ_CROP", "all")
+
+
+def test_quiz_flow_solve_fill_verify_and_isolation(env, fake, crop_all):
     task = new_task("пройди тест")
     desk = Desk(task)
     fake.nav = [fc("page_questions", note="читаю вопросы"),
@@ -496,7 +502,7 @@ def test_quiz_refill_when_not_checked(env, fake):
     assert task.answers[0]["status"] == "failed"
 
 
-def test_missed_questions_solved_before_finish(env, fake):
+def test_missed_questions_solved_before_finish(env, fake, crop_all):
     task = new_task("тест")
     desk = Desk(task)
     task.answers = [{"index": 1, "kind": "single", "answer": {"refs": ["f0:e12"]}, "status": "verified"}]
@@ -941,7 +947,7 @@ def _quiz_task(questions):
     return task, Desk(task), {**OK, "questions": questions}
 
 
-def test_match_and_order_each_go_in_own_fill_form(env, fake, monkeypatch):
+def test_match_and_order_each_go_in_own_fill_form(env, fake, monkeypatch, crop_all):
     monkeypatch.setattr(config, "QUIZ_PARALLEL", 3)
     single = dict(QUESTIONS[0], index=4)
     fake.solve = [solve_resp({"pairs": PAIRS_OK}), solve_resp({"order": ["f0:e62", "f0:e61"]}),
@@ -1050,3 +1056,40 @@ def test_solver_falls_back_to_26b(env, monkeypatch):
     monkeypatch.setattr(llm, "generate_raw", raw)
     res = asyncio.run(qs.solve(MATCH_Q))
     assert seen == ["gemma-4-31b-it", "gemma-4-26b-a4b-it"] and res["model"] == "gemma-4-26b-a4b-it"
+
+
+# ── замер 02.11: кадр только к вопросу с картинкой, ref по тексту варианта ──
+
+def test_crop_only_for_media_by_default(monkeypatch):
+    monkeypatch.setattr(config, "QUIZ_CROP", "media")
+    assert not qs.needs_crop({"kind": "text"})
+    assert not qs.needs_crop({"kind": "match"})
+    assert qs.needs_crop({"kind": "single", "has_media": True})
+    monkeypatch.setattr(config, "QUIZ_CROP", "all")
+    assert qs.needs_crop({"kind": "text"})
+
+
+def test_option_text_instead_of_ref_is_accepted():
+    q = {"index": 1, "kind": "single", "options": [
+        {"ref": "f0:e1", "name": "2"}, {"ref": "f0:e2", "name": "21"}, {"ref": "f0:e3", "name": "O(log n)"}]}
+    assert qs.validate(q, {"refs": ["21"]}) == {"refs": ["f0:e2"]}
+    assert qs.validate(q, {"refs": ["o(log  n)"]}) == {"refs": ["f0:e3"]}
+    with pytest.raises(qs.SolveError):
+        qs.validate(q, {"refs": ["22"]})
+    order_q = {"index": 2, "kind": "order", "options": [{"ref": "a", "name": "Байт"}, {"ref": "b", "name": "Килобайт"}]}
+    assert qs.validate(order_q, {"order": ["Байт", "b"]}) == {"order": ["a", "b"]}
+
+
+def test_solve_error_keeps_raw_answer(monkeypatch):
+    class R:
+        model, tokens = "m", 1
+        response = type("Resp", (), {"text": json.dumps({"reasoning": "", "answer": {"refs": ["zzz"]}})})()
+
+    async def gen(*a, **k):
+        return R()
+    monkeypatch.setattr(llm, "generate_agent", gen)
+    q = {"index": 1, "kind": "single", "options": [{"ref": "f0:e1", "name": "a"}]}
+    with pytest.raises(qs.SolveError) as ei:
+        asyncio.run(qs.solve(q))
+    assert ei.value.raw == {"refs": ["zzz"]}
+
