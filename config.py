@@ -169,6 +169,60 @@ SEARCH_PROVIDERS = os.getenv("SEARCH_PROVIDERS", "parallel,searxng")
 # Пусто — SearXNG выключен. Установка: scripts/install_searxng.sh → http://127.0.0.1:8888
 SEARXNG_URL = os.getenv("SEARXNG_URL", "").strip()
 
+# Параметры генерации по модели (sakura_core/llm.filter_params):
+# gemma-* — только принятые моделью по scripts/probe_gemma.py (docs/PROGRESS.md);
+# NO_SAMPLING_MODELS не принимают пользовательские temperature/top_p.
+GEMMA_PARAMS = tuple(p.strip() for p in os.getenv(
+    "GEMMA_PARAMS",
+    "system_instruction,max_output_tokens,temperature,top_p,top_k,stop_sequences,"
+    "seed,candidate_count,safety_settings,response_mime_type,response_schema,tools,"
+    "tool_config,automatic_function_calling").split(",") if p.strip())
+NO_SAMPLING_MODELS = ("gemini-3.5-flash-lite",)
+# Квоты бесплатного тарифа Gemma — на каждую модель отдельно
+# (sakura_core/rate_limiter.py; сутки — по тихоокеанскому времени).
+GEMMA_RPM = int(os.getenv("GEMMA_RPM", "15"))
+GEMMA_RPD = int(os.getenv("GEMMA_RPD", "1500"))
+# Токенов в минуту на модель (0 — без лимита): прогон 28.10 — 429 на 26b при
+# 5–8 вызовах/мин по 2–4 тыс. токенов, то есть упор в токены, а не в RPM.
+GEMMA_TPM = int(os.getenv("GEMMA_TPM", "15000"))
+
+# ── Browser agent (browser.do / browser_step, sakura_core/browser_step.py) ──
+# Модели агента — только Gemma 4 через тот же ключ Gemini API: навигатор
+# gemma-4-26b-a4b-it, решатель тестов gemma-4-31b-it (квоты — на модель).
+# Gemini 3.x фолбэком агента не бывает: не-Gemma из цепочек отбрасываются.
+BROWSER_AGENT = os.getenv("BROWSER_AGENT", "0").strip().lower() in ("1", "true", "yes")
+
+
+def _gemma_only(name, chain):
+    kept = tuple(m for m in chain if m.startswith("gemma-"))
+    if kept != tuple(chain):
+        log.warning("%s: не-Gemma модели отброшены", name)
+    return kept
+
+
+BROWSER_MODEL_CHAIN = _gemma_only("BROWSER_MODEL_CHAIN", _parse_model_chain(
+    "BROWSER_MODEL_CHAIN", ("gemma-4-26b-a4b-it", "gemma-4-31b-it")))
+# Решатель: 31b, при сбое/квоте — 26b (у 31b 2/10 запросов без ответа и после повторов).
+QUIZ_MODEL_CHAIN = _gemma_only("QUIZ_MODEL_CHAIN", _parse_model_chain(
+    "QUIZ_MODEL_CHAIN", ("gemma-4-31b-it", "gemma-4-26b-a4b-it")))
+# Мысли навигатора: thinking_level для Gemma 4 (minimal — почти без мыслей,
+# быстрее); пусто — по умолчанию модели. Решатель думает по умолчанию.
+BROWSER_NAV_THINKING = os.getenv("BROWSER_NAV_THINKING", "minimal").strip().lower()
+# Сколько вопросов теста решать одновременно (каждый вызов — через лимитер квот).
+QUIZ_PARALLEL = max(1, int(os.getenv("QUIZ_PARALLEL", "3")))
+# Лимиты задачи; 0 — без лимита. Время считается без пауз (капча, квота);
+# по умолчанию без лимита: Gemma отвечает десятки секунд на шаг.
+BROWSER_MAX_STEPS = int(os.getenv("BROWSER_MAX_STEPS", "200"))
+BROWSER_MAX_SECONDS = int(os.getenv("BROWSER_MAX_SECONDS", "0"))
+BROWSER_MAX_TOKENS = int(os.getenv("BROWSER_MAX_TOKENS", "0"))
+BROWSER_FRAMES_IN_CONTEXT = int(os.getenv("BROWSER_FRAMES_IN_CONTEXT", "3"))
+BROWSER_SUMMARIZE_EVERY = int(os.getenv("BROWSER_SUMMARIZE_EVERY", "15"))
+BROWSER_MAX_FRAMES_PER_STEP = 4
+BROWSER_MAX_FRAME_BYTES = 400 * 1024
+# 1 — подтверждение перед отправкой форм и вводом в поля пароля (пауза до
+# «готово»); 0 — без вопросов.
+BROWSER_CONFIRM_SENSITIVE = os.getenv("BROWSER_CONFIRM_SENSITIVE", "0").strip().lower() in ("1", "true", "yes")
+
 try:
     VOICE_MAX_TOKENS = max(1, int(os.getenv("VOICE_MAX_TOKENS", "120")))
 except (TypeError, ValueError):

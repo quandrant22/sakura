@@ -18,9 +18,16 @@ _STOP_EXACT = frozenset({
 })
 
 
+# «стоп задача», «стоп браузер», «хватит в браузере» — команды остановки
+# задачи агента браузера (browser.stop), а не чтения: их ловит реестр.
+_TASK_STOP_RE = re.compile(r"(?<!\w)(?:задач\w*|браузер\w*)", re.IGNORECASE)
+
+
 def is_tts_stop(text: str) -> bool:
     """Return True if text is a TTS-stop phrase."""
     t = text.lower().strip().rstrip(".!?,")
     if t in _STOP_EXACT:
         return True
+    if _TASK_STOP_RE.search(t):
+        return False
     return bool(_STOP_RE.search(text.lower()))
