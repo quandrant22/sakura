@@ -1,0 +1,35 @@
+<!-- Вопросы без Moodle: fieldset/legend, role=radiogroup, группа radio по name, нумерованный блок, картинка. -->
+<main>
+  <fieldset id="q-planet">
+    <legend>Какая планета ближе всего к Солнцу?</legend>
+    <label><input type="radio" name="planet" value="mercury"> Меркурий</label>
+    <label><input type="radio" name="planet" value="venus"> Венера</label>
+  </fieldset>
+
+  <div id="q-colors">
+    <h3>Отметьте тёплые цвета</h3>
+    <div role="radiogroup" aria-label="Тёплые цвета">
+      <div role="radio" aria-checked="false" tabindex="0">Красный</div>
+      <div role="radio" aria-checked="false" tabindex="0">Синий</div>
+    </div>
+  </div>
+
+  <div id="q-pets">
+    <p>Какие животные у вас есть?</p>
+    <div class="opts">
+      <input type="checkbox" name="pets" id="pet-cat" value="cat"><label for="pet-cat">Кошка</label>
+      <input type="checkbox" name="pets" id="pet-dog" value="dog"><label for="pet-dog">Собака</label>
+    </div>
+  </div>
+
+  <div class="block" id="q-essay">
+    <div>5. Опишите своими словами, что такое фотосинтез.</div>
+    <textarea name="essay" aria-label="Ответ на вопрос 5"></textarea>
+  </div>
+
+  <div class="block" id="q-media">
+    <div>6) Что показано на схеме? <img src="https://example.org/scheme.png" width="400" height="300" alt="схема"></div>
+    <label><input type="radio" name="scheme" value="a"> Электрическая цепь</label>
+    <label><input type="radio" name="scheme" value="b"> Карта метро</label>
+  </div>
+</main>

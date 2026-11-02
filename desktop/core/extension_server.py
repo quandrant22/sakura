@@ -45,6 +45,11 @@ RESTART_STABLE_SEC = 60
 _extension_ws = None          # WebSocket соединение с расширением
 _pending: dict = {}            # action_id → asyncio.Future
 _last_activity: float = 0.0   # время последней активности расширения
+_extension_version = None      # версия из extension_ready (Настройки → Расширение браузера)
+_extension_id = None           # ID подключённого расширения (из Origin) — для закрепления
+_server_loop = None            # цикл потока сервера: запись в сокет — только в нём
+_status_listener = None        # подключение/версия изменились → обновить настройки в интерфейсе
+_upload_store = None           # desktop.core.upload_store.UploadStore для page.upload
 
 
 def is_connected() -> bool:
@@ -56,7 +61,29 @@ def get_status() -> dict:
     return {
         "connected": _extension_ws is not None,
         "pending": len(_pending),
+        "version": _extension_version,
+        "extension_id": _extension_id,
     }
+
+
+def set_status_listener(fn) -> None:
+    global _status_listener
+    _status_listener = fn
+
+
+def set_upload_store(store) -> None:
+    global _upload_store
+    _upload_store = store
+
+
+def _notify_status() -> None:
+    fn = _status_listener
+    if fn is None:
+        return
+    try:
+        fn()
+    except Exception as e:  # noqa: BLE001
+        log.debug(f"[extension] status listener: {type(e).__name__}")
 
 
 _agent_loop = None  # event loop основного агента
@@ -141,12 +168,31 @@ def run_forever(start=None, sleep=time.sleep, logger=None):
         fails += 1
 
 
-async def send_command(action: str, arg: str = "", timeout: float = 8.0) -> dict:
+async def _send_json(ws, payload: dict) -> None:
+    """Запись в сокет расширения. Сокет живёт в цикле потока сервера, а команды идут из цикла
+    агента — запись переносится в цикл сервера (транспорт asyncio не потокобезопасен)."""
+    data = json.dumps(payload, ensure_ascii=False)
+    srv = _server_loop
+    if srv is not None and srv is not asyncio.get_running_loop() and srv.is_running():
+        await asyncio.wrap_future(asyncio.run_coroutine_threadsafe(ws.send(data), srv))
+    else:
+        await ws.send(data)
+
+
+def _resolve(fut, result) -> None:
+    if not fut.done():
+        fut.set_result(result)
+
+
+async def send_command(action: str, arg: str = "", timeout: float = 8.0, args: dict | None = None) -> dict:
     """
     Отправляет команду расширению и ждёт результата.
     Поддерживает все команды: tabs, navigation, bookmarks, history, youtube, forms, etc.
+    args — аргументы действий агента браузера (tabs.*, agent_window.*, page.*).
+    Произвольный JS (js_exec) отсюда не отправляется: в реестре команд его нет.
     """
-    if not _extension_ws:
+    ws = _extension_ws
+    if not ws:
         return {"ok": False, "error": "Расширение не подключено"}
 
     import uuid
@@ -155,12 +201,11 @@ async def send_command(action: str, arg: str = "", timeout: float = 8.0) -> dict
     fut    = loop.create_future()
     _pending[cmd_id] = fut
 
+    payload = {"id": cmd_id, "action": action, "arg": arg}
+    if args is not None:
+        payload["args"] = args
     try:
-        await _extension_ws.send(json.dumps({
-            "id":     cmd_id,
-            "action": action,
-            "arg":    arg,
-        }))
+        await _send_json(ws, payload)
         result = await asyncio.wait_for(fut, timeout=timeout)
         return result
     except asyncio.TimeoutError:
@@ -171,35 +216,29 @@ async def send_command(action: str, arg: str = "", timeout: float = 8.0) -> dict
         return {"ok": False, "error": str(e)}
 
 
-async def send_command_with_code(action: str, code: str = "", timeout: float = 8.0) -> dict:
-    """Отправляет команду с произвольным JS кодом."""
-    if not _extension_ws:
-        return {"ok": False, "error": "Расширение не подключено"}
-
-    import uuid
-    cmd_id = str(uuid.uuid4())[:8]
-    loop   = asyncio.get_running_loop()
-    fut    = loop.create_future()
-    _pending[cmd_id] = fut
-
+async def _serve_upload(websocket, msg: dict) -> None:
+    """upload_fetch {id, file_token} → upload_data {id, ok, name, mime, data_b64 | error}.
+    В журнал — только размер, без имени и содержимого файла."""
+    reply = {"type": "upload_data", "id": msg.get("id")}
+    store = _upload_store
+    if store is None:
+        reply.update(ok=False, error="загрузка файлов не настроена")
+    else:
+        try:
+            item = await asyncio.to_thread(store.take, str(msg.get("file_token") or ""))
+            reply.update(ok=True, **item)
+            log.info("[extension] upload_fetch: %d байт", item.get("size", 0))
+        except Exception as e:  # noqa: BLE001 — текст UploadError без пути; прочее — общий отказ
+            reply.update(ok=False, error=str(e) if type(e).__name__ == "UploadError" else "файл не прочитан")
+            log.info("[extension] upload_fetch: отказ")
     try:
-        await _extension_ws.send(json.dumps({
-            "id":   cmd_id,
-            "action": action,
-            "code": code,
-        }))
-        result = await asyncio.wait_for(fut, timeout=timeout)
-        return result
-    except asyncio.TimeoutError:
-        _pending.pop(cmd_id, None)
-        return {"ok": False, "error": "Тайм-аут расширения"}
-    except Exception as e:
-        _pending.pop(cmd_id, None)
-        return {"ok": False, "error": str(e)}
+        await websocket.send(json.dumps(reply, ensure_ascii=False))
+    except Exception:
+        pass
 
 
 async def _handler(websocket):
-    global _extension_ws, _last_activity
+    global _extension_ws, _last_activity, _extension_version, _extension_id, _server_loop
 
     # Если уже есть живое соединение — закрываем новое
     if _extension_ws is not None:
@@ -228,8 +267,12 @@ async def _handler(websocket):
         return
 
     _extension_ws = websocket
+    _server_loop = asyncio.get_running_loop()
+    _extension_id = origin.removeprefix("chrome-extension://")
+    _extension_version = None
     _last_activity = asyncio.get_running_loop().time()
     log.info("[extension] Расширение подключено")
+    _notify_status()
 
     try:
         async for raw in websocket:
@@ -242,7 +285,13 @@ async def _handler(websocket):
             msg_type = msg.get("type", "")
 
             if msg_type == "extension_ready":
+                _extension_version = str(msg.get("version") or "")[:20] or None
                 log.info(f"[extension] Готово, версия {msg.get('version', '?')}")
+                _notify_status()
+                continue
+
+            if msg_type == "upload_fetch":
+                asyncio.ensure_future(_serve_upload(websocket, msg))
                 continue
 
             if msg_type == "extension_result":
@@ -250,12 +299,12 @@ async def _handler(websocket):
                 if cmd_id and cmd_id in _pending:
                     fut = _pending.pop(cmd_id)
                     result = msg.get("result", {})
-                    if _agent_loop and not fut.done():
-                        _agent_loop.call_soon_threadsafe(
-                            fut.set_result, result
-                        )
-                    elif not fut.done():
-                        fut.set_result(result)
+                    # Будущее создано в цикле вызывающего (обычно агента) — разрешаем там же.
+                    fut_loop = fut.get_loop()
+                    if fut_loop is not asyncio.get_running_loop():
+                        fut_loop.call_soon_threadsafe(_resolve, fut, result)
+                    else:
+                        _resolve(fut, result)
                 continue
 
     except Exception as e:
@@ -263,7 +312,9 @@ async def _handler(websocket):
     finally:
         if _extension_ws is websocket:
             _extension_ws = None
+            _extension_version = None
         log.info("[extension] Расширение отключено")
+        _notify_status()
 
 
 async def start():

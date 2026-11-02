@@ -158,3 +158,44 @@ PROTOCOL.md и THREAT_MODEL.md; клиент сделан по специфик�
 - Тесты: `desktop/tests/test_vision_capture.py` (33) — приватное окно не снимается (мутация «проверка после снятия» роняет 10 тестов), разрешение, отпечаток, чёрный экран, лимит размера, кадр не в логах, ответ ядра на сбой; vitest `VisionSection.test.tsx` (2).
 - Прогон в среде разработки: PyPI и npm закрыты — pytest с заглушками (`sounddevice`, `websockets`): +35 прохождений, падения окружения идентичны до/после; ruff `desktop` — чисто. tsc/eslint/vitest — **в desktop-ci** (draft PR).
 - Живая проверка на ПК (по регламенту): «глянь на экран» → ответ; KeePass/инкогнито на переднем плане → «Это окно приватное», в журнале нет «кадр … КиБ»; галка «Поглядывать» выкл. → `disabled`.
+
+
+## Browser agent — расширение 3.2.0 и desktop core (26.10, ветка feat/browser-agent)
+- Коммиты: иконки + .gitignore (5464664); расширение 3.2.0 (36b3c0b); desktop core и интерфейс — следующий коммит.
+- Расширение: tabs.*/agent_window.* по id, page.observe/act/forms/questions/fill_form/upload/shot/scroll, ref «f<кадр>:e<n>», stale без действия, changed ≤ 80; eval только в js_exec за ALLOW_JS_EXEC=false (DECISIONS №73–75, №78).
+- Ядро: desktop/core/browser_agent.py (цикл browser.do → browser_step, wait/paused/cancel, восстановление после обрыва WS и выгрузки service worker), upload_store.py (токены только для BROWSER_UPLOAD_DIR), транзит ext:<действие> в browser.py и command_packs/browser, extension_server: args, upload_fetch, версия и ID (DECISIONS №76–77).
+- Интерфейс: Настройки → «Расширение браузера» — версия, ID подключённого расширения, закрепление SAKURA_EXTENSION_ID, папка загрузок; баннер задачи в браузере с «Готово» на паузе.
+- Проверки: pytest 777 passed, 40 skipped (desktop/.venv); ruff — чисто; vitest 168/168 (ui) + 67/67 (расширение, jsdom); tsc (оба проекта), eslint — чисто.
+- Живые проверки (Opera GX 137.0.6036.65, Chromium 153; отдельный экземпляр с временным профилем и --load-extension, временное «ядро» на 8768; Opera и ядро Мастера не тронуты — расширение Мастера осталось подключено к 8766):
+  а) загрузка 3.2.0 — **без ошибок**: manifest и importScripts(lib/capture.js, lib/agent.js) загружены, extension_ready 3.2.0. Найдено и исправлено в 3.2.0: VS Code на 8767 принимал TCP и молчал — сокет навсегда оставался CONNECTING (так было и в 3.1.0), теперь срок рукопожатия 2 с; Opera кладёт в новое окно стартовую вкладку GX Corner первой и активной (снимок и кадр давали «extensions gallery cannot be scripted») и игнорирует focused:false.
+  б) захват неактивного окна агента — **работает**: окно агента без фокуса (фокус у окна пользователя), page.shot по window_id → 1232x823, JPEG q60, 45 КБ, на кадре страница (проверено глазами, кадр удалён); annotated и crop_ref — тоже; неактивная вкладка → unsupported, вкладка не активирована. page.observe → ref f0:e1, действие по свежему снимку — done с новым snapshot_id, по прошлому — stale; js_exec → отказ.
+  Не проверялось вживую: полный цикл с сервером (серверной части browser_step ещё нет), капча и формы на реальных сайтах.
+
+## Browser agent — сверка с сервером (27.10, ветка feat/browser-agent)
+- Сверка со схемой инструментов server/browser-step (8fa145c; в задаче указан 057373f — это база feat/desktop-rewrite): аргументы навигатора не совпадали с расширением 3.2.0. Перевод — desktop/core/browser_adapter.py (DECISIONS №79): page_act, page_fill_form (+submit_ref), page_scroll, page_shot, page_upload; snapshot_id из последнего observation; вопросы — в last_result.questions в форме решателя сервера.
+- browser.do resume: пауза — продолжение; задачи нет (перезапуск ядра) — цикл с тем же task_id, step 0, первым page.observe. BROWSER_STEP_TIMEOUT = 360 с.
+- content.js: type/invalid/error у полей ввода, dy ±1 — экран вверх/вниз; ref из page.forms/page.questions живут в следующих снимках (DECISIONS №80 — сверх рамок задачи, отмечено).
+- Контрактный тест desktop/tests/test_browser_adapter.py + fixtures/server_tools.json: все tool и значения enum → существующие действия расширения с обязательными аргументами.
+- Проверки: pytest 840 passed, 40 skipped; ruff — чисто; vitest 168/168 (ui) + 72/72 (расширение); tsc, eslint — чисто.
+- Не сделано: заполнение «порядка вариантов» (order) и вопросы на сопоставление (match) решателем сервера — у решателя нет формы для нескольких select в одном вопросе; живой прогон с сервером — серверная ветка ещё не выкачена.
+
+## Browser agent — схема сервера и пары match/order (27.10, ветка feat/browser-agent)
+- desktop/tests/fixtures/server_tools.json — точная копия выгрузки server/browser-step 9481b12 (blob 6a0704a, `sakura.browser_tools/1`); обновление одной командой: `desktop/scripts/sync_server_tools.ps1` (или `.sh`), оба проверены — blob совпал (DECISIONS №81).
+- Контрактный тест на этом формате: каждый tool и значение enum, а также server_args (page_shot.q_index) → существующее действие расширения; незнакомый format — падение. q_index из server_args даёт кадр question с номером (pytest цикла).
+- page.questions: match и order — rows [{row_ref, text}] и общий options; page.fill_form: pairs {row_ref, option_text} — select в строке по тексту, порядок перетаскиванием (DnD, затем pointer по bbox) с проверкой по DOM, отказ страницы — unsupported (DECISIONS №82).
+- Фикстура desktop/tests/fixtures/extension/moodle_match_order.html: сопоставление (select в строках), порядок списками номеров, список qtype_ordering; vitest — DnD-страница, pointer-страница (место по координатам), страница без обработчиков → unsupported, stale строки.
+- Проверки: pytest 855 passed, 40 skipped; ruff — чисто; vitest 168/168 (ui) + 83/83 (расширение); tsc, eslint — чисто.
+- Не проверено: перетаскивание на настоящем Moodle (qtype_ordering) — синтетические события isTrusted=false, библиотека может их не принять (тогда unsupported); формат pairs в выгрузке сервера пока отсутствует — при его появлении sync_server_tools и контрактный тест покажут расхождение.
+
+## Browser agent — синхронизация схемы и стенд сквозного прогона (28.10, ветка feat/browser-agent)
+- Часть A (2d8ca0d): fixtures/server_tools.json ← server/browser-step fd604e9 (blob 4c0ab5e, fields[].pairs; в 1b9a71d схема не менялась). `_sample` в контрактном тесте: массив объектов — всегда хотя бы один элемент (base из обязательных свойств, дополненный необязательными; нет необязательных — [base]), рекурсивно; явный тест «поле fill_form только с ref → AdapterError error». Адаптер и расширение не менялись.
+- Стенд desktop/tests/e2e/site (02d3e74): form.html, quiz.html (7 вопросов, 2 страницы, ?captcha=1), result.html, answers.json, README запуска; stand.test.js — content.js на страницах стенда в jsdom.
+- Предпроверка стенда в Chromium (Opera GX 138 / Chromium 154, отдельный экземпляр с временным профилем, content.js в странице по CDP, без сервера и ядра): анкета — ошибка email на первой отправке, со второй принята, значения = эталон; тест — виды вопросов single/multi/text/single+media и match/order/order, ответы по эталону 7 из 7, **перетаскивание (order без select) работает** — синтетический HTML5 DnD принят обработчиками стенда; капча обнаруживается и уходит после «Я не робот». Профиль удалён, Opera Мастера не тронута.
+- Часть B (живой прогон с сервером) не начата: ждёт адрес тестового инстанса от серверного агента.
+
+## Интеграция: зрение + агент браузера (2026-11-02, ветка feat/client-browser → feat/vision-client)
+- feat/browser-agent (расширение 3.2.0, desktop/core/browser_agent.py, адаптер, стенд e2e) влит поверх feat/vision-client; конфликты только в документах.
+- Схема инструментов desktop/tests/fixtures/server_tools.json совпадает с сервером (feat/browser-integration).
+- Opera GX: путь к opera.exe ищется (DECISIONS №83), tests/test_opera_path.py.
+- Проверки (среда разработки, заглушки зависимостей): pytest 920+ passed, новых падений против обеих веток нет; агент браузера — 114 passed; JS расширения — `node --check`. vitest не запускался (npm недоступен) — прогнать на ПК: `cd desktop/ui; npx vitest run -c vitest.extension.config.ts`.
+

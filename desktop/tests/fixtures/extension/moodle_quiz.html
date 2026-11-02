@@ -1,0 +1,60 @@
+<!-- Moodle-подобная разметка теста (quiz attempt): структура классов как в Moodle 4.x. -->
+<div id="page">
+  <div id="quiz-timer-wrapper"><div id="quiz-timer" role="timer">Оставшееся время <span id="quiz-time-left">0:14:32</span></div></div>
+  <form id="responseform" action="https://lms.example.edu/mod/quiz/processattempt.php" method="post">
+    <input type="hidden" name="sesskey" value="abc">
+
+    <div id="question-5-1" class="que multichoice deferredfeedback notyetanswered">
+      <div class="info"><h3 class="no">Вопрос <span class="qno">1</span></h3><div class="state">Пока нет ответа</div></div>
+      <div class="content"><div class="formulation clearfix">
+        <h4 class="accesshide">Текст вопроса</h4>
+        <input type="hidden" name="q5:1_:sequencecheck" value="1">
+        <div class="qtext"><p>Какая фигура изображена на рисунке?</p><p><img src="https://lms.example.edu/pluginfile.php/fig1.png" width="320" height="200" alt="рисунок"></p></div>
+        <fieldset class="ablock no-overflow">
+          <legend class="prompt sr-only">Выберите один ответ:</legend>
+          <div class="answer">
+            <div class="r0"><input type="radio" name="q5:1_answer" value="0" id="q5:1_answer0" aria-labelledby="q5:1_answer0_label"><div id="q5:1_answer0_label" data-region="answer-label"><span class="answernumber">a. </span><div class="flex-fill">Круг</div></div></div>
+            <div class="r1"><input type="radio" name="q5:1_answer" value="1" id="q5:1_answer1" aria-labelledby="q5:1_answer1_label"><div id="q5:1_answer1_label" data-region="answer-label"><span class="answernumber">b. </span><div class="flex-fill">Треугольник</div></div></div>
+            <div class="r0"><input type="radio" name="q5:1_answer" value="2" id="q5:1_answer2" aria-labelledby="q5:1_answer2_label"><div id="q5:1_answer2_label" data-region="answer-label"><span class="answernumber">c. </span><div class="flex-fill">Квадрат</div></div></div>
+          </div>
+        </fieldset>
+      </div></div>
+    </div>
+
+    <div id="question-5-2" class="que multichoice deferredfeedback notyetanswered">
+      <div class="info"><h3 class="no">Вопрос <span class="qno">2</span></h3></div>
+      <div class="content"><div class="formulation clearfix">
+        <div class="qtext"><p>Выберите простые числа.</p></div>
+        <fieldset class="ablock no-overflow">
+          <legend class="prompt sr-only">Выберите один или несколько ответов:</legend>
+          <div class="answer">
+            <div class="r0"><input type="hidden" name="q5:2_choice0" value="0"><input type="checkbox" name="q5:2_choice0" value="1" id="q5:2_choice0" aria-labelledby="q5:2_choice0_label"><div id="q5:2_choice0_label" data-region="answer-label"><span class="answernumber">a. </span><div class="flex-fill">2</div></div></div>
+            <div class="r1"><input type="hidden" name="q5:2_choice1" value="0"><input type="checkbox" name="q5:2_choice1" value="1" id="q5:2_choice1" aria-labelledby="q5:2_choice1_label"><div id="q5:2_choice1_label" data-region="answer-label"><span class="answernumber">b. </span><div class="flex-fill">4</div></div></div>
+            <div class="r0"><input type="hidden" name="q5:2_choice2" value="0"><input type="checkbox" name="q5:2_choice2" value="1" id="q5:2_choice2" aria-labelledby="q5:2_choice2_label"><div id="q5:2_choice2_label" data-region="answer-label"><span class="answernumber">c. </span><div class="flex-fill">7</div></div></div>
+          </div>
+        </fieldset>
+      </div></div>
+    </div>
+
+    <div id="question-5-3" class="que shortanswer deferredfeedback notyetanswered">
+      <div class="info"><h3 class="no">Вопрос <span class="qno">3</span></h3></div>
+      <div class="content"><div class="formulation clearfix">
+        <div class="qtext"><p>Столица Франции?</p></div>
+        <div class="ablock form-inline"><label for="q5:3_answer">Ответ:</label><span class="answer"><input type="text" name="q5:3_answer" id="q5:3_answer" size="30" class="form-control"></span></div>
+      </div></div>
+    </div>
+
+    <div id="question-5-4" class="que match deferredfeedback notyetanswered">
+      <div class="info"><h3 class="no">Вопрос <span class="qno">4</span></h3></div>
+      <div class="content"><div class="formulation clearfix">
+        <div class="qtext"><p>Сопоставьте страны и столицы.</p></div>
+        <table class="answer"><tbody>
+          <tr class="r0"><td class="text"><p>Италия</p></td><td class="control"><label class="sr-only" for="menuq5:4_sub0">Ответ 1</label><select id="menuq5:4_sub0" name="q5:4_sub0"><option value="0">Выбрать...</option><option value="1">Рим</option><option value="2">Мадрид</option></select></td></tr>
+          <tr class="r1"><td class="text"><p>Испания</p></td><td class="control"><label class="sr-only" for="menuq5:4_sub1">Ответ 2</label><select id="menuq5:4_sub1" name="q5:4_sub1"><option value="0">Выбрать...</option><option value="1">Рим</option><option value="2">Мадрид</option></select></td></tr>
+        </tbody></table>
+      </div></div>
+    </div>
+
+    <div class="submitbtns"><input type="submit" name="next" value="Следующая страница" class="mod_quiz-next-nav btn btn-primary"></div>
+  </form>
+</div>

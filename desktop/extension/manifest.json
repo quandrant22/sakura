@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Sakura Extension",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "Полное управление браузером через Сакуру",
 
   "permissions": [
@@ -28,6 +28,7 @@
     {
       "matches": ["<all_urls>"],
       "js": ["content.js"],
+      "all_frames": true,
       "run_at": "document_idle"
     }
   ],

@@ -15,6 +15,7 @@ core/browser.py — управление Opera GX и Яндекс Музыкой
 import asyncio
 import ctypes
 import logging
+import os
 import subprocess
 import time
 import webbrowser
@@ -25,7 +26,24 @@ log = logging.getLogger("sakura.browser")
 OPERA_TITLES     = ("Opera GX", "Opera", "opera")
 YANDEX_MUSIC_URL = "https://music.yandex.ru"
 YANDEX_UID       = "adebtrern"
-OPERA_EXE        = r"C:\Users\mgrah\AppData\Local\Programs\Opera GX\opera.exe"
+_OPERA_LEGACY    = r"C:\Users\mgrah\AppData\Local\Programs\Opera GX\opera.exe"
+
+
+def find_opera_exe(env: dict | None = None, exists=os.path.isfile) -> str:
+    """OPERA_EXE из окружения → %LOCALAPPDATA%\\Programs\\Opera GX → прежний путь."""
+    env = os.environ if env is None else env
+    candidates = [env.get("OPERA_EXE", "").strip()]
+    local = env.get("LOCALAPPDATA", "").strip()
+    if local:
+        candidates.append(os.path.join(local, "Programs", "Opera GX", "opera.exe"))
+    candidates.append(_OPERA_LEGACY)
+    for c in candidates:
+        if c and exists(c):
+            return c
+    return next((c for c in candidates if c), _OPERA_LEGACY)
+
+
+OPERA_EXE        = find_opera_exe()
 
 try:
     import win32api
@@ -338,6 +356,39 @@ def youtube_player_cmd(action: str) -> dict:
         return R.failed("клавиатура недоступна")
     pyautogui.press(key)
     return R.done("пауза/воспроизведение на YouTube")
+
+
+# ── Агент браузера (расширение 3.2.0): транзит действий ──────────────
+# Действия по tab_id/window_id и page.* — аргументы словарём (args), ответ расширения
+# {ok, status: done|stale|not_found|unsupported|error, detail, data?, observe?}.
+EXT_AGENT_ACTIONS = frozenset({
+    "tabs.list", "tabs.activate", "tabs.close", "tabs.reload", "tabs.mute", "tabs.pin", "tabs.move", "tabs.new",
+    "agent_window.open", "agent_window.close",
+    "page.observe", "page.act", "page.forms", "page.questions", "page.fill_form", "page.upload",
+    "page.shot", "page.scroll",
+})
+_EXT_STATUS = {"done": "done", "unsupported": "unsupported", "not_found": "failed", "stale": "failed",
+               "error": "failed"}
+
+
+async def ext_agent_action(action: str, args: dict | None = None, timeout: float = 30.0) -> tuple[dict, dict]:
+    """Действие агента браузера через расширение → (результат команды {ok, status, detail}, ответ расширения).
+
+    Статусы расширения сводятся к контракту команды (desktop.core.results): stale/not_found/error → failed.
+    """
+    import sys
+
+    from desktop.core import results as R
+    if action not in EXT_AGENT_ACTIONS:
+        return R.unsupported(f"неизвестное действие браузера: {action}"), {}
+    ext = sys.modules.get("desktop.core.extension_server")
+    if ext is None or not ext.is_connected():
+        return R.unsupported("расширение браузера не подключено"), {}
+    raw = await ext.send_command(action, "", timeout=timeout, args=args or {})
+    if not isinstance(raw, dict) or raw.get("status") not in _EXT_STATUS:
+        detail = raw.get("error") if isinstance(raw, dict) else ""
+        return R.failed(str(detail or "нет ответа расширения")), raw if isinstance(raw, dict) else {}
+    return R.result(_EXT_STATUS[raw["status"]], str(raw.get("detail") or raw["status"])), raw
 
 
 def music_open_and_find(query: str) -> str:

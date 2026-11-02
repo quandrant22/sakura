@@ -1,0 +1,41 @@
+<!-- Формы: обычная форма, поля вне <form> (псевдоформа), ошибки валидации. -->
+<form id="signup" action="https://accounts.example.com/register" method="post">
+  <label for="fullname">Имя и фамилия</label>
+  <input id="fullname" name="fullname" autocomplete="name" required>
+
+  <span id="email-label">Электронная почта</span>
+  <input id="email" name="email" type="email" aria-labelledby="email-label" aria-invalid="true" aria-describedby="email-err" value="not-an-email">
+  <div id="email-err" class="invalid-feedback">Введите корректный адрес почты</div>
+
+  <div class="form-group">
+    <input id="phone" name="phone" type="tel" placeholder="Телефон" required>
+    <div class="error">Телефон обязателен</div>
+  </div>
+
+  <label for="city">Город</label>
+  <select id="city" name="city">
+    <option value="">— выберите —</option>
+    <option value="msk">Москва</option>
+    <option value="spb">Санкт-Петербург</option>
+  </select>
+
+  <fieldset>
+    <legend>Пол</legend>
+    <label><input type="radio" name="sex" value="m"> Мужской</label>
+    <label><input type="radio" name="sex" value="f"> Женский</label>
+  </fieldset>
+
+  <label><input type="checkbox" name="agree" id="agree" required> Согласен с правилами</label>
+  <input type="password" name="pwd" id="pwd" value="secret-value" aria-label="Пароль">
+  <input type="hidden" name="csrf" value="zzz">
+  <textarea name="about" id="about" aria-label="О себе"></textarea>
+
+  <button type="submit">Зарегистрироваться</button>
+  <button type="button">Отмена</button>
+</form>
+
+<div id="newsletter">
+  <input id="nl-email" type="email" placeholder="Почта для рассылки">
+  <button id="nl-send" type="button">Отправить</button>
+  <a href="#">Подробнее</a>
+</div>

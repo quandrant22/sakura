@@ -84,17 +84,76 @@ export function LanguageSection() {
   );
 }
 
+/** Версия расширения в репозитории (desktop/extension/manifest.json). */
+export const EXTENSION_VERSION = "3.2.0";
+
+type ExtensionKey = "SAKURA_EXTENSION_ID" | "BROWSER_UPLOAD_DIR";
+
 export function ExtensionSection() {
+  const client = useMediaClient();
   const s = useApp((x) => x.settings);
+  const pinned = String(s?.extension_id ?? "");
+  const current = String(s?.extension_connected_id ?? "");
+  const version = String(s?.extension_version ?? "");
+  const savedDir = String(s?.browser_upload_dir ?? "");
+  // Черновики поверх сохранённых значений: null — поле не трогали, показываем то, что в ядре.
+  const [idDraft, setId] = useState<string | null>(null);
+  const [dirDraft, setDir] = useState<string | null>(null);
+  const id = idDraft ?? pinned;
+  const dir = dirDraft ?? savedDir;
+  const [msg, setMsg] = useState("");
+  const save = async (key: ExtensionKey, value: string, done: string) => {
+    try {
+      await client.call("extension_set", { key, value });
+      if (key === "SAKURA_EXTENSION_ID") setId(null); else setDir(null);
+      setMsg(done);
+    } catch (e) {
+      setMsg(errorText(e));
+    }
+  };
+  const pinState = !pinned ? "не закреплено — ядро примет любое расширение"
+    : !current ? "закреплено"
+    : pinned === current ? "закреплено: подключено именно это расширение"
+    : "закреплён другой ID — это расширение не будет принято после переподключения";
   return (
     <div className="px-4 pb-2">
-      <Row label="Расширение браузера" hint="Управление вкладками и YouTube">
+      <Row label="Расширение браузера" hint="Вкладки, YouTube и агент браузера">
         <span className={s?.extension_connected ? "text-online" : "text-warn"}>
           {s?.extension_connected ? "● подключено" : "○ не подключено"}</span>
+        <div className="mt-1 text-xs" aria-label="Версия расширения">
+          Версия: {version || "—"}
+          {version && version !== EXTENSION_VERSION && (
+            <span className="ml-2 text-warn">ожидается {EXTENSION_VERSION} — обновите распакованное расширение</span>)}
+        </div>
         <div className="mt-1 text-xs text-ink-dim">
-          Opera GX / Chrome: «Расширения» → режим разработчика → «Загрузить распакованное» → C:\sakura-dev\desktop\extension (версия 3.1.0)
+          Opera GX / Chrome: «Расширения» → режим разработчика → «Загрузить распакованное» → C:\sakura-dev\desktop\extension (версия {EXTENSION_VERSION})
         </div>
       </Row>
+      <Row label="ID расширения" hint="SAKURA_EXTENSION_ID: после загрузки закрепите ID — ядро будет принимать только это расширение">
+        <input aria-label="ID расширения" value={id} placeholder="32 буквы a–p" spellCheck={false}
+               onChange={(e) => setId(e.target.value.trim())} className={input + " w-full font-mono"} />
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button type="button" className={btn} disabled={id === pinned}
+                  onClick={() => void save("SAKURA_EXTENSION_ID", id, id ? "ID закреплён" : "Закрепление снято")}>Сохранить</button>
+          <button type="button" className={btn} disabled={!current || current === pinned}
+                  onClick={() => void save("SAKURA_EXTENSION_ID", current, "Закреплён ID подключённого расширения")}>
+            Закрепить подключённое</button>
+          <button type="button" className={btn} disabled={!pinned}
+                  onClick={() => void save("SAKURA_EXTENSION_ID", "", "Закрепление снято")}>Снять закрепление</button>
+        </div>
+        <div className="mt-1 text-xs text-ink-dim">
+          Подключено: <span className="font-mono">{current || "—"}</span> · {pinState}</div>
+      </Row>
+      <Row label="Папка для загрузок" hint="BROWSER_UPLOAD_DIR: агент браузера загружает на сайты только файлы из этой папки">
+        <input aria-label="Папка для загрузок" value={dir} placeholder="пусто — загрузка файлов выключена"
+               onChange={(e) => setDir(e.target.value)} className={input + " w-full"} />
+        <div className="mt-2 flex gap-2">
+          <button type="button" className={btn} disabled={dir.trim() === savedDir}
+                  onClick={() => void save("BROWSER_UPLOAD_DIR", dir.trim(), dir.trim() ? "Папка сохранена" : "Загрузка файлов выключена")}>
+            Сохранить</button>
+        </div>
+      </Row>
+      {msg && <div role="status" className="py-2 text-xs text-ink-dim">{msg}</div>}
     </div>
   );
 }

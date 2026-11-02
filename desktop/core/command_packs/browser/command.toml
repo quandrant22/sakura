@@ -175,3 +175,20 @@ patterns = ["(?:открой|перейди|зайди)\\s+(https?://\\S+|[\\w-]
 
 [commands.slots.url]
 entity = "url"
+
+[[commands]]
+id = "browser_tabs_list"
+type = "action"
+action = "ext"
+args = "tabs.list"
+priority = 10
+description = "List open browser tabs (extension 3.2.0, ext:tabs.list)"
+
+phrases.ru = [
+    "какие вкладки открыты",
+    "список вкладок",
+    "покажи открытые вкладки",
+]
+phrases.en = [
+    "list tabs",
+]

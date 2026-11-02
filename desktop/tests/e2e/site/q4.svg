@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="120" viewBox="0 0 360 120">
+  <rect width="360" height="120" rx="10" fill="#fff8e7" stroke="#d9a441" stroke-width="2"/>
+  <text x="180" y="52" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" fill="#333">Вопрос на картинке:</text>
+  <text x="180" y="88" text-anchor="middle" font-family="Arial, sans-serif" font-size="30" font-weight="bold" fill="#111">Сколько будет 7 × 6?</text>
+</svg>
