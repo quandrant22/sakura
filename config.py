@@ -214,6 +214,10 @@ BROWSER_NAV_THINKING = os.getenv("BROWSER_NAV_THINKING", "minimal").strip().lowe
 QUIZ_CROP = os.getenv("QUIZ_CROP", "media").strip().lower()
 # Температура первой попытки решателя; пусто — по умолчанию модели (Gemma 1.0).
 QUIZ_TEMPERATURE = (lambda v: float(v) if v else None)(os.getenv("QUIZ_TEMPERATURE", "").strip())
+# Потолок токенов первой попытки решателя. Замер 02.11 №5: 19 вопросов
+# зацикливались до 2048 (~40 с), обычный ответ — сотни токенов; обрыв раньше —
+# быстрее к повтору без рассуждения.
+QUIZ_MAX_TOKENS = max(256, int(os.getenv("QUIZ_MAX_TOKENS", "768")))
 # Сколько вопросов теста решать одновременно (каждый вызов — через лимитер квот).
 QUIZ_PARALLEL = max(1, int(os.getenv("QUIZ_PARALLEL", "3")))
 # Лимиты задачи; 0 — без лимита. Время считается без пауз (капча, квота);
