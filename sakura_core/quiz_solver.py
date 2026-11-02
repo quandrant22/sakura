@@ -282,7 +282,7 @@ async def solve(question: dict, crop: bytes | None = None, *, seconds_left=None,
         result = await generate_agent(
             parts + [T.Part(text=prompt)], chain=config.QUIZ_MODEL_CHAIN,
             response_mime_type="application/json", response_schema=_schema(reasoning=not retry),
-            max_tokens=512 if (short or retry) else 2048,
+            max_tokens=512 if (short or retry) else config.QUIZ_MAX_TOKENS,
             limiter=limiter, on_event=on_event, fast_failover=True, **extra)
         tokens += result.tokens
         obj = None

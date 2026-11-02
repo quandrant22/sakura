@@ -404,7 +404,7 @@ def test_solver_short_prompt_when_timer_low(monkeypatch):
     asyncio.run(qs.solve(q, seconds_left=300))
     short, full = f.calls[0], f.calls[1]
     assert qs.STYLE_SHORT in short[0][-1].text and short[1]["max_tokens"] == 512
-    assert qs.STYLE_FULL in full[0][-1].text and full[1]["max_tokens"] == 2048
+    assert qs.STYLE_FULL in full[0][-1].text and full[1]["max_tokens"] == config.QUIZ_MAX_TOKENS == 768
 
 
 def test_verify_checked_and_value():
