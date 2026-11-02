@@ -135,3 +135,10 @@ golden, промпта — зелёные. **Перед выкатом: полн
 - Установка: `deploy/searxng/` (compose, settings.yml), `scripts/install_searxng.sh`; в `.env`: `SEARXNG_URL=http://127.0.0.1:8888`.
 - Тесты: +6 в `tests/test_search.py` (разбор ответа, слияние, включение, отказ поставщика, параллельные запросы).
 - Живой запуск контейнера — на VPS (в среде разработки нет Docker-демона).
+
+## Агент браузера влит (feat/browser-integration, 2026-11-02)
+
+- server/browser-step влит поверх зрения и поиска; конфликты — config.py, DECISIONS, счётчики реестра (126 деклараций, vps 31).
+- Выключен до `BROWSER_AGENT=1`. Клиентская часть (расширение 3.2.0) — в feat/vision-client.
+- Регрессия на заглушках (genai.types теперь записи): master 102 падения окружения = после слияния 102; тесты агента 240 passed.
+- После проверки на проде убрать тестовые инстансы `sakura-test`/`sakura-test2` (8767/8768, `PRIVATE_REQUIRES_SECURE=0`) и временные правила ufw.
