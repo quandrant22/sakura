@@ -499,13 +499,15 @@ async def generate_raw(model: str, contents, *, api_key: str | None = None,
     if not key:
         raise RuntimeError("нет активного ключа Gemini")
     client = get_client(key)
-
-    def _invoke():
-        from google.genai import types as _t
-        return client.models.generate_content(
-            model=model, contents=contents, config=_t.GenerateContentConfig(**cfg))
-
-    return await asyncio.wait_for(asyncio.to_thread(_invoke), timeout=timeout)
+    from google.genai import types as _t
+    # Асинхронный клиент: таймаут отменяет сам HTTP-запрос. Прежний
+    # to_thread + wait_for оставлял поток висеть на сети — зависшие вызовы
+    # (кадры Gemma) занимали пул, и очередь за ними тоже упиралась в 120 с
+    # (замер решателя 02.11: p50 вызова = 120,0 с).
+    return await asyncio.wait_for(
+        client.aio.models.generate_content(
+            model=model, contents=contents, config=_t.GenerateContentConfig(**cfg)),
+        timeout=timeout)
 
 
 # ── Вызовы browser agent: квоты Gemma и 429 (S2/S3) ──────────────────────

@@ -128,7 +128,7 @@ def test_run_with_fake_solver_counts_everything(bank):
         if item["id"] == "mat-11":
             return {"answer": {"text": "50"}, "model": "m", "tokens": 10}       # ловушка: неверно
         if item["id"] == "mat-15":
-            raise RuntimeError("модель упала")
+            raise qs.SolveError("нет годного ответа", raw={"text": ""})
         return {"answer": perfect(item, q), "model": "m", "tokens": 10}
 
     results = run(qe.run(items, parallel=3, solve=solve))
@@ -137,9 +137,11 @@ def test_run_with_fake_solver_counts_everything(bank):
     assert rep["errors"] == 1
     assert rep["accuracy"] == pytest.approx((len(items) - 2) / len(items), abs=1e-3)
     assert {w["id"] for w in rep["wrong"]} == {"mat-11", "mat-15"}
+    broken = next(r for r in results if r.id == "mat-15")
+    assert broken.error.startswith("SolveError: нет годного") and "сырой ответ" in broken.got
     assert rep["call_seconds"]["p50"] == 1.5
     assert rep["by_cat"]["match"]["acc"] == 1.0
-    assert all(crop for idx, crop in calls if items[idx - 1]["kind"] == "match")
+    assert not any(crop for _idx, crop in calls)          # кадр только к вопросам с картинкой
     md = qe.to_markdown(rep)
     assert "Точность" in md and "mat-11" in md
     json.dumps(rep, ensure_ascii=False)                                        # сериализуется

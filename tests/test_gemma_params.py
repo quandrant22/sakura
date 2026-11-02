@@ -83,3 +83,31 @@ def test_generate_agent_thinking_level(monkeypatch):
     assert got[0]["thinking_config"].thinking_budget is None
     assert str(got[0]["thinking_config"].thinking_level).lower().endswith("minimal")
     assert "thinking_config" not in got[1]
+
+
+def test_generate_raw_timeout_cancels_request(monkeypatch):
+    """Таймаут отменяет сам запрос (async-клиент), поток не остаётся висеть."""
+    import asyncio
+    import types as _types
+
+    state = {"cancelled": False, "config": None}
+
+    async def generate_content(*, model, contents, config):
+        state["config"] = config
+        try:
+            await asyncio.sleep(10)
+        except asyncio.CancelledError:
+            state["cancelled"] = True
+            raise
+
+    client = _types.SimpleNamespace(aio=_types.SimpleNamespace(
+        models=_types.SimpleNamespace(generate_content=generate_content)))
+    monkeypatch.setattr(llm, "_initial_key", lambda k=None: "k")
+    monkeypatch.setattr(llm, "get_client", lambda key: client)
+    try:
+        asyncio.run(llm.generate_raw("gemma-4-31b-it", ["q"], timeout=0.05, max_output_tokens=10))
+    except asyncio.TimeoutError:
+        pass
+    else:
+        raise AssertionError("ожидался таймаут")
+    assert state["cancelled"]
