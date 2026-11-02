@@ -138,3 +138,4 @@ memory/chat.db
 memory/chat.db-*
 memory/profile_v2.json
 memory/scenarios.json
+data/quiz_eval/
