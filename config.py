@@ -202,9 +202,10 @@ def _gemma_only(name, chain):
 
 BROWSER_MODEL_CHAIN = _gemma_only("BROWSER_MODEL_CHAIN", _parse_model_chain(
     "BROWSER_MODEL_CHAIN", ("gemma-4-26b-a4b-it", "gemma-4-31b-it")))
-# Решатель: 31b, при сбое/квоте — 26b (у 31b 2/10 запросов без ответа и после повторов).
+# Решатель: 26b, при сбое/квоте — 31b. Замер 02.11 (97 вопросов, 2 прогона):
+# 26b — 2–4 с на вопрос и без ошибок, 31b — 10–110 с при той же точности.
 QUIZ_MODEL_CHAIN = _gemma_only("QUIZ_MODEL_CHAIN", _parse_model_chain(
-    "QUIZ_MODEL_CHAIN", ("gemma-4-31b-it", "gemma-4-26b-a4b-it")))
+    "QUIZ_MODEL_CHAIN", ("gemma-4-26b-a4b-it", "gemma-4-31b-it")))
 # Мысли навигатора: thinking_level для Gemma 4 (minimal — почти без мыслей,
 # быстрее); пусто — по умолчанию модели. Решатель думает по умолчанию.
 BROWSER_NAV_THINKING = os.getenv("BROWSER_NAV_THINKING", "minimal").strip().lower()

@@ -209,7 +209,7 @@ def test_quota_wait_reaches_desktop_and_step_is_not_counted_twice(env, fake):
 
 def test_agent_chains_are_gemma_only():
     assert config.BROWSER_MODEL_CHAIN == ("gemma-4-26b-a4b-it", "gemma-4-31b-it")
-    assert config.QUIZ_MODEL_CHAIN == ("gemma-4-31b-it", "gemma-4-26b-a4b-it")
+    assert config.QUIZ_MODEL_CHAIN == ("gemma-4-26b-a4b-it", "gemma-4-31b-it")
     assert config._gemma_only("X", ("gemma-4-31b-it", "gemini-3.5-flash-lite")) == ("gemma-4-31b-it",)
 
 
@@ -820,10 +820,12 @@ def test_quiz_parallel_batches_of_three(env, fake, monkeypatch):
 
 
 def test_quiz_parallel_respects_limiter(env, fake, monkeypatch):
-    """RPM 2: третий вопрос пакета ждёт квоту (status wait), решённые не перерешиваются."""
+    """RPM 1 на модель: первый вопрос — 26b, второй — сразу 31b (быстрое
+    переключение, у неё своя квота), третьему квоты нет ни у одной — status
+    wait; решённые не перерешиваются."""
     monkeypatch.setattr(llm, "generate_agent", ORIGINAL_GENERATE_AGENT)
     clock = Clock()
-    lim = rl.RateLimiter(rpm=2, rpd=1000, path=None, clock=clock)
+    lim = rl.RateLimiter(rpm=1, rpd=1000, path=None, clock=clock)
     monkeypatch.setattr(rl, "_limiter", lim)
     state = _quiz_raw(monkeypatch, delay=0)
     task = new_task("тест")
@@ -833,14 +835,15 @@ def test_quiz_parallel_respects_limiter(env, fake, monkeypatch):
     async def run():
         res = {**OK, "detail": {"questions": _single_questions(3)}}
         waited = await desk.step(observation=quiz_obs(), last_result=res, step=1)
-        clock.t += 30                                   # токен вернулся
+        clock.t += 60                                   # токен вернулся
         filled = await desk.step(observation=quiz_obs(), last_result=res, step=1)
         return waited, filled
     waited, filled = asyncio.run(run())
-    assert waited["status"] == "wait" and waited["retry_after"] == 30
+    assert waited["status"] == "wait" and waited["retry_after"] == 60
     assert state["calls"] == 3                          # 2 + 1, без повторов решённых
     assert len(filled["action"]["args"]["fields"]) == 3
-    assert lim.used("gemma-4-31b-it") == 3
+    assert lim.used("gemma-4-26b-a4b-it") + lim.used("gemma-4-31b-it") == 3
+    assert lim.used("gemma-4-31b-it") >= 1
 
 
 ORIGINAL_GENERATE_AGENT = llm.generate_agent
@@ -1048,14 +1051,14 @@ def test_solver_falls_back_to_26b(env, monkeypatch):
 
     async def raw(model, contents, timeout=None, **cfg):
         seen.append(model)
-        if model == "gemma-4-31b-it":
+        if model == "gemma-4-26b-a4b-it":
             raise Exhausted("429 RESOURCE_EXHAUSTED")
         return SimpleNamespace(text=json.dumps({"reasoning": "r", "answer": {"pairs": PAIRS_OK}}),
                                usage_metadata=None)
 
     monkeypatch.setattr(llm, "generate_raw", raw)
     res = asyncio.run(qs.solve(MATCH_Q))
-    assert seen == ["gemma-4-31b-it", "gemma-4-26b-a4b-it"] and res["model"] == "gemma-4-26b-a4b-it"
+    assert seen == ["gemma-4-26b-a4b-it", "gemma-4-31b-it"] and res["model"] == "gemma-4-31b-it"
 
 
 # ── замер 02.11: кадр только к вопросу с картинкой, ref по тексту варианта ──
