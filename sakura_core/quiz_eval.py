@@ -311,6 +311,9 @@ class Result:
     model: str = ""
     tokens: int = 0
     crop: bool = False
+    wait_seconds: float = 0.0            # ожидание лимитера квот внутри вызовов
+    call_errors: list = field(default_factory=list)     # коды неудачных вызовов (429, 500, …)
+    attempts: list = field(default_factory=list)        # [{n, ok, finish, error}]
     error: str = ""
     got: str = ""
     want: str = ""
@@ -330,6 +333,12 @@ async def solve_one(item: dict, index: int, *, crops: bool, limiter, solve=None,
     def on_event(kind, **data):
         if kind == "call":
             res.model_seconds.append(round(float(data.get("latency") or 0), 2))
+            if not data.get("ok"):
+                res.call_errors.append(str(data.get("code") or "?"))
+        elif kind == "wait":
+            res.wait_seconds = round(res.wait_seconds + float(data.get("seconds") or 0), 2)
+        elif kind == "attempt":
+            res.attempts.append({k: data.get(k) for k in ("n", "ok", "finish", "error")})
 
     started = time.monotonic()
     waited = 0.0
@@ -343,6 +352,7 @@ async def solve_one(item: dict, index: int, *, crops: bool, limiter, solve=None,
                 res.seconds = round(time.monotonic() - started, 2)
                 return res
             waited += e.retry_after
+            res.wait_seconds = round(res.wait_seconds + e.retry_after, 2)
             await sleep(e.retry_after)
         except ChainExhausted as e:
             res.error = f"chain_exhausted:{getattr(e, 'reason', '')}"
@@ -447,9 +457,34 @@ def summarize(results: list[Result], *, meta: dict | None = None, wall: float = 
         "wall_seconds": round(wall, 1),
         "tokens": sum(r.tokens for r in results),
         "models": models,
+        "timing": _timing(results),
         "wrong": [{"id": r.id, "want": r.want, "got": r.got, "error": r.error}
                   for r in results if not r.ok],
         "results": [asdict(r) for r in results],
+    }
+
+
+def _count(values) -> dict:
+    out: dict[str, int] = {}
+    for v in values:
+        out[str(v or "—")] = out.get(str(v or "—"), 0) + 1
+    return dict(sorted(out.items(), key=lambda kv: -kv[1]))
+
+
+def _timing(results: list[Result]) -> dict:
+    """Куда ушло время: генерация, ожидание квот, повторы и их причины."""
+    first_ok = sum(1 for r in results if r.attempts and r.attempts[0].get("ok"))
+    retry_ok = sum(1 for r in results if len(r.attempts) > 1 and r.attempts[-1].get("ok"))
+    failed = [a for r in results for a in r.attempts if not a.get("ok")]
+    return {
+        "model_seconds": round(sum(sum(r.model_seconds) for r in results), 1),
+        "wait_seconds": round(sum(r.wait_seconds for r in results), 1),
+        "question_seconds": round(sum(r.seconds for r in results), 1),
+        "first_attempt_ok": first_ok,
+        "retry_ok": retry_ok,
+        "failed_attempts_finish": _count(a.get("finish") for a in failed),
+        "failed_attempts_error": _count(a.get("error") for a in failed),
+        "call_errors": _count(c for r in results for c in r.call_errors),
     }
 
 
@@ -459,7 +494,7 @@ def to_markdown(rep: dict) -> str:
     lines = [
         f"# Замер решателя — {m.get('started', '')}",
         "",
-        f"Модели: {', '.join(m.get('chain') or [])} · параллельно {m.get('parallel')} · "
+        f"Модели: {', '.join(m.get('chain') or [])} · температура {m.get('temperature') if m.get('temperature') is not None else 'по умолчанию'} · параллельно {m.get('parallel')} · "
         f"кадры {'да' if m.get('crops') else 'нет'} · вопросов {rep['n']}",
         "",
         f"**Точность {rep['accuracy'] * 100:.1f}%** (частичные ответы: {rep['score'] * 100:.1f}%), "
@@ -468,6 +503,20 @@ def to_markdown(rep: dict) -> str:
         f"Вопрос: p50 {qs['p50']} с, p90 {qs['p90']} с, макс {qs['max']} с. "
         f"Вызов модели: p50 {cs['p50']} с, p90 {cs['p90']} с, макс {cs['max']} с ({cs['calls']} вызовов).",
         "",
+    ]
+    t = rep.get("timing")
+    if t:
+        n = rep["n"] or 1
+        lines += [
+            f"Время по вопросам (сумма {t['question_seconds']} с): генерация {t['model_seconds']} с, "
+            f"ожидание квот {t['wait_seconds']} с.",
+            f"С первой попытки: {t['first_attempt_ok']}/{n}, со второй: {t['retry_ok']}. "
+            f"Неудачные попытки — finish: {_fmt(t['failed_attempts_finish'])}; "
+            f"ошибка: {_fmt(t['failed_attempts_error'])}. "
+            f"Ошибки вызовов: {_fmt(t['call_errors'])}.",
+            "",
+        ]
+    lines += [
         "| категория | n | верно | точность | сбои |",
         "|---|---|---|---|---|",
     ]
@@ -480,6 +529,10 @@ def to_markdown(rep: dict) -> str:
         lines += [f"- `{w['id']}` — нужно «{w['want']}», ответ «{w['got'] or '—'}»"
                   + (f" ({w['error']})" if w["error"] else "") for w in rep["wrong"]]
     return "\n".join(lines) + "\n"
+
+
+def _fmt(counts: dict) -> str:
+    return ", ".join(f"{k} {v}" for k, v in counts.items()) or "нет"
 
 
 def compare(a: dict, b: dict) -> str:

@@ -192,3 +192,25 @@ def test_cli_dry_run(tmp_path, monkeypatch, capsys):
     assert cli.main(["--dry-run", "--cat", "image"]) == 0
     assert len(list((tmp_path / "crops").glob("*.jpg"))) == 7
     assert "Набор в порядке" in capsys.readouterr().out
+
+
+def test_timing_breakdown_counts_attempts_waits_and_codes():
+    item = {"id": "n", "cat": "c", "kind": "number", "text": "?", "answer": 2}
+
+    async def solve(q, crop, *, limiter=None, on_event=None):
+        on_event("call", model="m", latency=3.0, ok=False, code="500")
+        on_event("wait", seconds=5.0)
+        on_event("call", model="m", latency=2.0, ok=True, code="")
+        on_event("attempt", n=1, ok=False, finish="MAX_TOKENS", error="JSONDecodeError")
+        on_event("call", model="m", latency=1.0, ok=True, code="")
+        on_event("attempt", n=2, ok=True, finish="STOP", error="")
+        return {"answer": {"text": "2"}, "model": "m", "tokens": 5}
+
+    r = run(qe.solve_one(item, 1, crops=False, limiter=None, solve=solve))
+    assert r.ok and r.wait_seconds == 5.0 and r.call_errors == ["500"] and len(r.attempts) == 2
+    t = qe.summarize([r])["timing"]
+    assert t["retry_ok"] == 1 and t["first_attempt_ok"] == 0
+    assert t["failed_attempts_finish"] == {"MAX_TOKENS": 1} and t["call_errors"] == {"500": 1}
+    assert t["model_seconds"] == 6.0 and t["wait_seconds"] == 5.0
+    md = qe.to_markdown(qe.summarize([r], meta={"chain": ["m"], "temperature": 0.3}))
+    assert "ожидание квот 5.0" in md and "MAX_TOKENS 1" in md and "температура 0.3" in md

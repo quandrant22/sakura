@@ -47,7 +47,7 @@ PROMPT = """Ты решаешь вопрос онлайн-теста. Текст
 {media}
 {rule}
 {style}
-Ответь JSON: {{"reasoning": "...", "answer": {{{shape}}}}}"""
+Ответь JSON: {head}"answer": {{{shape}}}}}"""
 
 RULES = {
     "single": "Выбери ровно один вариант: answer.refs — список из одного ref.",
@@ -68,6 +68,7 @@ SHAPES = {"single": '"refs": ["…"]', "select": '"refs": ["…"]', "multi": '"r
           "pairs": '"pairs": [{"row_ref": "…", "option_text": "…"}]'}
 STYLE_FULL = "reasoning — рассуждение по шагам, коротко (до 6 предложений)."
 STYLE_SHORT = "Времени мало: reasoning — одно короткое предложение, сразу ответ."
+STYLE_ANSWER = "Без рассуждений: сразу ответ."
 
 
 class SolveError(Exception):
@@ -120,10 +121,13 @@ def needs_crop(question: dict) -> bool:
     return getattr(config, "QUIZ_CROP", "media") == "all" and kind_of(question) != "single"
 
 
-def _schema():
+def _schema(reasoning: bool = True):
+    """reasoning=False — только answer: повтор после обрыва рассуждения
+    (зацикливание Gemma до MAX_TOKENS, замер 02.11 №3)."""
     from google.genai import types as T
-    return T.Schema(type="OBJECT", required=["reasoning", "answer"], properties={
-        "reasoning": T.Schema(type="STRING"),
+    props = {"reasoning": T.Schema(type="STRING")} if reasoning else {}
+    return T.Schema(type="OBJECT", required=(["reasoning"] if reasoning else []) + ["answer"], properties={
+        **props,
         "answer": T.Schema(type="OBJECT", properties={
             "refs": T.Schema(type="ARRAY", items=T.Schema(type="STRING")),
             "text": T.Schema(type="STRING"),
@@ -134,7 +138,7 @@ def _schema():
                             "option_text": T.Schema(type="STRING")}))})})
 
 
-def build_prompt(question: dict, *, has_crop: bool, short: bool) -> str:
+def build_prompt(question: dict, *, has_crop: bool, short: bool, answer_only: bool = False) -> str:
     kind = kind_of(question)
     parts = pair_parts(question)
     if parts is not None:
@@ -154,7 +158,9 @@ def build_prompt(question: dict, *, has_crop: bool, short: bool) -> str:
         text=str(question.get("text") or "")[:TEXT_MAX], rows=rows_text,
         options=f"Варианты:\n{options}" if options else "",
         media="К вопросу приложен кадр-вырезка с ним." if has_crop else "",
-        rule=rule, style=STYLE_SHORT if short else STYLE_FULL, shape=shape)
+        rule=rule, shape=shape,
+        style=STYLE_ANSWER if answer_only else (STYLE_SHORT if short else STYLE_FULL),
+        head="{" if answer_only else '{"reasoning": "...", ')
 
 
 def parse_json(raw: str) -> dict:
@@ -255,29 +261,43 @@ async def solve(question: dict, crop: bytes | None = None, *, seconds_left=None,
     tokens = 0
     last_error = None
     raw_answer = None
-    # Попытка 2 — не повтор той же: короткое рассуждение, без мыслей и с
-    # низкой температурой (обрыв на середине рассуждения — зацикливание Gemma).
+    # Попытка 2 — не повтор той же: только ответ, без рассуждения и мыслей,
+    # низкая температура (обрыв рассуждения — зацикливание Gemma до MAX_TOKENS).
+    # on_event("attempt", n, ok, finish, error) — для замера и метрик.
+    def emit(**data):
+        if on_event is not None:
+            try:
+                on_event("attempt", **data)
+            except Exception:  # noqa: BLE001 — метрики не ломают решение
+                pass
+
+    first_temp = getattr(config, "QUIZ_TEMPERATURE", None)
     for attempt in (1, 2):
         retry = attempt == 2
-        prompt = build_prompt(question, has_crop=bool(crop), short=short or retry)
-        extra = {"temperature": RETRY_TEMPERATURE, "thinking_level": "minimal"} if retry else {}
+        prompt = build_prompt(question, has_crop=bool(crop), short=short, answer_only=retry)
+        if retry:
+            extra = {"temperature": RETRY_TEMPERATURE, "thinking_level": "minimal"}
+        else:
+            extra = {"temperature": first_temp} if first_temp is not None else {}
         result = await generate_agent(
             parts + [T.Part(text=prompt)], chain=config.QUIZ_MODEL_CHAIN,
-            response_mime_type="application/json", response_schema=_schema(),
+            response_mime_type="application/json", response_schema=_schema(reasoning=not retry),
             max_tokens=512 if (short or retry) else 2048,
             limiter=limiter, on_event=on_event, **extra)
         tokens += result.tokens
         obj = None
+        reason = finish_reason(result.response)
         try:
             obj = parse_json(getattr(result.response, "text", "") or "")
             answer = validate(question, obj.get("answer"))
         except (ValueError, SolveError) as e:
-            reason = finish_reason(result.response)
             last_error = f"{e}" + (f" [finish={reason}]" if reason else "")
             raw_answer = obj.get("answer") if isinstance(obj, dict) else None
+            emit(n=attempt, ok=False, finish=reason, error=type(e).__name__)
             log.info(f"[quiz] вопрос {question.get('index')}: ответ не годен "
                      f"({type(e).__name__}, finish={reason or '?'}, попытка {attempt})")
             continue
+        emit(n=attempt, ok=True, finish=reason, error="")
         return {"reasoning": str(obj.get("reasoning") or "")[:2000], "answer": answer,
                 "model": result.model, "tokens": tokens}
     raise SolveError(f"нет годного ответа: {last_error}", raw=raw_answer)
