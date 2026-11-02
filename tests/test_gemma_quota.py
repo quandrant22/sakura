@@ -154,6 +154,39 @@ def test_500_retries_5_10_20_then_next_model(monkeypatch):
     assert [s for s in sleeps if s >= 1] == [5, 10, 20]
 
 
+def test_fast_failover_switches_model_on_5xx_without_sleeping(monkeypatch):
+    """Решатель: 500 на первой модели — сразу вторая, без пауз 5→10→20 с."""
+    clock = Clock()
+    lim = rl.RateLimiter(rpm=100, rpd=100, path=None, clock=clock)
+    seen = _raw_script(monkeypatch, {"a": [ApiError(500)], "b": []})
+    sleeps = []
+
+    async def sleep(s):
+        sleeps.append(s)
+        clock.t += s
+
+    res = asyncio.run(llm.generate_agent(["x"], chain=("a", "b"), limiter=lim, inline_wait=100,
+                                         sleep=sleep, fast_failover=True))
+    assert res.model == "b" and seen == ["a", "b"] and sleeps == []
+
+
+def test_fast_failover_skips_paused_model_but_waits_on_last(monkeypatch):
+    clock = Clock()
+    lim = rl.RateLimiter(rpm=100, rpd=100, path=None, clock=clock)
+    lim.on_server_error("a")                               # a на паузе 5 с
+    seen = _raw_script(monkeypatch, {"a": [], "b": [ApiError(503)]})
+    sleeps = []
+
+    async def sleep(s):
+        sleeps.append(round(s, 3))
+        clock.t += s
+
+    res = asyncio.run(llm.generate_agent(["x"], chain=("a", "b"), limiter=lim, inline_wait=100,
+                                         sleep=sleep, fast_failover=True))
+    # a пропущена без ожидания; b (последняя) — 503, пауза 5 с, повтор успешен
+    assert seen == ["b", "b"] and res.model == "b" and sleeps == [5]
+
+
 def test_503_long_wait_goes_to_desktop_and_all_down_pauses(monkeypatch):
     clock = Clock()
     lim = rl.RateLimiter(rpm=100, rpd=100, path=None, clock=clock)

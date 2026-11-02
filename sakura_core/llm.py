@@ -596,13 +596,16 @@ async def generate_agent(contents, *, chain, system: str = "", tools=None,
                          thinking_level: str | None = None,
                          limiter=None, timeout: float = AGENT_TIMEOUT_S,
                          inline_wait: float = AGENT_INLINE_WAIT_S,
-                         sleep=asyncio.sleep, on_event=None) -> AgentResponse:
+                         sleep=asyncio.sleep, on_event=None,
+                         fast_failover: bool = False) -> AgentResponse:
     """Вызов browser agent: модели цепочки по порядку через лимитер квот.
 
     Квоты нет дольше inline_wait — QuotaWait (desktop получит status:wait).
     429 — модель блокируется на retry delay (иначе 4→8→16→32 с), до 5
     повторов, затем следующая модель. 500/503 — до 3 повторов через 5→10→20 с,
-    затем так же следующая модель. Все выведены — ChainExhausted (пауза
+    затем так же следующая модель; fast_failover — при 500/503, таймауте или
+    паузе модели сразу следующая модель, ждать только на последней (решатель:
+    замер 02.11 — ~60 ошибок 500/503 за прогон, паузы ~500 с). Все выведены — ChainExhausted (пауза
     задачи). Прочие ошибки — AgentLLMError. thinking_level — для Gemma
     ThinkingConfig(thinking_level=…); без него мысли по умолчанию модели.
     Параметры — через filter_params (S4). on_event(kind, **data) — метрики:
@@ -631,13 +634,16 @@ async def generate_agent(contents, *, chain, system: str = "", tools=None,
         if thinking_level:
             cfg["thinking_config"] = _t.ThinkingConfig(thinking_level=thinking_level)
     last_error: Exception | None = None
-    for model in models:
+    for pos, model in enumerate(models):
+        has_next = pos + 1 < len(models)
         while True:
             if limiter.exhausted_until(model) is not None:
                 break                                   # следующая модель
             # Квота проверяется заново после каждого сна: параллельные вызовы
             # (решатель) не должны забрать один и тот же токен.
             wait = limiter.wait(model)
+            if fast_failover and has_next and wait > 0:
+                break                                   # не ждать — следующая модель
             if wait > inline_wait:
                 raise QuotaWait(wait, model)
             if wait > 0:
@@ -664,6 +670,8 @@ async def generate_agent(contents, *, chain, system: str = "", tools=None,
                     continue                            # wait()/exhausted решат
                 if _server_error(error):
                     limiter.on_server_error(model)
+                    if fast_failover and has_next:
+                        break                           # сразу следующая модель
                     continue                            # 5→10→20 с, затем модель выведена
                 break
             limiter.on_success(model)
