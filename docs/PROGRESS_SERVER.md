@@ -198,5 +198,8 @@ golden, промпта — зелёные. **Перед выкатом: полн
 | `agent/`: тихий снимок экрана | удалён (CV15), страж падает на прежнем коде |
 | CI | `.github/workflows/securechannel.yml`: тесты securechannel + сверка (114 passed в чистом venv), векторы `--check`, ProVerif → ветка `ci/proverif-results` |
 | выкат | `docs/security/ROLLOUT.md` (off → optional → спаривание по QR → required → вывод WS_SECRET); блокер `required` — ТЗ-4 (хранилище ключей agent/) |
-| ждёт | результат ProVerif из CI → разбор, перенос в master; выкат на VPS — владелец |
+| ProVerif, запуск 1 (`a35ceb1`) | полные модели — тайм-аут 3000 с; xxpsk3 Q1–Q6 совпали; разбор — FINDINGS F1 |
+| ProVerif, варианты (CV17) | `ik_core` 8/8 и `xxpsk3_auth` 8/8 совпали с ожидаемыми (локально 549 с / 474 с); CI — ветка `ci/proverif-results` |
+| открыто | ik Q8/Q9 (KCI), сценарий D, weaksecret xx Q7/Q8 — CV18 |
+| ждёт | выкат на VPS — владелец (ROLLOUT.md); ТЗ-4 для `required` |
 

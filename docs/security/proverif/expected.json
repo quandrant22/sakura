@@ -1,6 +1,6 @@
 {
-  "_comment": "Ожидаемые результаты запросов ProVerif (FORMAL.md §0). Обычные запросы сопоставляются с RESULT по порядку объявления в модели, weaksecret — по имени. Модель под ответ не правится: расхождение → docs/security/FINDINGS.md.",
-  "ik": [
+  "_comment": "Ожидаемые результаты запросов ProVerif (FORMAL.md §0). Обычные запросы сопоставляются с RESULT по порядку объявления в модели, weaksecret — по имени. Модель под ответ не правится: расхождение → docs/security/FINDINGS.md. Ключи — варианты scripts/proverif_variants.py (полные модели не завершаются, FINDINGS.md F1); запросы вне вариантов — в \"_open\".",
+  "ik_core": [
     {"id": "Q1", "expect": "true"},
     {"id": "Q2", "expect": "true"},
     {"id": "Q3", "expect": "true"},
@@ -8,20 +8,27 @@
     {"id": "Q5", "expect": "true"},
     {"id": "Q6", "expect": "true"},
     {"id": "Q7", "expect": "false"},
-    {"id": "Q8", "expect": "false"},
-    {"id": "Q9", "expect": "true"},
     {"id": "Q10", "expect": "false"}
   ],
-  "xxpsk3": [
+  "xxpsk3_auth": [
     {"id": "Q1", "expect": "true"},
     {"id": "Q2", "expect": "true"},
     {"id": "Q3", "expect": "true"},
     {"id": "Q4", "expect": "true"},
     {"id": "Q5", "expect": "true"},
     {"id": "Q6", "expect": "false"},
-    {"id": "Q7", "weaksecret": "psk_qr", "expect": "true"},
-    {"id": "Q8", "weaksecret": "psk_words", "expect": "false"},
     {"id": "Q9", "expect": "false"},
     {"id": "Q10", "expect": "false"}
-  ]
+  ],
+  "_open": {
+    "ik": [
+      "Q8",
+      "Q9"
+    ],
+    "xxpsk3": [
+      "Q7",
+      "Q8"
+    ],
+    "scenario": "ik: устройство атакующего D в реестре S — FINDINGS.md F1"
+  }
 }

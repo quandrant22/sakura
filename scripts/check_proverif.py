@@ -20,7 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PV_DIR = ROOT / "docs" / "security" / "proverif"
 FORMAL = ROOT / "docs" / "security" / "FORMAL.md"
-FORMAL_PREFIX = {"ik": "ik", "xxpsk3": "xx"}
+FORMAL_PREFIX = {"ik_core": "ik", "xxpsk3_auth": "xx"}   # варианты (proverif_variants.py)
 PENDING = "ожидает запуска"
 
 RESULT_RE = re.compile(r"^RESULT (?P<what>.*) (?:is (?P<v>true|false)|(?P<cp>cannot be proved))\.\s*$")

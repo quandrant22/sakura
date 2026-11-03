@@ -2,14 +2,15 @@
 
 ## Статус
 
-- **Модели не запускались.** ProVerif на VPS не ставится и не запускается
-  (DECISIONS S2, CV1) — только на машине владельца или в CI. Готовые модели
-  Noise Explorer по известным адресам недоступны (404), поэтому модели свои:
+- **Запуск.** ProVerif 2.05 в CI (`.github/workflows/securechannel.yml`,
+  джоб `proverif`). Полные модели не завершаются (FINDINGS.md F1); проверены
+  сходящиеся варианты `ik_core` и `xxpsk3_auth` (`scripts/proverif_variants.py`,
+  DECISIONS CV17): 16 из 16 запросов совпали с ожидаемыми. ik Q8/Q9, xx Q7/Q8
+  и сценарий D открыты (CV18). Исходные модели:
   - [proverif/ik.pv](proverif/ik.pv) — сеанс IK (PROTOCOL §3.1–3.2);
   - [proverif/xxpsk3.pv](proverif/xxpsk3.pv) — спаривание XXpsk3 (§3.1, §3.3–3.5),
     сценарии «QR» и «только слова».
-- Синтаксис сверен чтением грамматики и примеров ProVerif 2.05, без запуска.
-  Запуск — CI (`.github/workflows/securechannel.yml`, джоб `proverif`),
+- Запуск — CI (`.github/workflows/securechannel.yml`, джоб `proverif`),
   сверка с `proverif/expected.json` — `scripts/check_proverif.py`.
   Команды запуска и куда класть сырой вывод —
   [proverif/results/README.md](proverif/results/README.md).
@@ -40,8 +41,8 @@
 | ik Q5 | ClientDone ⇒ ServerAccepted, инъективно (G4) | ik.pv | `inj ClientDone(C,S) ⇒ inj ServerAccepted(C,S)` | true | ожидает запуска |
 | ik Q6 | сообщение 1 подлинно без компрометации | ik.pv | `ServerAccepted(C,S) ⇒ ClientStarted(C,S)` | true | ожидает запуска |
 | ik Q7 | **повтор IK_INIT** (ожидаемая атака) | ik.pv | `inj ServerAccepted(C,S) ⇒ inj ClientStarted(C,S)` | **false** | ожидает запуска |
-| ik Q8 | **KCI на сообщение 1** (ожидаемая атака) | ik.pv | `ServerAccepted(C,K) ⇒ ClientStarted(C,K)` | **false** | ожидает запуска |
-| ik Q9 | KCI не идёт дальше сообщения 1 | ik.pv | `ServerDone(C,K) ⇒ ClientStarted(C,K)` | true | ожидает запуска |
+| ik Q8 | **KCI на сообщение 1** (ожидаемая атака) | ik.pv | `ServerAccepted(C,K) ⇒ ClientStarted(C,K)` | **false** | не завершено → FINDINGS.md F1 |
+| ik Q9 | KCI не идёт дальше сообщения 1 | ik.pv | `ServerDone(C,K) ⇒ ClientStarted(C,K)` | true | не завершено → FINDINGS.md F1 |
 | ik Q10 | достижимость полного сеанса | ik.pv | `event(ServerDone(C,S))` | false (достижимо) | ожидает запуска |
 | xx Q1 | секретность payload XX_3, QR | xxpsk3.pv | `attacker(info_qr)` | true | ожидает запуска |
 | xx Q2 | секретность payload XX_3, только слова | xxpsk3.pv | `attacker(info_words)` | true | ожидает запуска |
@@ -49,8 +50,8 @@
 | xx Q4 | сервер подлинен для клиента после PAIRED (оба режима) | xxpsk3.pv | `inj ClientPaired ⇒ inj ServerPaired` | true | ожидает запуска |
 | xx Q5 | QR: ключ сервера подтверждён до XX_3 | xxpsk3.pv | `ClientCommitted(qr) ⇒ ServerSentXX2` | true | ожидает запуска |
 | xx Q6 | **без QR: XX_3 уходит неподтверждённому собеседнику** (остаточный риск) | xxpsk3.pv | `ClientCommitted(words) ⇒ ServerSentXX2` | **false** | ожидает запуска |
-| xx Q7 | нет офлайн-перебора PSK, QR | xxpsk3.pv | `weaksecret psk_qr` | true | ожидает запуска |
-| xx Q8 | **офлайн-перебор PSK посредником, только слова** (остаточный риск) | xxpsk3.pv | `weaksecret psk_words` | **false** | ожидает запуска |
+| xx Q7 | нет офлайн-перебора PSK, QR | xxpsk3.pv | `weaksecret psk_qr` | true | не завершено → FINDINGS.md F1 |
+| xx Q8 | **офлайн-перебор PSK посредником, только слова** (остаточный риск) | xxpsk3.pv | `weaksecret psk_words` | **false** | не завершено → FINDINGS.md F1 |
 | xx Q9 | достижимость спаривания, QR | xxpsk3.pv | `event(ClientPaired(qr))` | false (достижимо) | ожидает запуска |
 | xx Q10 | достижимость спаривания, слова | xxpsk3.pv | `event(ClientPaired(words))` | false (достижимо) | ожидает запуска |
 

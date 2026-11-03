@@ -14,6 +14,7 @@ on:
       - "tests/test_check_proverif.py"
       - "scripts/gen_interop_vectors.py"
       - "scripts/check_proverif.py"
+      - "scripts/proverif_variants.py"
       - "docs/security/proverif/**"
       - "requirements*.txt"
       - ".github/workflows/securechannel.yml"
@@ -50,7 +51,7 @@ jobs:
       # securechannel/ целиком не линтуется: 36 давних замечаний, в основном
       # осознанные BLE001/S110 (неотличимость отказов) — DECISIONS CV13.
       - name: ruff (скрипты верификации)
-        run: ruff check scripts/gen_interop_vectors.py scripts/check_proverif.py tests/test_check_proverif.py tests/test_securechannel_interop.py
+        run: ruff check scripts/gen_interop_vectors.py scripts/check_proverif.py scripts/proverif_variants.py tests/test_check_proverif.py tests/test_securechannel_interop.py
 
   proverif:
     runs-on: ubuntu-24.04
@@ -72,17 +73,23 @@ jobs:
           tar xzf pv.tgz
           cd "proverif${PV_VERSION}" && ./build -nointeract
           echo "$PWD" >> "$GITHUB_PATH"
-      - name: Синтаксис моделей
+      # Полные ik.pv/xxpsk3.pv не завершаются (FINDINGS.md F1): запускаются
+      # сходящиеся варианты, построенные из них scripts/proverif_variants.py.
+      - name: Варианты и синтаксис моделей
         working-directory: docs/security/proverif
-        run: for m in ik xxpsk3; do proverif -parse-only "$m.pv"; done
+        run: |
+          python3 ../../../scripts/proverif_variants.py "$RUNNER_TEMP/pv"
+          for m in ik.pv xxpsk3.pv "$RUNNER_TEMP"/pv/*.pv; do proverif -parse-only "$m"; done
       - name: Запуск (сырой вывод в results/, без правок)
         working-directory: docs/security/proverif
         run: |
-          for m in ik xxpsk3; do
-            { proverif -help 2>&1 | head -1; echo "model: $m.pv"; echo "commit: $GITHUB_SHA"; date -u +%FT%TZ; echo;
-              timeout 3000 /usr/bin/time -v proverif "$m.pv"; echo "exit: $?"; } > "results/$m.txt" 2>&1 || true
+          rm -f results/ik.txt results/xxpsk3.txt
+          for m in ik_core xxpsk3_auth; do
+            { proverif -help 2>&1 | head -1; echo "model: $m.pv (scripts/proverif_variants.py)"; echo "commit: $GITHUB_SHA"; date -u +%FT%TZ; echo;
+              timeout 3000 /usr/bin/time -v proverif "$RUNNER_TEMP/pv/$m.pv"; echo "exit: $?"; } > "results/$m.txt" 2>&1 &
           done
-          grep -h "^RESULT" results/ik.txt results/xxpsk3.txt || true
+          wait
+          grep -h "^RESULT" results/ik_core.txt results/xxpsk3_auth.txt || true
       - name: Сверка с ожиданиями
         id: check
         run: |

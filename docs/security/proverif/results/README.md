@@ -6,7 +6,9 @@
 ## CI
 
 `.github/workflows/securechannel.yml`, джоб `proverif`: собирает ProVerif 2.05
-из исходников (sha256 ниже сверяется), запускает обе модели, сверяет вывод с
+из исходников (sha256 ниже сверяется), строит варианты `ik_core` и
+`xxpsk3_auth` (`scripts/proverif_variants.py`; полные модели не завершаются —
+FINDINGS.md F1), запускает их, сверяет вывод с
 [`../expected.json`](../expected.json) скриптом `scripts/check_proverif.py` и
 кладёт сырой вывод и FORMAL.md с заполненным столбцом «фактический» в ветку
 `ci/proverif-results` (не в master). Расхождение — красный джоб. В master
@@ -27,6 +29,10 @@ opam install proverif                        # через opam
 ```
 
 ## Запуск (из корня репозитория)
+
+В CI запускаются варианты: `python scripts/proverif_variants.py /tmp/pv`, затем
+`proverif /tmp/pv/ik_core.pv > results/ik_core.txt` и так же `xxpsk3_auth`.
+Полные модели ниже — для отладки, за 50 минут не завершаются.
 
 ```sh
 cd docs/security/proverif
