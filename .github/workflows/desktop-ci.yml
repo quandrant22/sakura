@@ -17,6 +17,8 @@ jobs:
   core:
     name: Ядро (pytest, ruff)
     runs-on: windows-latest
+    permissions:
+      contents: write   # только ветка ci/desktop-results
     timeout-minutes: 40
     env:
       SAKURA_NO_DOTENV: "1"
@@ -37,7 +39,24 @@ jobs:
       - name: ruff
         run: python -m ruff check desktop
       - name: pytest
-        run: python -m pytest desktop/tests -q
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m pytest desktop/tests -q -rfE -p no:cacheprovider 2>&1 | tee pytest.txt
+      # Сводка падений — в ветку ci/desktop-results (логи Actions без авторизации не читаются).
+      - name: Сводка pytest → ci/desktop-results
+        if: failure()
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/r" && grep -E "^(FAILED|ERROR)|passed|failed|^E  " pytest.txt | head -400 > "$RUNNER_TEMP/r/pytest-windows.txt" || true
+          git config user.name "github-actions[bot]"
+          git config user.email "41898299+github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan ci/desktop-results
+          git rm -rfq . >/dev/null
+          cp "$RUNNER_TEMP/r/pytest-windows.txt" .
+          git add pytest-windows.txt
+          git commit -qm "ci(desktop): pytest Windows ${GITHUB_SHA::7}"
+          git push -f origin HEAD:ci/desktop-results
 
   ui:
     name: Интерфейс (tsc, eslint, vitest, сборка, e2e)
