@@ -19,6 +19,7 @@ def _mock_keys(monkeypatch, keys=("key-1",)):
     monkeypatch.setattr(llm.config, "get_active_key", lambda: keys[0])
     monkeypatch.setattr(llm.config, "mark_key_rate_limited", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(llm, "random", SimpleNamespace(random=lambda: 0.0))
+    monkeypatch.setattr(llm, "_model_cooldown", {})
     delays = []
 
     async def no_wait(delay):
@@ -414,3 +415,51 @@ def test_timeout_on_first_model_is_not_retried_on_same_model(monkeypatch):
     monkeypatch.setattr(llm, "get_client", lambda _key: _Client(Models()))
     assert asyncio.run(llm.generate("hello", chain=("model-a", "model-b"))) == "fallback"
     assert calls == ["model-a", "model-b"]
+
+
+def test_429_on_one_model_does_not_block_key_for_other_models(monkeypatch):
+    """429 от gemma ставит на паузу только (ключ, gemma); flash-lite на том же ключе работает."""
+    _mock_keys(monkeypatch, ("key-1",))
+    marked = []
+    monkeypatch.setattr(llm.config, "mark_key_rate_limited", lambda *a, **k: marked.append(a))
+    calls = []
+
+    class Models:
+        def generate_content(self, *, model, **_kwargs):
+            calls.append(model)
+            if model == "gemma":
+                raise RuntimeError("429 RESOURCE_EXHAUSTED")
+            return SimpleNamespace(text="ok")
+
+    monkeypatch.setattr(llm, "get_client", lambda _key: _Client(Models()))
+    assert asyncio.run(llm.generate("hello", chain=("gemma", "flash-lite"))) == "ok"
+    assert calls == ["gemma", "flash-lite"]
+    assert marked == [], "ключ целиком на паузу не ставится"
+    assert llm._cooling("key-1", "gemma") and not llm._cooling("key-1", "flash-lite")
+
+    # следующий ход: gemma на паузе — сразу flash-lite, без лишнего запроса
+    calls.clear()
+    assert asyncio.run(llm.generate("hello", chain=("gemma", "flash-lite"))) == "ok"
+    assert calls == ["flash-lite"]
+
+
+def test_cooled_key_skipped_for_that_model_only(monkeypatch):
+    _mock_keys(monkeypatch, ("key-1", "key-2"))
+    llm._model_cooldown[("key-1", "model-a")] = time.monotonic() + 60
+    used = []
+
+    class Models:
+        def generate_content(self, *, model, **_kwargs):
+            used.append((active[0], model))
+            return SimpleNamespace(text="ok")
+
+    active = [None]
+
+    def get_client(key):
+        active[0] = key
+        return _Client(Models())
+
+    monkeypatch.setattr(llm, "get_client", get_client)
+    assert asyncio.run(llm.generate("hello", chain=("model-a",))) == "ok"
+    assert asyncio.run(llm.generate("hello", chain=("model-b",))) == "ok"
+    assert used == [("key-2", "model-a"), ("key-1", "model-b")]
