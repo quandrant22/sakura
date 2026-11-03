@@ -463,3 +463,89 @@ def test_cooled_key_skipped_for_that_model_only(monkeypatch):
     assert asyncio.run(llm.generate("hello", chain=("model-a",))) == "ok"
     assert asyncio.run(llm.generate("hello", chain=("model-b",))) == "ok"
     assert used == [("key-2", "model-a"), ("key-1", "model-b")]
+
+
+def test_timeout_cools_model_so_next_call_goes_to_fallback(monkeypatch):
+    """Живой прогон 04.11: зависшая первая модель ела по 12 с на каждом вызове."""
+    _mock_keys(monkeypatch)
+    calls = []
+
+    class Models:
+        def generate_content(self, *, model, **_kwargs):
+            calls.append(model)
+            if model == "model-a":
+                raise TimeoutError("TIMEOUT")
+            return SimpleNamespace(text="fallback")
+
+    monkeypatch.setattr(llm, "get_client", lambda _key: _Client(Models()))
+    assert asyncio.run(llm.generate("1", chain=("model-a", "model-b"))) == "fallback"
+    assert asyncio.run(llm.generate("2", chain=("model-a", "model-b"))) == "fallback"
+    assert calls == ["model-a", "model-b", "model-b"]
+    assert llm._cooling("key-1", "model-a") and not llm._cooling("key-1", "model-b")
+
+
+def test_transient_after_retries_cools_model(monkeypatch):
+    _mock_keys(monkeypatch)
+    calls = []
+
+    class Models:
+        def generate_content(self, *, model, **_kwargs):
+            calls.append(model)
+            if model == "model-a":
+                raise RuntimeError("503 UNAVAILABLE")
+            return SimpleNamespace(text="fallback")
+
+    monkeypatch.setattr(llm, "get_client", lambda _key: _Client(Models()))
+    asyncio.run(llm.generate("1", chain=("model-a", "model-b")))
+    calls.clear()
+    asyncio.run(llm.generate("2", chain=("model-a", "model-b")))
+    assert calls == ["model-b"]
+
+
+def test_last_model_failure_is_not_cooled(monkeypatch):
+    """Без запасной пауза выключила бы цепочку целиком — не ставим."""
+    _mock_keys(monkeypatch)
+
+    class Models:
+        def generate_content(self, *, model, **_kwargs):
+            raise RuntimeError("503 UNAVAILABLE")
+
+    monkeypatch.setattr(llm, "get_client", lambda _key: _Client(Models()))
+    assert asyncio.run(llm.generate("1", chain=("model-a",))) == ""
+    assert not llm._cooling("key-1", "model-a")
+
+
+def test_explicit_api_key_is_not_cooled_on_timeout(monkeypatch):
+    _mock_keys(monkeypatch)
+
+    class Models:
+        def generate_content(self, *, model, **_kwargs):
+            if model == "model-a":
+                raise TimeoutError("TIMEOUT")
+            return SimpleNamespace(text="fallback")
+
+    monkeypatch.setattr(llm, "get_client", lambda _key: _Client(Models()))
+    assert asyncio.run(llm.generate("1", chain=("model-a", "model-b"), api_key="key-1")) == "fallback"
+    assert not llm._cooling("key-1", "model-a")
+
+
+def test_stream_transient_cools_first_model(monkeypatch):
+    _mock_keys(monkeypatch)
+    calls = []
+
+    class Models:
+        def generate_content_stream(self, *, model, **_kwargs):
+            calls.append(model)
+            if model == "model-a":
+                raise RuntimeError("503 UNAVAILABLE")
+            yield SimpleNamespace(text="ok")
+
+    monkeypatch.setattr(llm, "get_client", lambda _key: _Client(Models()))
+
+    async def collect():
+        return [t async for t in llm.stream_tokens("1", chain=("model-a", "model-b"))]
+
+    assert asyncio.run(collect()) == ["ok"]
+    calls.clear()
+    assert asyncio.run(collect()) == ["ok"]
+    assert calls == ["model-b"]

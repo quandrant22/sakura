@@ -194,8 +194,23 @@ RATE_LIMIT_COOLDOWN_S = 60.0
 _model_cooldown: dict[tuple[str, str], float] = {}
 
 
+# Пауза после сбоя (TIMEOUT, 5xx после повторов) — тоже на пару (ключ, модель)
+# и только если в цепочке есть запасная: иначе каждый вызов снова ждал бы
+# зависшую модель весь её срок (живой прогон 04.11: по 12 с на зрение,
+# ответ и фон — «долго думала», обрыв хода по сторожу).
+TRANSIENT_COOLDOWN_S = 120.0
+
+
 def _cooling(key: str, model: str) -> bool:
     return time.monotonic() < _model_cooldown.get((key, model), 0.0)
+
+
+def _cool_after_failure(key: str, model: str) -> None:
+    until = time.monotonic() + TRANSIENT_COOLDOWN_S
+    if _model_cooldown.get((key, model), 0.0) < until:
+        _model_cooldown[(key, model)] = until
+        log.info("[llm] key=%s model=%s на паузе %.0fс (сбой)", _key_number(key), model,
+                 TRANSIENT_COOLDOWN_S)
 
 
 def _candidate_keys(preferred: str | None) -> list[str]:
@@ -413,6 +428,8 @@ async def generate(contents, *, system: str = "", model: Optional[str] = None,
                         continue
                 elif _error_code(error) == "TIMEOUT" and has_fallback:
                     # Модель зависла — повтор на ней же только съест остаток; к запасной.
+                    if not api_key:
+                        _cool_after_failure(current_key, model_name)
                     break
                 elif kind == "transient" and transient_retries < len(_TRANSIENT_RETRY_DELAYS):
                     delay = _TRANSIENT_RETRY_DELAYS[transient_retries] + random.random() * 0.5
@@ -420,6 +437,8 @@ async def generate(contents, *, system: str = "", model: Optional[str] = None,
                     if delay < model_deadline - time.monotonic():
                         await asyncio.sleep(delay)
                         continue
+                if kind == "transient" and has_fallback and not api_key:
+                    _cool_after_failure(current_key, model_name)
                 break
         if time.monotonic() - started >= timeout:
             break
@@ -502,6 +521,7 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
             continue
         tried_keys: set[str] = set()
         transient_retries = 0
+        has_fallback = model_index < len(models) - 1
         while current_key:
             remaining = timeout - (time.monotonic() - started)
             if remaining <= 0:
@@ -553,6 +573,8 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
                     if delay < timeout - (time.monotonic() - started):
                         await asyncio.sleep(delay)
                         continue
+                if kind == "transient" and has_fallback and not api_key:
+                    _cool_after_failure(current_key, model_name)
                 break
 
 # ── Контракт LlmClassify (роутер, этап 2): (текст, каталог) → id | None ──
