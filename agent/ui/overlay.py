@@ -725,6 +725,11 @@ class Overlay(QWidget):
         except Exception:
             pass
 
+    def set_secure(self, secure: bool, text: str):
+        """Статус канала: 🔒 у имени — только при Noise; текст — в подсказке."""
+        self.name.setText("SAKURA 🔒" if secure else "SAKURA")
+        self.name.setToolTip(text)
+
     def set_connected(self, online: bool):
         self.name.setStyleSheet(
             "color: #eaf6ff; letter-spacing: 7px;" if online

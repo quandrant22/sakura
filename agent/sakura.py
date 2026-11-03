@@ -79,6 +79,7 @@ def main():
     bridge.gameMode.connect(overlay.set_game_mode)
     bridge.micLevel.connect(overlay.hud.set_audio_level)
     bridge.agentAlert.connect(overlay.add_system_message)
+    bridge.secureStatus.connect(overlay.set_secure)
     bridge.orbArrival.connect(overlay.animate_arrival)
     bridge.orbDeparture.connect(overlay.animate_departure)
     overlay.submit.connect(agent.submit_user_text)

@@ -37,6 +37,7 @@ from core.voice import Player
 from core.local_mood import LocalMood
 from core.dep_check import check_critical_packages
 from core.outbox import Outbox, log_send_result
+from core import transport
 
 log = logging.getLogger("sakura.agent")
 
@@ -49,6 +50,12 @@ _DRAIN_TAIL_SEC = 0.15   # хвост в звуковой карте после 
 _WATCH_PERIOD_SEC   = 0.5
 _SPEAK_STALL_SEC    = 2.5    # speaking, буфер пуст, звука не было столько
 _THINK_TIMEOUT_SEC  = 25.0   # thinking дольше — ответа не будет
+
+# Статус канала в трее/оверлее
+STATUS_SECURE          = "🔒 защищённый канал"
+STATUS_NOT_SECURE      = "не защищено — выполните спаривание"
+STATUS_NOT_PAIRED      = "не спарено — выполните спаривание"
+STATUS_SERVER_REQUIRES = "сервер требует защищённый канал — выполните спаривание"
 
 
 # ── Музыка (v3, этап 3): канонические имена и явный выбор бэкенда ────────
@@ -238,7 +245,6 @@ class Agent:
         self.send_threadsafe({
             "type":          "voice_command",
             "device_id":     config.DEVICE_ID,
-            "token":         config.WS_TOKEN.strip(),
             "text":          text,
             "active_window": get_active_window(),
             "context":       [],
@@ -333,7 +339,6 @@ class Agent:
         payload = {
             "type":          kind,
             "device_id":     config.DEVICE_ID,
-            "token":         config.WS_TOKEN.strip(),
             "active_window": window,
             "system_info":   sys_info,
             "focus_seconds": focus_seconds,
@@ -394,7 +399,7 @@ class Agent:
 
             if window != last_window or (now - last_ping) >= config.PING_INTERVAL:
                 try:
-                    await self._ws.send(json.dumps(self._payload("ping")))
+                    await self._ws.send_json(self._payload("ping"))
                     last_window, last_ping = window, now
                 except Exception:
                     pass
@@ -417,11 +422,11 @@ class Agent:
                     if _action == "abort_all":
                         self._abort_flag = True
                         if _cmd_id:
-                            await self._ws.send(json.dumps({
+                            await self._ws.send_json({
                                 "type": "command_result", "id": _cmd_id,
                                 "device_id": config.DEVICE_ID, "ok": True,
                                 "detail": "abort принят",
-                            }))
+                            })
                         continue
                     self._abort_flag = False
                     _arg = data.get("arg", "")
@@ -465,6 +470,10 @@ class Agent:
                             "arousal": params.get("arousal", 0.3),
                         }
 
+                elif kind == "secure_server_key":
+                    # Ротация ключа сервера (PROTOCOL §5): только из Noise
+                    self._ws.accept_server_key(data)
+
                 elif kind == "context_transfer":
                     text = data.get("text", "")
                     if text:
@@ -472,6 +481,21 @@ class Agent:
 
             except Exception as e:
                 log.error(f"recv: {e}")
+
+    def _has_keys(self) -> bool:
+        try:
+            return transport.load_keys() is not None
+        except transport.SecureHandshakeFailed:
+            return True     # файл ключей есть, но битый — на токен не уходим
+
+    def _set_secure_status(self, secure: bool, text: str, alert: bool = False):
+        """Статус канала в трей/оверлей (🔒 — только из conn.secure)."""
+        if getattr(self, "_secure_status", None) == (secure, text):
+            return
+        self._secure_status = (secure, text)
+        self.bus.emit("secure_status", secure=secure, text=text)
+        if alert:
+            self.bus.emit("agent_alert", text=text.capitalize())
 
     async def _idle_after_playback(self, gen: int, listen=None):
         """После tts_end: дождаться опустошения буфера, затем idle.
@@ -533,13 +557,13 @@ class Agent:
                 return
             msg = {
                 "type": "command_result", "id": cmd_id,
-                "device_id": config.DEVICE_ID, "token": config.WS_TOKEN,
+                "device_id": config.DEVICE_ID,
                 "ok": ok, "detail": detail,
             }
             if extra:
                 msg.update(extra)
             try:
-                await self._ws.send(json.dumps(msg))
+                await self._ws.send_json(msg)
             except Exception:
                 pass
 
@@ -609,12 +633,12 @@ class Agent:
                     _ms = int((time.monotonic() - _t0) * 1000)
                     log.info(f"[music] результат {_mlegacy} за {_ms}мс (id={cmd_id}): "
                              f"ok={result.get('ok')} detail={result.get('result','')!r}")
-                    await self._ws.send(json.dumps({
+                    await self._ws.send_json({
                         "type": "command_result", "id": cmd_id,
-                        "device_id": config.DEVICE_ID, "token": config.WS_TOKEN,
+                        "device_id": config.DEVICE_ID,
                         "ok": True, "detail": result.get("result", ""),
                         "music": result,
-                    }))
+                    })
                     log.info(f"[music] command_result отправлен серверу (id={cmd_id})")
                 elif _mbackend == "browser":
                     # Команды через расширение браузера
@@ -668,12 +692,12 @@ class Agent:
                 ext_arg    = parts[1] if len(parts) > 1 else ""
                 result    = await send_command(ext_action, ext_arg)
                 log.info(f"[ext] {ext_action} → {result}")
-                await self._ws.send(json.dumps({
+                await self._ws.send_json({
                     "type": "command_result", "id": cmd_id,
-                    "device_id": config.DEVICE_ID, "token": config.WS_TOKEN,
+                    "device_id": config.DEVICE_ID,
                     "ok": True, "detail": str(result.get("result", result.get("error", ""))),
                     "ext": result,
-                }))
+                })
             except Exception as e:
                 log.error(f"ext command error: {e}")
                 await _send_ack(False, f"ext error: {e}")
@@ -704,12 +728,12 @@ class Agent:
             try:
                 from core.kettle import kettle_command
                 result = await kettle_command(kettle_action)
-                await self._ws.send(json.dumps({
+                await self._ws.send_json({
                     "type": "command_result", "id": cmd_id,
-                    "device_id": config.DEVICE_ID, "token": config.WS_TOKEN,
+                    "device_id": config.DEVICE_ID,
                     "ok": result.get("ok", False), "detail": result.get("result", ""),
                     "kettle": result,
-                }))
+                })
                 if result.get("ok") and kettle_action in ("boil", "boil_heat") or kettle_action.startswith("boil"):
                     spawn(self._kettle_watch(), name="kettle-watch")
             except Exception as e:
@@ -723,12 +747,12 @@ class Agent:
             full = f"{action}:{arg}" if arg and ":" not in action else action
             out = await asyncio.to_thread(execute_command, full)
             if out.get("screenshot"):
-                await self._ws.send(json.dumps({
+                await self._ws.send_json({
                     "type": "command_result", "id": cmd_id,
-                    "device_id": config.DEVICE_ID, "token": config.WS_TOKEN,
+                    "device_id": config.DEVICE_ID,
                     "ok": True, "detail": "скриншот",
                     "screenshot": out["screenshot"],
-                }))
+                })
             elif out.get("result"):
                 log.info(f"→ {out['result']}")
                 await _send_ack(True, out["result"])
@@ -767,19 +791,22 @@ class Agent:
 
         # Отправляем уведомление в любом случае
         try:
-            await self._ws.send(json.dumps({
+            await self._ws.send_json({
                 "type":      "kettle_ready",
                 "device_id": config.DEVICE_ID,
-                "token":     config.WS_TOKEN,
                 "temp":      temp,
-            }))
+            })
             log.info("[kettle] Уведомление отправлено")
         except Exception as e:
             log.error(f"[kettle] watch send error: {e}")
 
     async def run(self):
-        # Без токена VPS не пустит — не стучимся вовсе (токен только из .env)
-        if not str(getattr(config, "WS_TOKEN", "") or "").strip():
+        # Без токена VPS не пустит — не стучимся вовсе (токен только из .env).
+        # Спаренному устройству токен не нужен (вход по ключу Noise), в режиме
+        # required без ключей ждём спаривания — токен тоже не нужен.
+        if (not str(getattr(config, "WS_TOKEN", "") or "").strip()
+                and not self._has_keys()
+                and transport.normalize_mode(config.AGENT_SECURE) != "required"):
             log.error("WS_TOKEN не задан в .env")
             # Окно не закрываем — показываем причину в оверлее
             self.bus.emit("agent_alert",
@@ -821,33 +848,60 @@ class Agent:
         log.info("[agent] Запускаю подключение к VPS: %s", config.VPS_WS_URL)
         _backoff = config.RECONNECT_SEC
         while True:
+            conn, code = None, None
             try:
                 log.info("[agent] Подключаюсь к %s...", config.VPS_WS_URL)
-                async with websockets.connect(
-                    config.VPS_WS_URL,
-                    ping_interval=20,
-                    proxy=None,
-                    max_size=None,
-                ) as ws:
-                    await ws.send(json.dumps(self._payload("register")))
-                    self._ws = ws
-                    await self._outbox.flush(ws)
-                    apps = await asyncio.to_thread(scan_apps)
-                    if apps:
-                        await ws.send(json.dumps({
-                            "type":      "apps_list",
-                            "device_id": config.DEVICE_ID,
-                            "token":     config.WS_TOKEN,
-                            "apps":      apps,
-                        }))
-                    self.bus.emit("connection", online=True)
-                    _backoff = config.RECONNECT_SEC
-                    log.info("[agent] Подключено к VPS! Приложений: %s", len(apps))
-                    await self._recv_loop()
+                conn = await transport.open_connection(config.VPS_WS_URL,
+                                                       config.AGENT_SECURE)
+                await conn.send_json(self._payload("register"))
+                self._ws = conn
+                await self._outbox.flush(conn)
+                apps = await asyncio.to_thread(scan_apps)
+                if apps:
+                    await conn.send_json({
+                        "type":      "apps_list",
+                        "device_id": config.DEVICE_ID,
+                        "apps":      apps,
+                    })
+                self.bus.emit("connection", online=True)
+                self._set_secure_status(conn.secure, STATUS_SECURE if conn.secure
+                                        else STATUS_NOT_SECURE)
+                _backoff = config.RECONNECT_SEC
+                log.info("[agent] Подключено к VPS (%s)! Приложений: %s",
+                         conn.transport, len(apps))
+                await self._recv_loop()
+            except transport.NotPaired:
+                self._set_secure_status(False, STATUS_NOT_PAIRED, alert=True)
+                log.warning("[agent] AGENT_SECURE=required, устройство не спарено — "
+                            "жду ключей")
+                await transport.wait_for_keys()
+                continue
+            except transport.SecureHandshakeFailed as e:
+                log.warning("[agent] защищённый канал: %s — повтор через %s с", e, _backoff)
+            except websockets.ConnectionClosed as e:
+                log.warning("[agent] соединение закрыто: %s", e)
             except Exception as e:
                 log.exception("[agent] WS ошибка: %s", e)
+            if conn is not None:
+                code = conn.close_code
+                await conn.close()
             self._ws = None
             self.bus.emit("connection", online=False)
+            if code == transport.CLOSE_SECURE_REQUIRED:
+                # Сервер не принимает токен — переподключаться бессмысленно,
+                # пока устройство не спарено.
+                self._set_secure_status(False, STATUS_SERVER_REQUIRES, alert=True)
+                log.warning("[agent] сервер закрыл 4412: требуется защищённый канал — "
+                            "жду ключей устройства")
+                await transport.wait_for_keys()
+                _backoff = config.RECONNECT_SEC
+                continue
+            if code == transport.CLOSE_TOO_LARGE:
+                # Сообщение > 2 МиБ: не повторять его по кругу.
+                log.error("[agent] сервер закрыл 4413: сообщение больше 2 МиБ — "
+                          "очередь отправки очищена")
+                self._outbox.clear()
+                _backoff = 60
             await asyncio.sleep(_backoff)
             _backoff = min(_backoff * 2, 60)
 
@@ -874,13 +928,12 @@ class Agent:
                 result = await asyncio.to_thread(execute_command, "screenshot:")
                 if result.get("screenshot"):
                     # Отправляем на VPS для анализа (не для команды)
-                    await self._ws.send(json.dumps({
+                    await self._ws.send_json({
                         "type":      "screen_context",
                         "device_id": config.DEVICE_ID,
-                        "token":     config.WS_TOKEN,
                         "screenshot": result["screenshot"],
                         "active_window": get_active_window(),
-                    }))
+                    })
                     log.debug("[screen] Скриншот отправлен для анализа")
             except Exception as e:
                 log.debug(f"[screen] Ошибка: {e}")
