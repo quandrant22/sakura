@@ -18,7 +18,11 @@ class TestIntimacyMemoryFilter(unittest.TestCase):
     def test_intimate_fact_detected(self):
         from modules.intimacy_mode import is_intimate_content
         self.assertTrue(is_intimate_content("он любит секс по утрам"))
-        self.assertTrue(is_intimate_content("она без одежды"))
+        self.assertTrue(is_intimate_content("она голая, без одежды"))
+        # один слабый маркер — обычный факт (v2)
+        self.assertFalse(is_intimate_content("она без одежды"))
+        self.assertFalse(is_intimate_content("давнее желание поехать в Японию"))
+        self.assertFalse(is_intimate_content("болит грудь после тренировки"))
         self.assertFalse(is_intimate_content("он любит кофе"))
         self.assertFalse(is_intimate_content("работает в Яндексе"))
 
@@ -44,7 +48,7 @@ class TestIntimacyMemoryFilter(unittest.TestCase):
         from sakura_core.startup import guarded_add
         import modules.intimacy_mode as im
         im._reset_state()
-        im.mark("секс")
+        im.mark("секс", "tg_private")
         with patch("memory.db.add_to_category") as mock_db:
             result = guarded_add(mock_db, "preferences", "любит кофе")
             self.assertFalse(result)

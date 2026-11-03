@@ -157,3 +157,17 @@ tests/test_tool_schema.py. Полный прогон (27.10: 1249 passed) —
   классы (browser_*, chat_*) принимаются по прямому ws без шифрования — только на 8767/8768.
   Прод: флага нет ни в .env, ни в юните, ни в окружении процесса (проверено при
   переключении; повторная проверка — при удалении инстансов).
+
+## Образ Сакуры и режим 18+ v2 (feat/intimacy-v2, 2026-11-03)
+
+- [x] `sakura_core/persona.py` — единое хранилище образа (master / guest / intimate), заводские образы в `persona/`, рабочие — `memory/persona/`, история и откат.
+- [x] `personality.get_system_prompt(mode=…)` собирает промпт из образа + неотключаемых правил (честность, границы 18+).
+- [x] `/образ` в Telegram (`adapters/persona_commands.py`) и `tools/persona.py`.
+- [x] `modules/intimacy_mode.py` v2: каналы `voice`/`tg_private`, сильные/слабые маркеры, потолок продления, `redact` для журнала.
+- [x] `mark()` в личном чате Telegram; из общего чата убран.
+- [x] Промпт: образ intimate только для активного канала, режим и версия образа в ключе кэша.
+- [x] Безопасность Gemini по аудитории (`audience`), гости — с фильтрами.
+- [x] Барьеры памяти: извлечение, `is_intimate_content`, `db.write_gate_open()`; проактив молчит.
+- [x] Тесты: `tests/test_persona_store.py`, `tests/test_intimacy_v2.py`; обновлены старые тесты и заглушки `_im_mark`/`_build_system`.
+- Проверка: полный `pytest` — 1629 passed; 2 падения `tests/test_voice_perf.py::test_early_gate_*` есть и на `master` (b96a415), к задаче не относятся. `ruff` по затронутым файлам — не больше, чем на `master`; новые файлы чистые.
+- Не сделано: живая проверка на сервере (голос и Telegram) — после выкатки ветки.

@@ -55,7 +55,7 @@ def guarded_add(cat: str, item: str):
         log.info("[memory] reflection write skipped: intimacy in window")
         return False
     if is_intimate_content(item):
-        log.info(f"[memory] интимный фильтр (reflection): {item[:40]}")
+        log.info("[memory] интимный фильтр (reflection): cat=%s, %d симв.", cat, len(item))
         return False
     return db_add_to_category(cat, item)
 
@@ -143,7 +143,7 @@ async def extract_and_remember(user_message: str, reply: str):
 
                     from modules.intimacy_mode import is_intimate_content
                     if is_intimate_content(item):
-                        log.info(f"[memory] интимный контент отфильтрован: {item[:40]}")
+                        log.info("[memory] интимный контент отфильтрован: cat=%s, %d симв.", cat, len(item))
                         continue
                     ok = await asyncio.to_thread(db_add_to_category, cat, item, layer)
                     if ok is not False:

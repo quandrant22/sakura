@@ -589,50 +589,52 @@ class Test6_MemoryLayers(unittest.TestCase):
 
 
 class Test7_IntimacyMode(unittest.TestCase):
-    """Group 7: intimacy detector — triggers, stop phrases, false positive."""
+    """Group 7: intimacy detector v2 — channels, triggers, stop phrases."""
 
     def setUp(self):
         import modules.intimacy_mode as im
-        im._active_until = 0.0
-        im._was_active_since_reflection = False
+        im._reset_state()
+
+    def tearDown(self):
+        import modules.intimacy_mode as im
+        im._reset_state()
 
     def test_neutral_phrase_no_activation(self):
         import modules.intimacy_mode as im
-        im.mark("привет как дела")
+        im.mark("привет как дела", "tg_private")
         self.assertFalse(im.is_active())
 
     def test_trigger_phrase_activates(self):
         import modules.intimacy_mode as im
-        im.mark("давай секс")
-        self.assertTrue(im.is_active())
+        im.mark("давай секс", "tg_private")
+        self.assertTrue(im.is_active("tg_private"))
 
     def test_stop_phrase_deactivates(self):
         import modules.intimacy_mode as im
-        im.mark("давай секс")
-        self.assertTrue(im.is_active())
-        im.mark("смени тему")
-        self.assertFalse(im.is_active())
+        im.mark("давай секс", "voice")
+        self.assertTrue(im.is_active("voice"))
+        im.mark("смени тему", "voice")
+        self.assertFalse(im.is_active("voice"))
 
     def test_deactivate_explicit(self):
         import modules.intimacy_mode as im
-        im.mark("давай интим")
+        im.mark("давай интим", "voice")
         self.assertTrue(im.is_active())
         im.deactivate()
         self.assertFalse(im.is_active())
 
     def test_no_false_positive_common_words(self):
         import modules.intimacy_mode as im
-        im.mark("он член команды по футболу")
+        im.mark("он член команды по футболу", "tg_private")
         self.assertFalse(im.is_active())
-        im.mark("голая правда о политике")
-        # "голая" IS a trigger — this is expected
-        self.assertTrue(im.is_active())
+        im.mark("голая правда о политике", "tg_private")
+        # одного слабого маркера мало (v2)
+        self.assertFalse(im.is_active())
 
-    def test_non_master_trigger_ignored(self):
-        """intimacy_mode triggers on ANY text (it's called from master context)."""
+    def test_unknown_channel_rejected(self):
         import modules.intimacy_mode as im
-        im.mark("слово интимное в контексте")
-        self.assertTrue(im.is_active())
+        with self.assertRaises(ValueError):
+            im.mark("секс", "group")
 
 
 class Test8_TTSCleaning(unittest.TestCase):

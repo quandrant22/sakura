@@ -88,8 +88,7 @@ async def handle_group_message(
 
     if role == "master":
         update_master_status(text)
-        from modules.intimacy_mode import mark as _im_mark
-        _im_mark(text)
+        # Режим 18+ в общем чате не включается (I1): только voice и tg_private.
 
     try:
         from modules.relationship import check_silence_cooldown, decrease_closeness

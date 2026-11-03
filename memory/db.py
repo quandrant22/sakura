@@ -181,10 +181,21 @@ _WRITE_GATE_OPEN = True
 
 
 def set_write_gate(open_: bool):
-    """Управляет гейтом записи. False → add_to_category не пишет, возвращает False.
-    Точка подключения этапа 6 (режим 18+). Пока никто не вызывает."""
+    """Ручной гейт записи. False → add_to_category не пишет, возвращает False."""
     global _WRITE_GATE_OPEN
     _WRITE_GATE_OPEN = open_
+
+
+def write_gate_open() -> bool:
+    """Третий барьер режима 18+ (I3): пока режим активен в любом канале,
+    долговременная память фактов не пишется — кто бы ни вызвал запись."""
+    if not _WRITE_GATE_OPEN:
+        return False
+    try:
+        from modules.intimacy_mode import is_active
+        return not is_active()
+    except ImportError:
+        return True
 
 
 # ── Миграция схемы (layer/expires_at) ────────────────────────────────
@@ -374,8 +385,8 @@ def add_to_category(category: str, text: str, layer: str = "long_term") -> bool:
     Семантический merge: если косинус > MERGE_THRESHOLD — обновляет hits, не дублирует.
     Возвращает True если запись добавлена, False если слита с существующей или гейт закрыт.
     """
-    if not _WRITE_GATE_OPEN:
-        log.warning(f"[db] write gate closed, rejected: {category}: {text[:40]}")
+    if not write_gate_open():
+        log.warning("[db] write gate closed, rejected: %s, %d симв.", category, len(text or ""))
         return False
 
     text = text.strip()

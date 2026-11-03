@@ -145,6 +145,8 @@ def _register_commands():
     dp.message(Command("export_chat"))(_master_only(cmd_export_chat_impl))
     dp.message(Command("clear_chat"))(_master_only(cmd_clear_chat_impl))
     dp.message(Command("забудь_задачи"))(_master_only(cmd_forget_tasks_impl))
+    from adapters.persona_commands import cmd_persona_impl
+    dp.message(Command("образ", "persona"))(_master_only(cmd_persona_impl, bot=bot))
 
     async def _forget_tasks_cb(callback):
         if is_master(callback.from_user.id):
@@ -254,7 +256,10 @@ async def handle_message(message: Message):
     text       = message.text
     text_lower = text.lower()
     _text_raw  = text
-    log.info(f"[вход] {text[:300]!r}")
+    from modules.intimacy_mode import mark as _im_mark
+    from modules.intimacy_mode import redact as _im_redact
+    _im_mark(text, "tg_private")
+    log.info(f"[вход] {_im_redact(text[:300], 'tg_private')}")
     update_master_status(text)
 
     from sakura_core.tts_control import is_tts_stop
@@ -380,9 +385,10 @@ async def handle_message(message: Message):
     _t0 = __import__("time").monotonic()
     from config import CHAT_HISTORY_LIMIT
     reply = await ask_gemini(
-        _text_raw + reply_ctx, history_limit=CHAT_HISTORY_LIMIT
+        _text_raw + reply_ctx, history_limit=CHAT_HISTORY_LIMIT,
+        channel="tg_private",
     )
-    log.info(f"[ответ] {__import__('time').monotonic()-_t0:.1f}с | {reply!r}")
+    log.info(f"[ответ] {__import__('time').monotonic()-_t0:.1f}с | {_im_redact(reply, 'tg_private')}")
     await send_as_conversation(message.chat.id, reply)
 
     try:
