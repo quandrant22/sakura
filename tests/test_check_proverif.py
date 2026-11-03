@@ -88,7 +88,8 @@ def test_update_formal_fills_actual_column():
     q8 = next(ln for ln in new.splitlines() if ln.startswith("| xx Q6 |"))
     assert q1.endswith("| true (совпало) |")
     assert q8.endswith("| true (**РАСХОЖДЕНИЕ** → FINDINGS.md) |")
-    assert new.count(cp.PENDING) == formal.count(cp.PENDING) - 2
+    changed = [a for a, b in zip(formal.splitlines(), new.splitlines(), strict=True) if a != b]
+    assert len(changed) <= 2 and all(ln.startswith(("| ik Q1 |", "| xx Q6 |")) for ln in changed)
 
 
 def test_open_queries_outside_variants_and_marked_in_formal():
