@@ -112,14 +112,32 @@ def _strip_leading_leak(text: str) -> str:
     return text
 
 
+_REMARK = re.compile(r"[а-яё][а-яё\s,.\-–—…!?]*", re.IGNORECASE)
+
+
+def _drop_remark(m: re.Match) -> str:
+    """Ремарка — короткая (до 6 слов) русская фраза со строчной буквы без латиницы
+    и цифр: убрать целиком. Остальное (названия, годы, пояснения) — оставить."""
+    inner = (m.group(1) or "").strip()
+    if not inner:
+        return " "
+    if inner[0].islower() and _REMARK.fullmatch(inner) and len(inner.split()) <= 6:
+        return " "
+    return f" {inner} "
+
+
 def _clean_tts_text(text: str) -> str:
     """Удаляет мусор из текста перед отправкой в TTS."""
     if not text:
         return text
     original = text
-    # Удаляем содержимое в скобках и звёздочках (сценические ремарки)
-    text = re.sub(r'\([^)]*\)', '', text)
-    text = re.sub(r'\*[^*]*\*', '', text)
+    # Сценические ремарки («*улыбается*», «(вздыхает)») — вырезаются; выделение
+    # и пояснения («**Valheim**», «*Palworld*», «(2021)») — остаются без разметки.
+    # Раньше вырезалось всё в звёздочках и скобках: названия игр пропадали из
+    # голоса и из чата («закреплены: , , , и .»).
+    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
+    text = re.sub(r'\*([^*]*)\*', _drop_remark, text)
+    text = re.sub(r'\(([^)]*)\)', _drop_remark, text)
     # Идентификационные утечки — везде
     for junk in _LEAK_ANYWHERE:
         text = text.replace(junk, "")

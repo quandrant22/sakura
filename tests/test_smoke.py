@@ -652,6 +652,26 @@ class Test8_TTSCleaning(unittest.TestCase):
         self.assertNotIn("*кашляет*", result)
         self.assertIn("Здравствуйте", result)
 
+    def test_keep_emphasized_names(self):
+        """Названия в *курсиве*/**жирном** не вырезаются (живой баг 2026-11-04)."""
+        from modules.tts_server import _clean_tts_text
+        out = _clean_tts_text("В левом нижнем углу закреплены: *Valheim*, **Palworld**, *Project Zomboid* и *Satisfactory*.")
+        for name in ("Valheim", "Palworld", "Project Zomboid", "Satisfactory"):
+            self.assertIn(name, out)
+        self.assertNotIn("*", out)
+
+    def test_keep_informative_parentheses(self):
+        from modules.tts_server import _clean_tts_text
+        out = _clean_tts_text("Это Sekiro (2019) от FromSoftware (Япония) (усмехается)")
+        self.assertIn("2019", out)
+        self.assertIn("Япония", out)
+        self.assertNotIn("усмехается", out)
+
+    def test_multiword_remark_removed(self):
+        from modules.tts_server import _clean_tts_text
+        out = _clean_tts_text("*тихо смеётся и качает головой* Ну ты даёшь")
+        self.assertEqual(out, "Ну ты даёшь")
+
     def test_extract_tone_tag(self):
         from modules.tts_server import _extract_tone_tag
         tone, text = _extract_tone_tag("[ТОН: насмешливо] Ну конечно")
