@@ -3,6 +3,18 @@
 Здесь лежит вывод ProVerif без правок, по файлу на модель. На VPS ProVerif
 **не запускается** (DECISIONS CV1): только на машине владельца или в CI.
 
+## CI
+
+`.github/workflows/securechannel.yml`, джоб `proverif`: собирает ProVerif 2.05
+из исходников (sha256 ниже сверяется), запускает обе модели, сверяет вывод с
+[`../expected.json`](../expected.json) скриптом `scripts/check_proverif.py` и
+кладёт сырой вывод и FORMAL.md с заполненным столбцом «фактический» в ветку
+`ci/proverif-results` (не в master). Расхождение — красный джоб. В master
+результаты переносятся после просмотра.
+
+Локально после ручного запуска: `python scripts/check_proverif.py`
+(`--update-formal` — заполнить FORMAL.md §0).
+
 ## Требования
 
 ProVerif **≥ 2.04** (проверено чтением грамматики 2.05). Установка — любой путь:

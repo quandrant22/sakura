@@ -1,0 +1,110 @@
+# Защищённый канал: тесты, интероп-векторы и формальная проверка ProVerif.
+# ProVerif на VPS не ставится (DECISIONS S2, CV1) — только здесь.
+name: securechannel
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - "securechannel/**"
+      - "sakura_core/secure_policy.py"
+      - "adapters/ws.py"
+      - "tests/test_securechannel_*.py"
+      - "tests/test_check_proverif.py"
+      - "scripts/gen_interop_vectors.py"
+      - "scripts/check_proverif.py"
+      - "docs/security/proverif/**"
+      - "requirements*.txt"
+      - ".github/workflows/securechannel.yml"
+  pull_request:
+    paths:
+      - "securechannel/**"
+      - "sakura_core/secure_policy.py"
+      - "docs/security/proverif/**"
+      - "scripts/check_proverif.py"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: securechannel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Зависимости
+        run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Тесты securechannel и сверки ProVerif
+        run: python -m pytest -q tests/test_securechannel_*.py tests/test_check_proverif.py
+      - name: Интероп-векторы актуальны
+        run: python scripts/gen_interop_vectors.py --check
+      # securechannel/ целиком не линтуется: 36 давних замечаний, в основном
+      # осознанные BLE001/S110 (неотличимость отказов) — DECISIONS CV13.
+      - name: ruff (скрипты верификации)
+        run: ruff check scripts/gen_interop_vectors.py scripts/check_proverif.py tests/test_check_proverif.py tests/test_securechannel_interop.py
+
+  proverif:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: write   # только ветка ci/proverif-results, не master
+    env:
+      PV_VERSION: "2.05"
+      PV_SHA256: "4871f53c32ab4a04669a060c4886ba5d9080496963fb980a9a62d2c429ceabc4"
+    steps:
+      - uses: actions/checkout@v4
+      - name: OCaml
+        run: sudo apt-get update -q && sudo apt-get install -y -q ocaml-nox ocaml-findlib time
+      - name: ProVerif ${{ env.PV_VERSION }} из исходников (sha256 сверяется)
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -sSfL -o pv.tgz "https://bblanche.gitlabpages.inria.fr/proverif/proverif${PV_VERSION}.tar.gz"
+          echo "${PV_SHA256}  pv.tgz" | sha256sum -c -
+          tar xzf pv.tgz
+          cd "proverif${PV_VERSION}" && ./build -nointeract
+          echo "$PWD" >> "$GITHUB_PATH"
+      - name: Синтаксис моделей
+        working-directory: docs/security/proverif
+        run: for m in ik xxpsk3; do proverif -parse-only "$m.pv"; done
+      - name: Запуск (сырой вывод в results/, без правок)
+        working-directory: docs/security/proverif
+        run: |
+          for m in ik xxpsk3; do
+            { proverif -help 2>&1 | head -1; echo "model: $m.pv"; echo "commit: $GITHUB_SHA"; date -u +%FT%TZ; echo;
+              timeout 3000 /usr/bin/time -v proverif "$m.pv"; echo "exit: $?"; } > "results/$m.txt" 2>&1 || true
+          done
+          grep -h "^RESULT" results/ik.txt results/xxpsk3.txt || true
+      - name: Сверка с ожиданиями
+        id: check
+        run: |
+          set +e
+          python3 scripts/check_proverif.py --update-formal > check.md
+          echo "rc=$?" >> "$GITHUB_OUTPUT"
+          { echo "## ProVerif ${PV_VERSION}"; echo; cat check.md; } >> "$GITHUB_STEP_SUMMARY"
+          cat check.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: proverif-results
+          path: docs/security/proverif/results/*.txt
+      - name: Ветка ci/proverif-results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898299+github-actions[bot]@users.noreply.github.com"
+          git checkout -B ci/proverif-results
+          git add docs/security/proverif/results/*.txt docs/security/FORMAL.md
+          git commit -m "ci(proverif): сырой вывод ${PV_VERSION} для ${GITHUB_SHA::7}, сверка rc=${{ steps.check.outputs.rc }}"
+          git push --force origin ci/proverif-results
+      - name: Расхождение с ожиданиями — ошибка
+        if: steps.check.outputs.rc != '0'
+        run: |
+          echo "::error::Результаты ProVerif расходятся с expected.json — разбор в docs/security/FINDINGS.md, модель под ответ не править"
+          exit 1

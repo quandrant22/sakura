@@ -188,3 +188,15 @@ golden, промпта — зелёные. **Перед выкатом: полн
 | 10-29 | векторы | `scripts/gen_interop_vectors.py` → `securechannel/vectors/interop.json`: IK и XXpsk3, фиксированные ключи, транспорт и rekey; `tests/test_securechannel_interop.py` (lib, edu и смеси) — 18 passed |
 | 10-29 | документы | FORMAL.md §0: таблица «свойство → модель → ожидаемый → фактический» (фактический = «ожидает запуска»), §3.2 уточнён (офлайн-перебор без QR); `results/README.md` с командами; DECISIONS CV1–CV11 |
 | — | запуск ProVerif | ждёт владельца: `results/ik.txt`, `results/xxpsk3.txt` → затем фактические результаты и разбор атак в FORMAL.md |
+
+## Крипта: интеграция и CI (2026-11-03)
+
+| шаг | состояние |
+|---|---|
+| merge `docs/crypto-verification` | модели ik.pv/xxpsk3.pv, интероп-векторы; решения перенумерованы V → CV (V занято зрением) |
+| merge `feat/agent-securechannel` | транспорт Noise IK в `agent/`, фикс `requirements-dev.txt`; тесты канала агента 40 passed, собираемый набор `agent/` 225 passed (Linux, без Qt-оверлеев и GigaAM) |
+| `agent/`: тихий снимок экрана | удалён (CV15), страж падает на прежнем коде |
+| CI | `.github/workflows/securechannel.yml`: тесты securechannel + сверка (114 passed в чистом venv), векторы `--check`, ProVerif → ветка `ci/proverif-results` |
+| выкат | `docs/security/ROLLOUT.md` (off → optional → спаривание по QR → required → вывод WS_SECRET); блокер `required` — ТЗ-4 (хранилище ключей agent/) |
+| ждёт | результат ProVerif из CI → разбор, перенос в master; выкат на VPS — владелец |
+

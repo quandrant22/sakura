@@ -9,6 +9,8 @@
   - [proverif/xxpsk3.pv](proverif/xxpsk3.pv) — спаривание XXpsk3 (§3.1, §3.3–3.5),
     сценарии «QR» и «только слова».
 - Синтаксис сверен чтением грамматики и примеров ProVerif 2.05, без запуска.
+  Запуск — CI (`.github/workflows/securechannel.yml`, джоб `proverif`),
+  сверка с `proverif/expected.json` — `scripts/check_proverif.py`.
   Команды запуска и куда класть сырой вывод —
   [proverif/results/README.md](proverif/results/README.md).
 - Столбец «фактический» в §0 заполняется только по `results/*.txt`. Если

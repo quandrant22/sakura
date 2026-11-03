@@ -11,7 +11,7 @@
 - Новый пакет: `pip install -r requirements.txt` в боевом venv (нужны
   `noiseprotocol`, `qrcode[pil]`, `cryptography`). Без него ветка не стартует
   защищённый канал.
-- `SECURE_CHANNEL` оставить `off` — включение отдельным шагом (см. docs/security).
+- `SECURE_CHANNEL` оставить `off` — включение отдельным шагом (docs/security/ROLLOUT.md).
 - Порция 1 (журнал чата) выкатывается при `PRIVATE_REQUIRES_SECURE=1` (по умолчанию):
   приватные классы по обычному ws:// не отдаются.
 
