@@ -121,6 +121,8 @@ def _find_model(name: str) -> str:
 
 VOSK_MODEL_PATH = _find_model("vosk-model-small-ru-0.22")
 WAKE_WORDS      = ("сакура", "сакуру", "сакуре", "сакурой", "сакур", "sakura")
+# Перебивание голосом («стоп» во время озвучки): BARGE_IN=0 в .env — выключить (U7).
+BARGE_IN        = os.getenv("BARGE_IN", "1").strip().lower() not in ("0", "false", "no", "off")
 
 # ── Vosk STT (фолбэк, если GigaAM недоступен) ────────────────────────
 VOSK_STT_MODEL  = os.getenv("VOSK_STT_MODEL", "vosk-model-small-ru-0.22")

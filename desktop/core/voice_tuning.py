@@ -65,13 +65,25 @@ def wake_hit(words: tuple[str, ...], mode: str, partial: str = "", final: str = 
     return any(w in (partial or final) for w in words)
 
 
-def is_stop(result_json: str) -> bool:
-    """Итог распознавателя с узкой грамматикой — стоп-слово (не [unk])."""
+STOP_MIN_CONF = 0.8    # уверенность Vosk по слову: ниже — шум или своя речь, подогнанная под грамматику
+
+
+def is_stop(result_json: str, min_conf: float = STOP_MIN_CONF) -> bool:
+    """ИТОГ фразы распознавателя с узкой грамматикой — стоп-слово с уверенностью ≥ min_conf.
+
+    Промежуточный результат (partial) не считается: при узкой грамматике Vosk подгоняет под
+    ближайшее слово любой звук, и «стоп» мелькает в partial от собственной речи Сакуры и фона —
+    ответы обрывались на полуслове (DECISIONS U7). Уверенность берётся из result[].conf
+    (KaldiRecognizer.SetWords(True)); без неё — только точное совпадение итога.
+    """
     try:
-        text = json.loads(result_json).get("text", "") or json.loads(result_json).get("partial", "")
+        data = json.loads(result_json)
     except ValueError:
         return False
-    return any(w in text.split() for w in STOP_WORDS)
+    words = data.get("result")
+    if isinstance(words, list) and words:
+        return any(w.get("word") in STOP_WORDS and float(w.get("conf", 0)) >= min_conf for w in words)
+    return any(w in (data.get("text") or "").split() for w in STOP_WORDS)
 
 
 def apply_replacements(text: str, pairs) -> str:
