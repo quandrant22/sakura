@@ -1,0 +1,80 @@
+[[commands]]
+id = "kettle_boil"
+type = "action"
+action = "kettle"
+args = "boil"
+priority = 20
+description = "Boil water"
+
+phrases.ru = [
+    "вскипяти",
+    "кипяти",
+    "включи чайник",
+    "поставь чайник",
+    "чай поставь",
+    "поставь чай",
+    "кипяток",
+]
+
+[[commands]]
+id = "kettle_heat"
+type = "action"
+action = "kettle"
+args = "heat:{temperature}"
+priority = 20
+description = "Heat water to temperature"
+
+phrases.ru = [
+    "нагрей воду до {temperature}",
+    "подогрей воду до {temperature}",
+]
+
+patterns = ["(?:нагрей|подогрей)\\s+воду\\s+до\\s+(\\d+)"]
+
+[commands.slots.temperature]
+entity = "temperature"
+regex = "(\\d+)"
+
+[[commands]]
+id = "kettle_boil_heat"
+type = "action"
+action = "kettle"
+args = "boil_heat:{temperature}"
+priority = 20
+description = "Boil then cool to temperature"
+
+phrases.ru = [
+    "вскипяти и нагрей до {temperature}",
+    "кипяти и держи {temperature}",
+]
+
+[[commands]]
+id = "kettle_off"
+type = "action"
+action = "kettle"
+args = "off"
+priority = 25
+description = "Turn off kettle"
+
+phrases.ru = [
+    "выключи чайник",
+    "останови чайник",
+    "стоп чайник",
+    "отмени",
+]
+
+[[commands]]
+id = "kettle_status"
+type = "action"
+action = "kettle"
+args = "status"
+priority = 20
+description = "Get kettle status"
+
+phrases.ru = [
+    "статус чайника",
+    "температура чайника",
+    "как чайник",
+    "горячая вода",
+    "сколько градусов",
+]

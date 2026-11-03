@@ -1,0 +1,299 @@
+{
+ "handshake_ms": {
+  "ws": {
+   "median": 1.081,
+   "p95": 1.617,
+   "stdev": 2.129,
+   "n": 60
+  },
+  "ws-nc": {
+   "median": 0.959,
+   "p95": 1.337,
+   "stdev": 0.146,
+   "n": 60
+  },
+  "wss": {
+   "median": 2.784,
+   "p95": 3.912,
+   "stdev": 0.732,
+   "n": 60
+  },
+  "wss-nc": {
+   "median": 2.477,
+   "p95": 3.556,
+   "stdev": 0.383,
+   "n": 60
+  },
+  "noise": {
+   "median": 2.463,
+   "p95": 3.077,
+   "stdev": 1.208,
+   "n": 60
+  }
+ },
+ "throughput": {
+  "ws": [
+   {
+    "size": 256,
+    "msgs": 400,
+    "MiB_s": 1.82,
+    "rtt_ms": {
+     "median": 0.13,
+     "p95": 0.154,
+     "stdev": 0.014,
+     "n": 400
+    },
+    "cpu_ms_per_msg": 0.117
+   },
+   {
+    "size": 4096,
+    "msgs": 300,
+    "MiB_s": 14.87,
+    "rtt_ms": {
+     "median": 0.26,
+     "p95": 0.277,
+     "stdev": 0.014,
+     "n": 300
+    },
+    "cpu_ms_per_msg": 0.26
+   },
+   {
+    "size": 65536,
+    "msgs": 60,
+    "MiB_s": 25.59,
+    "rtt_ms": {
+     "median": 2.363,
+     "p95": 2.752,
+     "stdev": 0.172,
+     "n": 60
+    },
+    "cpu_ms_per_msg": 2.344
+   },
+   {
+    "size": 1048576,
+    "msgs": 8,
+    "MiB_s": 25.18,
+    "rtt_ms": {
+     "median": 39.482,
+     "p95": 41.062,
+     "stdev": 0.858,
+     "n": 8
+    },
+    "cpu_ms_per_msg": 39.062
+   }
+  ],
+  "ws-nc": [
+   {
+    "size": 256,
+    "msgs": 400,
+    "MiB_s": 2.08,
+    "rtt_ms": {
+     "median": 0.115,
+     "p95": 0.128,
+     "stdev": 0.012,
+     "n": 400
+    },
+    "cpu_ms_per_msg": 0.117
+   },
+   {
+    "size": 4096,
+    "msgs": 300,
+    "MiB_s": 29.17,
+    "rtt_ms": {
+     "median": 0.13,
+     "p95": 0.149,
+     "stdev": 0.012,
+     "n": 300
+    },
+    "cpu_ms_per_msg": 0.156
+   },
+   {
+    "size": 65536,
+    "msgs": 60,
+    "MiB_s": 170.37,
+    "rtt_ms": {
+     "median": 0.35,
+     "p95": 0.476,
+     "stdev": 0.043,
+     "n": 60
+    },
+    "cpu_ms_per_msg": 0.26
+   },
+   {
+    "size": 1048576,
+    "msgs": 8,
+    "MiB_s": 145.47,
+    "rtt_ms": {
+     "median": 6.898,
+     "p95": 7.305,
+     "stdev": 0.424,
+     "n": 8
+    },
+    "cpu_ms_per_msg": 5.859
+   }
+  ],
+  "wss": [
+   {
+    "size": 256,
+    "msgs": 400,
+    "MiB_s": 1.25,
+    "rtt_ms": {
+     "median": 0.178,
+     "p95": 0.282,
+     "stdev": 0.052,
+     "n": 400
+    },
+    "cpu_ms_per_msg": 0.195
+   },
+   {
+    "size": 4096,
+    "msgs": 300,
+    "MiB_s": 11.74,
+    "rtt_ms": {
+     "median": 0.324,
+     "p95": 0.38,
+     "stdev": 0.028,
+     "n": 300
+    },
+    "cpu_ms_per_msg": 0.365
+   },
+   {
+    "size": 65536,
+    "msgs": 60,
+    "MiB_s": 24.99,
+    "rtt_ms": {
+     "median": 2.476,
+     "p95": 2.671,
+     "stdev": 0.074,
+     "n": 60
+    },
+    "cpu_ms_per_msg": 2.344
+   },
+   {
+    "size": 1048576,
+    "msgs": 8,
+    "MiB_s": 24.42,
+    "rtt_ms": {
+     "median": 40.602,
+     "p95": 41.427,
+     "stdev": 0.965,
+     "n": 8
+    },
+    "cpu_ms_per_msg": 41.016
+   }
+  ],
+  "wss-nc": [
+   {
+    "size": 256,
+    "msgs": 400,
+    "MiB_s": 1.48,
+    "rtt_ms": {
+     "median": 0.163,
+     "p95": 0.173,
+     "stdev": 0.01,
+     "n": 400
+    },
+    "cpu_ms_per_msg": 0.195
+   },
+   {
+    "size": 4096,
+    "msgs": 300,
+    "MiB_s": 21.08,
+    "rtt_ms": {
+     "median": 0.178,
+     "p95": 0.216,
+     "stdev": 0.019,
+     "n": 300
+    },
+    "cpu_ms_per_msg": 0.156
+   },
+   {
+    "size": 65536,
+    "msgs": 60,
+    "MiB_s": 132.25,
+    "rtt_ms": {
+     "median": 0.462,
+     "p95": 0.523,
+     "stdev": 0.03,
+     "n": 60
+    },
+    "cpu_ms_per_msg": 0.26
+   },
+   {
+    "size": 1048576,
+    "msgs": 8,
+    "MiB_s": 116.33,
+    "rtt_ms": {
+     "median": 8.374,
+     "p95": 9.342,
+     "stdev": 0.549,
+     "n": 8
+    },
+    "cpu_ms_per_msg": 7.812
+   }
+  ],
+  "noise": [
+   {
+    "size": 256,
+    "msgs": 400,
+    "MiB_s": 1.57,
+    "rtt_ms": {
+     "median": 0.151,
+     "p95": 0.178,
+     "stdev": 0.012,
+     "n": 400
+    },
+    "cpu_ms_per_msg": 0.156
+   },
+   {
+    "size": 4096,
+    "msgs": 300,
+    "MiB_s": 23.37,
+    "rtt_ms": {
+     "median": 0.162,
+     "p95": 0.192,
+     "stdev": 0.015,
+     "n": 300
+    },
+    "cpu_ms_per_msg": 0.156
+   },
+   {
+    "size": 65536,
+    "msgs": 60,
+    "MiB_s": 156.89,
+    "rtt_ms": {
+     "median": 0.361,
+     "p95": 0.513,
+     "stdev": 0.065,
+     "n": 60
+    },
+    "cpu_ms_per_msg": 0.521
+   },
+   {
+    "size": 1048576,
+    "msgs": 8,
+    "MiB_s": 186.53,
+    "rtt_ms": {
+     "median": 5.314,
+     "p95": 5.509,
+     "stdev": 0.3,
+     "n": 8
+    },
+    "cpu_ms_per_msg": 5.859
+   }
+  ]
+ },
+ "memory_kib": {
+  "ws": 249.9,
+  "ws-nc": 156.6,
+  "wss": 770.0,
+  "wss-nc": 677.3,
+  "noise": 157.6
+ },
+ "env": {
+  "python": "3.11.9",
+  "websockets": "17.2",
+  "cpu": 8,
+  "when": "2026-10-16 08:38"
+ }
+}

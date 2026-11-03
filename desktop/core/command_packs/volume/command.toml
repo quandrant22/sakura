@@ -1,0 +1,93 @@
+[[commands]]
+id = "volume_set"
+type = "action"
+action = "volume"
+args = "{level}"
+priority = 20
+description = "Set volume to specific level"
+
+phrases.ru = [
+    "громкость {level}",
+    "громкость на {level}",
+    "установи громкость {level}",
+]
+phrases.en = [
+    "volume {level}",
+]
+
+patterns = ["громкость\\s+(?:на\\s+)?(\\d+)"]
+
+[commands.slots.level]
+entity = "number"
+regex = "(\\d+)"
+
+[[commands]]
+id = "volume_up"
+type = "action"
+action = "volume_up"
+args = "{delta}"
+priority = 15
+description = "Increase volume"
+
+phrases.ru = [
+    "громче",
+    "прибавь",
+    "увеличь громкость",
+    "сделай громче",
+]
+phrases.en = [
+    "louder",
+    "volume up",
+]
+
+keywords = ["громче", "прибавь", "увеличь"]
+
+[commands.slots.delta]
+entity = "number"
+required = false
+
+[[commands]]
+id = "volume_down"
+type = "action"
+action = "volume_down"
+args = "{delta}"
+priority = 15
+description = "Decrease volume"
+
+phrases.ru = [
+    "тише",
+    "убавь",
+    "уменьши громкость",
+    "сделай тише",
+]
+phrases.en = [
+    "quieter",
+    "volume down",
+]
+
+keywords = ["тише", "убавь", "уменьши"]
+
+[commands.slots.delta]
+entity = "number"
+required = false
+
+[[commands]]
+id = "mute"
+type = "action"
+action = "volume"
+args = "0"
+priority = 25
+description = "Mute audio"
+
+phrases.ru = [
+    "выключи звук",
+    "без звука",
+    "тихо совсем",
+    "на ноль",
+]
+phrases.en = [
+    "mute",
+    "silence",
+]
+
+keywords = ["выключи звук", "без звука"]
