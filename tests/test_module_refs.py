@@ -74,7 +74,8 @@ def test_lazy_imports_resolve():
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         nodes = lazy_imports(tree)
         # These are separate applications, not importable VPS modules.
-        if relative.parts[0] == "agent" or relative.parts[:2] == ("docs", "experimental"):
+        # desktop/ — клиент на ПК (Windows-зависимости, свой CI desktop-ci), DECISIONS U1.
+        if relative.parts[0] in {"agent", "desktop"} or relative.parts[:2] == ("docs", "experimental"):
             unavailable.extend(f"{relative}:{n.lineno}" for n in nodes)
             continue
         package = ".".join(relative.parts[:-1])
@@ -111,7 +112,7 @@ def test_scanner_reports_unknown_names_and_resolves_submodules():
 def test_no_production_module_imports_main():
     failures = []
     for path in sources():
-        if path.relative_to(ROOT).parts[0] in {"tests", "agent", "docs"}:
+        if path.relative_to(ROOT).parts[0] in {"tests", "agent", "desktop", "docs"}:
             continue
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.ImportFrom) and node.module == "main":

@@ -225,6 +225,7 @@ golden, промпта — зелёные. **Перед выкатом: полн
 | открыто | ik Q8/Q9 (KCI), сценарий D, weaksecret xx Q7/Q8 — CV18 |
 | ТЗ-4 (`feat/agent-pairing`) | `core/secure_store.py` (DPAPI + icacls), `core/pairing.py` (QR/слова против `securechannel.client.pair`), трей «Спарить…»/«Сбросить», переподключение без рестарта; зависимости и `build.bat`; тесты `agent/` 249 passed, 1 skipped (Linux, без Qt-оверлеев и GigaAM; DPAPI — только на Windows) |
 | выкат (2026-11-04) | VPS: `SECURE_CHANNEL=optional` (откат — `e85ed0b`), `memory/secure` 700, файлы 600; desktop на ПК спарен, `SERVER_TRANSPORT=noise-only` — «Зашифровано» |
+| долги тестов (до 2026-11-04, не связаны с U1–U9) | `tests/test_voice_perf.py::test_early_gate_rules` и `…question_does_not_wait_for_verdict` — красные и на `e85ed0b`; `test_voice_info` в песочнице без `tkinter`; vitest desktop на Windows — нестабилен |
 | ждёт | живые проверки «глянь на экран» и голоса (U6); спаривание телефона → `required` и вывод `WS_SECRET` (ROLLOUT шаги 3–4); запрет отката `noise`→`ws` у спаренного desktop |
 | единый клиент (`feat/unified-client`) | desktop слит в master (U1–U6); desktop-ci на Windows: ядро 1075 passed, интерфейс — зелёный |
 
