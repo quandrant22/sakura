@@ -1,0 +1,193 @@
+(* securechannel/1 — спаривание Noise_XXpsk3_25519_ChaChaPoly_BLAKE2s (PROTOCOL.md §3.1, §3.3–3.5).
+   Символьная модель для ProVerif ≥ 2.04. Запуск — results/README.md.
+   Статус: ОЖИДАЕТ ЗАПУСКА (на VPS ProVerif не запускается, см. FORMAL.md).
+
+   Примитивы — как в ik.pv. Порядок токенов буквально по §3.3 и
+   securechannel/noise/core.py (режим psk: токен e дополнительно делает MixKey(e)):
+     h = HASH(имя протокола) (37 байт > HASHLEN), ck = h, MixHash(prologue_pair);
+     XX_1 -> e                 + payload ε (зашифрован ключом из MixKey(e) — не секрет);
+     XX_2 <- e, ee, s, es      + payload ε;  s — ключом после ee (n = 0),
+                                             payload — ключом после es (n = 0);
+     XX_3 -> s, se, psk        + payload {"v":1,"name","kind","device_id_hint"};
+                                 s — ключом после es со счётчиком n = 1 (n = 0 ушёл
+                                 на payload XX_2), psk — MixKeyAndHash (hkdf1..3);
+     Split(); сервер шлёт TRANSPORT[PAIRED {..., server_pub}] ключом kRI;
+     клиент сверяет server_pub с s из XX_2 (client.py) и только после этого
+     считает сервер подлинным.
+
+   Два сценария с независимыми одноразовыми кодами (сервер и устройство общие):
+     qr    — клиент знает ключ сервера из QR и ДО XX_3 сверяет его с s из XX_2;
+     words — 8 слов без QR: ключа сервера клиент заранее не знает, s из XX_2
+             принимается любой; подлинность — только по PAIRED.
+   PSK в модели — неугадываемое имя; 64 бита, 10 минут и 5 онлайн-попыток —
+   вне символьной модели (FORMAL.md §3.2). Онлайн-угадывание (по попытке на
+   рукопожатие) weaksecret не считает — его ограничивает лимит попыток.
+
+   Запросы и ОЖИДАЕМЫЙ результат (m — режим, x — ключ устройства, s — ключ сервера, e1/e2 — эфемерные):
+     Q1  attacker(info_qr)                                            true   секретность payload XX_3
+     Q2  attacker(info_words)                                         true   то же без QR
+     Q3  inj ServerPaired(m,x,s,e1,e2) ==> inj ClientCommitted(m,x,s,e1,e2)
+                                                                      true   устройство принято только при знании PSK
+     Q4  inj ClientPaired(m,x,s,e1,e2) ==> inj ServerPaired(m,x,s,e1,e2)
+                                                                      true   сервер подлинен для клиента после PAIRED (оба режима)
+     Q5      ClientCommitted(qr,x,s,e1,e2)    ==> ServerSentXX2(s,e1,e2)
+                                                                      true   QR: ключ сервера подтверждён ещё до XX_3
+     Q6      ClientCommitted(words,x,s,e1,e2) ==> ServerSentXX2(s,e1,e2)
+                                                                      FALSE  ожидаемо: без QR XX_3 уходит неподтверждённому собеседнику (MITM)
+     Q7  weaksecret psk_qr                                            true   офлайн-перебор PSK невозможен
+     Q8  weaksecret psk_words                                         FALSE  ОСТАТОЧНЫЙ РИСК: активный MITM получает XX_3 и
+                                                                             проверяет догадки о PSK офлайн
+     Q9  event(ClientPaired(qr,..))                                   FALSE  достижимость (модель не пустая)
+     Q10 event(ClientPaired(words,..))                                FALSE  достижимость
+   Остаточный риск «по словам без QR» (Q6, Q8): атакующий-посредник узнаёт
+   открытый ключ устройства (s в XX_3 зашифрован ключом без PSK) и получает
+   офлайн-оракул для 64-битного PSK; спаривание он не завершит (Q4) и XX_3 не
+   прочтёт (Q2), пока не переберёт PSK — а код живёт 10 минут и одноразов. *)
+
+type key.
+
+const gen: bitstring [data].
+fun exp(bitstring, key): bitstring.
+equation forall x: key, y: key; exp(exp(gen, x), y) = exp(exp(gen, y), x).
+
+fun hash(bitstring): bitstring.
+fun hkdf1(bitstring, bitstring): bitstring.
+fun hkdf2(bitstring, bitstring): bitstring.
+fun hkdf3(bitstring, bitstring): bitstring.
+
+fun aenc(bitstring, bitstring, bitstring, bitstring): bitstring.
+reduc forall k: bitstring, n: bitstring, ad: bitstring, m: bitstring;
+  adec(k, n, ad, aenc(k, n, ad, m)) = m.
+
+free c: channel.
+
+const name_xx: bitstring.            (* "Noise_XXpsk3_25519_ChaChaPoly_BLAKE2s" *)
+const prologue_pair: bitstring.      (* b"sakura-securechannel/1\x00pair" *)
+const empty: bitstring.
+const n0: bitstring.
+const n1: bitstring.
+const paired: bitstring.             (* внутренний тип PAIRED = 0x06 *)
+const qr: bitstring.
+const words: bitstring.
+
+free skS: key [private].
+free skC: key [private].
+
+free psk_qr: bitstring [private].     (* код, переданный QR *)
+free psk_words: bitstring [private].  (* код, введённый словами *)
+free info_qr: bitstring [private].    (* payload XX_3 *)
+free info_words: bitstring [private].
+
+event ServerSentXX2(bitstring, bitstring, bitstring).                              (* s, e1, e2 *)
+event ClientCommitted(bitstring, bitstring, bitstring, bitstring, bitstring).      (* m, x, s, e1, e2 *)
+event ServerPaired(bitstring, bitstring, bitstring, bitstring, bitstring).
+event ClientPaired(bitstring, bitstring, bitstring, bitstring, bitstring).
+
+query attacker(info_qr).
+query attacker(info_words).
+query m: bitstring, x: bitstring, s: bitstring, e1: bitstring, e2: bitstring;
+  inj-event(ServerPaired(m, x, s, e1, e2)) ==> inj-event(ClientCommitted(m, x, s, e1, e2)).
+query m: bitstring, x: bitstring, s: bitstring, e1: bitstring, e2: bitstring;
+  inj-event(ClientPaired(m, x, s, e1, e2)) ==> inj-event(ServerPaired(m, x, s, e1, e2)).
+query x: bitstring, s: bitstring, e1: bitstring, e2: bitstring;
+  event(ClientCommitted(qr, x, s, e1, e2)) ==> event(ServerSentXX2(s, e1, e2)).
+query x: bitstring, s: bitstring, e1: bitstring, e2: bitstring;
+  event(ClientCommitted(words, x, s, e1, e2)) ==> event(ServerSentXX2(s, e1, e2)).
+weaksecret psk_qr.
+weaksecret psk_words.
+query x: bitstring, s: bitstring, e1: bitstring, e2: bitstring;
+  event(ClientPaired(qr, x, s, e1, e2)).
+query x: bitstring, s: bitstring, e1: bitstring, e2: bitstring;
+  event(ClientPaired(words, x, s, e1, e2)).
+
+(* Новое устройство (инициатор). expected — ключ из QR (в режиме words не используется). *)
+let Client(skI: key, psk: bitstring, mode: bitstring, expected: bitstring, info: bitstring) =
+  new eI: key;
+  let pkI = exp(gen, skI) in
+  let eIPub = exp(gen, eI) in
+  let h0 = hash(name_xx) in
+  let ck0 = h0 in
+  let h1 = hash((h0, prologue_pair)) in
+  (* XX_1: -> e *)
+  let h2 = hash((h1, eIPub)) in                     (* e *)
+  let ck1 = hkdf1(ck0, eIPub) in                    (* psk: MixKey(e) *)
+  let k1 = hkdf2(ck0, eIPub) in
+  let c1 = aenc(k1, n0, h2, empty) in
+  let h3 = hash((h2, c1)) in
+  out(c, (eIPub, c1));
+  (* XX_2: <- e, ee, s, es *)
+  in(c, (eR: bitstring, cS: bitstring, c2: bitstring));
+  let h4 = hash((h3, eR)) in                        (* e *)
+  let ck2 = hkdf1(ck1, eR) in                       (* psk: MixKey(e) *)
+  let ck3 = hkdf1(ck2, exp(eR, eI)) in              (* ee *)
+  let k3 = hkdf2(ck2, exp(eR, eI)) in
+  let sR = adec(k3, n0, h4, cS) in                  (* s *)
+  let h5 = hash((h4, cS)) in
+  let ck4 = hkdf1(ck3, exp(sR, eI)) in              (* es = DH(e_I, s_R) *)
+  let k4 = hkdf2(ck3, exp(sR, eI)) in
+  let p2 = adec(k4, n0, h5, c2) in
+  let h6 = hash((h5, c2)) in
+  (* QR: ключ из XX_2 == ключ из QR — до XX_3, иначе обрыв. Слова: проверки нет. *)
+  if (mode = words) || (sR = expected) then
+  event ClientCommitted(mode, pkI, sR, eIPub, eR);
+  (* XX_3: -> s, se, psk *)
+  let cSI = aenc(k4, n1, h6, pkI) in                (* s *)
+  let h7 = hash((h6, cSI)) in
+  let ck5 = hkdf1(ck4, exp(eR, skI)) in             (* se = DH(s_I, e_R) *)
+  let ck6 = hkdf1(ck5, psk) in                      (* psk: MixKeyAndHash *)
+  let th = hkdf2(ck5, psk) in
+  let k6 = hkdf3(ck5, psk) in
+  let h8 = hash((h7, th)) in
+  out(c, (cSI, aenc(k6, n0, h8, info)));
+  let kRI = hkdf2(ck6, empty) in                    (* Split: сервер → клиент *)
+  in(c, t: bitstring);
+  let (=paired, =sR) = adec(kRI, n0, empty, t) in   (* PAIRED и server_pub == s из XX_2 *)
+  event ClientPaired(mode, pkI, sR, eIPub, eR).
+
+(* Сервер (ответчик) с активным кодом psk. *)
+let Server(skR: key, psk: bitstring, mode: bitstring) =
+  let pkR = exp(gen, skR) in
+  in(c, (eI: bitstring, c1: bitstring));
+  let h0 = hash(name_xx) in
+  let ck0 = h0 in
+  let h1 = hash((h0, prologue_pair)) in
+  let h2 = hash((h1, eI)) in                        (* e *)
+  let ck1 = hkdf1(ck0, eI) in                       (* psk: MixKey(e) *)
+  let k1 = hkdf2(ck0, eI) in
+  let p1 = adec(k1, n0, h2, c1) in
+  let h3 = hash((h2, c1)) in
+  new eR: key;
+  let eRPub = exp(gen, eR) in
+  let h4 = hash((h3, eRPub)) in                     (* e *)
+  let ck2 = hkdf1(ck1, eRPub) in                    (* psk: MixKey(e) *)
+  let ck3 = hkdf1(ck2, exp(eI, eR)) in              (* ee *)
+  let k3 = hkdf2(ck2, exp(eI, eR)) in
+  let cS = aenc(k3, n0, h4, pkR) in                 (* s *)
+  let h5 = hash((h4, cS)) in
+  let ck4 = hkdf1(ck3, exp(eI, skR)) in             (* es = DH(s_R, e_I) *)
+  let k4 = hkdf2(ck3, exp(eI, skR)) in
+  let c2 = aenc(k4, n0, h5, empty) in
+  let h6 = hash((h5, c2)) in
+  event ServerSentXX2(pkR, eI, eRPub);
+  out(c, (eRPub, cS, c2));
+  in(c, (cSI: bitstring, c3: bitstring));
+  let sI = adec(k4, n1, h6, cSI) in                 (* s *)
+  let h7 = hash((h6, cSI)) in
+  let ck5 = hkdf1(ck4, exp(sI, eR)) in              (* se = DH(e_R, s_I) *)
+  let ck6 = hkdf1(ck5, psk) in                      (* psk *)
+  let th = hkdf2(ck5, psk) in
+  let k6 = hkdf3(ck5, psk) in
+  let h8 = hash((h7, th)) in
+  let info = adec(k6, n0, h8, c3) in                (* не тот PSK — отказ, молчание *)
+  event ServerPaired(mode, sI, pkR, eI, eRPub);
+  let kRI = hkdf2(ck6, empty) in
+  out(c, aenc(kRI, n0, empty, (paired, pkR))).
+
+process
+  out(c, (exp(gen, skS), exp(gen, skC)));
+  (
+      (!Client(skC, psk_qr, qr, exp(gen, skS), info_qr))
+    | (!Server(skS, psk_qr, qr))
+    | (!Client(skC, psk_words, words, empty, info_words))
+    | (!Server(skS, psk_words, words))
+  )

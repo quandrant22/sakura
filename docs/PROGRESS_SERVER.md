@@ -179,3 +179,12 @@ golden, промпта — зелёные. **Перед выкатом: полн
 - Замер №5: 99,0%, 747 с (−46%), p50 4,1 с, p90 59 с; хвост — 19 вопросов с обрывом первой попытки на 2048 токенах.
 - Сделано: E17, `--max-tokens` в замере. Ждёт: замер №6.
 
+
+## Верификация securechannel (docs/crypto-verification)
+
+| время | шаг | состояние |
+|---|---|---|
+| 10-29 | модели | `docs/security/proverif/ik.pv` переписана по PROTOCOL §3.1–3.2 (AD = h, nonce, Split, KCI-сервер K, устройство атакующего, фаза 1); новая `xxpsk3.pv` (§3.3, QR и «только слова», weaksecret). Синтаксис сверен с грамматикой ProVerif 2.05 чтением, **не запускались** |
+| 10-29 | векторы | `scripts/gen_interop_vectors.py` → `securechannel/vectors/interop.json`: IK и XXpsk3, фиксированные ключи, транспорт и rekey; `tests/test_securechannel_interop.py` (lib, edu и смеси) — 18 passed |
+| 10-29 | документы | FORMAL.md §0: таблица «свойство → модель → ожидаемый → фактический» (фактический = «ожидает запуска»), §3.2 уточнён (офлайн-перебор без QR); `results/README.md` с командами; DECISIONS CV1–CV11 |
+| — | запуск ProVerif | ждёт владельца: `results/ik.txt`, `results/xxpsk3.txt` → затем фактические результаты и разбор атак в FORMAL.md |
