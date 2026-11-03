@@ -248,6 +248,17 @@
 | A15 | Конфигурации ruff нет; `ruff check agent` на master — 390 старых замечаний; критерий — «новых нет» | исправлять старые — вне задачи |
 | A16 | `agent/agent.py` (старый файл, `sakura.py` его не запускает) не тронут — в нём свой `websockets.connect` с token | задача про `agent/core/agent.py` |
 
+## Единый клиент на ПК (feat/unified-client)
+
+| № | решение | почему |
+|---|---|---|
+| U1 | Единый клиент на ПК — `desktop/` (ветка `feat/client-browser` = `feat/vision-client` + браузерный агент), слит в master; `agent/` — запасной, новых функций не получает | desktop — заявленный преемник (`desktop/docs/ARCHITECTURE.md`), паритет 104/110 (остаток — ручные проверки голоса), только в нём зрение `vision.capture`, браузерный агент, три ПК; два клиента с одного ПК — двойные голос и команды |
+| U2 | Клиентский защищённый канал у desktop свой (`desktop/core/securechannel`, ключ под DPAPI в `%LOCALAPPDATA%\Sakura\secure`), с сервером совместим (`test_securechannel_server_interop`); `agent/core/secure_store` остаётся для запасного агента | ключи двух клиентов независимы — каждый спаривается отдельно, `/devices` покажет оба |
+| U3 | `desktop-ci` запускается на master; при падении pytest сводка уходит в ветку `ci/desktop-results` | раньше CI desktop шёл только на старых ветках и был красным; логи Actions без авторизации недоступны |
+| U4 | Паритет команд — по реестру master: `screenshot.describe` и `system.sleep` стали legacy-алиасами `vision.ask` и `power.sleep` (95 агентных действий вместо 97); исполнитель desktop их по-прежнему понимает | реестр сервера ушёл вперёд после развилки desktop |
+| U5 | `cryptography==50.0.2` в `agent/requirements.lock.txt` — как в `desktop/requirements.txt` и в `agent\venv` | оба файла ставятся в один venv; 48.0.0 против 50.0.2 ломала pip |
+| U6 | Вывод `agent/` из эксплуатации — после ручной проверки голоса desktop на ПК (PARITY: wake-word «Сакура», перебивание «стоп») | статус «перенесено» — только по тесту или записанной ручной проверке |
+
 ## Образ Сакуры и режим 18+ v2 (feat/intimacy-v2)
 
 | № | решение | почему |

@@ -1,0 +1,10 @@
+{
+  "scenarios": [
+    {"id": "focus", "name": "Фокус", "enabled": true, "builtin": true,
+     "conditions": [{"type": "phrase", "value": "режим фокуса"}],
+     "actions": [{"type": "action", "value": "system.dnd_on"}, {"type": "action", "value": "music.wave"}]},
+    {"id": "sleep", "name": "Режим сна", "enabled": true,
+     "conditions": [{"type": "time", "value": "22:00-07:00"}],
+     "actions": [{"type": "action", "value": "phone.dnd_on"}, {"type": "pause", "value": "5"}, {"type": "telegram", "value": "Спокойной ночи"}]}
+  ]
+}

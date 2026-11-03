@@ -1,0 +1,89 @@
+"""Голос: перебивание «стоп» во время озвучки, чувствительность слова «Сакура» по шуму, замены распознанного.
+
+Перебивание: пока Сакура говорит, микрофон для обычного слуха заглушён (подавление эха по таймингу:
+озвучка + 700 мс). Отдельный распознаватель Vosk с узкой грамматикой слушает только стоп-слова —
+собственная речь Сакуры почти никогда не даёт точного совпадения с ними. Вычитание системного звука
+(AEC) не делается: нужна нативная обработка (DECISIONS №53).
+"""
+import json
+import math
+import re
+
+STOP_GRAMMAR = ["стоп", "сакура стоп", "хватит", "сакура хватит", "замолчи", "[unk]"]
+STOP_WORDS = ("стоп", "хватит", "замолчи")
+
+# Чувствительность слова «Сакура»: high — вхождение в промежуточном результате (быстро, больше ложных),
+# normal — целое слово в промежуточном, low — только в итоговом результате фразы (надёжно в шуме).
+MODES = ("low", "normal", "high")
+NOISE_HIGH_DB = -35.0   # громкий фон (музыка, ТВ) → low
+NOISE_LOW_DB = -55.0    # тихо → high
+
+
+def rms_db(pcm16: bytes) -> float:
+    """Уровень блока PCM 16 бит в dBFS."""
+    n = len(pcm16) // 2
+    if not n:
+        return -120.0
+    import array
+    a = array.array("h", pcm16[: n * 2])
+    ms = sum(x * x for x in a) / n
+    return 20 * math.log10(math.sqrt(ms) / 32768) if ms > 0 else -120.0
+
+
+class NoiseFloor:
+    """Скользящая оценка фона: несимметричное экспоненциальное среднее."""
+
+    def __init__(self, alpha: float = 0.02, start: float = -50.0):
+        self.alpha = alpha
+        self.db = start
+
+    def feed(self, db: float) -> float:
+        # Вниз — быстро, вверх — вчетверо медленнее: устойчивый фон (ТВ, музыка) поднимает оценку за
+        # секунды, короткая речь почти не влияет. Раньше блоки громче фона+10 дБ отбрасывались целиком —
+        # и при резко выросшем фоне оценка не росла вовсе.
+        a = self.alpha if db < self.db else self.alpha / 4
+        self.db += a * (db - self.db)
+        return self.db
+
+
+def choose_mode(setting: str | None, noise_db: float) -> str:
+    """Ручная настройка (low/normal/high) или авто по уровню шума."""
+    if setting in MODES:
+        return setting
+    if noise_db >= NOISE_HIGH_DB:
+        return "low"
+    if noise_db <= NOISE_LOW_DB:
+        return "high"
+    return "normal"
+
+
+def wake_hit(words: tuple[str, ...], mode: str, partial: str = "", final: str = "") -> bool:
+    if mode == "low":
+        return any(re.search(rf"\b{re.escape(w)}\b", final) for w in words)
+    if mode == "normal":
+        return any(re.search(rf"\b{re.escape(w)}\b", partial or final) for w in words)
+    return any(w in (partial or final) for w in words)
+
+
+def is_stop(result_json: str) -> bool:
+    """Итог распознавателя с узкой грамматикой — стоп-слово (не [unk])."""
+    try:
+        text = json.loads(result_json).get("text", "") or json.loads(result_json).get("partial", "")
+    except ValueError:
+        return False
+    return any(w in text.split() for w in STOP_WORDS)
+
+
+def apply_replacements(text: str, pairs) -> str:
+    """Таблица замен распознанного («вал хейм» → «Valheim»): целые слова, без учёта регистра."""
+    out = text
+    for item in pairs or ():
+        try:
+            src, dst = item[0], item[1]
+        except (TypeError, IndexError):
+            continue
+        src = str(src).strip()
+        if not src:
+            continue
+        out = re.sub(rf"(?<!\w){re.escape(src)}(?!\w)", str(dst), out, flags=re.IGNORECASE)
+    return out

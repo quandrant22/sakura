@@ -224,5 +224,6 @@ golden, промпта — зелёные. **Перед выкатом: полн
 | ProVerif, варианты (CV17) | `ik_core` 8/8 и `xxpsk3_auth` 8/8 совпали с ожидаемыми (CI `3ccc9d7`: 5:08 и 5:12; сырой вывод в `results/`) |
 | открыто | ik Q8/Q9 (KCI), сценарий D, weaksecret xx Q7/Q8 — CV18 |
 | ТЗ-4 (`feat/agent-pairing`) | `core/secure_store.py` (DPAPI + icacls), `core/pairing.py` (QR/слова против `securechannel.client.pair`), трей «Спарить…»/«Сбросить», переподключение без рестарта; зависимости и `build.bat`; тесты `agent/` 249 passed, 1 skipped (Linux, без Qt-оверлеев и GigaAM; DPAPI — только на Windows) |
-| ждёт | слияние `feat/agent-pairing`; выкат на VPS и спаривание агента по QR — владелец (ROLLOUT.md) |
+| ждёт | ~~слияние `feat/agent-pairing`~~ (влито); VPS в `optional` с 2026-11-04 (откат — `e85ed0b`); спаривание desktop по QR — владелец |
+| единый клиент (`feat/unified-client`) | desktop слит в master (U1–U6); desktop-ci на Windows: ядро 1075 passed, интерфейс — зелёный |
 
