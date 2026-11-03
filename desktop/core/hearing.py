@@ -790,6 +790,7 @@ class Hearing(threading.Thread):
         # Перебивание во время озвучки: узкая грамматика — только стоп-слова (собственная речь не совпадает).
         from desktop.core import voice_tuning as VT
         stop_rec = KaldiRecognizer(model, config.MIC_RATE, json.dumps(VT.STOP_GRAMMAR, ensure_ascii=False))
+        stop_rec.SetWords(True)   # уверенность по словам — для VT.is_stop
         _last_reset   = time.monotonic()
         _WAKE_MAX_AGE = 60.0  # секунд без сброса до принудительного пересоздания
         _last_warn    = 0.0   # троттлинг предупреждений о бюджете блока
@@ -828,9 +829,9 @@ class Hearing(threading.Thread):
 
                     if self.tts_muted():
                         wake = _fresh_wake()
-                        if self.mic_enabled and self._tts_active():
-                            heard = (stop_rec.Result() if stop_rec.AcceptWaveform(data) else stop_rec.PartialResult())
-                            if VT.is_stop(heard):
+                        if self.mic_enabled and config.BARGE_IN and self._tts_active():
+                            # Только итог фразы (не partial) и с уверенностью по слову — U7.
+                            if stop_rec.AcceptWaveform(data) and VT.is_stop(stop_rec.Result()):
                                 stop_rec.Reset()
                                 self._barge_in()
                         continue

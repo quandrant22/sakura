@@ -42,11 +42,28 @@ def test_wake_hit_by_mode():
     assert VT.wake_hit(WORDS, "low", final="сакура включи свет") is True
 
 
+def _words(*pairs):
+    return json.dumps({"result": [{"word": w, "conf": c} for w, c in pairs],
+                       "text": " ".join(w for w, _ in pairs)}, ensure_ascii=False)
+
+
 def test_is_stop():
     assert VT.is_stop(json.dumps({"text": "сакура стоп"}, ensure_ascii=False))
-    assert VT.is_stop(json.dumps({"partial": "хватит"}, ensure_ascii=False))
     assert not VT.is_stop(json.dumps({"text": "[unk]"}))
     assert not VT.is_stop("не json")
+
+
+def test_is_stop_ignores_partial():
+    """partial при узкой грамматике мелькает от любой речи — обрывал ответы (U7)."""
+    assert not VT.is_stop(json.dumps({"partial": "хватит"}, ensure_ascii=False))
+    assert not VT.is_stop(json.dumps({"partial": "стоп"}, ensure_ascii=False))
+
+
+def test_is_stop_needs_confidence():
+    assert VT.is_stop(_words(("сакура", 0.9), ("стоп", 0.95)))
+    assert not VT.is_stop(_words(("стоп", 0.42)))                 # подогнанный шум
+    assert not VT.is_stop(_words(("[unk]", 1.0)))
+    assert VT.is_stop(_words(("стоп", 0.6)), min_conf=0.5)
 
 
 def test_replacements():
