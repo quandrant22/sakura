@@ -55,6 +55,16 @@ start_sakura.bat
 
 `YANDEX_API_KEY`, `YANDEX_FOLDER_ID` — остатки SpeechKit, не используются.
 
+## Защищённый канал и спаривание
+
+Агент входит на сервер по Noise IK, если устройство спарено (`AGENT_SECURE`:
+`prefer` — по умолчанию, `required` — только Noise, `off`). Спаривание:
+Telegram `/pair` → трей → «Спарить с сервером…» → вставить QR-строку
+`sakura-pair://…` (лучше) или 8 слов. Ключ хранится в
+`%APPDATA%\Sakura\secure\device.json` (DPAPI, доступ только пользователю).
+Без трея: `python -m core.pairing`. Сброс — трей → «Сбросить спаривание».
+Подробно — `docs/security/ROLLOUT.md`.
+
 ## Логи
 
 `agent\logs\sakura.log`. При старте ожидаются строки

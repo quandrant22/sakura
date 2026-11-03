@@ -84,7 +84,7 @@ def main():
     bridge.orbDeparture.connect(overlay.animate_departure)
     overlay.submit.connect(agent.submit_user_text)
 
-    app.tray = build_tray(app, overlay, bridge)
+    app.tray = build_tray(app, overlay, bridge, agent)
 
     # Захват системного аудио для эквалайзера
     # Используем Qt сигнал для thread-safe обновления UI

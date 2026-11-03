@@ -1,8 +1,15 @@
 """ui/app.py — мост между шиной событий и Qt."""
 
 from PyQt6.QtCore import QObject, pyqtSignal
-from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
-from PyQt6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
+from PyQt6.QtGui import QAction, QColor, QIcon, QPixmap
+from PyQt6.QtWidgets import (
+    QApplication,
+    QInputDialog,
+    QLineEdit,
+    QMenu,
+    QMessageBox,
+    QSystemTrayIcon,
+)
 
 
 class UiBridge(QObject):
@@ -17,6 +24,7 @@ class UiBridge(QObject):
     micLevel          = pyqtSignal(list)
     agentAlert        = pyqtSignal(str)
     secureStatus      = pyqtSignal(bool, str)
+    pairResult        = pyqtSignal(str)
 
     def __init__(self, bus):
         super().__init__()
@@ -52,7 +60,7 @@ def _make_icon(color: str = "#9a7fb5") -> QIcon:
     return QIcon(px)
 
 
-def build_tray(app: QApplication, overlay, bridge=None) -> QSystemTrayIcon:
+def build_tray(app: QApplication, overlay, bridge=None, agent=None) -> QSystemTrayIcon:
     tray = QSystemTrayIcon(_make_icon(), app)
     tray.setToolTip("Сакура")
     menu = QMenu()
@@ -65,6 +73,8 @@ def build_tray(app: QApplication, overlay, bridge=None) -> QSystemTrayIcon:
             status_action.setText(text)
             tray.setToolTip(f"Сакура — {text}")
         bridge.secureStatus.connect(_sync_secure)
+    if agent is not None and bridge is not None:
+        add_pairing_actions(menu, app, agent, bridge, tray)
     menu.addSeparator()
     menu.addAction("Показать / скрыть", lambda: overlay.setVisible(not overlay.isVisible()))
     menu.addSeparator()
@@ -92,3 +102,36 @@ def build_tray(app: QApplication, overlay, bridge=None) -> QSystemTrayIcon:
     )
     tray.show()
     return tray
+
+def add_pairing_actions(menu: QMenu, app, agent, bridge, tray) -> None:
+    """«Спарить с сервером…» и «Сбросить спаривание» (ТЗ-4).
+
+    Код (QR-строка или 8 слов) вводится скрыто и не журналируется; спаривание
+    идёт в цикле агента, итог — в окне и в оверлее.
+    """
+    def _show(text: str):
+        ok = text.startswith(("Спарено", "Спаривание сброшено"))
+        box = QMessageBox.information if ok else QMessageBox.warning
+        box(None, "Сакура — спаривание", text)
+
+    bridge.pairResult.connect(_show)
+
+    def _pair():
+        code, ok = QInputDialog.getText(
+            None, "Спарить с сервером",
+            "Telegram: /pair. Вставьте QR-строку (sakura-pair://…) — предпочтительно,\n"
+            "или введите 8 слов. Ввод скрыт.",
+            QLineEdit.EchoMode.Password)
+        if not ok or not code.strip():
+            return
+        if not agent.run_in_loop(agent.pair_device, code, done=bridge.pairResult.emit):
+            _show("Агент ещё не запущен — повторите через несколько секунд")
+
+    def _reset():
+        if QMessageBox.question(None, "Сакура", "Удалить ключи устройства? Потребуется "
+                                "новое спаривание.") != QMessageBox.StandardButton.Yes:
+            return
+        agent.run_in_loop(agent.reset_pairing, done=bridge.pairResult.emit)
+
+    menu.addAction("Спарить с сервером…", _pair)
+    menu.addAction("Сбросить спаривание", _reset)

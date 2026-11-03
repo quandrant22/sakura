@@ -44,6 +44,16 @@ pyinstaller ^
     --hidden-import "pyperclip" ^
     --hidden-import "PIL" ^
     --hidden-import "websockets" ^
+    --paths ".." ^
+    --hidden-import "core.secure_store" ^
+    --hidden-import "core.pairing" ^
+    --hidden-import "securechannel.client" ^
+    --hidden-import "securechannel.pairing" ^
+    --hidden-import "securechannel.noise.core" ^
+    --hidden-import "noise" ^
+    --collect-submodules "securechannel" ^
+    --collect-submodules "noise" ^
+    --add-data "..\securechannel\wordlist_ru.txt;securechannel" ^
     --hidden-import "psutil" ^
     --collect-all "whisper" ^
     --collect-all "vosk" ^

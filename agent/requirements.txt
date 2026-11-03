@@ -14,6 +14,9 @@ python-dotenv
 # Связь с VPS
 websockets
 httpx
+# Защищённый канал securechannel/1 (Noise IK, спаривание XXpsk3) — ТЗ-4
+noiseprotocol==0.3.1
+cryptography>=42
 
 # Windows API / интеграция
 pywin32
