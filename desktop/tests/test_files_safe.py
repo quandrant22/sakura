@@ -125,7 +125,7 @@ def test_find_limit_three(home):
 def test_delete_by_name_refused_preview_then_delete_and_undelete(home, tmp_path):
     h, env = home
     f = h / "Downloads" / "copy.txt"
-    f.write_text("данные")
+    f.write_text("данные", encoding="utf-8")
     c = ctx(env, tmp_path)
     assert run("files.delete", "copy.txt", c, confirmed=True)["status"] == "unsupported"  # имя без пути
     assert run("files.delete", str(f), c)["detail"] == "нужно подтверждение"
@@ -134,7 +134,7 @@ def test_delete_by_name_refused_preview_then_delete_and_undelete(home, tmp_path)
     out = run("files.delete", str(f), c, confirmed=True)
     assert out["ok"] and not f.exists() and c.platform.recycled == [str(f)]
     back = run("files.undelete", "", c)
-    assert back["ok"] and f.read_text() == "данные"
+    assert back["ok"] and f.read_text(encoding="utf-8") == "данные"
     assert run("files.undelete", "", c)["status"] == "noop"  # уже возвращён
 
 
@@ -154,7 +154,7 @@ def test_undelete_only_last_24h_and_last_5(home, tmp_path):
 def test_journal_has_no_contents(home, tmp_path):
     h, env = home
     p = h / "Documents" / "secret.txt"
-    p.write_text("очень личное")
+    p.write_text("очень личное", encoding="utf-8")
     c = ctx(env, tmp_path)
     run("files.delete", str(p), c, confirmed=True)
     assert "очень личное" not in (tmp_path / "deleted.json").read_text(encoding="utf-8")
