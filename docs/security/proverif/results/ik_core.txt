@@ -1,0 +1,1737 @@
+Proverif 2.05. Cryptographic protocol verifier, by Bruno Blanchet, Vincent Cheval, and Marc Sylvestre
+model: ik_core.pv (scripts/proverif_variants.py)
+commit: 3ccc9d7a680392ff71003e415015acec7fe7f715
+2026-11-03T09:20:30Z
+
+Linear part:
+exp(exp(gen,x),y) = exp(exp(gen,y),x)
+Completing equations...
+Completed equations:
+exp(exp(gen,x),y) = exp(exp(gen,y),x)
+Convergent part: No equation.
+Process 0 (that is, the initial process):
+{1}insert registry(exp(gen,skS),exp(gen,skC));
+{2}out(c, (exp(gen,skS),exp(gen,skC)));
+(
+    {3}!
+    {4}let skI: key = skC in
+    {5}let pkR: bitstring = exp(gen,skS) in
+    {6}let msg: bitstring = payload_c in
+    {7}new eI: key;
+    {8}let pkI: bitstring = exp(gen,skI) in
+    {9}let eIPub: bitstring = exp(gen,eI) in
+    {10}event ClientStarted(pkI,pkR,eIPub);
+    {11}let h0: bitstring = hash(name_ik) in
+    {12}let ck0: bitstring = h0 in
+    {13}let h1: bitstring = hash((h0,prologue_session)) in
+    {14}let h2: bitstring = hash((h1,pkR)) in
+    {15}let h3: bitstring = hash((h2,eIPub)) in
+    {16}let ck1: bitstring = hkdf1(ck0,exp(pkR,eI)) in
+    {17}let k1: bitstring = hkdf2(ck0,exp(pkR,eI)) in
+    {18}let cS: bitstring = aenc(k1,n0,h3,pkI) in
+    {19}let h4: bitstring = hash((h3,cS)) in
+    {20}let ck2: bitstring = hkdf1(ck1,exp(pkR,skI)) in
+    {21}let k2: bitstring = hkdf2(ck1,exp(pkR,skI)) in
+    {22}let cP1: bitstring = aenc(k2,n0,h4,ident_c) in
+    {23}let h5: bitstring = hash((h4,cP1)) in
+    {24}out(c, (eIPub,cS,cP1));
+    {25}in(c, (eR: bitstring,cP2: bitstring));
+    {26}let h6: bitstring = hash((h5,eR)) in
+    {27}let ck3: bitstring = hkdf1(ck2,exp(eR,eI)) in
+    {28}let ck4: bitstring = hkdf1(ck3,exp(eR,skI)) in
+    {29}let k4: bitstring = hkdf2(ck3,exp(eR,skI)) in
+    {30}let p2: bitstring = adec(k4,n0,h6,cP2) in
+    {31}let kIR: bitstring = hkdf1(ck4,empty) in
+    {32}let kRI: bitstring = hkdf2(ck4,empty) in
+    {33}event ClientDone(pkI,pkR,eIPub,eR,kIR);
+    {34}out(c, aenc(kIR,n0,empty,msg));
+    {35}in(c, t: bitstring);
+    {36}let reply: bitstring = adec(kRI,n0,empty,t) in
+    0
+) | (
+    {37}!
+    {38}let skR: key = skS in
+    {39}let msgC: bitstring = payload_s in
+    {40}let pkR_1: bitstring = exp(gen,skR) in
+    {41}in(c, (eI_1: bitstring,cS_1: bitstring,cP1_1: bitstring));
+    {42}let h0_1: bitstring = hash(name_ik) in
+    {43}let ck0_1: bitstring = h0_1 in
+    {44}let h1_1: bitstring = hash((h0_1,prologue_session)) in
+    {45}let h2_1: bitstring = hash((h1_1,pkR_1)) in
+    {46}let h3_1: bitstring = hash((h2_1,eI_1)) in
+    {47}let ck1_1: bitstring = hkdf1(ck0_1,exp(eI_1,skR)) in
+    {48}let k1_1: bitstring = hkdf2(ck0_1,exp(eI_1,skR)) in
+    {49}let sI: bitstring = adec(k1_1,n0,h3_1,cS_1) in
+    {50}let h4_1: bitstring = hash((h3_1,cS_1)) in
+    {71}get registry(=pkR_1,=sI) in
+    {51}let ck2_1: bitstring = hkdf1(ck1_1,exp(sI,skR)) in
+    {52}let k2_1: bitstring = hkdf2(ck1_1,exp(sI,skR)) in
+    {53}let ident: bitstring = adec(k2_1,n0,h4_1,cP1_1) in
+    {54}let h5_1: bitstring = hash((h4_1,cP1_1)) in
+    {55}new eR_1: key;
+    {56}let eRPub: bitstring = exp(gen,eR_1) in
+    {57}event ServerAccepted(sI,pkR_1,eI_1,eRPub);
+    {58}let h6_1: bitstring = hash((h5_1,eRPub)) in
+    {59}let ck3_1: bitstring = hkdf1(ck2_1,exp(eI_1,eR_1)) in
+    {60}let ck4_1: bitstring = hkdf1(ck3_1,exp(sI,eR_1)) in
+    {61}let k4_1: bitstring = hkdf2(ck3_1,exp(sI,eR_1)) in
+    {62}out(c, (eRPub,aenc(k4_1,n0,h6_1,params_s)));
+    {63}let kIR_1: bitstring = hkdf1(ck4_1,empty) in
+    {64}let kRI_1: bitstring = hkdf2(ck4_1,empty) in
+    {65}in(c, t_1: bitstring);
+    {66}let m: bitstring = adec(kIR_1,n0,empty,t_1) in
+    {67}event ServerDone(sI,pkR_1,eI_1,eRPub,kIR_1);
+    {68}if (sI = exp(gen,skC)) then
+        {69}out(c, aenc(kRI_1,n0,empty,msgC))
+    else
+        {70}out(c, aenc(kRI_1,n0,empty,pub_s))
+) | (
+    {72}phase 1;
+    {73}out(c, (skS,skC))
+)
+
+--  Process 1 (that is, process 0, with let moved downwards):
+{1}insert registry(exp(gen,skS),exp(gen,skC));
+{2}out(c, (exp(gen,skS),exp(gen,skC)));
+(
+    {3}!
+    {7}new eI: key;
+    {9}let eIPub: bitstring = exp(gen,eI) in
+    {4}let skI: key = skC in
+    {8}let pkI: bitstring = exp(gen,skI) in
+    {5}let pkR: bitstring = exp(gen,skS) in
+    {10}event ClientStarted(pkI,pkR,eIPub);
+    {11}let h0: bitstring = hash(name_ik) in
+    {12}let ck0: bitstring = h0 in
+    {16}let ck1: bitstring = hkdf1(ck0,exp(pkR,eI)) in
+    {21}let k2: bitstring = hkdf2(ck1,exp(pkR,skI)) in
+    {17}let k1: bitstring = hkdf2(ck0,exp(pkR,eI)) in
+    {13}let h1: bitstring = hash((h0,prologue_session)) in
+    {14}let h2: bitstring = hash((h1,pkR)) in
+    {15}let h3: bitstring = hash((h2,eIPub)) in
+    {18}let cS: bitstring = aenc(k1,n0,h3,pkI) in
+    {19}let h4: bitstring = hash((h3,cS)) in
+    {22}let cP1: bitstring = aenc(k2,n0,h4,ident_c) in
+    {24}out(c, (eIPub,cS,cP1));
+    {25}in(c, (eR: bitstring,cP2: bitstring));
+    {20}let ck2: bitstring = hkdf1(ck1,exp(pkR,skI)) in
+    {27}let ck3: bitstring = hkdf1(ck2,exp(eR,eI)) in
+    {29}let k4: bitstring = hkdf2(ck3,exp(eR,skI)) in
+    {23}let h5: bitstring = hash((h4,cP1)) in
+    {26}let h6: bitstring = hash((h5,eR)) in
+    {30}let p2: bitstring = adec(k4,n0,h6,cP2) in
+    {28}let ck4: bitstring = hkdf1(ck3,exp(eR,skI)) in
+    {31}let kIR: bitstring = hkdf1(ck4,empty) in
+    {33}event ClientDone(pkI,pkR,eIPub,eR,kIR);
+    {6}let msg: bitstring = payload_c in
+    {34}out(c, aenc(kIR,n0,empty,msg));
+    {35}in(c, t: bitstring);
+    {32}let kRI: bitstring = hkdf2(ck4,empty) in
+    {36}let reply: bitstring = adec(kRI,n0,empty,t) in
+    0
+) | (
+    {37}!
+    {41}in(c, (eI_1: bitstring,cS_1: bitstring,cP1_1: bitstring));
+    {42}let h0_1: bitstring = hash(name_ik) in
+    {43}let ck0_1: bitstring = h0_1 in
+    {38}let skR: key = skS in
+    {48}let k1_1: bitstring = hkdf2(ck0_1,exp(eI_1,skR)) in
+    {44}let h1_1: bitstring = hash((h0_1,prologue_session)) in
+    {40}let pkR_1: bitstring = exp(gen,skR) in
+    {45}let h2_1: bitstring = hash((h1_1,pkR_1)) in
+    {46}let h3_1: bitstring = hash((h2_1,eI_1)) in
+    {49}let sI: bitstring = adec(k1_1,n0,h3_1,cS_1) in
+    {71}get registry(=pkR_1,=sI) in
+    {47}let ck1_1: bitstring = hkdf1(ck0_1,exp(eI_1,skR)) in
+    {52}let k2_1: bitstring = hkdf2(ck1_1,exp(sI,skR)) in
+    {50}let h4_1: bitstring = hash((h3_1,cS_1)) in
+    {53}let ident: bitstring = adec(k2_1,n0,h4_1,cP1_1) in
+    {55}new eR_1: key;
+    {56}let eRPub: bitstring = exp(gen,eR_1) in
+    {57}event ServerAccepted(sI,pkR_1,eI_1,eRPub);
+    {51}let ck2_1: bitstring = hkdf1(ck1_1,exp(sI,skR)) in
+    {59}let ck3_1: bitstring = hkdf1(ck2_1,exp(eI_1,eR_1)) in
+    {61}let k4_1: bitstring = hkdf2(ck3_1,exp(sI,eR_1)) in
+    {54}let h5_1: bitstring = hash((h4_1,cP1_1)) in
+    {58}let h6_1: bitstring = hash((h5_1,eRPub)) in
+    {62}out(c, (eRPub,aenc(k4_1,n0,h6_1,params_s)));
+    {65}in(c, t_1: bitstring);
+    {60}let ck4_1: bitstring = hkdf1(ck3_1,exp(sI,eR_1)) in
+    {63}let kIR_1: bitstring = hkdf1(ck4_1,empty) in
+    {66}let m: bitstring = adec(kIR_1,n0,empty,t_1) in
+    {67}event ServerDone(sI,pkR_1,eI_1,eRPub,kIR_1);
+    {64}let kRI_1: bitstring = hkdf2(ck4_1,empty) in
+    {68}if (sI = exp(gen,skC)) then
+    (
+        {39}let msgC: bitstring = payload_s in
+        {69}out(c, aenc(kRI_1,n0,empty,msgC))
+    )
+    else
+        {70}out(c, aenc(kRI_1,n0,empty,pub_s))
+) | (
+    {72}phase 1;
+    {73}out(c, (skS,skC))
+)
+
+-- Query not attacker_p1(payload_c[]) in process 1.
+Translating the process into Horn clauses...
+Completing...
+200 rules inserted. Base: 200 rules (69 with conclusion selected). Queue: 339 rules.
+400 rules inserted. Base: 400 rules (70 with conclusion selected). Queue: 401 rules.
+600 rules inserted. Base: 588 rules (76 with conclusion selected). Queue: 406 rules.
+800 rules inserted. Base: 735 rules (76 with conclusion selected). Queue: 406 rules.
+1000 rules inserted. Base: 916 rules (78 with conclusion selected). Queue: 412 rules.
+1200 rules inserted. Base: 1062 rules (78 with conclusion selected). Queue: 465 rules.
+1400 rules inserted. Base: 1168 rules (78 with conclusion selected). Queue: 414 rules.
+1600 rules inserted. Base: 1327 rules (78 with conclusion selected). Queue: 414 rules.
+1800 rules inserted. Base: 1516 rules (95 with conclusion selected). Queue: 450 rules.
+2000 rules inserted. Base: 1716 rules (136 with conclusion selected). Queue: 512 rules.
+2200 rules inserted. Base: 1864 rules (152 with conclusion selected). Queue: 603 rules.
+2400 rules inserted. Base: 2022 rules (160 with conclusion selected). Queue: 1126 rules.
+2600 rules inserted. Base: 2179 rules (166 with conclusion selected). Queue: 1728 rules.
+2800 rules inserted. Base: 2343 rules (180 with conclusion selected). Queue: 1819 rules.
+3000 rules inserted. Base: 2510 rules (184 with conclusion selected). Queue: 2042 rules.
+3200 rules inserted. Base: 2666 rules (196 with conclusion selected). Queue: 1934 rules.
+3400 rules inserted. Base: 2839 rules (200 with conclusion selected). Queue: 2150 rules.
+3600 rules inserted. Base: 2999 rules (212 with conclusion selected). Queue: 2038 rules.
+3800 rules inserted. Base: 3163 rules (216 with conclusion selected). Queue: 2077 rules.
+4000 rules inserted. Base: 3332 rules (224 with conclusion selected). Queue: 2122 rules.
+4200 rules inserted. Base: 3489 rules (230 with conclusion selected). Queue: 1994 rules.
+4400 rules inserted. Base: 3675 rules (230 with conclusion selected). Queue: 2027 rules.
+4600 rules inserted. Base: 3824 rules (230 with conclusion selected). Queue: 1920 rules.
+4800 rules inserted. Base: 4002 rules (230 with conclusion selected). Queue: 1748 rules.
+5000 rules inserted. Base: 4179 rules (230 with conclusion selected). Queue: 1577 rules.
+5200 rules inserted. Base: 4347 rules (230 with conclusion selected). Queue: 1459 rules.
+5400 rules inserted. Base: 4526 rules (230 with conclusion selected). Queue: 1290 rules.
+5600 rules inserted. Base: 4694 rules (230 with conclusion selected). Queue: 1166 rules.
+5800 rules inserted. Base: 4875 rules (230 with conclusion selected). Queue: 997 rules.
+6000 rules inserted. Base: 5050 rules (230 with conclusion selected). Queue: 838 rules.
+6200 rules inserted. Base: 5210 rules (230 with conclusion selected). Queue: 728 rules.
+6400 rules inserted. Base: 5381 rules (230 with conclusion selected). Queue: 566 rules.
+6600 rules inserted. Base: 5559 rules (230 with conclusion selected). Queue: 541 rules.
+6800 rules inserted. Base: 5735 rules (230 with conclusion selected). Queue: 521 rules.
+7000 rules inserted. Base: 5875 rules (230 with conclusion selected). Queue: 519 rules.
+7200 rules inserted. Base: 6033 rules (230 with conclusion selected). Queue: 592 rules.
+7400 rules inserted. Base: 6178 rules (230 with conclusion selected). Queue: 655 rules.
+7600 rules inserted. Base: 6325 rules (230 with conclusion selected). Queue: 798 rules.
+7800 rules inserted. Base: 6417 rules (230 with conclusion selected). Queue: 889 rules.
+8000 rules inserted. Base: 6523 rules (230 with conclusion selected). Queue: 1072 rules.
+8200 rules inserted. Base: 6617 rules (232 with conclusion selected). Queue: 1092 rules.
+8400 rules inserted. Base: 6673 rules (242 with conclusion selected). Queue: 1098 rules.
+8600 rules inserted. Base: 6744 rules (254 with conclusion selected). Queue: 1179 rules.
+8800 rules inserted. Base: 6831 rules (268 with conclusion selected). Queue: 1297 rules.
+9000 rules inserted. Base: 6877 rules (276 with conclusion selected). Queue: 1306 rules.
+9200 rules inserted. Base: 6973 rules (294 with conclusion selected). Queue: 1320 rules.
+9400 rules inserted. Base: 7066 rules (294 with conclusion selected). Queue: 1335 rules.
+9600 rules inserted. Base: 7134 rules (294 with conclusion selected). Queue: 1305 rules.
+9800 rules inserted. Base: 7206 rules (294 with conclusion selected). Queue: 1284 rules.
+10000 rules inserted. Base: 7265 rules (294 with conclusion selected). Queue: 1254 rules.
+10200 rules inserted. Base: 7343 rules (294 with conclusion selected). Queue: 1221 rules.
+10400 rules inserted. Base: 7433 rules (294 with conclusion selected). Queue: 1195 rules.
+10600 rules inserted. Base: 7567 rules (294 with conclusion selected). Queue: 1180 rules.
+10800 rules inserted. Base: 7630 rules (294 with conclusion selected). Queue: 1143 rules.
+11000 rules inserted. Base: 7691 rules (294 with conclusion selected). Queue: 1106 rules.
+11200 rules inserted. Base: 7744 rules (294 with conclusion selected). Queue: 1074 rules.
+11400 rules inserted. Base: 7784 rules (294 with conclusion selected). Queue: 1041 rules.
+11600 rules inserted. Base: 7859 rules (294 with conclusion selected). Queue: 1022 rules.
+11800 rules inserted. Base: 8012 rules (294 with conclusion selected). Queue: 1345 rules.
+12000 rules inserted. Base: 8212 rules (294 with conclusion selected). Queue: 1207 rules.
+12200 rules inserted. Base: 8276 rules (294 with conclusion selected). Queue: 1203 rules.
+12400 rules inserted. Base: 8322 rules (294 with conclusion selected). Queue: 1205 rules.
+12600 rules inserted. Base: 8420 rules (294 with conclusion selected). Queue: 1163 rules.
+12800 rules inserted. Base: 8567 rules (294 with conclusion selected). Queue: 1052 rules.
+13000 rules inserted. Base: 8674 rules (294 with conclusion selected). Queue: 953 rules.
+13200 rules inserted. Base: 8849 rules (294 with conclusion selected). Queue: 906 rules.
+13400 rules inserted. Base: 9033 rules (294 with conclusion selected). Queue: 753 rules.
+13600 rules inserted. Base: 9233 rules (294 with conclusion selected). Queue: 627 rules.
+13800 rules inserted. Base: 9344 rules (294 with conclusion selected). Queue: 600 rules.
+14000 rules inserted. Base: 9388 rules (294 with conclusion selected). Queue: 607 rules.
+14200 rules inserted. Base: 9528 rules (294 with conclusion selected). Queue: 589 rules.
+14400 rules inserted. Base: 9630 rules (294 with conclusion selected). Queue: 576 rules.
+14600 rules inserted. Base: 9629 rules (294 with conclusion selected). Queue: 528 rules.
+14800 rules inserted. Base: 9789 rules (294 with conclusion selected). Queue: 444 rules.
+15000 rules inserted. Base: 9867 rules (294 with conclusion selected). Queue: 402 rules.
+15200 rules inserted. Base: 9911 rules (294 with conclusion selected). Queue: 305 rules.
+15400 rules inserted. Base: 10036 rules (294 with conclusion selected). Queue: 116 rules.
+15600 rules inserted. Base: 10156 rules (294 with conclusion selected). Queue: 14 rules.
+Starting query not attacker_p1(payload_c[])
+RESULT not attacker_p1(payload_c[]) is true.
+-- Query not attacker_p1(payload_s[]) in process 1.
+Translating the process into Horn clauses...
+Completing...
+200 rules inserted. Base: 200 rules (69 with conclusion selected). Queue: 339 rules.
+400 rules inserted. Base: 400 rules (70 with conclusion selected). Queue: 401 rules.
+600 rules inserted. Base: 588 rules (76 with conclusion selected). Queue: 406 rules.
+800 rules inserted. Base: 735 rules (76 with conclusion selected). Queue: 406 rules.
+1000 rules inserted. Base: 916 rules (78 with conclusion selected). Queue: 412 rules.
+1200 rules inserted. Base: 1062 rules (78 with conclusion selected). Queue: 465 rules.
+1400 rules inserted. Base: 1168 rules (78 with conclusion selected). Queue: 414 rules.
+1600 rules inserted. Base: 1327 rules (78 with conclusion selected). Queue: 414 rules.
+1800 rules inserted. Base: 1516 rules (95 with conclusion selected). Queue: 450 rules.
+2000 rules inserted. Base: 1716 rules (136 with conclusion selected). Queue: 512 rules.
+2200 rules inserted. Base: 1864 rules (152 with conclusion selected). Queue: 603 rules.
+2400 rules inserted. Base: 2022 rules (160 with conclusion selected). Queue: 1126 rules.
+2600 rules inserted. Base: 2179 rules (166 with conclusion selected). Queue: 1728 rules.
+2800 rules inserted. Base: 2343 rules (180 with conclusion selected). Queue: 1819 rules.
+3000 rules inserted. Base: 2510 rules (184 with conclusion selected). Queue: 2042 rules.
+3200 rules inserted. Base: 2666 rules (196 with conclusion selected). Queue: 1934 rules.
+3400 rules inserted. Base: 2839 rules (200 with conclusion selected). Queue: 2150 rules.
+3600 rules inserted. Base: 2999 rules (212 with conclusion selected). Queue: 2038 rules.
+3800 rules inserted. Base: 3163 rules (216 with conclusion selected). Queue: 2077 rules.
+4000 rules inserted. Base: 3332 rules (224 with conclusion selected). Queue: 2122 rules.
+4200 rules inserted. Base: 3489 rules (230 with conclusion selected). Queue: 1994 rules.
+4400 rules inserted. Base: 3675 rules (230 with conclusion selected). Queue: 2027 rules.
+4600 rules inserted. Base: 3824 rules (230 with conclusion selected). Queue: 1920 rules.
+4800 rules inserted. Base: 4002 rules (230 with conclusion selected). Queue: 1748 rules.
+5000 rules inserted. Base: 4179 rules (230 with conclusion selected). Queue: 1577 rules.
+5200 rules inserted. Base: 4347 rules (230 with conclusion selected). Queue: 1459 rules.
+5400 rules inserted. Base: 4526 rules (230 with conclusion selected). Queue: 1290 rules.
+5600 rules inserted. Base: 4694 rules (230 with conclusion selected). Queue: 1166 rules.
+5800 rules inserted. Base: 4875 rules (230 with conclusion selected). Queue: 997 rules.
+6000 rules inserted. Base: 5050 rules (230 with conclusion selected). Queue: 838 rules.
+6200 rules inserted. Base: 5210 rules (230 with conclusion selected). Queue: 728 rules.
+6400 rules inserted. Base: 5381 rules (230 with conclusion selected). Queue: 566 rules.
+6600 rules inserted. Base: 5559 rules (230 with conclusion selected). Queue: 541 rules.
+6800 rules inserted. Base: 5735 rules (230 with conclusion selected). Queue: 521 rules.
+7000 rules inserted. Base: 5875 rules (230 with conclusion selected). Queue: 519 rules.
+7200 rules inserted. Base: 6033 rules (230 with conclusion selected). Queue: 592 rules.
+7400 rules inserted. Base: 6178 rules (230 with conclusion selected). Queue: 655 rules.
+7600 rules inserted. Base: 6325 rules (230 with conclusion selected). Queue: 798 rules.
+7800 rules inserted. Base: 6417 rules (230 with conclusion selected). Queue: 889 rules.
+8000 rules inserted. Base: 6523 rules (230 with conclusion selected). Queue: 1072 rules.
+8200 rules inserted. Base: 6617 rules (232 with conclusion selected). Queue: 1092 rules.
+8400 rules inserted. Base: 6673 rules (242 with conclusion selected). Queue: 1098 rules.
+8600 rules inserted. Base: 6744 rules (254 with conclusion selected). Queue: 1179 rules.
+8800 rules inserted. Base: 6831 rules (268 with conclusion selected). Queue: 1297 rules.
+9000 rules inserted. Base: 6877 rules (276 with conclusion selected). Queue: 1306 rules.
+9200 rules inserted. Base: 6973 rules (294 with conclusion selected). Queue: 1320 rules.
+9400 rules inserted. Base: 7066 rules (294 with conclusion selected). Queue: 1335 rules.
+9600 rules inserted. Base: 7134 rules (294 with conclusion selected). Queue: 1305 rules.
+9800 rules inserted. Base: 7206 rules (294 with conclusion selected). Queue: 1284 rules.
+10000 rules inserted. Base: 7265 rules (294 with conclusion selected). Queue: 1254 rules.
+10200 rules inserted. Base: 7343 rules (294 with conclusion selected). Queue: 1221 rules.
+10400 rules inserted. Base: 7433 rules (294 with conclusion selected). Queue: 1195 rules.
+10600 rules inserted. Base: 7567 rules (294 with conclusion selected). Queue: 1180 rules.
+10800 rules inserted. Base: 7630 rules (294 with conclusion selected). Queue: 1143 rules.
+11000 rules inserted. Base: 7691 rules (294 with conclusion selected). Queue: 1106 rules.
+11200 rules inserted. Base: 7744 rules (294 with conclusion selected). Queue: 1074 rules.
+11400 rules inserted. Base: 7784 rules (294 with conclusion selected). Queue: 1041 rules.
+11600 rules inserted. Base: 7859 rules (294 with conclusion selected). Queue: 1022 rules.
+11800 rules inserted. Base: 8012 rules (294 with conclusion selected). Queue: 1345 rules.
+12000 rules inserted. Base: 8212 rules (294 with conclusion selected). Queue: 1207 rules.
+12200 rules inserted. Base: 8276 rules (294 with conclusion selected). Queue: 1203 rules.
+12400 rules inserted. Base: 8322 rules (294 with conclusion selected). Queue: 1205 rules.
+12600 rules inserted. Base: 8420 rules (294 with conclusion selected). Queue: 1163 rules.
+12800 rules inserted. Base: 8567 rules (294 with conclusion selected). Queue: 1052 rules.
+13000 rules inserted. Base: 8674 rules (294 with conclusion selected). Queue: 953 rules.
+13200 rules inserted. Base: 8849 rules (294 with conclusion selected). Queue: 906 rules.
+13400 rules inserted. Base: 9033 rules (294 with conclusion selected). Queue: 753 rules.
+13600 rules inserted. Base: 9233 rules (294 with conclusion selected). Queue: 627 rules.
+13800 rules inserted. Base: 9344 rules (294 with conclusion selected). Queue: 600 rules.
+14000 rules inserted. Base: 9388 rules (294 with conclusion selected). Queue: 607 rules.
+14200 rules inserted. Base: 9528 rules (294 with conclusion selected). Queue: 589 rules.
+14400 rules inserted. Base: 9630 rules (294 with conclusion selected). Queue: 576 rules.
+14600 rules inserted. Base: 9629 rules (294 with conclusion selected). Queue: 528 rules.
+14800 rules inserted. Base: 9789 rules (294 with conclusion selected). Queue: 444 rules.
+15000 rules inserted. Base: 9867 rules (294 with conclusion selected). Queue: 402 rules.
+15200 rules inserted. Base: 9911 rules (294 with conclusion selected). Queue: 305 rules.
+15400 rules inserted. Base: 10036 rules (294 with conclusion selected). Queue: 116 rules.
+15600 rules inserted. Base: 10156 rules (294 with conclusion selected). Queue: 14 rules.
+Starting query not attacker_p1(payload_s[])
+RESULT not attacker_p1(payload_s[]) is true.
+-- Query inj-event(ServerDone(exp(gen,skC[]),exp(gen,skS[]),e1,e2,k)) ==> inj-event(ClientStarted(exp(gen,skC[]),exp(gen,skS[]),e1)) in process 1.
+Translating the process into Horn clauses...
+Completing...
+200 rules inserted. Base: 200 rules (69 with conclusion selected). Queue: 403 rules.
+400 rules inserted. Base: 400 rules (70 with conclusion selected). Queue: 450 rules.
+600 rules inserted. Base: 598 rules (76 with conclusion selected). Queue: 470 rules.
+800 rules inserted. Base: 760 rules (76 with conclusion selected). Queue: 470 rules.
+1000 rules inserted. Base: 924 rules (78 with conclusion selected). Queue: 468 rules.
+1200 rules inserted. Base: 1102 rules (78 with conclusion selected). Queue: 490 rules.
+1400 rules inserted. Base: 1259 rules (78 with conclusion selected). Queue: 532 rules.
+1600 rules inserted. Base: 1318 rules (78 with conclusion selected). Queue: 542 rules.
+1800 rules inserted. Base: 1482 rules (78 with conclusion selected). Queue: 542 rules.
+2000 rules inserted. Base: 1652 rules (78 with conclusion selected). Queue: 544 rules.
+2200 rules inserted. Base: 1852 rules (95 with conclusion selected). Queue: 616 rules.
+2400 rules inserted. Base: 2052 rules (130 with conclusion selected). Queue: 729 rules.
+2600 rules inserted. Base: 2175 rules (150 with conclusion selected). Queue: 810 rules.
+2800 rules inserted. Base: 2292 rules (154 with conclusion selected). Queue: 1158 rules.
+3000 rules inserted. Base: 2442 rules (160 with conclusion selected). Queue: 1868 rules.
+3200 rules inserted. Base: 2585 rules (164 with conclusion selected). Queue: 2620 rules.
+3400 rules inserted. Base: 2743 rules (166 with conclusion selected). Queue: 3054 rules.
+3600 rules inserted. Base: 2918 rules (168 with conclusion selected). Queue: 3344 rules.
+3800 rules inserted. Base: 3074 rules (192 with conclusion selected). Queue: 3316 rules.
+4000 rules inserted. Base: 3243 rules (198 with conclusion selected). Queue: 3578 rules.
+4200 rules inserted. Base: 3408 rules (204 with conclusion selected). Queue: 3833 rules.
+4400 rules inserted. Base: 3564 rules (224 with conclusion selected). Queue: 3785 rules.
+4600 rules inserted. Base: 3724 rules (224 with conclusion selected). Queue: 3965 rules.
+4800 rules inserted. Base: 3897 rules (230 with conclusion selected). Queue: 4166 rules.
+5000 rules inserted. Base: 4050 rules (240 with conclusion selected). Queue: 4174 rules.
+5200 rules inserted. Base: 4205 rules (256 with conclusion selected). Queue: 4106 rules.
+5400 rules inserted. Base: 4369 rules (256 with conclusion selected). Queue: 4208 rules.
+5600 rules inserted. Base: 4526 rules (266 with conclusion selected). Queue: 4237 rules.
+5800 rules inserted. Base: 4704 rules (272 with conclusion selected). Queue: 4477 rules.
+6000 rules inserted. Base: 4851 rules (282 with conclusion selected). Queue: 4389 rules.
+6200 rules inserted. Base: 5001 rules (292 with conclusion selected). Queue: 4303 rules.
+6400 rules inserted. Base: 5180 rules (294 with conclusion selected). Queue: 4539 rules.
+6600 rules inserted. Base: 5370 rules (294 with conclusion selected). Queue: 4462 rules.
+6800 rules inserted. Base: 5553 rules (294 with conclusion selected). Queue: 4279 rules.
+7000 rules inserted. Base: 5703 rules (294 with conclusion selected). Queue: 4159 rules.
+7200 rules inserted. Base: 5838 rules (294 with conclusion selected). Queue: 4072 rules.
+7400 rules inserted. Base: 6021 rules (294 with conclusion selected). Queue: 3889 rules.
+7600 rules inserted. Base: 6180 rules (294 with conclusion selected). Queue: 3748 rules.
+7800 rules inserted. Base: 6363 rules (294 with conclusion selected). Queue: 3565 rules.
+8000 rules inserted. Base: 6537 rules (294 with conclusion selected). Queue: 3399 rules.
+8200 rules inserted. Base: 6666 rules (294 with conclusion selected). Queue: 3354 rules.
+8400 rules inserted. Base: 6846 rules (294 with conclusion selected). Queue: 3174 rules.
+8600 rules inserted. Base: 7029 rules (294 with conclusion selected). Queue: 2991 rules.
+8800 rules inserted. Base: 7192 rules (294 with conclusion selected). Queue: 2850 rules.
+9000 rules inserted. Base: 7375 rules (294 with conclusion selected). Queue: 2667 rules.
+9200 rules inserted. Base: 7520 rules (294 with conclusion selected). Queue: 2574 rules.
+9400 rules inserted. Base: 7678 rules (294 with conclusion selected). Queue: 2456 rules.
+9600 rules inserted. Base: 7861 rules (294 with conclusion selected). Queue: 2273 rules.
+9800 rules inserted. Base: 8021 rules (294 with conclusion selected). Queue: 2141 rules.
+10000 rules inserted. Base: 8199 rules (294 with conclusion selected). Queue: 1969 rules.
+10200 rules inserted. Base: 8382 rules (294 with conclusion selected). Queue: 1786 rules.
+10400 rules inserted. Base: 8515 rules (294 with conclusion selected). Queue: 1713 rules.
+10600 rules inserted. Base: 8679 rules (294 with conclusion selected). Queue: 1575 rules.
+10800 rules inserted. Base: 8862 rules (294 with conclusion selected). Queue: 1392 rules.
+11000 rules inserted. Base: 9031 rules (294 with conclusion selected). Queue: 1302 rules.
+11200 rules inserted. Base: 9181 rules (294 with conclusion selected). Queue: 1279 rules.
+11400 rules inserted. Base: 9319 rules (294 with conclusion selected). Queue: 1226 rules.
+11600 rules inserted. Base: 9451 rules (294 with conclusion selected). Queue: 1207 rules.
+11800 rules inserted. Base: 9582 rules (294 with conclusion selected). Queue: 1188 rules.
+12000 rules inserted. Base: 9722 rules (294 with conclusion selected). Queue: 1136 rules.
+12200 rules inserted. Base: 9855 rules (294 with conclusion selected). Queue: 1124 rules.
+12400 rules inserted. Base: 9991 rules (294 with conclusion selected). Queue: 1130 rules.
+12600 rules inserted. Base: 10127 rules (294 with conclusion selected). Queue: 1180 rules.
+12800 rules inserted. Base: 10260 rules (294 with conclusion selected). Queue: 1227 rules.
+13000 rules inserted. Base: 10392 rules (294 with conclusion selected). Queue: 1274 rules.
+13200 rules inserted. Base: 10522 rules (294 with conclusion selected). Queue: 1316 rules.
+13400 rules inserted. Base: 10674 rules (294 with conclusion selected). Queue: 1348 rules.
+13600 rules inserted. Base: 10830 rules (294 with conclusion selected). Queue: 1470 rules.
+13800 rules inserted. Base: 10947 rules (294 with conclusion selected). Queue: 1630 rules.
+14000 rules inserted. Base: 11057 rules (294 with conclusion selected). Queue: 1699 rules.
+14200 rules inserted. Base: 11180 rules (294 with conclusion selected). Queue: 1822 rules.
+14400 rules inserted. Base: 11295 rules (294 with conclusion selected). Queue: 1984 rules.
+14600 rules inserted. Base: 11405 rules (294 with conclusion selected). Queue: 2050 rules.
+14800 rules inserted. Base: 11556 rules (294 with conclusion selected). Queue: 2074 rules.
+15000 rules inserted. Base: 11657 rules (314 with conclusion selected). Queue: 2120 rules.
+15200 rules inserted. Base: 11757 rules (340 with conclusion selected). Queue: 2181 rules.
+15400 rules inserted. Base: 11844 rules (360 with conclusion selected). Queue: 2235 rules.
+15600 rules inserted. Base: 11995 rules (394 with conclusion selected). Queue: 2400 rules.
+15800 rules inserted. Base: 12127 rules (424 with conclusion selected). Queue: 2543 rules.
+16000 rules inserted. Base: 12233 rules (450 with conclusion selected). Queue: 2605 rules.
+16200 rules inserted. Base: 12331 rules (474 with conclusion selected). Queue: 2662 rules.
+16400 rules inserted. Base: 12433 rules (498 with conclusion selected). Queue: 2719 rules.
+16600 rules inserted. Base: 12573 rules (534 with conclusion selected). Queue: 2804 rules.
+16800 rules inserted. Base: 12728 rules (550 with conclusion selected). Queue: 2929 rules.
+17000 rules inserted. Base: 12863 rules (550 with conclusion selected). Queue: 2971 rules.
+17200 rules inserted. Base: 12988 rules (550 with conclusion selected). Queue: 2960 rules.
+17400 rules inserted. Base: 13099 rules (550 with conclusion selected). Queue: 2943 rules.
+17600 rules inserted. Base: 13202 rules (550 with conclusion selected). Queue: 2938 rules.
+17800 rules inserted. Base: 13316 rules (550 with conclusion selected). Queue: 2921 rules.
+18000 rules inserted. Base: 13434 rules (550 with conclusion selected). Queue: 2909 rules.
+18200 rules inserted. Base: 13521 rules (550 with conclusion selected). Queue: 2893 rules.
+18400 rules inserted. Base: 13641 rules (550 with conclusion selected). Queue: 2890 rules.
+18600 rules inserted. Base: 13770 rules (550 with conclusion selected). Queue: 2885 rules.
+18800 rules inserted. Base: 13881 rules (550 with conclusion selected). Queue: 2870 rules.
+19000 rules inserted. Base: 13996 rules (550 with conclusion selected). Queue: 2854 rules.
+19200 rules inserted. Base: 14151 rules (550 with conclusion selected). Queue: 2849 rules.
+19400 rules inserted. Base: 14291 rules (550 with conclusion selected). Queue: 2833 rules.
+19600 rules inserted. Base: 14430 rules (550 with conclusion selected). Queue: 2869 rules.
+19800 rules inserted. Base: 14542 rules (550 with conclusion selected). Queue: 2879 rules.
+20000 rules inserted. Base: 14622 rules (550 with conclusion selected). Queue: 2823 rules.
+20200 rules inserted. Base: 14706 rules (550 with conclusion selected). Queue: 2757 rules.
+20400 rules inserted. Base: 14770 rules (550 with conclusion selected). Queue: 2713 rules.
+20600 rules inserted. Base: 14848 rules (550 with conclusion selected). Queue: 2660 rules.
+20800 rules inserted. Base: 14931 rules (550 with conclusion selected). Queue: 2607 rules.
+21000 rules inserted. Base: 14987 rules (550 with conclusion selected). Queue: 2566 rules.
+21200 rules inserted. Base: 15059 rules (550 with conclusion selected). Queue: 2512 rules.
+21400 rules inserted. Base: 15142 rules (550 with conclusion selected). Queue: 2456 rules.
+21600 rules inserted. Base: 15211 rules (550 with conclusion selected). Queue: 2415 rules.
+21800 rules inserted. Base: 15320 rules (550 with conclusion selected). Queue: 2374 rules.
+22000 rules inserted. Base: 15421 rules (550 with conclusion selected). Queue: 2336 rules.
+22200 rules inserted. Base: 15565 rules (550 with conclusion selected). Queue: 3091 rules.
+22400 rules inserted. Base: 15672 rules (550 with conclusion selected). Queue: 3669 rules.
+22600 rules inserted. Base: 15838 rules (550 with conclusion selected). Queue: 3613 rules.
+22800 rules inserted. Base: 15968 rules (550 with conclusion selected). Queue: 3549 rules.
+23000 rules inserted. Base: 16079 rules (550 with conclusion selected). Queue: 3531 rules.
+23200 rules inserted. Base: 16172 rules (550 with conclusion selected). Queue: 3541 rules.
+23400 rules inserted. Base: 16231 rules (550 with conclusion selected). Queue: 3548 rules.
+23600 rules inserted. Base: 16309 rules (550 with conclusion selected). Queue: 3556 rules.
+23800 rules inserted. Base: 16393 rules (550 with conclusion selected). Queue: 3570 rules.
+24000 rules inserted. Base: 16476 rules (550 with conclusion selected). Queue: 3554 rules.
+24200 rules inserted. Base: 16635 rules (550 with conclusion selected). Queue: 3508 rules.
+24400 rules inserted. Base: 16764 rules (550 with conclusion selected). Queue: 3488 rules.
+24600 rules inserted. Base: 16857 rules (550 with conclusion selected). Queue: 3536 rules.
+24800 rules inserted. Base: 16949 rules (550 with conclusion selected). Queue: 3564 rules.
+25000 rules inserted. Base: 17045 rules (550 with conclusion selected). Queue: 3613 rules.
+25200 rules inserted. Base: 17144 rules (550 with conclusion selected). Queue: 3659 rules.
+25400 rules inserted. Base: 17232 rules (550 with conclusion selected). Queue: 3689 rules.
+25600 rules inserted. Base: 17324 rules (550 with conclusion selected). Queue: 3698 rules.
+25800 rules inserted. Base: 17420 rules (550 with conclusion selected). Queue: 3723 rules.
+26000 rules inserted. Base: 17513 rules (550 with conclusion selected). Queue: 3768 rules.
+26200 rules inserted. Base: 17644 rules (550 with conclusion selected). Queue: 3866 rules.
+26400 rules inserted. Base: 17787 rules (550 with conclusion selected). Queue: 3950 rules.
+26600 rules inserted. Base: 17950 rules (550 with conclusion selected). Queue: 3927 rules.
+26800 rules inserted. Base: 18118 rules (550 with conclusion selected). Queue: 3924 rules.
+27000 rules inserted. Base: 18250 rules (550 with conclusion selected). Queue: 3879 rules.
+27200 rules inserted. Base: 18432 rules (550 with conclusion selected). Queue: 3883 rules.
+27400 rules inserted. Base: 18584 rules (550 with conclusion selected). Queue: 3856 rules.
+27600 rules inserted. Base: 18743 rules (550 with conclusion selected). Queue: 3897 rules.
+27800 rules inserted. Base: 18902 rules (550 with conclusion selected). Queue: 3980 rules.
+28000 rules inserted. Base: 18904 rules (550 with conclusion selected). Queue: 3982 rules.
+28200 rules inserted. Base: 18897 rules (550 with conclusion selected). Queue: 3985 rules.
+28400 rules inserted. Base: 18885 rules (550 with conclusion selected). Queue: 3990 rules.
+28600 rules inserted. Base: 18875 rules (550 with conclusion selected). Queue: 3995 rules.
+28800 rules inserted. Base: 18864 rules (550 with conclusion selected). Queue: 3997 rules.
+29000 rules inserted. Base: 18852 rules (550 with conclusion selected). Queue: 4002 rules.
+29200 rules inserted. Base: 18844 rules (550 with conclusion selected). Queue: 4005 rules.
+29400 rules inserted. Base: 18833 rules (550 with conclusion selected). Queue: 4010 rules.
+29600 rules inserted. Base: 18822 rules (550 with conclusion selected). Queue: 4015 rules.
+29800 rules inserted. Base: 18811 rules (550 with conclusion selected). Queue: 4017 rules.
+30000 rules inserted. Base: 18938 rules (550 with conclusion selected). Queue: 4072 rules.
+30200 rules inserted. Base: 19077 rules (550 with conclusion selected). Queue: 4137 rules.
+30400 rules inserted. Base: 19215 rules (550 with conclusion selected). Queue: 4180 rules.
+30600 rules inserted. Base: 19333 rules (550 with conclusion selected). Queue: 4250 rules.
+30800 rules inserted. Base: 19442 rules (550 with conclusion selected). Queue: 4293 rules.
+31000 rules inserted. Base: 19586 rules (550 with conclusion selected). Queue: 4360 rules.
+31200 rules inserted. Base: 19722 rules (550 with conclusion selected). Queue: 4410 rules.
+31400 rules inserted. Base: 19849 rules (550 with conclusion selected). Queue: 4466 rules.
+31600 rules inserted. Base: 19976 rules (550 with conclusion selected). Queue: 4536 rules.
+31800 rules inserted. Base: 20059 rules (550 with conclusion selected). Queue: 4550 rules.
+32000 rules inserted. Base: 20117 rules (550 with conclusion selected). Queue: 4495 rules.
+32200 rules inserted. Base: 20166 rules (550 with conclusion selected). Queue: 4449 rules.
+32400 rules inserted. Base: 20221 rules (550 with conclusion selected). Queue: 4397 rules.
+32600 rules inserted. Base: 20273 rules (550 with conclusion selected). Queue: 4345 rules.
+32800 rules inserted. Base: 20323 rules (550 with conclusion selected). Queue: 4298 rules.
+33000 rules inserted. Base: 20381 rules (550 with conclusion selected). Queue: 4243 rules.
+33200 rules inserted. Base: 20430 rules (550 with conclusion selected). Queue: 4197 rules.
+33400 rules inserted. Base: 20488 rules (550 with conclusion selected). Queue: 4142 rules.
+33600 rules inserted. Base: 20537 rules (550 with conclusion selected). Queue: 4093 rules.
+33800 rules inserted. Base: 20614 rules (550 with conclusion selected). Queue: 4057 rules.
+34000 rules inserted. Base: 20675 rules (550 with conclusion selected). Queue: 4013 rules.
+34200 rules inserted. Base: 20737 rules (550 with conclusion selected). Queue: 3978 rules.
+34400 rules inserted. Base: 20821 rules (550 with conclusion selected). Queue: 3935 rules.
+34600 rules inserted. Base: 20920 rules (550 with conclusion selected). Queue: 3895 rules.
+34800 rules inserted. Base: 21023 rules (550 with conclusion selected). Queue: 3864 rules.
+35000 rules inserted. Base: 21144 rules (550 with conclusion selected). Queue: 3825 rules.
+35200 rules inserted. Base: 21196 rules (550 with conclusion selected). Queue: 3778 rules.
+35400 rules inserted. Base: 21262 rules (550 with conclusion selected). Queue: 3732 rules.
+35600 rules inserted. Base: 21350 rules (550 with conclusion selected). Queue: 3704 rules.
+35800 rules inserted. Base: 21442 rules (550 with conclusion selected). Queue: 3653 rules.
+36000 rules inserted. Base: 21546 rules (550 with conclusion selected). Queue: 3619 rules.
+36200 rules inserted. Base: 21608 rules (550 with conclusion selected). Queue: 3600 rules.
+36400 rules inserted. Base: 21637 rules (550 with conclusion selected). Queue: 3600 rules.
+36600 rules inserted. Base: 21667 rules (550 with conclusion selected). Queue: 3599 rules.
+36800 rules inserted. Base: 21696 rules (550 with conclusion selected). Queue: 3599 rules.
+37000 rules inserted. Base: 21724 rules (550 with conclusion selected). Queue: 3600 rules.
+37200 rules inserted. Base: 21754 rules (550 with conclusion selected). Queue: 3599 rules.
+37400 rules inserted. Base: 21784 rules (550 with conclusion selected). Queue: 3598 rules.
+37600 rules inserted. Base: 21813 rules (550 with conclusion selected). Queue: 3598 rules.
+37800 rules inserted. Base: 21821 rules (550 with conclusion selected). Queue: 3481 rules.
+38000 rules inserted. Base: 21818 rules (550 with conclusion selected). Queue: 3355 rules.
+38200 rules inserted. Base: 21842 rules (550 with conclusion selected). Queue: 3241 rules.
+38400 rules inserted. Base: 21860 rules (550 with conclusion selected). Queue: 3128 rules.
+38600 rules inserted. Base: 21873 rules (550 with conclusion selected). Queue: 3010 rules.
+38800 rules inserted. Base: 21867 rules (550 with conclusion selected). Queue: 2877 rules.
+39000 rules inserted. Base: 21872 rules (550 with conclusion selected). Queue: 2757 rules.
+39200 rules inserted. Base: 21904 rules (550 with conclusion selected). Queue: 2657 rules.
+39400 rules inserted. Base: 21963 rules (550 with conclusion selected). Queue: 2510 rules.
+39600 rules inserted. Base: 22034 rules (550 with conclusion selected). Queue: 2345 rules.
+39800 rules inserted. Base: 22118 rules (550 with conclusion selected). Queue: 2177 rules.
+40000 rules inserted. Base: 22202 rules (550 with conclusion selected). Queue: 2009 rules.
+40200 rules inserted. Base: 22275 rules (550 with conclusion selected). Queue: 1843 rules.
+40400 rules inserted. Base: 22347 rules (550 with conclusion selected). Queue: 1678 rules.
+40600 rules inserted. Base: 22430 rules (550 with conclusion selected). Queue: 1511 rules.
+40800 rules inserted. Base: 22514 rules (550 with conclusion selected). Queue: 1343 rules.
+41000 rules inserted. Base: 22472 rules (550 with conclusion selected). Queue: 1283 rules.
+41200 rules inserted. Base: 22528 rules (550 with conclusion selected). Queue: 1243 rules.
+41400 rules inserted. Base: 22504 rules (550 with conclusion selected). Queue: 1192 rules.
+41600 rules inserted. Base: 22536 rules (550 with conclusion selected). Queue: 1148 rules.
+41800 rules inserted. Base: 22570 rules (550 with conclusion selected). Queue: 1111 rules.
+42000 rules inserted. Base: 22770 rules (550 with conclusion selected). Queue: 911 rules.
+42200 rules inserted. Base: 22938 rules (550 with conclusion selected). Queue: 898 rules.
+42400 rules inserted. Base: 22932 rules (550 with conclusion selected). Queue: 938 rules.
+42600 rules inserted. Base: 23045 rules (550 with conclusion selected). Queue: 980 rules.
+42800 rules inserted. Base: 23057 rules (550 with conclusion selected). Queue: 1022 rules.
+43000 rules inserted. Base: 23128 rules (550 with conclusion selected). Queue: 1038 rules.
+43200 rules inserted. Base: 23224 rules (550 with conclusion selected). Queue: 1042 rules.
+43400 rules inserted. Base: 23260 rules (550 with conclusion selected). Queue: 1036 rules.
+43600 rules inserted. Base: 23365 rules (550 with conclusion selected). Queue: 1042 rules.
+43800 rules inserted. Base: 23425 rules (550 with conclusion selected). Queue: 1033 rules.
+44000 rules inserted. Base: 23378 rules (550 with conclusion selected). Queue: 992 rules.
+44200 rules inserted. Base: 23335 rules (550 with conclusion selected). Queue: 940 rules.
+44400 rules inserted. Base: 23308 rules (550 with conclusion selected). Queue: 878 rules.
+44600 rules inserted. Base: 23249 rules (550 with conclusion selected). Queue: 836 rules.
+44800 rules inserted. Base: 23250 rules (550 with conclusion selected). Queue: 772 rules.
+45000 rules inserted. Base: 23125 rules (550 with conclusion selected). Queue: 628 rules.
+45200 rules inserted. Base: 23019 rules (550 with conclusion selected). Queue: 514 rules.
+45400 rules inserted. Base: 22918 rules (550 with conclusion selected). Queue: 392 rules.
+45600 rules inserted. Base: 22575 rules (550 with conclusion selected). Queue: 252 rules.
+45800 rules inserted. Base: 22234 rules (550 with conclusion selected). Queue: 111 rules.
+Starting query inj-event(ServerDone(exp(gen,skC[]),exp(gen,skS[]),e1,e2,k)) ==> inj-event(ClientStarted(exp(gen,skC[]),exp(gen,skS[]),e1))
+goal reachable: b-event(@p_act(@occ25_1,(exp(gen,eR_2),aenc(hkdf2(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,skC[]),eR_2)),n0,hash((hash((hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c))),exp(gen,eR_2))),params_s)))) && b-inj-event(ClientStarted(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2)),@occ10_1) -> inj-event(ServerDone(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2),exp(gen,eR_2),hkdf1(hkdf1(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,skC[]),eR_2)),empty)),@occ67_1)
+The 1st, 2nd hypotheses occur strictly before the conclusion.
+Abbreviations:
+eI_2 = eI[!1 = @sid]
+eR_2 = eR_1[cP1_1 = aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c),cS_1 = aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),eI_1 = exp(gen,eI_2),!1 = @sid_1]
+@occ67_1 = @occ67[t_1 = aenc(hkdf1(hkdf1(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,skC[]),eR_2)),empty),n0,empty,payload_c[]),cP1_1 = aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c),cS_1 = aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),eI_1 = exp(gen,eI_2),!1 = @sid_1]
+@occ25_1 = @occ25[!1 = @sid]
+@occ10_1 = @occ10[!1 = @sid]
+RESULT inj-event(ServerDone(exp(gen,skC[]),exp(gen,skS[]),e1,e2,k)) ==> inj-event(ClientStarted(exp(gen,skC[]),exp(gen,skS[]),e1)) is true.
+-- Query inj-event(ServerDone(exp(gen,skC[]),exp(gen,skS[]),e1,e2,k)) ==> inj-event(ClientDone(exp(gen,skC[]),exp(gen,skS[]),e1,e2,k)) in process 1.
+Translating the process into Horn clauses...
+Completing...
+200 rules inserted. Base: 200 rules (69 with conclusion selected). Queue: 403 rules.
+400 rules inserted. Base: 400 rules (70 with conclusion selected). Queue: 450 rules.
+600 rules inserted. Base: 598 rules (76 with conclusion selected). Queue: 470 rules.
+800 rules inserted. Base: 760 rules (76 with conclusion selected). Queue: 470 rules.
+1000 rules inserted. Base: 924 rules (78 with conclusion selected). Queue: 468 rules.
+1200 rules inserted. Base: 1102 rules (78 with conclusion selected). Queue: 490 rules.
+1400 rules inserted. Base: 1259 rules (78 with conclusion selected). Queue: 532 rules.
+1600 rules inserted. Base: 1318 rules (78 with conclusion selected). Queue: 542 rules.
+1800 rules inserted. Base: 1482 rules (78 with conclusion selected). Queue: 542 rules.
+2000 rules inserted. Base: 1652 rules (78 with conclusion selected). Queue: 544 rules.
+2200 rules inserted. Base: 1852 rules (95 with conclusion selected). Queue: 616 rules.
+2400 rules inserted. Base: 2052 rules (130 with conclusion selected). Queue: 729 rules.
+2600 rules inserted. Base: 2175 rules (150 with conclusion selected). Queue: 810 rules.
+2800 rules inserted. Base: 2292 rules (154 with conclusion selected). Queue: 1158 rules.
+3000 rules inserted. Base: 2442 rules (160 with conclusion selected). Queue: 1868 rules.
+3200 rules inserted. Base: 2585 rules (164 with conclusion selected). Queue: 2620 rules.
+3400 rules inserted. Base: 2743 rules (166 with conclusion selected). Queue: 3054 rules.
+3600 rules inserted. Base: 2918 rules (168 with conclusion selected). Queue: 3344 rules.
+3800 rules inserted. Base: 3074 rules (192 with conclusion selected). Queue: 3316 rules.
+4000 rules inserted. Base: 3243 rules (198 with conclusion selected). Queue: 3578 rules.
+4200 rules inserted. Base: 3408 rules (204 with conclusion selected). Queue: 3833 rules.
+4400 rules inserted. Base: 3564 rules (224 with conclusion selected). Queue: 3785 rules.
+4600 rules inserted. Base: 3724 rules (224 with conclusion selected). Queue: 3965 rules.
+4800 rules inserted. Base: 3897 rules (230 with conclusion selected). Queue: 4166 rules.
+5000 rules inserted. Base: 4050 rules (240 with conclusion selected). Queue: 4174 rules.
+5200 rules inserted. Base: 4205 rules (256 with conclusion selected). Queue: 4106 rules.
+5400 rules inserted. Base: 4369 rules (256 with conclusion selected). Queue: 4208 rules.
+5600 rules inserted. Base: 4526 rules (266 with conclusion selected). Queue: 4237 rules.
+5800 rules inserted. Base: 4704 rules (272 with conclusion selected). Queue: 4477 rules.
+6000 rules inserted. Base: 4851 rules (282 with conclusion selected). Queue: 4389 rules.
+6200 rules inserted. Base: 5001 rules (292 with conclusion selected). Queue: 4303 rules.
+6400 rules inserted. Base: 5180 rules (294 with conclusion selected). Queue: 4539 rules.
+6600 rules inserted. Base: 5370 rules (294 with conclusion selected). Queue: 4462 rules.
+6800 rules inserted. Base: 5553 rules (294 with conclusion selected). Queue: 4279 rules.
+7000 rules inserted. Base: 5703 rules (294 with conclusion selected). Queue: 4159 rules.
+7200 rules inserted. Base: 5838 rules (294 with conclusion selected). Queue: 4072 rules.
+7400 rules inserted. Base: 6021 rules (294 with conclusion selected). Queue: 3889 rules.
+7600 rules inserted. Base: 6180 rules (294 with conclusion selected). Queue: 3748 rules.
+7800 rules inserted. Base: 6363 rules (294 with conclusion selected). Queue: 3565 rules.
+8000 rules inserted. Base: 6537 rules (294 with conclusion selected). Queue: 3399 rules.
+8200 rules inserted. Base: 6666 rules (294 with conclusion selected). Queue: 3354 rules.
+8400 rules inserted. Base: 6846 rules (294 with conclusion selected). Queue: 3174 rules.
+8600 rules inserted. Base: 7029 rules (294 with conclusion selected). Queue: 2991 rules.
+8800 rules inserted. Base: 7192 rules (294 with conclusion selected). Queue: 2850 rules.
+9000 rules inserted. Base: 7375 rules (294 with conclusion selected). Queue: 2667 rules.
+9200 rules inserted. Base: 7520 rules (294 with conclusion selected). Queue: 2574 rules.
+9400 rules inserted. Base: 7678 rules (294 with conclusion selected). Queue: 2456 rules.
+9600 rules inserted. Base: 7861 rules (294 with conclusion selected). Queue: 2273 rules.
+9800 rules inserted. Base: 8021 rules (294 with conclusion selected). Queue: 2141 rules.
+10000 rules inserted. Base: 8199 rules (294 with conclusion selected). Queue: 1969 rules.
+10200 rules inserted. Base: 8382 rules (294 with conclusion selected). Queue: 1786 rules.
+10400 rules inserted. Base: 8515 rules (294 with conclusion selected). Queue: 1713 rules.
+10600 rules inserted. Base: 8679 rules (294 with conclusion selected). Queue: 1575 rules.
+10800 rules inserted. Base: 8862 rules (294 with conclusion selected). Queue: 1392 rules.
+11000 rules inserted. Base: 9031 rules (294 with conclusion selected). Queue: 1302 rules.
+11200 rules inserted. Base: 9181 rules (294 with conclusion selected). Queue: 1279 rules.
+11400 rules inserted. Base: 9319 rules (294 with conclusion selected). Queue: 1226 rules.
+11600 rules inserted. Base: 9451 rules (294 with conclusion selected). Queue: 1207 rules.
+11800 rules inserted. Base: 9582 rules (294 with conclusion selected). Queue: 1188 rules.
+12000 rules inserted. Base: 9722 rules (294 with conclusion selected). Queue: 1136 rules.
+12200 rules inserted. Base: 9855 rules (294 with conclusion selected). Queue: 1124 rules.
+12400 rules inserted. Base: 9991 rules (294 with conclusion selected). Queue: 1130 rules.
+12600 rules inserted. Base: 10127 rules (294 with conclusion selected). Queue: 1180 rules.
+12800 rules inserted. Base: 10260 rules (294 with conclusion selected). Queue: 1227 rules.
+13000 rules inserted. Base: 10392 rules (294 with conclusion selected). Queue: 1274 rules.
+13200 rules inserted. Base: 10522 rules (294 with conclusion selected). Queue: 1316 rules.
+13400 rules inserted. Base: 10674 rules (294 with conclusion selected). Queue: 1348 rules.
+13600 rules inserted. Base: 10830 rules (294 with conclusion selected). Queue: 1470 rules.
+13800 rules inserted. Base: 10947 rules (294 with conclusion selected). Queue: 1630 rules.
+14000 rules inserted. Base: 11057 rules (294 with conclusion selected). Queue: 1699 rules.
+14200 rules inserted. Base: 11180 rules (294 with conclusion selected). Queue: 1822 rules.
+14400 rules inserted. Base: 11295 rules (294 with conclusion selected). Queue: 1984 rules.
+14600 rules inserted. Base: 11405 rules (294 with conclusion selected). Queue: 2050 rules.
+14800 rules inserted. Base: 11556 rules (294 with conclusion selected). Queue: 2074 rules.
+15000 rules inserted. Base: 11662 rules (314 with conclusion selected). Queue: 2147 rules.
+15200 rules inserted. Base: 11764 rules (338 with conclusion selected). Queue: 2237 rules.
+15400 rules inserted. Base: 11854 rules (358 with conclusion selected). Queue: 2314 rules.
+15600 rules inserted. Base: 12008 rules (392 with conclusion selected). Queue: 2520 rules.
+15800 rules inserted. Base: 12151 rules (422 with conclusion selected). Queue: 2716 rules.
+16000 rules inserted. Base: 12257 rules (446 with conclusion selected). Queue: 2802 rules.
+16200 rules inserted. Base: 12359 rules (470 with conclusion selected). Queue: 2896 rules.
+16400 rules inserted. Base: 12461 rules (494 with conclusion selected). Queue: 2979 rules.
+16600 rules inserted. Base: 12602 rules (526 with conclusion selected). Queue: 3102 rules.
+16800 rules inserted. Base: 12744 rules (550 with conclusion selected). Queue: 3233 rules.
+17000 rules inserted. Base: 12900 rules (550 with conclusion selected). Queue: 3339 rules.
+17200 rules inserted. Base: 13028 rules (550 with conclusion selected). Queue: 3378 rules.
+17400 rules inserted. Base: 13157 rules (550 with conclusion selected). Queue: 3418 rules.
+17600 rules inserted. Base: 13276 rules (550 with conclusion selected). Queue: 3454 rules.
+17800 rules inserted. Base: 13381 rules (550 with conclusion selected). Queue: 3487 rules.
+18000 rules inserted. Base: 13510 rules (550 with conclusion selected). Queue: 3523 rules.
+18200 rules inserted. Base: 13628 rules (550 with conclusion selected). Queue: 3556 rules.
+18400 rules inserted. Base: 13738 rules (550 with conclusion selected). Queue: 3590 rules.
+18600 rules inserted. Base: 13851 rules (550 with conclusion selected). Queue: 3625 rules.
+18800 rules inserted. Base: 13989 rules (550 with conclusion selected). Queue: 3668 rules.
+19000 rules inserted. Base: 14115 rules (550 with conclusion selected). Queue: 3702 rules.
+19200 rules inserted. Base: 14238 rules (550 with conclusion selected). Queue: 3746 rules.
+19400 rules inserted. Base: 14359 rules (550 with conclusion selected). Queue: 3777 rules.
+19600 rules inserted. Base: 14516 rules (550 with conclusion selected). Queue: 3832 rules.
+19800 rules inserted. Base: 14671 rules (550 with conclusion selected). Queue: 3887 rules.
+20000 rules inserted. Base: 14806 rules (550 with conclusion selected). Queue: 3933 rules.
+20200 rules inserted. Base: 14957 rules (550 with conclusion selected). Queue: 3984 rules.
+20400 rules inserted. Base: 15047 rules (550 with conclusion selected). Queue: 3939 rules.
+20600 rules inserted. Base: 15148 rules (550 with conclusion selected). Queue: 3885 rules.
+20800 rules inserted. Base: 15241 rules (550 with conclusion selected). Queue: 3826 rules.
+21000 rules inserted. Base: 15342 rules (550 with conclusion selected). Queue: 3778 rules.
+21200 rules inserted. Base: 15440 rules (550 with conclusion selected). Queue: 3730 rules.
+21400 rules inserted. Base: 15542 rules (550 with conclusion selected). Queue: 3682 rules.
+21600 rules inserted. Base: 15638 rules (550 with conclusion selected). Queue: 3629 rules.
+21800 rules inserted. Base: 15738 rules (550 with conclusion selected). Queue: 3577 rules.
+22000 rules inserted. Base: 15820 rules (550 with conclusion selected). Queue: 3529 rules.
+22200 rules inserted. Base: 15902 rules (550 with conclusion selected). Queue: 3485 rules.
+22400 rules inserted. Base: 16001 rules (550 with conclusion selected). Queue: 3434 rules.
+22600 rules inserted. Base: 16105 rules (550 with conclusion selected). Queue: 3379 rules.
+22800 rules inserted. Base: 16202 rules (550 with conclusion selected). Queue: 3333 rules.
+23000 rules inserted. Base: 16303 rules (550 with conclusion selected). Queue: 3285 rules.
+23200 rules inserted. Base: 16424 rules (550 with conclusion selected). Queue: 3245 rules.
+23400 rules inserted. Base: 16536 rules (550 with conclusion selected). Queue: 3198 rules.
+23600 rules inserted. Base: 16655 rules (550 with conclusion selected). Queue: 3162 rules.
+23800 rules inserted. Base: 16786 rules (550 with conclusion selected). Queue: 3358 rules.
+24000 rules inserted. Base: 16926 rules (550 with conclusion selected). Queue: 4208 rules.
+24200 rules inserted. Base: 17041 rules (550 with conclusion selected). Queue: 4458 rules.
+24400 rules inserted. Base: 17185 rules (550 with conclusion selected). Queue: 4396 rules.
+24600 rules inserted. Base: 17346 rules (550 with conclusion selected). Queue: 4335 rules.
+24800 rules inserted. Base: 17461 rules (550 with conclusion selected). Queue: 4278 rules.
+25000 rules inserted. Base: 17547 rules (550 with conclusion selected). Queue: 4271 rules.
+25200 rules inserted. Base: 17648 rules (550 with conclusion selected). Queue: 4268 rules.
+25400 rules inserted. Base: 17740 rules (550 with conclusion selected). Queue: 4261 rules.
+25600 rules inserted. Base: 17811 rules (550 with conclusion selected). Queue: 4253 rules.
+25800 rules inserted. Base: 17901 rules (550 with conclusion selected). Queue: 4247 rules.
+26000 rules inserted. Base: 18005 rules (550 with conclusion selected). Queue: 4241 rules.
+26200 rules inserted. Base: 18073 rules (550 with conclusion selected). Queue: 4234 rules.
+26400 rules inserted. Base: 18190 rules (550 with conclusion selected). Queue: 4204 rules.
+26600 rules inserted. Base: 18344 rules (550 with conclusion selected). Queue: 4153 rules.
+26800 rules inserted. Base: 18491 rules (550 with conclusion selected). Queue: 4109 rules.
+27000 rules inserted. Base: 18584 rules (550 with conclusion selected). Queue: 4114 rules.
+27200 rules inserted. Base: 18679 rules (550 with conclusion selected). Queue: 4152 rules.
+27400 rules inserted. Base: 18776 rules (550 with conclusion selected). Queue: 4191 rules.
+27600 rules inserted. Base: 18868 rules (550 with conclusion selected). Queue: 4201 rules.
+27800 rules inserted. Base: 18966 rules (550 with conclusion selected). Queue: 4239 rules.
+28000 rules inserted. Base: 19056 rules (550 with conclusion selected). Queue: 4278 rules.
+28200 rules inserted. Base: 19153 rules (550 with conclusion selected). Queue: 4321 rules.
+28400 rules inserted. Base: 19246 rules (550 with conclusion selected). Queue: 4366 rules.
+28600 rules inserted. Base: 19327 rules (550 with conclusion selected). Queue: 4406 rules.
+28800 rules inserted. Base: 19488 rules (550 with conclusion selected). Queue: 4487 rules.
+29000 rules inserted. Base: 19620 rules (550 with conclusion selected). Queue: 4556 rules.
+29200 rules inserted. Base: 19772 rules (550 with conclusion selected). Queue: 4586 rules.
+29400 rules inserted. Base: 19930 rules (550 with conclusion selected). Queue: 4578 rules.
+29600 rules inserted. Base: 20088 rules (550 with conclusion selected). Queue: 4577 rules.
+29800 rules inserted. Base: 20208 rules (550 with conclusion selected). Queue: 4537 rules.
+30000 rules inserted. Base: 20373 rules (550 with conclusion selected). Queue: 4535 rules.
+30200 rules inserted. Base: 20548 rules (550 with conclusion selected). Queue: 4544 rules.
+30400 rules inserted. Base: 20694 rules (550 with conclusion selected). Queue: 4538 rules.
+30600 rules inserted. Base: 20843 rules (550 with conclusion selected). Queue: 4581 rules.
+30800 rules inserted. Base: 20979 rules (550 with conclusion selected). Queue: 4642 rules.
+31000 rules inserted. Base: 21089 rules (550 with conclusion selected). Queue: 4684 rules.
+31200 rules inserted. Base: 21078 rules (550 with conclusion selected). Queue: 4686 rules.
+31400 rules inserted. Base: 21066 rules (550 with conclusion selected). Queue: 4691 rules.
+31600 rules inserted. Base: 21059 rules (550 with conclusion selected). Queue: 4696 rules.
+31800 rules inserted. Base: 21048 rules (550 with conclusion selected). Queue: 4699 rules.
+32000 rules inserted. Base: 21037 rules (550 with conclusion selected). Queue: 4704 rules.
+32200 rules inserted. Base: 21025 rules (550 with conclusion selected). Queue: 4706 rules.
+32400 rules inserted. Base: 21014 rules (550 with conclusion selected). Queue: 4711 rules.
+32600 rules inserted. Base: 21005 rules (550 with conclusion selected). Queue: 4716 rules.
+32800 rules inserted. Base: 20995 rules (550 with conclusion selected). Queue: 4719 rules.
+33000 rules inserted. Base: 21019 rules (550 with conclusion selected). Queue: 4736 rules.
+33200 rules inserted. Base: 21170 rules (550 with conclusion selected). Queue: 4829 rules.
+33400 rules inserted. Base: 21327 rules (550 with conclusion selected). Queue: 4931 rules.
+33600 rules inserted. Base: 21471 rules (550 with conclusion selected). Queue: 5006 rules.
+33800 rules inserted. Base: 21609 rules (550 with conclusion selected). Queue: 5094 rules.
+34000 rules inserted. Base: 21729 rules (550 with conclusion selected). Queue: 5183 rules.
+34200 rules inserted. Base: 21860 rules (550 with conclusion selected). Queue: 5272 rules.
+34400 rules inserted. Base: 21997 rules (550 with conclusion selected). Queue: 5359 rules.
+34600 rules inserted. Base: 22141 rules (550 with conclusion selected). Queue: 5446 rules.
+34800 rules inserted. Base: 22289 rules (550 with conclusion selected). Queue: 5536 rules.
+35000 rules inserted. Base: 22434 rules (550 with conclusion selected). Queue: 5617 rules.
+35200 rules inserted. Base: 22568 rules (550 with conclusion selected). Queue: 5705 rules.
+35400 rules inserted. Base: 22702 rules (550 with conclusion selected). Queue: 5809 rules.
+35600 rules inserted. Base: 22823 rules (550 with conclusion selected). Queue: 5896 rules.
+35800 rules inserted. Base: 22876 rules (550 with conclusion selected). Queue: 5848 rules.
+36000 rules inserted. Base: 22926 rules (550 with conclusion selected). Queue: 5801 rules.
+36200 rules inserted. Base: 22975 rules (550 with conclusion selected). Queue: 5752 rules.
+36400 rules inserted. Base: 23033 rules (550 with conclusion selected). Queue: 5697 rules.
+36600 rules inserted. Base: 23082 rules (550 with conclusion selected). Queue: 5651 rules.
+36800 rules inserted. Base: 23140 rules (550 with conclusion selected). Queue: 5596 rules.
+37000 rules inserted. Base: 23190 rules (550 with conclusion selected). Queue: 5549 rules.
+37200 rules inserted. Base: 23240 rules (550 with conclusion selected). Queue: 5499 rules.
+37400 rules inserted. Base: 23298 rules (550 with conclusion selected). Queue: 5444 rules.
+37600 rules inserted. Base: 23349 rules (550 with conclusion selected). Queue: 5396 rules.
+37800 rules inserted. Base: 23450 rules (550 with conclusion selected). Queue: 5414 rules.
+38000 rules inserted. Base: 23550 rules (550 with conclusion selected). Queue: 5449 rules.
+38200 rules inserted. Base: 23630 rules (550 with conclusion selected). Queue: 5469 rules.
+38400 rules inserted. Base: 23714 rules (550 with conclusion selected). Queue: 5493 rules.
+38600 rules inserted. Base: 23798 rules (550 with conclusion selected). Queue: 5514 rules.
+38800 rules inserted. Base: 23922 rules (550 with conclusion selected). Queue: 5550 rules.
+39000 rules inserted. Base: 24024 rules (550 with conclusion selected). Queue: 5557 rules.
+39200 rules inserted. Base: 24153 rules (550 with conclusion selected). Queue: 5597 rules.
+39400 rules inserted. Base: 24256 rules (550 with conclusion selected). Queue: 5601 rules.
+39600 rules inserted. Base: 24375 rules (550 with conclusion selected). Queue: 5619 rules.
+39800 rules inserted. Base: 24452 rules (550 with conclusion selected). Queue: 5640 rules.
+40000 rules inserted. Base: 24536 rules (550 with conclusion selected). Queue: 5669 rules.
+40200 rules inserted. Base: 24639 rules (550 with conclusion selected). Queue: 5699 rules.
+40400 rules inserted. Base: 24749 rules (550 with conclusion selected). Queue: 5740 rules.
+40600 rules inserted. Base: 24833 rules (550 with conclusion selected). Queue: 5760 rules.
+40800 rules inserted. Base: 24939 rules (550 with conclusion selected). Queue: 5770 rules.
+41000 rules inserted. Base: 25053 rules (550 with conclusion selected). Queue: 5792 rules.
+41200 rules inserted. Base: 25168 rules (550 with conclusion selected). Queue: 5816 rules.
+41400 rules inserted. Base: 25273 rules (550 with conclusion selected). Queue: 5824 rules.
+41600 rules inserted. Base: 25302 rules (550 with conclusion selected). Queue: 5824 rules.
+41800 rules inserted. Base: 25331 rules (550 with conclusion selected). Queue: 5824 rules.
+42000 rules inserted. Base: 25361 rules (550 with conclusion selected). Queue: 5823 rules.
+42200 rules inserted. Base: 25389 rules (550 with conclusion selected). Queue: 5825 rules.
+42400 rules inserted. Base: 25418 rules (550 with conclusion selected). Queue: 5826 rules.
+42600 rules inserted. Base: 25447 rules (550 with conclusion selected). Queue: 5826 rules.
+42800 rules inserted. Base: 25476 rules (550 with conclusion selected). Queue: 5826 rules.
+43000 rules inserted. Base: 25510 rules (550 with conclusion selected). Queue: 5792 rules.
+43200 rules inserted. Base: 25542 rules (550 with conclusion selected). Queue: 5694 rules.
+43400 rules inserted. Base: 25581 rules (550 with conclusion selected). Queue: 5603 rules.
+43600 rules inserted. Base: 25605 rules (550 with conclusion selected). Queue: 5506 rules.
+43800 rules inserted. Base: 25640 rules (550 with conclusion selected). Queue: 5403 rules.
+44000 rules inserted. Base: 25674 rules (550 with conclusion selected). Queue: 5312 rules.
+44200 rules inserted. Base: 25708 rules (550 with conclusion selected). Queue: 5227 rules.
+44400 rules inserted. Base: 25792 rules (550 with conclusion selected). Queue: 5152 rules.
+44600 rules inserted. Base: 25818 rules (550 with conclusion selected). Queue: 5060 rules.
+44800 rules inserted. Base: 25892 rules (550 with conclusion selected). Queue: 4984 rules.
+45000 rules inserted. Base: 25947 rules (550 with conclusion selected). Queue: 4899 rules.
+45200 rules inserted. Base: 25974 rules (550 with conclusion selected). Queue: 4800 rules.
+45400 rules inserted. Base: 26015 rules (550 with conclusion selected). Queue: 4705 rules.
+45600 rules inserted. Base: 26026 rules (550 with conclusion selected). Queue: 4611 rules.
+45800 rules inserted. Base: 26080 rules (550 with conclusion selected). Queue: 4515 rules.
+46000 rules inserted. Base: 26108 rules (550 with conclusion selected). Queue: 4416 rules.
+46200 rules inserted. Base: 26147 rules (550 with conclusion selected). Queue: 4332 rules.
+46400 rules inserted. Base: 26226 rules (550 with conclusion selected). Queue: 4256 rules.
+46600 rules inserted. Base: 26245 rules (550 with conclusion selected). Queue: 4167 rules.
+46800 rules inserted. Base: 26333 rules (550 with conclusion selected). Queue: 4090 rules.
+47000 rules inserted. Base: 26406 rules (550 with conclusion selected). Queue: 3953 rules.
+47200 rules inserted. Base: 26490 rules (550 with conclusion selected). Queue: 3785 rules.
+47400 rules inserted. Base: 26562 rules (550 with conclusion selected). Queue: 3620 rules.
+47600 rules inserted. Base: 26646 rules (550 with conclusion selected). Queue: 3452 rules.
+47800 rules inserted. Base: 26718 rules (550 with conclusion selected). Queue: 3287 rules.
+48000 rules inserted. Base: 26802 rules (550 with conclusion selected). Queue: 3119 rules.
+48200 rules inserted. Base: 26873 rules (550 with conclusion selected). Queue: 2953 rules.
+48400 rules inserted. Base: 26934 rules (550 with conclusion selected). Queue: 2792 rules.
+48600 rules inserted. Base: 26897 rules (550 with conclusion selected). Queue: 2729 rules.
+48800 rules inserted. Base: 26880 rules (550 with conclusion selected). Queue: 2645 rules.
+49000 rules inserted. Base: 26873 rules (550 with conclusion selected). Queue: 2590 rules.
+49200 rules inserted. Base: 26911 rules (550 with conclusion selected). Queue: 2538 rules.
+49400 rules inserted. Base: 26954 rules (550 with conclusion selected). Queue: 2480 rules.
+49600 rules inserted. Base: 26938 rules (550 with conclusion selected). Queue: 2425 rules.
+49800 rules inserted. Base: 26918 rules (550 with conclusion selected). Queue: 2358 rules.
+50000 rules inserted. Base: 26876 rules (550 with conclusion selected). Queue: 2283 rules.
+50200 rules inserted. Base: 26895 rules (550 with conclusion selected). Queue: 2225 rules.
+50400 rules inserted. Base: 26931 rules (550 with conclusion selected). Queue: 2171 rules.
+50600 rules inserted. Base: 26974 rules (550 with conclusion selected). Queue: 2116 rules.
+50800 rules inserted. Base: 27074 rules (550 with conclusion selected). Queue: 1999 rules.
+51000 rules inserted. Base: 27244 rules (550 with conclusion selected). Queue: 1827 rules.
+51200 rules inserted. Base: 27294 rules (550 with conclusion selected). Queue: 1839 rules.
+51400 rules inserted. Base: 27275 rules (550 with conclusion selected). Queue: 1848 rules.
+51600 rules inserted. Base: 27226 rules (550 with conclusion selected). Queue: 1852 rules.
+51800 rules inserted. Base: 27194 rules (550 with conclusion selected). Queue: 1859 rules.
+52000 rules inserted. Base: 27244 rules (550 with conclusion selected). Queue: 1868 rules.
+52200 rules inserted. Base: 27237 rules (550 with conclusion selected). Queue: 1875 rules.
+52400 rules inserted. Base: 27204 rules (550 with conclusion selected). Queue: 1879 rules.
+52600 rules inserted. Base: 27144 rules (550 with conclusion selected). Queue: 1881 rules.
+52800 rules inserted. Base: 27264 rules (550 with conclusion selected). Queue: 1914 rules.
+53000 rules inserted. Base: 27394 rules (550 with conclusion selected). Queue: 1938 rules.
+53200 rules inserted. Base: 27488 rules (550 with conclusion selected). Queue: 1955 rules.
+53400 rules inserted. Base: 27521 rules (550 with conclusion selected). Queue: 1960 rules.
+53600 rules inserted. Base: 27574 rules (550 with conclusion selected). Queue: 1979 rules.
+53800 rules inserted. Base: 27716 rules (550 with conclusion selected). Queue: 2011 rules.
+54000 rules inserted. Base: 27839 rules (550 with conclusion selected). Queue: 2028 rules.
+54200 rules inserted. Base: 27866 rules (550 with conclusion selected). Queue: 2034 rules.
+54400 rules inserted. Base: 27895 rules (550 with conclusion selected). Queue: 2044 rules.
+54600 rules inserted. Base: 27934 rules (550 with conclusion selected). Queue: 2054 rules.
+54800 rules inserted. Base: 27925 rules (550 with conclusion selected). Queue: 2033 rules.
+55000 rules inserted. Base: 27977 rules (550 with conclusion selected). Queue: 2049 rules.
+55200 rules inserted. Base: 28043 rules (550 with conclusion selected). Queue: 2022 rules.
+55400 rules inserted. Base: 28096 rules (550 with conclusion selected). Queue: 1976 rules.
+55600 rules inserted. Base: 28120 rules (550 with conclusion selected). Queue: 1981 rules.
+55800 rules inserted. Base: 28132 rules (550 with conclusion selected). Queue: 1978 rules.
+56000 rules inserted. Base: 28169 rules (550 with conclusion selected). Queue: 1972 rules.
+56200 rules inserted. Base: 28243 rules (550 with conclusion selected). Queue: 1952 rules.
+56400 rules inserted. Base: 28271 rules (550 with conclusion selected). Queue: 1884 rules.
+56600 rules inserted. Base: 28191 rules (550 with conclusion selected). Queue: 1764 rules.
+56800 rules inserted. Base: 28102 rules (550 with conclusion selected). Queue: 1641 rules.
+57000 rules inserted. Base: 28074 rules (550 with conclusion selected). Queue: 1557 rules.
+57200 rules inserted. Base: 28048 rules (550 with conclusion selected). Queue: 1470 rules.
+57400 rules inserted. Base: 27958 rules (550 with conclusion selected). Queue: 1347 rules.
+57600 rules inserted. Base: 27893 rules (550 with conclusion selected). Queue: 1229 rules.
+57800 rules inserted. Base: 27854 rules (550 with conclusion selected). Queue: 1136 rules.
+58000 rules inserted. Base: 27823 rules (550 with conclusion selected). Queue: 1050 rules.
+58200 rules inserted. Base: 27480 rules (550 with conclusion selected). Queue: 905 rules.
+58400 rules inserted. Base: 27345 rules (550 with conclusion selected). Queue: 802 rules.
+58600 rules inserted. Base: 26987 rules (550 with conclusion selected). Queue: 660 rules.
+58800 rules inserted. Base: 26837 rules (550 with conclusion selected). Queue: 553 rules.
+59000 rules inserted. Base: 26334 rules (550 with conclusion selected). Queue: 382 rules.
+59200 rules inserted. Base: 25791 rules (550 with conclusion selected). Queue: 204 rules.
+59400 rules inserted. Base: 25650 rules (550 with conclusion selected). Queue: 7 rules.
+Starting query inj-event(ServerDone(exp(gen,skC[]),exp(gen,skS[]),e1,e2,k)) ==> inj-event(ClientDone(exp(gen,skC[]),exp(gen,skS[]),e1,e2,k))
+goal reachable: b-inj-event(ClientDone(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2),exp(gen,eR_2),hkdf1(hkdf1(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,skC[]),eR_2)),empty)),@occ33_1) -> inj-event(ServerDone(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2),exp(gen,eR_2),hkdf1(hkdf1(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,skC[]),eR_2)),empty)),@occ67_2)
+The hypothesis occurs strictly before the conclusion.
+Abbreviations:
+eI_2 = eI[!1 = @sid]
+eR_2 = eR_1[cP1_1 = aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c),cS_1 = aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),eI_1 = exp(gen,eI_2),!1 = @sid_1]
+@occ67_2 = @occ67_1[t_1 = aenc(hkdf1(hkdf1(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,skC[]),eR_2)),empty),n0,empty,payload_c[]),cP1_1 = aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c),cS_1 = aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),eI_1 = exp(gen,eI_2),!1 = @sid_1]
+@occ33_1 = @occ33[cP2 = aenc(hkdf2(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,skC[]),eR_2)),n0,hash((hash((hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c))),exp(gen,eR_2))),params_s),eR = exp(gen,eR_2),!1 = @sid]
+RESULT inj-event(ServerDone(exp(gen,skC[]),exp(gen,skS[]),e1,e2,k)) ==> inj-event(ClientDone(exp(gen,skC[]),exp(gen,skS[]),e1,e2,k)) is true.
+-- Query inj-event(ClientDone(exp(gen,skC[]),exp(gen,skS[]),e1,e2,k)) ==> inj-event(ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),e1,e2)) in process 1.
+Translating the process into Horn clauses...
+Completing...
+200 rules inserted. Base: 200 rules (66 with conclusion selected). Queue: 470 rules.
+400 rules inserted. Base: 400 rules (70 with conclusion selected). Queue: 483 rules.
+600 rules inserted. Base: 598 rules (76 with conclusion selected). Queue: 534 rules.
+800 rules inserted. Base: 798 rules (76 with conclusion selected). Queue: 534 rules.
+1000 rules inserted. Base: 950 rules (76 with conclusion selected). Queue: 534 rules.
+1200 rules inserted. Base: 1124 rules (78 with conclusion selected). Queue: 532 rules.
+1400 rules inserted. Base: 1312 rules (78 with conclusion selected). Queue: 544 rules.
+1600 rules inserted. Base: 1458 rules (78 with conclusion selected). Queue: 597 rules.
+1800 rules inserted. Base: 1481 rules (78 with conclusion selected). Queue: 542 rules.
+2000 rules inserted. Base: 1622 rules (78 with conclusion selected). Queue: 542 rules.
+2200 rules inserted. Base: 1788 rules (78 with conclusion selected). Queue: 544 rules.
+2400 rules inserted. Base: 1988 rules (86 with conclusion selected). Queue: 575 rules.
+2600 rules inserted. Base: 2188 rules (128 with conclusion selected). Queue: 714 rules.
+2800 rules inserted. Base: 2303 rules (150 with conclusion selected). Queue: 775 rules.
+3000 rules inserted. Base: 2382 rules (152 with conclusion selected). Queue: 873 rules.
+3200 rules inserted. Base: 2506 rules (160 with conclusion selected). Queue: 1331 rules.
+3400 rules inserted. Base: 2623 rules (164 with conclusion selected). Queue: 1800 rules.
+3600 rules inserted. Base: 2795 rules (166 with conclusion selected). Queue: 1984 rules.
+3800 rules inserted. Base: 2969 rules (194 with conclusion selected). Queue: 2088 rules.
+4000 rules inserted. Base: 3135 rules (214 with conclusion selected). Queue: 2149 rules.
+4200 rules inserted. Base: 3303 rules (242 with conclusion selected). Queue: 2225 rules.
+4400 rules inserted. Base: 3472 rules (262 with conclusion selected). Queue: 2281 rules.
+4600 rules inserted. Base: 3642 rules (282 with conclusion selected). Queue: 2338 rules.
+4800 rules inserted. Base: 3803 rules (302 with conclusion selected). Queue: 2216 rules.
+5000 rules inserted. Base: 3973 rules (316 with conclusion selected). Queue: 2261 rules.
+5200 rules inserted. Base: 4143 rules (338 with conclusion selected). Queue: 2324 rules.
+5400 rules inserted. Base: 4308 rules (356 with conclusion selected). Queue: 2195 rules.
+5600 rules inserted. Base: 4504 rules (358 with conclusion selected). Queue: 2336 rules.
+5800 rules inserted. Base: 4689 rules (358 with conclusion selected). Queue: 2169 rules.
+6000 rules inserted. Base: 4830 rules (358 with conclusion selected). Queue: 2070 rules.
+6200 rules inserted. Base: 5000 rules (358 with conclusion selected). Queue: 1906 rules.
+6400 rules inserted. Base: 5165 rules (358 with conclusion selected). Queue: 1773 rules.
+6600 rules inserted. Base: 5338 rules (358 with conclusion selected). Queue: 1624 rules.
+6800 rules inserted. Base: 5512 rules (358 with conclusion selected). Queue: 1460 rules.
+7000 rules inserted. Base: 5667 rules (358 with conclusion selected). Queue: 1361 rules.
+7200 rules inserted. Base: 5849 rules (358 with conclusion selected). Queue: 1179 rules.
+7400 rules inserted. Base: 6021 rules (358 with conclusion selected). Queue: 1023 rules.
+7600 rules inserted. Base: 6172 rules (358 with conclusion selected). Queue: 922 rules.
+7800 rules inserted. Base: 6339 rules (358 with conclusion selected). Queue: 758 rules.
+8000 rules inserted. Base: 6529 rules (358 with conclusion selected). Queue: 747 rules.
+8200 rules inserted. Base: 6685 rules (358 with conclusion selected). Queue: 741 rules.
+8400 rules inserted. Base: 6842 rules (358 with conclusion selected). Queue: 716 rules.
+8600 rules inserted. Base: 6975 rules (358 with conclusion selected). Queue: 705 rules.
+8800 rules inserted. Base: 7152 rules (358 with conclusion selected). Queue: 733 rules.
+9000 rules inserted. Base: 7309 rules (358 with conclusion selected). Queue: 797 rules.
+9200 rules inserted. Base: 7455 rules (358 with conclusion selected). Queue: 853 rules.
+9400 rules inserted. Base: 7642 rules (358 with conclusion selected). Queue: 868 rules.
+9600 rules inserted. Base: 7768 rules (358 with conclusion selected). Queue: 1066 rules.
+9800 rules inserted. Base: 7874 rules (358 with conclusion selected). Queue: 1112 rules.
+10000 rules inserted. Base: 7988 rules (358 with conclusion selected). Queue: 1268 rules.
+10200 rules inserted. Base: 8116 rules (358 with conclusion selected). Queue: 1274 rules.
+10400 rules inserted. Base: 8229 rules (364 with conclusion selected). Queue: 1290 rules.
+10600 rules inserted. Base: 8275 rules (372 with conclusion selected). Queue: 1302 rules.
+10800 rules inserted. Base: 8379 rules (388 with conclusion selected). Queue: 1445 rules.
+11000 rules inserted. Base: 8443 rules (398 with conclusion selected). Queue: 1496 rules.
+11200 rules inserted. Base: 8489 rules (406 with conclusion selected). Queue: 1508 rules.
+11400 rules inserted. Base: 8588 rules (422 with conclusion selected). Queue: 1539 rules.
+11600 rules inserted. Base: 8759 rules (422 with conclusion selected). Queue: 1687 rules.
+11800 rules inserted. Base: 8838 rules (422 with conclusion selected). Queue: 1678 rules.
+12000 rules inserted. Base: 8899 rules (422 with conclusion selected). Queue: 1659 rules.
+12200 rules inserted. Base: 8976 rules (422 with conclusion selected). Queue: 1644 rules.
+12400 rules inserted. Base: 9035 rules (422 with conclusion selected). Queue: 1631 rules.
+12600 rules inserted. Base: 9110 rules (422 with conclusion selected). Queue: 1613 rules.
+12800 rules inserted. Base: 9207 rules (422 with conclusion selected). Queue: 1602 rules.
+13000 rules inserted. Base: 9334 rules (422 with conclusion selected). Queue: 1614 rules.
+13200 rules inserted. Base: 9484 rules (422 with conclusion selected). Queue: 1664 rules.
+13400 rules inserted. Base: 9569 rules (422 with conclusion selected). Queue: 1650 rules.
+13600 rules inserted. Base: 9634 rules (422 with conclusion selected). Queue: 1617 rules.
+13800 rules inserted. Base: 9684 rules (422 with conclusion selected). Queue: 1596 rules.
+14000 rules inserted. Base: 9734 rules (422 with conclusion selected). Queue: 1579 rules.
+14200 rules inserted. Base: 9802 rules (422 with conclusion selected). Queue: 1559 rules.
+14400 rules inserted. Base: 9881 rules (422 with conclusion selected). Queue: 1571 rules.
+14600 rules inserted. Base: 10017 rules (422 with conclusion selected). Queue: 2084 rules.
+14800 rules inserted. Base: 10158 rules (422 with conclusion selected). Queue: 2935 rules.
+15000 rules inserted. Base: 10301 rules (422 with conclusion selected). Queue: 3213 rules.
+15200 rules inserted. Base: 10462 rules (422 with conclusion selected). Queue: 3113 rules.
+15400 rules inserted. Base: 10519 rules (422 with conclusion selected). Queue: 3128 rules.
+15600 rules inserted. Base: 10555 rules (422 with conclusion selected). Queue: 3136 rules.
+15800 rules inserted. Base: 10595 rules (422 with conclusion selected). Queue: 3150 rules.
+16000 rules inserted. Base: 10740 rules (422 with conclusion selected). Queue: 3091 rules.
+16200 rules inserted. Base: 10849 rules (422 with conclusion selected). Queue: 3016 rules.
+16400 rules inserted. Base: 10951 rules (422 with conclusion selected). Queue: 2992 rules.
+16600 rules inserted. Base: 11042 rules (422 with conclusion selected). Queue: 3036 rules.
+16800 rules inserted. Base: 11139 rules (422 with conclusion selected). Queue: 3073 rules.
+17000 rules inserted. Base: 11227 rules (422 with conclusion selected). Queue: 3111 rules.
+17200 rules inserted. Base: 11328 rules (422 with conclusion selected). Queue: 3081 rules.
+17400 rules inserted. Base: 11427 rules (422 with conclusion selected). Queue: 3050 rules.
+17600 rules inserted. Base: 11522 rules (422 with conclusion selected). Queue: 3102 rules.
+17800 rules inserted. Base: 11615 rules (422 with conclusion selected). Queue: 3140 rules.
+18000 rules inserted. Base: 11708 rules (422 with conclusion selected). Queue: 3179 rules.
+18200 rules inserted. Base: 11820 rules (422 with conclusion selected). Queue: 3239 rules.
+18400 rules inserted. Base: 11993 rules (422 with conclusion selected). Queue: 3170 rules.
+18600 rules inserted. Base: 12152 rules (422 with conclusion selected). Queue: 3073 rules.
+18800 rules inserted. Base: 12338 rules (422 with conclusion selected). Queue: 3005 rules.
+19000 rules inserted. Base: 12485 rules (422 with conclusion selected). Queue: 3006 rules.
+19200 rules inserted. Base: 12489 rules (422 with conclusion selected). Queue: 3001 rules.
+19400 rules inserted. Base: 12481 rules (422 with conclusion selected). Queue: 3011 rules.
+19600 rules inserted. Base: 12469 rules (422 with conclusion selected). Queue: 3013 rules.
+19800 rules inserted. Base: 12459 rules (422 with conclusion selected). Queue: 3018 rules.
+20000 rules inserted. Base: 12450 rules (422 with conclusion selected). Queue: 3021 rules.
+20200 rules inserted. Base: 12438 rules (422 with conclusion selected). Queue: 3025 rules.
+20400 rules inserted. Base: 12429 rules (422 with conclusion selected). Queue: 3027 rules.
+20600 rules inserted. Base: 12423 rules (422 with conclusion selected). Queue: 3033 rules.
+20800 rules inserted. Base: 12411 rules (422 with conclusion selected). Queue: 3038 rules.
+21000 rules inserted. Base: 12402 rules (422 with conclusion selected). Queue: 3043 rules.
+21200 rules inserted. Base: 12390 rules (422 with conclusion selected). Queue: 3045 rules.
+21400 rules inserted. Base: 12497 rules (422 with conclusion selected). Queue: 3116 rules.
+21600 rules inserted. Base: 12642 rules (422 with conclusion selected). Queue: 3219 rules.
+21800 rules inserted. Base: 12772 rules (422 with conclusion selected). Queue: 3288 rules.
+22000 rules inserted. Base: 12889 rules (422 with conclusion selected). Queue: 3356 rules.
+22200 rules inserted. Base: 12930 rules (422 with conclusion selected). Queue: 3317 rules.
+22400 rules inserted. Base: 12979 rules (422 with conclusion selected). Queue: 3263 rules.
+22600 rules inserted. Base: 13029 rules (422 with conclusion selected). Queue: 3216 rules.
+22800 rules inserted. Base: 13078 rules (422 with conclusion selected). Queue: 3170 rules.
+23000 rules inserted. Base: 13136 rules (422 with conclusion selected). Queue: 3115 rules.
+23200 rules inserted. Base: 13177 rules (422 with conclusion selected). Queue: 3074 rules.
+23400 rules inserted. Base: 13226 rules (422 with conclusion selected). Queue: 3027 rules.
+23600 rules inserted. Base: 13276 rules (422 with conclusion selected). Queue: 2975 rules.
+23800 rules inserted. Base: 13326 rules (422 with conclusion selected). Queue: 2925 rules.
+24000 rules inserted. Base: 13384 rules (422 with conclusion selected). Queue: 2870 rules.
+24200 rules inserted. Base: 13435 rules (422 with conclusion selected). Queue: 2822 rules.
+24400 rules inserted. Base: 13530 rules (422 with conclusion selected). Queue: 2839 rules.
+24600 rules inserted. Base: 13631 rules (422 with conclusion selected). Queue: 2861 rules.
+24800 rules inserted. Base: 13789 rules (422 with conclusion selected). Queue: 2908 rules.
+25000 rules inserted. Base: 13844 rules (422 with conclusion selected). Queue: 2917 rules.
+25200 rules inserted. Base: 13990 rules (422 with conclusion selected). Queue: 2950 rules.
+25400 rules inserted. Base: 14062 rules (422 with conclusion selected). Queue: 2967 rules.
+25600 rules inserted. Base: 14086 rules (422 with conclusion selected). Queue: 2958 rules.
+25800 rules inserted. Base: 14115 rules (422 with conclusion selected). Queue: 2959 rules.
+26000 rules inserted. Base: 14144 rules (422 with conclusion selected). Queue: 2959 rules.
+26200 rules inserted. Base: 14174 rules (422 with conclusion selected). Queue: 2958 rules.
+26400 rules inserted. Base: 14209 rules (422 with conclusion selected). Queue: 2966 rules.
+26600 rules inserted. Base: 14234 rules (422 with conclusion selected). Queue: 2963 rules.
+26800 rules inserted. Base: 14262 rules (422 with conclusion selected). Queue: 2964 rules.
+27000 rules inserted. Base: 14298 rules (422 with conclusion selected). Queue: 2953 rules.
+27200 rules inserted. Base: 14379 rules (422 with conclusion selected). Queue: 2871 rules.
+27400 rules inserted. Base: 14454 rules (422 with conclusion selected). Queue: 2793 rules.
+27600 rules inserted. Base: 14531 rules (422 with conclusion selected). Queue: 2711 rules.
+27800 rules inserted. Base: 14613 rules (422 with conclusion selected). Queue: 2625 rules.
+28000 rules inserted. Base: 14697 rules (422 with conclusion selected). Queue: 2549 rules.
+28200 rules inserted. Base: 14770 rules (422 with conclusion selected). Queue: 2445 rules.
+28400 rules inserted. Base: 14868 rules (422 with conclusion selected). Queue: 2275 rules.
+28600 rules inserted. Base: 14964 rules (422 with conclusion selected). Queue: 2104 rules.
+28800 rules inserted. Base: 15036 rules (422 with conclusion selected). Queue: 1939 rules.
+29000 rules inserted. Base: 15120 rules (422 with conclusion selected). Queue: 1771 rules.
+29200 rules inserted. Base: 15208 rules (422 with conclusion selected). Queue: 1605 rules.
+29400 rules inserted. Base: 15306 rules (422 with conclusion selected). Queue: 1433 rules.
+29600 rules inserted. Base: 15377 rules (422 with conclusion selected). Queue: 1268 rules.
+29800 rules inserted. Base: 15460 rules (422 with conclusion selected). Queue: 1101 rules.
+30000 rules inserted. Base: 15597 rules (422 with conclusion selected). Queue: 1026 rules.
+30200 rules inserted. Base: 15719 rules (422 with conclusion selected). Queue: 989 rules.
+30400 rules inserted. Base: 15862 rules (422 with conclusion selected). Queue: 963 rules.
+30600 rules inserted. Base: 15982 rules (422 with conclusion selected). Queue: 933 rules.
+30800 rules inserted. Base: 16172 rules (422 with conclusion selected). Queue: 751 rules.
+31000 rules inserted. Base: 16352 rules (422 with conclusion selected). Queue: 688 rules.
+31200 rules inserted. Base: 16490 rules (422 with conclusion selected). Queue: 742 rules.
+31400 rules inserted. Base: 16644 rules (422 with conclusion selected). Queue: 809 rules.
+31600 rules inserted. Base: 16767 rules (422 with conclusion selected). Queue: 854 rules.
+31800 rules inserted. Base: 16894 rules (422 with conclusion selected). Queue: 895 rules.
+32000 rules inserted. Base: 16993 rules (422 with conclusion selected). Queue: 929 rules.
+32200 rules inserted. Base: 17122 rules (422 with conclusion selected). Queue: 973 rules.
+32400 rules inserted. Base: 17213 rules (422 with conclusion selected). Queue: 1003 rules.
+32600 rules inserted. Base: 17235 rules (422 with conclusion selected). Queue: 1008 rules.
+32800 rules inserted. Base: 17270 rules (422 with conclusion selected). Queue: 985 rules.
+33000 rules inserted. Base: 17305 rules (422 with conclusion selected). Queue: 979 rules.
+33200 rules inserted. Base: 17326 rules (422 with conclusion selected). Queue: 965 rules.
+33400 rules inserted. Base: 17344 rules (422 with conclusion selected). Queue: 908 rules.
+33600 rules inserted. Base: 17257 rules (422 with conclusion selected). Queue: 793 rules.
+33800 rules inserted. Base: 17229 rules (422 with conclusion selected). Queue: 699 rules.
+34000 rules inserted. Base: 17150 rules (422 with conclusion selected). Queue: 583 rules.
+34200 rules inserted. Base: 17039 rules (422 with conclusion selected). Queue: 481 rules.
+34400 rules inserted. Base: 16781 rules (422 with conclusion selected). Queue: 362 rules.
+34600 rules inserted. Base: 16477 rules (422 with conclusion selected). Queue: 211 rules.
+34800 rules inserted. Base: 16077 rules (422 with conclusion selected). Queue: 42 rules.
+Starting query inj-event(ClientDone(exp(gen,skC[]),exp(gen,skS[]),e1,e2,k)) ==> inj-event(ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),e1,e2))
+goal reachable: b-inj-event(ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2),exp(gen,eR_2)),@occ57_1) -> inj-event(ClientDone(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2),exp(gen,eR_2),hkdf1(hkdf1(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,skC[]),eR_2)),empty)),@occ33_2)
+The hypothesis occurs strictly before the conclusion.
+Abbreviations:
+eI_2 = eI[!1 = @sid]
+eR_2 = eR_1[cP1_1 = aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c),cS_1 = aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),eI_1 = exp(gen,eI_2),!1 = @sid_1]
+@occ33_2 = @occ33_1[cP2 = aenc(hkdf2(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,skC[]),eR_2)),n0,hash((hash((hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c))),exp(gen,eR_2))),params_s),eR = exp(gen,eR_2),!1 = @sid]
+@occ57_1 = @occ57[cP1_1 = aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c),cS_1 = aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),eI_1 = exp(gen,eI_2),!1 = @sid_1]
+RESULT inj-event(ClientDone(exp(gen,skC[]),exp(gen,skS[]),e1,e2,k)) ==> inj-event(ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),e1,e2)) is true.
+-- Query event(ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),e1,e2)) ==> event(ClientStarted(exp(gen,skC[]),exp(gen,skS[]),e1)) in process 1.
+Translating the process into Horn clauses...
+Completing...
+200 rules inserted. Base: 200 rules (69 with conclusion selected). Queue: 347 rules.
+400 rules inserted. Base: 400 rules (70 with conclusion selected). Queue: 413 rules.
+600 rules inserted. Base: 589 rules (76 with conclusion selected). Queue: 422 rules.
+800 rules inserted. Base: 733 rules (76 with conclusion selected). Queue: 422 rules.
+1000 rules inserted. Base: 913 rules (78 with conclusion selected). Queue: 423 rules.
+1200 rules inserted. Base: 1058 rules (78 with conclusion selected). Queue: 478 rules.
+1400 rules inserted. Base: 1160 rules (78 with conclusion selected). Queue: 438 rules.
+1600 rules inserted. Base: 1317 rules (78 with conclusion selected). Queue: 438 rules.
+1800 rules inserted. Base: 1492 rules (81 with conclusion selected). Queue: 448 rules.
+2000 rules inserted. Base: 1692 rules (125 with conclusion selected). Queue: 503 rules.
+2200 rules inserted. Base: 1860 rules (160 with conclusion selected). Queue: 559 rules.
+2400 rules inserted. Base: 2019 rules (164 with conclusion selected). Queue: 850 rules.
+2600 rules inserted. Base: 2177 rules (172 with conclusion selected). Queue: 1527 rules.
+2800 rules inserted. Base: 2340 rules (178 with conclusion selected). Queue: 1878 rules.
+3000 rules inserted. Base: 2504 rules (188 with conclusion selected). Queue: 1945 rules.
+3200 rules inserted. Base: 2669 rules (200 with conclusion selected). Queue: 2016 rules.
+3400 rules inserted. Base: 2832 rules (206 with conclusion selected). Queue: 2067 rules.
+3600 rules inserted. Base: 2997 rules (214 with conclusion selected). Queue: 2117 rules.
+3800 rules inserted. Base: 3158 rules (220 with conclusion selected). Queue: 1988 rules.
+4000 rules inserted. Base: 3326 rules (224 with conclusion selected). Queue: 2036 rules.
+4200 rules inserted. Base: 3493 rules (236 with conclusion selected). Queue: 2092 rules.
+4400 rules inserted. Base: 3658 rules (238 with conclusion selected). Queue: 2128 rules.
+4600 rules inserted. Base: 3842 rules (238 with conclusion selected). Queue: 1972 rules.
+4800 rules inserted. Base: 3991 rules (238 with conclusion selected). Queue: 1865 rules.
+5000 rules inserted. Base: 4164 rules (238 with conclusion selected). Queue: 1699 rules.
+5200 rules inserted. Base: 4332 rules (238 with conclusion selected). Queue: 1572 rules.
+5400 rules inserted. Base: 4511 rules (238 with conclusion selected). Queue: 1409 rules.
+5600 rules inserted. Base: 4689 rules (238 with conclusion selected). Queue: 1242 rules.
+5800 rules inserted. Base: 4854 rules (238 with conclusion selected). Queue: 1134 rules.
+6000 rules inserted. Base: 5027 rules (238 with conclusion selected). Queue: 978 rules.
+6200 rules inserted. Base: 5208 rules (238 with conclusion selected). Queue: 801 rules.
+6400 rules inserted. Base: 5369 rules (238 with conclusion selected). Queue: 686 rules.
+6600 rules inserted. Base: 5541 rules (238 with conclusion selected). Queue: 573 rules.
+6800 rules inserted. Base: 5716 rules (238 with conclusion selected). Queue: 564 rules.
+7000 rules inserted. Base: 5894 rules (238 with conclusion selected). Queue: 537 rules.
+7200 rules inserted. Base: 6027 rules (238 with conclusion selected). Queue: 559 rules.
+7400 rules inserted. Base: 6188 rules (238 with conclusion selected). Queue: 636 rules.
+7600 rules inserted. Base: 6333 rules (238 with conclusion selected). Queue: 699 rules.
+7800 rules inserted. Base: 6470 rules (238 with conclusion selected). Queue: 877 rules.
+8000 rules inserted. Base: 6561 rules (238 with conclusion selected). Queue: 944 rules.
+8200 rules inserted. Base: 6664 rules (238 with conclusion selected). Queue: 1146 rules.
+8400 rules inserted. Base: 6749 rules (238 with conclusion selected). Queue: 1156 rules.
+8600 rules inserted. Base: 6803 rules (248 with conclusion selected). Queue: 1178 rules.
+8800 rules inserted. Base: 6855 rules (257 with conclusion selected). Queue: 1222 rules.
+9000 rules inserted. Base: 6955 rules (272 with conclusion selected). Queue: 1386 rules.
+9200 rules inserted. Base: 7011 rules (282 with conclusion selected). Queue: 1388 rules.
+9400 rules inserted. Base: 7077 rules (294 with conclusion selected). Queue: 1400 rules.
+9600 rules inserted. Base: 7173 rules (302 with conclusion selected). Queue: 1429 rules.
+9800 rules inserted. Base: 7241 rules (302 with conclusion selected). Queue: 1412 rules.
+10000 rules inserted. Base: 7302 rules (302 with conclusion selected). Queue: 1380 rules.
+10200 rules inserted. Base: 7378 rules (302 with conclusion selected). Queue: 1361 rules.
+10400 rules inserted. Base: 7435 rules (302 with conclusion selected). Queue: 1330 rules.
+10600 rules inserted. Base: 7509 rules (302 with conclusion selected). Queue: 1297 rules.
+10800 rules inserted. Base: 7607 rules (302 with conclusion selected). Queue: 1262 rules.
+11000 rules inserted. Base: 7728 rules (302 with conclusion selected). Queue: 1257 rules.
+11200 rules inserted. Base: 7789 rules (302 with conclusion selected). Queue: 1222 rules.
+11400 rules inserted. Base: 7852 rules (302 with conclusion selected). Queue: 1183 rules.
+11600 rules inserted. Base: 7899 rules (302 with conclusion selected). Queue: 1152 rules.
+11800 rules inserted. Base: 7939 rules (302 with conclusion selected). Queue: 1126 rules.
+12000 rules inserted. Base: 7996 rules (302 with conclusion selected). Queue: 1101 rules.
+12200 rules inserted. Base: 8125 rules (302 with conclusion selected). Queue: 1436 rules.
+12400 rules inserted. Base: 8321 rules (302 with conclusion selected). Queue: 1314 rules.
+12600 rules inserted. Base: 8442 rules (302 with conclusion selected). Queue: 1245 rules.
+12800 rules inserted. Base: 8483 rules (302 with conclusion selected). Queue: 1250 rules.
+13000 rules inserted. Base: 8531 rules (302 with conclusion selected). Queue: 1258 rules.
+13200 rules inserted. Base: 8685 rules (302 with conclusion selected). Queue: 1168 rules.
+13400 rules inserted. Base: 8804 rules (302 with conclusion selected). Queue: 1081 rules.
+13600 rules inserted. Base: 8922 rules (302 with conclusion selected). Queue: 986 rules.
+13800 rules inserted. Base: 9098 rules (302 with conclusion selected). Queue: 886 rules.
+14000 rules inserted. Base: 9298 rules (302 with conclusion selected). Queue: 746 rules.
+14200 rules inserted. Base: 9498 rules (302 with conclusion selected). Queue: 606 rules.
+14400 rules inserted. Base: 9581 rules (302 with conclusion selected). Queue: 600 rules.
+14600 rules inserted. Base: 9651 rules (302 with conclusion selected). Queue: 613 rules.
+14800 rules inserted. Base: 9791 rules (302 with conclusion selected). Queue: 589 rules.
+15000 rules inserted. Base: 9876 rules (302 with conclusion selected). Queue: 563 rules.
+15200 rules inserted. Base: 9886 rules (302 with conclusion selected). Queue: 511 rules.
+15400 rules inserted. Base: 10050 rules (302 with conclusion selected). Queue: 436 rules.
+15600 rules inserted. Base: 10113 rules (302 with conclusion selected). Queue: 402 rules.
+15800 rules inserted. Base: 10155 rules (302 with conclusion selected). Queue: 275 rules.
+16000 rules inserted. Base: 10301 rules (302 with conclusion selected). Queue: 89 rules.
+Starting query event(ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),e1,e2)) ==> event(ClientStarted(exp(gen,skC[]),exp(gen,skS[]),e1))
+goal reachable: b-event(ClientStarted(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2))) -> event(ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2),exp(gen,eR_2)))
+Abbreviations:
+eI_2 = eI[!1 = @sid]
+eR_2 = eR_1[cP1_1 = aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c),cS_1 = aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),eI_1 = exp(gen,eI_2),!1 = @sid_1]
+RESULT event(ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),e1,e2)) ==> event(ClientStarted(exp(gen,skC[]),exp(gen,skS[]),e1)) is true.
+-- Query inj-event(ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),e1,e2)) ==> inj-event(ClientStarted(exp(gen,skC[]),exp(gen,skS[]),e1)) in process 1.
+Translating the process into Horn clauses...
+Completing...
+200 rules inserted. Base: 200 rules (69 with conclusion selected). Queue: 347 rules.
+400 rules inserted. Base: 400 rules (70 with conclusion selected). Queue: 413 rules.
+600 rules inserted. Base: 589 rules (76 with conclusion selected). Queue: 422 rules.
+800 rules inserted. Base: 733 rules (76 with conclusion selected). Queue: 422 rules.
+1000 rules inserted. Base: 913 rules (78 with conclusion selected). Queue: 423 rules.
+1200 rules inserted. Base: 1058 rules (78 with conclusion selected). Queue: 478 rules.
+1400 rules inserted. Base: 1121 rules (78 with conclusion selected). Queue: 502 rules.
+1600 rules inserted. Base: 1267 rules (78 with conclusion selected). Queue: 502 rules.
+1800 rules inserted. Base: 1428 rules (78 with conclusion selected). Queue: 504 rules.
+2000 rules inserted. Base: 1628 rules (97 with conclusion selected). Queue: 550 rules.
+2200 rules inserted. Base: 1828 rules (140 with conclusion selected). Queue: 637 rules.
+2400 rules inserted. Base: 1919 rules (158 with conclusion selected). Queue: 681 rules.
+2600 rules inserted. Base: 2048 rules (164 with conclusion selected). Queue: 962 rules.
+2800 rules inserted. Base: 2188 rules (169 with conclusion selected). Queue: 1364 rules.
+3000 rules inserted. Base: 2331 rules (174 with conclusion selected). Queue: 1904 rules.
+3200 rules inserted. Base: 2516 rules (183 with conclusion selected). Queue: 2048 rules.
+3400 rules inserted. Base: 2681 rules (202 with conclusion selected). Queue: 2157 rules.
+3600 rules inserted. Base: 2850 rules (220 with conclusion selected). Queue: 2258 rules.
+3800 rules inserted. Base: 3017 rules (235 with conclusion selected). Queue: 2347 rules.
+4000 rules inserted. Base: 3188 rules (248 with conclusion selected). Queue: 2423 rules.
+4200 rules inserted. Base: 3344 rules (264 with conclusion selected). Queue: 2339 rules.
+4400 rules inserted. Base: 3513 rules (274 with conclusion selected). Queue: 2405 rules.
+4600 rules inserted. Base: 3689 rules (288 with conclusion selected). Queue: 2481 rules.
+4800 rules inserted. Base: 3846 rules (300 with conclusion selected). Queue: 2379 rules.
+5000 rules inserted. Base: 4040 rules (302 with conclusion selected). Queue: 2512 rules.
+5200 rules inserted. Base: 4215 rules (302 with conclusion selected). Queue: 2341 rules.
+5400 rules inserted. Base: 4352 rules (302 with conclusion selected). Queue: 2280 rules.
+5600 rules inserted. Base: 4518 rules (302 with conclusion selected). Queue: 2133 rules.
+5800 rules inserted. Base: 4692 rules (302 with conclusion selected). Queue: 1972 rules.
+6000 rules inserted. Base: 4846 rules (302 with conclusion selected). Queue: 1898 rules.
+6200 rules inserted. Base: 5017 rules (302 with conclusion selected). Queue: 1750 rules.
+6400 rules inserted. Base: 5189 rules (302 with conclusion selected). Queue: 1599 rules.
+6600 rules inserted. Base: 5347 rules (302 with conclusion selected). Queue: 1513 rules.
+6800 rules inserted. Base: 5510 rules (302 with conclusion selected). Queue: 1385 rules.
+7000 rules inserted. Base: 5689 rules (302 with conclusion selected). Queue: 1206 rules.
+7200 rules inserted. Base: 5834 rules (302 with conclusion selected). Queue: 1147 rules.
+7400 rules inserted. Base: 6000 rules (302 with conclusion selected). Queue: 998 rules.
+7600 rules inserted. Base: 6180 rules (302 with conclusion selected). Queue: 990 rules.
+7800 rules inserted. Base: 6336 rules (302 with conclusion selected). Queue: 977 rules.
+8000 rules inserted. Base: 6492 rules (302 with conclusion selected). Queue: 963 rules.
+8200 rules inserted. Base: 6650 rules (302 with conclusion selected). Queue: 950 rules.
+8400 rules inserted. Base: 6772 rules (302 with conclusion selected). Queue: 954 rules.
+8600 rules inserted. Base: 6946 rules (302 with conclusion selected). Queue: 978 rules.
+8800 rules inserted. Base: 7101 rules (302 with conclusion selected). Queue: 1039 rules.
+9000 rules inserted. Base: 7256 rules (302 with conclusion selected). Queue: 1100 rules.
+9200 rules inserted. Base: 7404 rules (302 with conclusion selected). Queue: 1155 rules.
+9400 rules inserted. Base: 7569 rules (302 with conclusion selected). Queue: 1192 rules.
+9600 rules inserted. Base: 7727 rules (302 with conclusion selected). Queue: 1355 rules.
+9800 rules inserted. Base: 7850 rules (302 with conclusion selected). Queue: 1514 rules.
+10000 rules inserted. Base: 7963 rules (302 with conclusion selected). Queue: 1593 rules.
+10200 rules inserted. Base: 8095 rules (302 with conclusion selected). Queue: 1806 rules.
+10400 rules inserted. Base: 8213 rules (302 with conclusion selected). Queue: 1913 rules.
+10600 rules inserted. Base: 8349 rules (302 with conclusion selected). Queue: 1956 rules.
+10800 rules inserted. Base: 8459 rules (310 with conclusion selected). Queue: 2002 rules.
+11000 rules inserted. Base: 8544 rules (323 with conclusion selected). Queue: 2069 rules.
+11200 rules inserted. Base: 8629 rules (334 with conclusion selected). Queue: 2140 rules.
+11400 rules inserted. Base: 8770 rules (353 with conclusion selected). Queue: 2351 rules.
+11600 rules inserted. Base: 8893 rules (368 with conclusion selected). Queue: 2514 rules.
+11800 rules inserted. Base: 8991 rules (382 with conclusion selected). Queue: 2596 rules.
+12000 rules inserted. Base: 9069 rules (393 with conclusion selected). Queue: 2659 rules.
+12200 rules inserted. Base: 9183 rules (409 with conclusion selected). Queue: 2751 rules.
+12400 rules inserted. Base: 9317 rules (428 with conclusion selected). Queue: 2859 rules.
+12600 rules inserted. Base: 9475 rules (430 with conclusion selected). Queue: 3000 rules.
+12800 rules inserted. Base: 9596 rules (430 with conclusion selected). Queue: 2985 rules.
+13000 rules inserted. Base: 9713 rules (430 with conclusion selected). Queue: 2967 rules.
+13200 rules inserted. Base: 9815 rules (430 with conclusion selected). Queue: 2958 rules.
+13400 rules inserted. Base: 9921 rules (430 with conclusion selected). Queue: 2950 rules.
+13600 rules inserted. Base: 10041 rules (430 with conclusion selected). Queue: 2933 rules.
+13800 rules inserted. Base: 10151 rules (430 with conclusion selected). Queue: 2914 rules.
+14000 rules inserted. Base: 10245 rules (430 with conclusion selected). Queue: 2900 rules.
+14200 rules inserted. Base: 10370 rules (430 with conclusion selected). Queue: 2883 rules.
+14400 rules inserted. Base: 10483 rules (430 with conclusion selected). Queue: 2873 rules.
+14600 rules inserted. Base: 10592 rules (430 with conclusion selected). Queue: 2857 rules.
+14800 rules inserted. Base: 10729 rules (430 with conclusion selected). Queue: 2855 rules.
+15000 rules inserted. Base: 10884 rules (430 with conclusion selected). Queue: 2833 rules.
+15200 rules inserted. Base: 11028 rules (430 with conclusion selected). Queue: 2826 rules.
+15400 rules inserted. Base: 11177 rules (430 with conclusion selected). Queue: 2872 rules.
+15600 rules inserted. Base: 11271 rules (430 with conclusion selected). Queue: 2855 rules.
+15800 rules inserted. Base: 11353 rules (430 with conclusion selected). Queue: 2797 rules.
+16000 rules inserted. Base: 11427 rules (430 with conclusion selected). Queue: 2734 rules.
+16200 rules inserted. Base: 11496 rules (430 with conclusion selected). Queue: 2680 rules.
+16400 rules inserted. Base: 11576 rules (430 with conclusion selected). Queue: 2630 rules.
+16600 rules inserted. Base: 11642 rules (430 with conclusion selected). Queue: 2575 rules.
+16800 rules inserted. Base: 11712 rules (430 with conclusion selected). Queue: 2529 rules.
+17000 rules inserted. Base: 11793 rules (430 with conclusion selected). Queue: 2474 rules.
+17200 rules inserted. Base: 11862 rules (430 with conclusion selected). Queue: 2423 rules.
+17400 rules inserted. Base: 11951 rules (430 with conclusion selected). Queue: 2378 rules.
+17600 rules inserted. Base: 12058 rules (430 with conclusion selected). Queue: 2334 rules.
+17800 rules inserted. Base: 12179 rules (430 with conclusion selected). Queue: 2456 rules.
+18000 rules inserted. Base: 12319 rules (430 with conclusion selected). Queue: 3306 rules.
+18200 rules inserted. Base: 12465 rules (430 with conclusion selected). Queue: 3598 rules.
+18400 rules inserted. Base: 12638 rules (430 with conclusion selected). Queue: 3528 rules.
+18600 rules inserted. Base: 12801 rules (430 with conclusion selected). Queue: 3464 rules.
+18800 rules inserted. Base: 12886 rules (430 with conclusion selected). Queue: 3468 rules.
+19000 rules inserted. Base: 12981 rules (430 with conclusion selected). Queue: 3482 rules.
+19200 rules inserted. Base: 13049 rules (430 with conclusion selected). Queue: 3483 rules.
+19400 rules inserted. Base: 13148 rules (430 with conclusion selected). Queue: 3498 rules.
+19600 rules inserted. Base: 13228 rules (430 with conclusion selected). Queue: 3508 rules.
+19800 rules inserted. Base: 13377 rules (430 with conclusion selected). Queue: 3466 rules.
+20000 rules inserted. Base: 13547 rules (430 with conclusion selected). Queue: 3420 rules.
+20200 rules inserted. Base: 13653 rules (430 with conclusion selected). Queue: 3439 rules.
+20400 rules inserted. Base: 13741 rules (430 with conclusion selected). Queue: 3477 rules.
+20600 rules inserted. Base: 13838 rules (430 with conclusion selected). Queue: 3515 rules.
+20800 rules inserted. Base: 13927 rules (430 with conclusion selected). Queue: 3552 rules.
+21000 rules inserted. Base: 14026 rules (430 with conclusion selected). Queue: 3595 rules.
+21200 rules inserted. Base: 14118 rules (430 with conclusion selected). Queue: 3630 rules.
+21400 rules inserted. Base: 14210 rules (430 with conclusion selected). Queue: 3630 rules.
+21600 rules inserted. Base: 14308 rules (430 with conclusion selected). Queue: 3676 rules.
+21800 rules inserted. Base: 14418 rules (430 with conclusion selected). Queue: 3758 rules.
+22000 rules inserted. Base: 14581 rules (430 with conclusion selected). Queue: 3859 rules.
+22200 rules inserted. Base: 14752 rules (430 with conclusion selected). Queue: 3880 rules.
+22400 rules inserted. Base: 14928 rules (430 with conclusion selected). Queue: 3846 rules.
+22600 rules inserted. Base: 15093 rules (430 with conclusion selected). Queue: 3818 rules.
+22800 rules inserted. Base: 15267 rules (430 with conclusion selected). Queue: 3799 rules.
+23000 rules inserted. Base: 15453 rules (430 with conclusion selected). Queue: 3793 rules.
+23200 rules inserted. Base: 15616 rules (430 with conclusion selected). Queue: 3806 rules.
+23400 rules inserted. Base: 15770 rules (430 with conclusion selected). Queue: 3899 rules.
+23600 rules inserted. Base: 15807 rules (430 with conclusion selected). Queue: 3922 rules.
+23800 rules inserted. Base: 15796 rules (430 with conclusion selected). Queue: 3925 rules.
+24000 rules inserted. Base: 15784 rules (430 with conclusion selected). Queue: 3930 rules.
+24200 rules inserted. Base: 15774 rules (430 with conclusion selected). Queue: 3932 rules.
+24400 rules inserted. Base: 15762 rules (430 with conclusion selected). Queue: 3937 rules.
+24600 rules inserted. Base: 15753 rules (430 with conclusion selected). Queue: 3942 rules.
+24800 rules inserted. Base: 15743 rules (430 with conclusion selected). Queue: 3945 rules.
+25000 rules inserted. Base: 15732 rules (430 with conclusion selected). Queue: 3950 rules.
+25200 rules inserted. Base: 15721 rules (430 with conclusion selected). Queue: 3952 rules.
+25400 rules inserted. Base: 15710 rules (430 with conclusion selected). Queue: 3957 rules.
+25600 rules inserted. Base: 15814 rules (430 with conclusion selected). Queue: 4008 rules.
+25800 rules inserted. Base: 15957 rules (430 with conclusion selected). Queue: 4080 rules.
+26000 rules inserted. Base: 16095 rules (430 with conclusion selected). Queue: 4140 rules.
+26200 rules inserted. Base: 16212 rules (430 with conclusion selected). Queue: 4208 rules.
+26400 rules inserted. Base: 16325 rules (430 with conclusion selected). Queue: 4267 rules.
+26600 rules inserted. Base: 16467 rules (430 with conclusion selected). Queue: 4333 rules.
+26800 rules inserted. Base: 16610 rules (430 with conclusion selected). Queue: 4406 rules.
+27000 rules inserted. Base: 16729 rules (430 with conclusion selected). Queue: 4463 rules.
+27200 rules inserted. Base: 16848 rules (430 with conclusion selected). Queue: 4532 rules.
+27400 rules inserted. Base: 16925 rules (430 with conclusion selected). Queue: 4532 rules.
+27600 rules inserted. Base: 16983 rules (430 with conclusion selected). Queue: 4477 rules.
+27800 rules inserted. Base: 17033 rules (430 with conclusion selected). Queue: 4430 rules.
+28000 rules inserted. Base: 17082 rules (430 with conclusion selected). Queue: 4384 rules.
+28200 rules inserted. Base: 17140 rules (430 with conclusion selected). Queue: 4329 rules.
+28400 rules inserted. Base: 17189 rules (430 with conclusion selected). Queue: 4280 rules.
+28600 rules inserted. Base: 17247 rules (430 with conclusion selected). Queue: 4225 rules.
+28800 rules inserted. Base: 17296 rules (430 with conclusion selected). Queue: 4179 rules.
+29000 rules inserted. Base: 17346 rules (430 with conclusion selected). Queue: 4132 rules.
+29200 rules inserted. Base: 17404 rules (430 with conclusion selected). Queue: 4077 rules.
+29400 rules inserted. Base: 17494 rules (430 with conclusion selected). Queue: 4044 rules.
+29600 rules inserted. Base: 17538 rules (430 with conclusion selected). Queue: 3997 rules.
+29800 rules inserted. Base: 17613 rules (430 with conclusion selected). Queue: 3957 rules.
+30000 rules inserted. Base: 17702 rules (430 with conclusion selected). Queue: 3926 rules.
+30200 rules inserted. Base: 17795 rules (430 with conclusion selected). Queue: 3884 rules.
+30400 rules inserted. Base: 17892 rules (430 with conclusion selected). Queue: 3840 rules.
+30600 rules inserted. Base: 17994 rules (430 with conclusion selected). Queue: 3806 rules.
+30800 rules inserted. Base: 18059 rules (430 with conclusion selected). Queue: 3775 rules.
+31000 rules inserted. Base: 18141 rules (430 with conclusion selected). Queue: 3732 rules.
+31200 rules inserted. Base: 18213 rules (430 with conclusion selected). Queue: 3691 rules.
+31400 rules inserted. Base: 18317 rules (430 with conclusion selected). Queue: 3653 rules.
+31600 rules inserted. Base: 18420 rules (430 with conclusion selected). Queue: 3613 rules.
+31800 rules inserted. Base: 18461 rules (430 with conclusion selected). Queue: 3595 rules.
+32000 rules inserted. Base: 18489 rules (430 with conclusion selected). Queue: 3596 rules.
+32200 rules inserted. Base: 18519 rules (430 with conclusion selected). Queue: 3595 rules.
+32400 rules inserted. Base: 18549 rules (430 with conclusion selected). Queue: 3594 rules.
+32600 rules inserted. Base: 18582 rules (430 with conclusion selected). Queue: 3604 rules.
+32800 rules inserted. Base: 18610 rules (430 with conclusion selected). Queue: 3605 rules.
+33000 rules inserted. Base: 18640 rules (430 with conclusion selected). Queue: 3604 rules.
+33200 rules inserted. Base: 18666 rules (430 with conclusion selected). Queue: 3590 rules.
+33400 rules inserted. Base: 18674 rules (430 with conclusion selected). Queue: 3465 rules.
+33600 rules inserted. Base: 18668 rules (430 with conclusion selected). Queue: 3336 rules.
+33800 rules inserted. Base: 18693 rules (430 with conclusion selected). Queue: 3222 rules.
+34000 rules inserted. Base: 18716 rules (430 with conclusion selected). Queue: 3109 rules.
+34200 rules inserted. Base: 18726 rules (430 with conclusion selected). Queue: 2982 rules.
+34400 rules inserted. Base: 18721 rules (430 with conclusion selected). Queue: 2851 rules.
+34600 rules inserted. Base: 18735 rules (430 with conclusion selected). Queue: 2739 rules.
+34800 rules inserted. Base: 18765 rules (430 with conclusion selected). Queue: 2628 rules.
+35000 rules inserted. Base: 18838 rules (430 with conclusion selected). Queue: 2473 rules.
+35200 rules inserted. Base: 18911 rules (430 with conclusion selected). Queue: 2307 rules.
+35400 rules inserted. Base: 18983 rules (430 with conclusion selected). Queue: 2142 rules.
+35600 rules inserted. Base: 19067 rules (430 with conclusion selected). Queue: 1974 rules.
+35800 rules inserted. Base: 19138 rules (430 with conclusion selected). Queue: 1808 rules.
+36000 rules inserted. Base: 19221 rules (430 with conclusion selected). Queue: 1641 rules.
+36200 rules inserted. Base: 19293 rules (430 with conclusion selected). Queue: 1475 rules.
+36400 rules inserted. Base: 19333 rules (430 with conclusion selected). Queue: 1319 rules.
+36600 rules inserted. Base: 19327 rules (430 with conclusion selected). Queue: 1271 rules.
+36800 rules inserted. Base: 19391 rules (430 with conclusion selected). Queue: 1234 rules.
+37000 rules inserted. Base: 19357 rules (430 with conclusion selected). Queue: 1184 rules.
+37200 rules inserted. Base: 19392 rules (430 with conclusion selected). Queue: 1139 rules.
+37400 rules inserted. Base: 19459 rules (430 with conclusion selected). Queue: 1070 rules.
+37600 rules inserted. Base: 19659 rules (430 with conclusion selected). Queue: 870 rules.
+37800 rules inserted. Base: 19805 rules (430 with conclusion selected). Queue: 908 rules.
+38000 rules inserted. Base: 19777 rules (430 with conclusion selected). Queue: 944 rules.
+38200 rules inserted. Base: 19920 rules (430 with conclusion selected). Queue: 991 rules.
+38400 rules inserted. Base: 19909 rules (430 with conclusion selected). Queue: 1032 rules.
+38600 rules inserted. Base: 19999 rules (430 with conclusion selected). Queue: 1045 rules.
+38800 rules inserted. Base: 20070 rules (430 with conclusion selected). Queue: 1044 rules.
+39000 rules inserted. Base: 20126 rules (430 with conclusion selected). Queue: 1035 rules.
+39200 rules inserted. Base: 20231 rules (430 with conclusion selected). Queue: 1043 rules.
+39400 rules inserted. Base: 20273 rules (430 with conclusion selected). Queue: 1033 rules.
+39600 rules inserted. Base: 20225 rules (430 with conclusion selected). Queue: 985 rules.
+39800 rules inserted. Base: 20186 rules (430 with conclusion selected). Queue: 931 rules.
+40000 rules inserted. Base: 20162 rules (430 with conclusion selected). Queue: 880 rules.
+40200 rules inserted. Base: 20096 rules (430 with conclusion selected). Queue: 820 rules.
+40400 rules inserted. Base: 20092 rules (430 with conclusion selected). Queue: 751 rules.
+40600 rules inserted. Base: 19953 rules (430 with conclusion selected). Queue: 612 rules.
+40800 rules inserted. Base: 19847 rules (430 with conclusion selected). Queue: 488 rules.
+41000 rules inserted. Base: 19735 rules (430 with conclusion selected). Queue: 371 rules.
+41200 rules inserted. Base: 19314 rules (430 with conclusion selected). Queue: 215 rules.
+41400 rules inserted. Base: 19005 rules (430 with conclusion selected). Queue: 75 rules.
+Starting query inj-event(ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),e1,e2)) ==> inj-event(ClientStarted(exp(gen,skC[]),exp(gen,skS[]),e1))
+goal reachable: @sid ≠ @sid_1 && b-inj-event(ClientStarted(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2)),@occ10_2) -> inj-event(ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2),exp(gen,eR_2)),@occ57_2) && inj-event(ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2),exp(gen,eR_3)),@occ57_3)
+Abbreviations:
+eI_2 = eI[!1 = @sid_2]
+eR_2 = eR_1[cP1_1 = aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c),cS_1 = aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),eI_1 = exp(gen,eI_2),!1 = @sid]
+@occ57_2 = @occ57_1[cP1_1 = aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c),cS_1 = aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),eI_1 = exp(gen,eI_2),!1 = @sid]
+eR_3 = eR_1[cP1_1 = aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c),cS_1 = aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),eI_1 = exp(gen,eI_2),!1 = @sid_1]
+@occ57_3 = @occ57_1[cP1_1 = aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c),cS_1 = aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),eI_1 = exp(gen,eI_2),!1 = @sid_1]
+@occ10_2 = @occ10_1[!1 = @sid_2]
+
+Derivation:
+Abbreviations:
+eI_2 = eI[!1 = @sid]
+eR_2 = eR_1[cP1_1 = aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c),cS_1 = aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),eI_1 = exp(gen,eI_2),!1 = @sid_1]
+@occ57_2 = @occ57_1[cP1_1 = aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c),cS_1 = aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),eI_1 = exp(gen,eI_2),!1 = @sid_1]
+eR_3 = eR_1[cP1_1 = aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c),cS_1 = aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),eI_1 = exp(gen,eI_2),!1 = @sid_2]
+@occ57_3 = @occ57_1[cP1_1 = aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c),cS_1 = aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),eI_1 = exp(gen,eI_2),!1 = @sid_2]
+@occ10_2 = @occ10_1[!1 = @sid]
+
+1. The event ClientStarted(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2)) (with occurrence name @occ10_2) may be executed at {10}.
+So the message (exp(gen,eI_2),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c)) may be sent to the attacker at output {24}.
+attacker((exp(gen,eI_2),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c))).
+
+2. By 1, the attacker may know (exp(gen,eI_2),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c)).
+Using the function 3-proj-3-tuple the attacker may obtain aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c).
+attacker(aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c)).
+
+3. By 1, the attacker may know (exp(gen,eI_2),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c)).
+Using the function 2-proj-3-tuple the attacker may obtain aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])).
+attacker(aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[]))).
+
+4. By 1, the attacker may know (exp(gen,eI_2),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c)).
+Using the function 1-proj-3-tuple the attacker may obtain exp(gen,eI_2).
+attacker(exp(gen,eI_2)).
+
+5. By 4, the attacker may know exp(gen,eI_2).
+By 3, the attacker may know aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])).
+By 2, the attacker may know aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c).
+Using the function 3-tuple the attacker may obtain (exp(gen,eI_2),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c)).
+attacker((exp(gen,eI_2),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c))).
+
+6. The entry registry(exp(gen,skS[]),exp(gen,skC[])) may be inserted in a table at insert {1}.
+table(registry(exp(gen,skS[]),exp(gen,skC[]))).
+
+7. The message (exp(gen,eI_2),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c)) that the attacker may have by 5 may be received at input {41}.
+The entry registry(exp(gen,skS[]),exp(gen,skC[])) that may be in a table by 6 may be read at get {71}.
+So event ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2),exp(gen,eR_3)) may be executed at {57} in session @sid_2.
+inj-event(ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2),exp(gen,eR_3)),@occ57_3).
+
+8. By 7, inj-event(ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2),exp(gen,eR_3)),@occ57_3).
+The goal is reached, represented in the following fact:
+inj-event(ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2),exp(gen,eR_3)),@occ57_3).
+
+9. The message (exp(gen,eI_2),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c)) that the attacker may have by 5 may be received at input {41}.
+The entry registry(exp(gen,skS[]),exp(gen,skC[])) that may be in a table by 6 may be read at get {71}.
+So event ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2),exp(gen,eR_2)) may be executed at {57} in session @sid_1.
+inj-event(ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2),exp(gen,eR_2)),@occ57_2).
+
+10. By 9, inj-event(ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2),exp(gen,eR_2)),@occ57_2).
+The goal is reached, represented in the following fact:
+inj-event(ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2),exp(gen,eR_2)),@occ57_2).
+
+11. By 10, inj-event(ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2),exp(gen,eR_2)),@occ57_2).
+By 8, inj-event(ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2),exp(gen,eR_3)),@occ57_3).
+We have @occ57_2 ≠ @occ57_3.
+The goals for injectivity are reached, combined in the following fact:
+inj-event(ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2),exp(gen,eR_2)),@occ57_2) && inj-event(ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2),exp(gen,eR_3)),@occ57_3).
+
+
+A more detailed output of the traces is available with
+  set traceDisplay = long.
+
+insert registry(exp(gen,skS),exp(gen,skC)) at {1}
+
+out(c, (~M,~M_1)) with ~M = exp(gen,skS), ~M_1 = exp(gen,skC) at {2}
+
+new eI: key creating eI_3 at {7} in copy a
+
+event ClientStarted(exp(gen,skC),exp(gen,skS),exp(gen,eI_3)) at {10} in copy a
+
+out(c, (~M_2,~M_3,~M_4)) with ~M_2 = exp(gen,eI_3), ~M_3 = aenc(hkdf2(hash(name_ik),exp(exp(gen,skS),eI_3)),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS))),exp(gen,eI_3))),exp(gen,skC)), ~M_4 = aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,skS),eI_3)),exp(exp(gen,skS),skC)),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS))),exp(gen,eI_3))),aenc(hkdf2(hash(name_ik),exp(exp(gen,skS),eI_3)),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS))),exp(gen,eI_3))),exp(gen,skC)))),ident_c) at {24} in copy a
+
+in(c, (~M_2,~M_3,~M_4)) with ~M_2 = exp(gen,eI_3), ~M_3 = aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_3),skS)),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS))),exp(gen,eI_3))),exp(gen,skC)), ~M_4 = aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_3),skS)),exp(exp(gen,skC),skS)),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS))),exp(gen,eI_3))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_3),skS)),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS))),exp(gen,eI_3))),exp(gen,skC)))),ident_c) at {41} in copy a_1
+
+get registry(exp(gen,skS),exp(gen,skC)) at {71} in copy a_1
+
+new eR_1: key creating eR_4 at {55} in copy a_1
+
+event ServerAccepted(exp(gen,skC),exp(gen,skS),exp(gen,eI_3),exp(gen,eR_4)) at {57} in copy a_1 (goal)
+
+out(c, (~M_5,~M_6)) with ~M_5 = exp(gen,eR_4), ~M_6 = aenc(hkdf2(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_3),skS)),exp(exp(gen,skC),skS)),exp(exp(gen,eI_3),eR_4)),exp(exp(gen,skC),eR_4)),n0,hash((hash((hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS))),exp(gen,eI_3))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_3),skS)),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS))),exp(gen,eI_3))),exp(gen,skC)))),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_3),skS)),exp(exp(gen,skC),skS)),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS))),exp(gen,eI_3))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_3),skS)),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS))),exp(gen,eI_3))),exp(gen,skC)))),ident_c))),exp(gen,eR_4))),params_s) at {62} in copy a_1
+
+in(c, (~M_2,~M_3,~M_4)) with ~M_2 = exp(gen,eI_3), ~M_3 = aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_3),skS)),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS))),exp(gen,eI_3))),exp(gen,skC)), ~M_4 = aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_3),skS)),exp(exp(gen,skC),skS)),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS))),exp(gen,eI_3))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_3),skS)),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS))),exp(gen,eI_3))),exp(gen,skC)))),ident_c) at {41} in copy a_2
+
+get registry(exp(gen,skS),exp(gen,skC)) at {71} in copy a_2
+
+new eR_1: key creating eR_5 at {55} in copy a_2
+
+event ServerAccepted(exp(gen,skC),exp(gen,skS),exp(gen,eI_3),exp(gen,eR_5)) at {57} in copy a_2 (goal)
+
+The event ServerAccepted(exp(gen,skC),exp(gen,skS),exp(gen,eI_3),exp(gen,eR_4)) is executed at {57} in copy a_1.
+The event ServerAccepted(exp(gen,skC),exp(gen,skS),exp(gen,eI_3),exp(gen,eR_5)) is executed at {57} in copy a_2.
+A trace has been found.
+RESULT inj-event(ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),e1,e2)) ==> inj-event(ClientStarted(exp(gen,skC[]),exp(gen,skS[]),e1)) is false.
+RESULT (but event(ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),e1,e2)) ==> event(ClientStarted(exp(gen,skC[]),exp(gen,skS[]),e1)) is true.)
+-- Query not event(ServerDone(exp(gen,skC[]),exp(gen,skS[]),e1,e2,k)) in process 1.
+Translating the process into Horn clauses...
+Completing...
+200 rules inserted. Base: 200 rules (69 with conclusion selected). Queue: 403 rules.
+400 rules inserted. Base: 400 rules (70 with conclusion selected). Queue: 450 rules.
+600 rules inserted. Base: 598 rules (76 with conclusion selected). Queue: 470 rules.
+800 rules inserted. Base: 760 rules (76 with conclusion selected). Queue: 470 rules.
+1000 rules inserted. Base: 924 rules (78 with conclusion selected). Queue: 468 rules.
+1200 rules inserted. Base: 1102 rules (78 with conclusion selected). Queue: 490 rules.
+1400 rules inserted. Base: 1259 rules (78 with conclusion selected). Queue: 532 rules.
+1600 rules inserted. Base: 1370 rules (78 with conclusion selected). Queue: 478 rules.
+1800 rules inserted. Base: 1535 rules (78 with conclusion selected). Queue: 478 rules.
+2000 rules inserted. Base: 1716 rules (82 with conclusion selected). Queue: 496 rules.
+2200 rules inserted. Base: 1916 rules (118 with conclusion selected). Queue: 591 rules.
+2400 rules inserted. Base: 2111 rules (150 with conclusion selected). Queue: 677 rules.
+2600 rules inserted. Base: 2258 rules (156 with conclusion selected). Queue: 1162 rules.
+2800 rules inserted. Base: 2425 rules (160 with conclusion selected). Queue: 1816 rules.
+3000 rules inserted. Base: 2575 rules (164 with conclusion selected). Queue: 2619 rules.
+3200 rules inserted. Base: 2745 rules (168 with conclusion selected). Queue: 3190 rules.
+3400 rules inserted. Base: 2892 rules (180 with conclusion selected). Queue: 3086 rules.
+3600 rules inserted. Base: 3054 rules (182 with conclusion selected). Queue: 3318 rules.
+3800 rules inserted. Base: 3222 rules (188 with conclusion selected). Queue: 3553 rules.
+4000 rules inserted. Base: 3366 rules (196 with conclusion selected). Queue: 3444 rules.
+4200 rules inserted. Base: 3534 rules (198 with conclusion selected). Queue: 3668 rules.
+4400 rules inserted. Base: 3702 rules (200 with conclusion selected). Queue: 3892 rules.
+4600 rules inserted. Base: 3848 rules (208 with conclusion selected). Queue: 3772 rules.
+4800 rules inserted. Base: 3995 rules (212 with conclusion selected). Queue: 3646 rules.
+5000 rules inserted. Base: 4172 rules (216 with conclusion selected). Queue: 3863 rules.
+5200 rules inserted. Base: 4320 rules (216 with conclusion selected). Queue: 3723 rules.
+5400 rules inserted. Base: 4485 rules (224 with conclusion selected). Queue: 3965 rules.
+5600 rules inserted. Base: 4634 rules (230 with conclusion selected). Queue: 3847 rules.
+5800 rules inserted. Base: 4793 rules (230 with conclusion selected). Queue: 3854 rules.
+6000 rules inserted. Base: 4981 rules (230 with conclusion selected). Queue: 3915 rules.
+6200 rules inserted. Base: 5164 rules (230 with conclusion selected). Queue: 3732 rules.
+6400 rules inserted. Base: 5307 rules (230 with conclusion selected). Queue: 3625 rules.
+6600 rules inserted. Base: 5489 rules (230 with conclusion selected). Queue: 3449 rules.
+6800 rules inserted. Base: 5672 rules (230 with conclusion selected). Queue: 3266 rules.
+7000 rules inserted. Base: 5846 rules (230 with conclusion selected). Queue: 3098 rules.
+7200 rules inserted. Base: 6029 rules (230 with conclusion selected). Queue: 2915 rules.
+7400 rules inserted. Base: 6184 rules (230 with conclusion selected). Queue: 2816 rules.
+7600 rules inserted. Base: 6369 rules (230 with conclusion selected). Queue: 2631 rules.
+7800 rules inserted. Base: 6550 rules (230 with conclusion selected). Queue: 2452 rules.
+8000 rules inserted. Base: 6731 rules (230 with conclusion selected). Queue: 2279 rules.
+8200 rules inserted. Base: 6914 rules (230 with conclusion selected). Queue: 2096 rules.
+8400 rules inserted. Base: 7070 rules (230 with conclusion selected). Queue: 1996 rules.
+8600 rules inserted. Base: 7256 rules (230 with conclusion selected). Queue: 1810 rules.
+8800 rules inserted. Base: 7439 rules (230 with conclusion selected). Queue: 1627 rules.
+9000 rules inserted. Base: 7614 rules (230 with conclusion selected). Queue: 1468 rules.
+9200 rules inserted. Base: 7797 rules (230 with conclusion selected). Queue: 1285 rules.
+9400 rules inserted. Base: 7952 rules (230 with conclusion selected). Queue: 1170 rules.
+9600 rules inserted. Base: 8133 rules (230 with conclusion selected). Queue: 999 rules.
+9800 rules inserted. Base: 8316 rules (230 with conclusion selected). Queue: 816 rules.
+10000 rules inserted. Base: 8478 rules (230 with conclusion selected). Queue: 735 rules.
+10200 rules inserted. Base: 8641 rules (230 with conclusion selected). Queue: 692 rules.
+10400 rules inserted. Base: 8805 rules (230 with conclusion selected). Queue: 642 rules.
+10600 rules inserted. Base: 8969 rules (230 with conclusion selected). Queue: 600 rules.
+10800 rules inserted. Base: 9089 rules (230 with conclusion selected). Queue: 622 rules.
+11000 rules inserted. Base: 9222 rules (230 with conclusion selected). Queue: 681 rules.
+11200 rules inserted. Base: 9353 rules (230 with conclusion selected). Queue: 740 rules.
+11400 rules inserted. Base: 9474 rules (230 with conclusion selected). Queue: 917 rules.
+11600 rules inserted. Base: 9557 rules (230 with conclusion selected). Queue: 964 rules.
+11800 rules inserted. Base: 9658 rules (230 with conclusion selected). Queue: 1135 rules.
+12000 rules inserted. Base: 9748 rules (234 with conclusion selected). Queue: 1154 rules.
+12200 rules inserted. Base: 9801 rules (250 with conclusion selected). Queue: 1158 rules.
+12400 rules inserted. Base: 9876 rules (272 with conclusion selected). Queue: 1200 rules.
+12600 rules inserted. Base: 9981 rules (300 with conclusion selected). Queue: 1321 rules.
+12800 rules inserted. Base: 10043 rules (320 with conclusion selected). Queue: 1316 rules.
+13000 rules inserted. Base: 10131 rules (346 with conclusion selected). Queue: 1325 rules.
+13200 rules inserted. Base: 10237 rules (358 with conclusion selected). Queue: 1340 rules.
+13400 rules inserted. Base: 10306 rules (358 with conclusion selected). Queue: 1318 rules.
+13600 rules inserted. Base: 10373 rules (358 with conclusion selected). Queue: 1294 rules.
+13800 rules inserted. Base: 10442 rules (358 with conclusion selected). Queue: 1264 rules.
+14000 rules inserted. Base: 10515 rules (358 with conclusion selected). Queue: 1234 rules.
+14200 rules inserted. Base: 10579 rules (358 with conclusion selected). Queue: 1201 rules.
+14400 rules inserted. Base: 10711 rules (358 with conclusion selected). Queue: 1164 rules.
+14600 rules inserted. Base: 10804 rules (358 with conclusion selected). Queue: 1156 rules.
+14800 rules inserted. Base: 10864 rules (358 with conclusion selected). Queue: 1113 rules.
+15000 rules inserted. Base: 10923 rules (358 with conclusion selected). Queue: 1086 rules.
+15200 rules inserted. Base: 10962 rules (358 with conclusion selected). Queue: 1053 rules.
+15400 rules inserted. Base: 11013 rules (358 with conclusion selected). Queue: 1014 rules.
+15600 rules inserted. Base: 11142 rules (358 with conclusion selected). Queue: 1283 rules.
+15800 rules inserted. Base: 11336 rules (358 with conclusion selected). Queue: 1261 rules.
+16000 rules inserted. Base: 11458 rules (358 with conclusion selected). Queue: 1201 rules.
+16200 rules inserted. Base: 11503 rules (358 with conclusion selected). Queue: 1202 rules.
+16400 rules inserted. Base: 11545 rules (358 with conclusion selected). Queue: 1208 rules.
+16600 rules inserted. Base: 11721 rules (358 with conclusion selected). Queue: 1086 rules.
+16800 rules inserted. Base: 11830 rules (358 with conclusion selected). Queue: 956 rules.
+17000 rules inserted. Base: 11981 rules (358 with conclusion selected). Queue: 950 rules.
+17200 rules inserted. Base: 12157 rules (358 with conclusion selected). Queue: 814 rules.
+17400 rules inserted. Base: 12357 rules (358 with conclusion selected). Queue: 677 rules.
+17600 rules inserted. Base: 12539 rules (358 with conclusion selected). Queue: 600 rules.
+17800 rules inserted. Base: 12537 rules (358 with conclusion selected). Queue: 602 rules.
+18000 rules inserted. Base: 12660 rules (358 with conclusion selected). Queue: 592 rules.
+18200 rules inserted. Base: 12816 rules (358 with conclusion selected). Queue: 585 rules.
+18400 rules inserted. Base: 12848 rules (358 with conclusion selected). Queue: 546 rules.
+18600 rules inserted. Base: 12925 rules (358 with conclusion selected). Queue: 476 rules.
+18800 rules inserted. Base: 13058 rules (358 with conclusion selected). Queue: 404 rules.
+19000 rules inserted. Base: 13084 rules (358 with conclusion selected). Queue: 363 rules.
+19200 rules inserted. Base: 13180 rules (358 with conclusion selected). Queue: 178 rules.
+19400 rules inserted. Base: 13351 rules (358 with conclusion selected). Queue: 54 rules.
+Starting query not event(ServerDone(exp(gen,skC[]),exp(gen,skS[]),e1,e2,k))
+goal reachable: event(ServerDone(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2),exp(gen,eR_2),hkdf1(hkdf1(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,skC[]),eR_2)),empty)))
+Abbreviations:
+eI_2 = eI[!1 = @sid]
+eR_2 = eR_1[cP1_1 = aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c),cS_1 = aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),eI_1 = exp(gen,eI_2),!1 = @sid_1]
+
+Derivation:
+Abbreviations:
+eI_2 = eI[!1 = @sid]
+eR_2 = eR_1[cP1_1 = aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c),cS_1 = aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),eI_1 = exp(gen,eI_2),!1 = @sid_1]
+
+1. The message (exp(gen,eI_2),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c)) may be sent to the attacker at output {24}.
+attacker((exp(gen,eI_2),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c))).
+
+2. By 1, the attacker may know (exp(gen,eI_2),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c)).
+Using the function 3-proj-3-tuple the attacker may obtain aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c).
+attacker(aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c)).
+
+3. By 1, the attacker may know (exp(gen,eI_2),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c)).
+Using the function 2-proj-3-tuple the attacker may obtain aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])).
+attacker(aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[]))).
+
+4. By 1, the attacker may know (exp(gen,eI_2),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c)).
+Using the function 1-proj-3-tuple the attacker may obtain exp(gen,eI_2).
+attacker(exp(gen,eI_2)).
+
+5. By 4, the attacker may know exp(gen,eI_2).
+By 3, the attacker may know aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])).
+By 2, the attacker may know aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c).
+Using the function 3-tuple the attacker may obtain (exp(gen,eI_2),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c)).
+attacker((exp(gen,eI_2),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c))).
+
+6. The entry registry(exp(gen,skS[]),exp(gen,skC[])) may be inserted in a table at insert {1}.
+table(registry(exp(gen,skS[]),exp(gen,skC[]))).
+
+7. The message (exp(gen,eI_2),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c)) that the attacker may have by 5 may be received at input {41}.
+The entry registry(exp(gen,skS[]),exp(gen,skC[])) that may be in a table by 6 may be read at get {71}.
+So the message (exp(gen,eR_2),aenc(hkdf2(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,eR_2),skC[])),n0,hash((hash((hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c))),exp(gen,eR_2))),params_s)) may be sent to the attacker at output {62}.
+attacker((exp(gen,eR_2),aenc(hkdf2(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,eR_2),skC[])),n0,hash((hash((hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c))),exp(gen,eR_2))),params_s))).
+
+8. By 7, the attacker may know (exp(gen,eR_2),aenc(hkdf2(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,eR_2),skC[])),n0,hash((hash((hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c))),exp(gen,eR_2))),params_s)).
+Using the function 2-proj-2-tuple the attacker may obtain aenc(hkdf2(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,eR_2),skC[])),n0,hash((hash((hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c))),exp(gen,eR_2))),params_s).
+attacker(aenc(hkdf2(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,eR_2),skC[])),n0,hash((hash((hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c))),exp(gen,eR_2))),params_s)).
+
+9. The message (exp(gen,eI_2),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c)) that the attacker may have by 5 may be received at input {41}.
+The entry registry(exp(gen,skS[]),exp(gen,skC[])) that may be in a table by 6 may be read at get {71}.
+So the message (exp(gen,eR_2),aenc(hkdf2(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,skC[]),eR_2)),n0,hash((hash((hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c))),exp(gen,eR_2))),params_s)) may be sent to the attacker at output {62}.
+attacker((exp(gen,eR_2),aenc(hkdf2(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,skC[]),eR_2)),n0,hash((hash((hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c))),exp(gen,eR_2))),params_s))).
+
+10. By 9, the attacker may know (exp(gen,eR_2),aenc(hkdf2(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,skC[]),eR_2)),n0,hash((hash((hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c))),exp(gen,eR_2))),params_s)).
+Using the function 1-proj-2-tuple the attacker may obtain exp(gen,eR_2).
+attacker(exp(gen,eR_2)).
+
+11. By 10, the attacker may know exp(gen,eR_2).
+By 8, the attacker may know aenc(hkdf2(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,eR_2),skC[])),n0,hash((hash((hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c))),exp(gen,eR_2))),params_s).
+Using the function 2-tuple the attacker may obtain (exp(gen,eR_2),aenc(hkdf2(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,eR_2),skC[])),n0,hash((hash((hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c))),exp(gen,eR_2))),params_s)).
+attacker((exp(gen,eR_2),aenc(hkdf2(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,eR_2),skC[])),n0,hash((hash((hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c))),exp(gen,eR_2))),params_s))).
+
+12. The message (exp(gen,eR_2),aenc(hkdf2(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,eR_2),skC[])),n0,hash((hash((hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c))),exp(gen,eR_2))),params_s)) that the attacker may have by 11 may be received at input {25}.
+So the message aenc(hkdf1(hkdf1(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,skC[]),eR_2)),empty),n0,empty,payload_c[]) may be sent to the attacker at output {34}.
+attacker(aenc(hkdf1(hkdf1(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,skC[]),eR_2)),empty),n0,empty,payload_c[])).
+
+13. The message (exp(gen,eI_2),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_2),skS[])),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS[]))),exp(gen,eI_2))),exp(gen,skC[])))),ident_c)) that the attacker may have by 5 may be received at input {41}.
+The entry registry(exp(gen,skS[]),exp(gen,skC[])) that may be in a table by 6 may be read at get {71}.
+The message aenc(hkdf1(hkdf1(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,skC[]),eR_2)),empty),n0,empty,payload_c[]) that the attacker may have by 12 may be received at input {65}.
+So event ServerDone(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2),exp(gen,eR_2),hkdf1(hkdf1(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,skC[]),eR_2)),empty)) may be executed at {67}.
+event(ServerDone(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2),exp(gen,eR_2),hkdf1(hkdf1(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,skC[]),eR_2)),empty))).
+
+14. By 13, event(ServerDone(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2),exp(gen,eR_2),hkdf1(hkdf1(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,skC[]),eR_2)),empty))).
+The goal is reached, represented in the following fact:
+event(ServerDone(exp(gen,skC[]),exp(gen,skS[]),exp(gen,eI_2),exp(gen,eR_2),hkdf1(hkdf1(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_2),skS[])),exp(exp(gen,skC[]),skS[])),exp(exp(gen,eI_2),eR_2)),exp(exp(gen,skC[]),eR_2)),empty))).
+
+
+A more detailed output of the traces is available with
+  set traceDisplay = long.
+
+insert registry(exp(gen,skS),exp(gen,skC)) at {1}
+
+out(c, (~M,~M_1)) with ~M = exp(gen,skS), ~M_1 = exp(gen,skC) at {2}
+
+new eI: key creating eI_3 at {7} in copy a
+
+event ClientStarted(exp(gen,skC),exp(gen,skS),exp(gen,eI_3)) at {10} in copy a
+
+out(c, (~M_2,~M_3,~M_4)) with ~M_2 = exp(gen,eI_3), ~M_3 = aenc(hkdf2(hash(name_ik),exp(exp(gen,skS),eI_3)),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS))),exp(gen,eI_3))),exp(gen,skC)), ~M_4 = aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,skS),eI_3)),exp(exp(gen,skS),skC)),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS))),exp(gen,eI_3))),aenc(hkdf2(hash(name_ik),exp(exp(gen,skS),eI_3)),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS))),exp(gen,eI_3))),exp(gen,skC)))),ident_c) at {24} in copy a
+
+in(c, (~M_2,~M_3,~M_4)) with ~M_2 = exp(gen,eI_3), ~M_3 = aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_3),skS)),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS))),exp(gen,eI_3))),exp(gen,skC)), ~M_4 = aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_3),skS)),exp(exp(gen,skC),skS)),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS))),exp(gen,eI_3))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_3),skS)),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS))),exp(gen,eI_3))),exp(gen,skC)))),ident_c) at {41} in copy a_1
+
+get registry(exp(gen,skS),exp(gen,skC)) at {71} in copy a_1
+
+new eR_1: key creating eR_3 at {55} in copy a_1
+
+event ServerAccepted(exp(gen,skC),exp(gen,skS),exp(gen,eI_3),exp(gen,eR_3)) at {57} in copy a_1
+
+out(c, (~M_5,~M_6)) with ~M_5 = exp(gen,eR_3), ~M_6 = aenc(hkdf2(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_3),skS)),exp(exp(gen,skC),skS)),exp(exp(gen,eI_3),eR_3)),exp(exp(gen,skC),eR_3)),n0,hash((hash((hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS))),exp(gen,eI_3))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_3),skS)),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS))),exp(gen,eI_3))),exp(gen,skC)))),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_3),skS)),exp(exp(gen,skC),skS)),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS))),exp(gen,eI_3))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_3),skS)),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS))),exp(gen,eI_3))),exp(gen,skC)))),ident_c))),exp(gen,eR_3))),params_s) at {62} in copy a_1
+
+in(c, (~M_5,~M_6)) with ~M_5 = exp(gen,eR_3), ~M_6 = aenc(hkdf2(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_3),skS)),exp(exp(gen,skC),skS)),exp(exp(gen,eI_3),eR_3)),exp(exp(gen,eR_3),skC)),n0,hash((hash((hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS))),exp(gen,eI_3))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_3),skS)),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS))),exp(gen,eI_3))),exp(gen,skC)))),aenc(hkdf2(hkdf1(hash(name_ik),exp(exp(gen,eI_3),skS)),exp(exp(gen,skC),skS)),n0,hash((hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS))),exp(gen,eI_3))),aenc(hkdf2(hash(name_ik),exp(exp(gen,eI_3),skS)),n0,hash((hash((hash((hash(name_ik),prologue_session)),exp(gen,skS))),exp(gen,eI_3))),exp(gen,skC)))),ident_c))),exp(gen,eR_3))),params_s) at {25} in copy a
+
+event ClientDone(exp(gen,skC),exp(gen,skS),exp(gen,eI_3),exp(gen,eR_3),hkdf1(hkdf1(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,skS),eI_3)),exp(exp(gen,skS),skC)),exp(exp(gen,eR_3),eI_3)),exp(exp(gen,eR_3),skC)),empty)) at {33} in copy a
+
+out(c, ~M_7) with ~M_7 = aenc(hkdf1(hkdf1(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,skS),eI_3)),exp(exp(gen,skS),skC)),exp(exp(gen,eR_3),eI_3)),exp(exp(gen,eR_3),skC)),empty),n0,empty,payload_c) at {34} in copy a
+
+in(c, ~M_7) with ~M_7 = aenc(hkdf1(hkdf1(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_3),skS)),exp(exp(gen,skC),skS)),exp(exp(gen,eI_3),eR_3)),exp(exp(gen,skC),eR_3)),empty),n0,empty,payload_c) at {65} in copy a_1
+
+event ServerDone(exp(gen,skC),exp(gen,skS),exp(gen,eI_3),exp(gen,eR_3),hkdf1(hkdf1(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_3),skS)),exp(exp(gen,skC),skS)),exp(exp(gen,eI_3),eR_3)),exp(exp(gen,skC),eR_3)),empty)) at {67} in copy a_1 (goal)
+
+The event ServerDone(exp(gen,skC),exp(gen,skS),exp(gen,eI_3),exp(gen,eR_3),hkdf1(hkdf1(hkdf1(hkdf1(hkdf1(hash(name_ik),exp(exp(gen,eI_3),skS)),exp(exp(gen,skC),skS)),exp(exp(gen,eI_3),eR_3)),exp(exp(gen,skC),eR_3)),empty)) is executed at {67} in copy a_1.
+A trace has been found.
+RESULT not event(ServerDone(exp(gen,skC[]),exp(gen,skS[]),e1,e2,k)) is false.
+
+--------------------------------------------------------------
+Verification summary:
+
+Query not attacker_p1(payload_c[]) is true.
+
+Query not attacker_p1(payload_s[]) is true.
+
+Query inj-event(ServerDone(exp(gen,skC[]),exp(gen,skS[]),e1,e2,k)) ==> inj-event(ClientStarted(exp(gen,skC[]),exp(gen,skS[]),e1)) is true.
+
+Query inj-event(ServerDone(exp(gen,skC[]),exp(gen,skS[]),e1,e2,k)) ==> inj-event(ClientDone(exp(gen,skC[]),exp(gen,skS[]),e1,e2,k)) is true.
+
+Query inj-event(ClientDone(exp(gen,skC[]),exp(gen,skS[]),e1,e2,k)) ==> inj-event(ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),e1,e2)) is true.
+
+Query event(ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),e1,e2)) ==> event(ClientStarted(exp(gen,skC[]),exp(gen,skS[]),e1)) is true.
+
+Query inj-event(ServerAccepted(exp(gen,skC[]),exp(gen,skS[]),e1,e2)) ==> inj-event(ClientStarted(exp(gen,skC[]),exp(gen,skS[]),e1)) is false.
+
+Query not event(ServerDone(exp(gen,skC[]),exp(gen,skS[]),e1,e2,k)) is false.
+
+--------------------------------------------------------------
+
+	Command being timed: "proverif /home/runner/work/_temp/pv/ik_core.pv"
+	User time (seconds): 305.89
+	System time (seconds): 2.27
+	Percent of CPU this job got: 99%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 5:08.19
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 2092044
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 2
+	Minor (reclaiming a frame) page faults: 1025116
+	Voluntary context switches: 13
+	Involuntary context switches: 843
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 408
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
+exit: 0

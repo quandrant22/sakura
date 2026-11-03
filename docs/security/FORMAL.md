@@ -34,26 +34,26 @@
 
 | № | свойство | модель | запрос | ожидаемый | фактический |
 |---|---|---|---|---|---|
-| ik Q1 | секретность транспорта C → S, в т. ч. после утечки ключей (G1, G6) | ik.pv | `attacker(payload_c)` | true | ожидает запуска |
-| ik Q2 | секретность транспорта S → C (G1, G6) | ik.pv | `attacker(payload_s)` | true | ожидает запуска |
-| ik Q3 | ServerDone ⇒ ClientStarted, инъективно (G3) | ik.pv | `inj ServerDone(C,S) ⇒ inj ClientStarted(C,S)` | true | ожидает запуска |
-| ik Q4 | согласие о ключах: ServerDone ⇒ ClientDone (G3) | ik.pv | `inj ServerDone ⇒ inj ClientDone` | true | ожидает запуска |
-| ik Q5 | ClientDone ⇒ ServerAccepted, инъективно (G4) | ik.pv | `inj ClientDone(C,S) ⇒ inj ServerAccepted(C,S)` | true | ожидает запуска |
-| ik Q6 | сообщение 1 подлинно без компрометации | ik.pv | `ServerAccepted(C,S) ⇒ ClientStarted(C,S)` | true | ожидает запуска |
-| ik Q7 | **повтор IK_INIT** (ожидаемая атака) | ik.pv | `inj ServerAccepted(C,S) ⇒ inj ClientStarted(C,S)` | **false** | ожидает запуска |
+| ik Q1 | секретность транспорта C → S, в т. ч. после утечки ключей (G1, G6) | ik.pv | `attacker(payload_c)` | true | true (совпало) |
+| ik Q2 | секретность транспорта S → C (G1, G6) | ik.pv | `attacker(payload_s)` | true | true (совпало) |
+| ik Q3 | ServerDone ⇒ ClientStarted, инъективно (G3) | ik.pv | `inj ServerDone(C,S) ⇒ inj ClientStarted(C,S)` | true | true (совпало) |
+| ik Q4 | согласие о ключах: ServerDone ⇒ ClientDone (G3) | ik.pv | `inj ServerDone ⇒ inj ClientDone` | true | true (совпало) |
+| ik Q5 | ClientDone ⇒ ServerAccepted, инъективно (G4) | ik.pv | `inj ClientDone(C,S) ⇒ inj ServerAccepted(C,S)` | true | true (совпало) |
+| ik Q6 | сообщение 1 подлинно без компрометации | ik.pv | `ServerAccepted(C,S) ⇒ ClientStarted(C,S)` | true | true (совпало) |
+| ik Q7 | **повтор IK_INIT** (ожидаемая атака) | ik.pv | `inj ServerAccepted(C,S) ⇒ inj ClientStarted(C,S)` | **false** | false (совпало) |
 | ik Q8 | **KCI на сообщение 1** (ожидаемая атака) | ik.pv | `ServerAccepted(C,K) ⇒ ClientStarted(C,K)` | **false** | не завершено → FINDINGS.md F1 |
 | ik Q9 | KCI не идёт дальше сообщения 1 | ik.pv | `ServerDone(C,K) ⇒ ClientStarted(C,K)` | true | не завершено → FINDINGS.md F1 |
-| ik Q10 | достижимость полного сеанса | ik.pv | `event(ServerDone(C,S))` | false (достижимо) | ожидает запуска |
-| xx Q1 | секретность payload XX_3, QR | xxpsk3.pv | `attacker(info_qr)` | true | ожидает запуска |
-| xx Q2 | секретность payload XX_3, только слова | xxpsk3.pv | `attacker(info_words)` | true | ожидает запуска |
-| xx Q3 | устройство принято только при знании PSK | xxpsk3.pv | `inj ServerPaired ⇒ inj ClientCommitted` | true | ожидает запуска |
-| xx Q4 | сервер подлинен для клиента после PAIRED (оба режима) | xxpsk3.pv | `inj ClientPaired ⇒ inj ServerPaired` | true | ожидает запуска |
-| xx Q5 | QR: ключ сервера подтверждён до XX_3 | xxpsk3.pv | `ClientCommitted(qr) ⇒ ServerSentXX2` | true | ожидает запуска |
-| xx Q6 | **без QR: XX_3 уходит неподтверждённому собеседнику** (остаточный риск) | xxpsk3.pv | `ClientCommitted(words) ⇒ ServerSentXX2` | **false** | ожидает запуска |
+| ik Q10 | достижимость полного сеанса | ik.pv | `event(ServerDone(C,S))` | false (достижимо) | false (совпало) |
+| xx Q1 | секретность payload XX_3, QR | xxpsk3.pv | `attacker(info_qr)` | true | true (совпало) |
+| xx Q2 | секретность payload XX_3, только слова | xxpsk3.pv | `attacker(info_words)` | true | true (совпало) |
+| xx Q3 | устройство принято только при знании PSK | xxpsk3.pv | `inj ServerPaired ⇒ inj ClientCommitted` | true | true (совпало) |
+| xx Q4 | сервер подлинен для клиента после PAIRED (оба режима) | xxpsk3.pv | `inj ClientPaired ⇒ inj ServerPaired` | true | true (совпало) |
+| xx Q5 | QR: ключ сервера подтверждён до XX_3 | xxpsk3.pv | `ClientCommitted(qr) ⇒ ServerSentXX2` | true | true (совпало) |
+| xx Q6 | **без QR: XX_3 уходит неподтверждённому собеседнику** (остаточный риск) | xxpsk3.pv | `ClientCommitted(words) ⇒ ServerSentXX2` | **false** | false (совпало) |
 | xx Q7 | нет офлайн-перебора PSK, QR | xxpsk3.pv | `weaksecret psk_qr` | true | не завершено → FINDINGS.md F1 |
 | xx Q8 | **офлайн-перебор PSK посредником, только слова** (остаточный риск) | xxpsk3.pv | `weaksecret psk_words` | **false** | не завершено → FINDINGS.md F1 |
-| xx Q9 | достижимость спаривания, QR | xxpsk3.pv | `event(ClientPaired(qr))` | false (достижимо) | ожидает запуска |
-| xx Q10 | достижимость спаривания, слова | xxpsk3.pv | `event(ClientPaired(words))` | false (достижимо) | ожидает запуска |
+| xx Q9 | достижимость спаривания, QR | xxpsk3.pv | `event(ClientPaired(qr))` | false (достижимо) | false (совпало) |
+| xx Q10 | достижимость спаривания, слова | xxpsk3.pv | `event(ClientPaired(words))` | false (достижимо) | false (совпало) |
 
 Трактовка ожидаемых атак — после запуска, по сырому выводу
 (`results/ik.txt`, `results/xxpsk3.txt`). Ожидание:
