@@ -29,6 +29,9 @@ _created = 0  # счётчик созданий клиента — тест эт
 
 DEFAULT_TIMEOUT_S = 20.0
 _TRANSIENT_RETRY_DELAYS = (1.0, 2.0)
+# Доля общего бюджета на модель, у которой в цепочке есть запасная:
+# зависшая первая модель не должна съедать весь ход (20 с → 12 с ей, 8 с запасной).
+NON_LAST_MODEL_SHARE = 0.6
 
 # Фолбэк моделей: основная → запасная (config не менять, имена из v2)
 FALLBACK_MODELS = (config.MAIN_MODEL, config.FALLBACK_MODEL)
@@ -306,8 +309,14 @@ async def generate(contents, *, system: str = "", model: Optional[str] = None,
         current_key = first_key if model_index == 0 else (_initial_key(None) or first_key)
         tried_keys: set[str] = set()
         transient_retries = 0
+        has_fallback = model_index < len(models) - 1
+        # Срок этой модели: у не последней — доля бюджета, у последней — весь остаток.
+        model_deadline = started + timeout
+        if has_fallback:
+            model_deadline = min(model_deadline,
+                                 time.monotonic() + timeout * NON_LAST_MODEL_SHARE)
         while current_key:
-            remaining = timeout - (time.monotonic() - started)
+            remaining = model_deadline - time.monotonic()
             if remaining <= 0:
                 break
             attempt_started = time.monotonic()
@@ -315,7 +324,7 @@ async def generate(contents, *, system: str = "", model: Optional[str] = None,
                 client = await asyncio.wait_for(
                     asyncio.to_thread(get_client, current_key), timeout=remaining,
                 )
-                remaining = timeout - (time.monotonic() - started)
+                remaining = model_deadline - time.monotonic()
                 if remaining <= 0:
                     raise asyncio.TimeoutError()
 
@@ -363,10 +372,13 @@ async def generate(contents, *, system: str = "", model: Optional[str] = None,
                         current_key = next_key
                         transient_retries = 0
                         continue
+                elif _error_code(error) == "TIMEOUT" and has_fallback:
+                    # Модель зависла — повтор на ней же только съест остаток; к запасной.
+                    break
                 elif kind == "transient" and transient_retries < len(_TRANSIENT_RETRY_DELAYS):
                     delay = _TRANSIENT_RETRY_DELAYS[transient_retries] + random.random() * 0.5
                     transient_retries += 1
-                    if delay < timeout - (time.monotonic() - started):
+                    if delay < model_deadline - time.monotonic():
                         await asyncio.sleep(delay)
                         continue
                 break

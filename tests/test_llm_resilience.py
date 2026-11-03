@@ -372,3 +372,45 @@ def test_error_handler_has_no_recursive_ask_gemini_call():
                    and isinstance(node.func, ast.Name)
                    and node.func.id == "ask_gemini"
                    for node in ast.walk(handler))
+
+
+def test_hung_first_model_leaves_budget_for_fallback(monkeypatch):
+    """Зависшая первая модель получает долю бюджета, запасная успевает ответить."""
+    _mock_keys(monkeypatch)
+    calls = []
+
+    class Models:
+        def generate_content(self, *, model, **_kwargs):
+            calls.append(model)
+            if model == "model-a":
+                time.sleep(0.5)
+                return SimpleNamespace(text="too late")
+            return SimpleNamespace(text="fallback")
+
+    monkeypatch.setattr(llm, "get_client", lambda _key: _Client(Models()))
+
+    async def measure():
+        started = time.monotonic()
+        result = await llm.generate("hello", chain=("model-a", "model-b"), timeout=0.3)
+        return result, time.monotonic() - started
+
+    result, elapsed = asyncio.run(measure())
+    assert result == "fallback"
+    assert calls == ["model-a", "model-b"]
+    assert elapsed < 0.3 + 0.1
+
+
+def test_timeout_on_first_model_is_not_retried_on_same_model(monkeypatch):
+    _mock_keys(monkeypatch)
+    calls = []
+
+    class Models:
+        def generate_content(self, *, model, **_kwargs):
+            calls.append(model)
+            if model == "model-a":
+                raise TimeoutError("TIMEOUT")
+            return SimpleNamespace(text="fallback")
+
+    monkeypatch.setattr(llm, "get_client", lambda _key: _Client(Models()))
+    assert asyncio.run(llm.generate("hello", chain=("model-a", "model-b"))) == "fallback"
+    assert calls == ["model-a", "model-b"]
