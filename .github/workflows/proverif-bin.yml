@@ -1,0 +1,27 @@
+# Служебная ветка: сборка бинарника ProVerif для локальной отладки сходимости моделей.
+name: proverif-bin
+on:
+  push:
+    branches: [ci/proverif-bin]
+    paths: [".github/workflows/proverif-bin.yml"]
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    env:
+      PV_VERSION: "2.05"
+      PV_SHA256: "4871f53c32ab4a04669a060c4886ba5d9080496963fb980a9a62d2c429ceabc4"
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -q && sudo apt-get install -y -q ocaml-nox ocaml-findlib
+      - run: |
+          cd "$RUNNER_TEMP"
+          curl -sSfL -o pv.tgz "https://bblanche.gitlabpages.inria.fr/proverif/proverif${PV_VERSION}.tar.gz"
+          echo "${PV_SHA256}  pv.tgz" | sha256sum -c -
+          tar xzf pv.tgz && cd "proverif${PV_VERSION}" && ./build -nointeract
+          mkdir -p "$GITHUB_WORKSPACE/bin" && cp proverif "$GITHUB_WORKSPACE/bin/" && sha256sum proverif
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898299+github-actions[bot]@users.noreply.github.com"
+          git add bin/proverif && git commit -m "bin: proverif ${PV_VERSION}" && git push origin HEAD:ci/proverif-bin
