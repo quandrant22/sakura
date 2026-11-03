@@ -120,6 +120,19 @@ if ($needInstall -or $needBuild) {
     Log "сборка готова"
 }
 
+# ── 3а. Electron: бинарник качается postinstall-скриптом пакета и может не скачаться
+#        (сеть, прерванная установка) — докачать один раз, иначе понятная ошибка ──
+if (-not (Test-Path $Electron)) {
+    Log "нет $Electron — докачиваю (node_modules\electron\install.js)"
+    Push-Location $Ui
+    & cmd /c "node node_modules\electron\install.js >> `"$(Join-Path $LogDir 'build.log')`" 2>&1"
+    Pop-Location
+    if (-not (Test-Path $Electron)) {
+        Fail "Не скачался Electron (окно Сакуры): нет $Electron.`nПроверьте интернет и запустите ещё раз; подробности: $(Join-Path $LogDir 'build.log')"
+    }
+    Log "Electron докачан"
+}
+
 # ── 4. Запуск: готовая сборка, ядро — дочерним процессом окна ────────
 Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
 Remove-Item Env:SAKURA_DEV_URL -ErrorAction SilentlyContinue
