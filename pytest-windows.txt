@@ -1,0 +1,5 @@
+E       UnicodeEncodeError: 'charmap' codec can't encode characters in position 0-5: character maps to <undefined>
+E       UnicodeEncodeError: 'charmap' codec can't encode characters in position 0-4: character maps to <undefined>
+FAILED desktop\tests\test_files_safe.py::test_delete_by_name_refused_preview_then_delete_and_undelete - UnicodeEncodeError: 'charmap' codec can't encode characters in position 0-5: character maps to <undefined>
+FAILED desktop\tests\test_files_safe.py::test_journal_has_no_contents - UnicodeEncodeError: 'charmap' codec can't encode characters in position 0-4: character maps to <undefined>
+2 failed, 1075 passed, 73 skipped in 52.70s
