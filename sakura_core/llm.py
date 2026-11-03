@@ -187,18 +187,53 @@ def _key_number(api_key: str) -> str:
         return "?"
 
 
-def _next_key_after_limit(api_key: str, tried: set[str]) -> Optional[str]:
+# Пауза после 429 — на пару (ключ, модель), а не на ключ целиком: квоты у
+# Gemini раздельные по моделям. 429 от gemma (16K TPM) не должен выключать
+# gemini-*-flash-lite на том же ключе («no active Gemini API key»).
+RATE_LIMIT_COOLDOWN_S = 60.0
+_model_cooldown: dict[tuple[str, str], float] = {}
+
+
+def _cooling(key: str, model: str) -> bool:
+    return time.monotonic() < _model_cooldown.get((key, model), 0.0)
+
+
+def _candidate_keys(preferred: str | None) -> list[str]:
+    keys: list[str] = []
+    for key in (preferred, *getattr(config, "GEMINI_KEYS", ())):
+        if key and key not in keys:
+            keys.append(key)
+    return keys
+
+
+def _key_for_model(model: str, preferred: str | None) -> str | None:
+    """Первый ключ без паузы для этой модели; None — у модели все ключи на паузе."""
+    return next((k for k in _candidate_keys(preferred) if not _cooling(k, model)), None)
+
+
+def _next_key_after_limit(api_key: str, tried: set[str], model: str | None = None,
+                          error: Exception | None = None) -> str | None:
+    if model:
+        delay = None
+        if error is not None:
+            delay = retry_delay(error)
+        _model_cooldown[(api_key, model)] = time.monotonic() + (delay or RATE_LIMIT_COOLDOWN_S)
+        log.info("[llm] key=%s model=%s на паузе %.0fс", _key_number(api_key), model,
+                 delay or RATE_LIMIT_COOLDOWN_S)
+    else:
+        try:
+            config.mark_key_rate_limited(api_key)
+        except Exception as err:
+            log.debug("[llm] could not mark rate-limited key: %s", type(err).__name__)
     try:
-        config.mark_key_rate_limited(api_key)
-    except Exception as error:
-        log.debug("[llm] could not mark rate-limited key: %s", type(error).__name__)
-    try:
-        next_key = config.get_active_key()
+        preferred = config.get_active_key()
     except Exception:
-        next_key = None
-    if next_key and next_key not in tried:
-        return next_key
-    return next((key for key in config.GEMINI_KEYS if key and key not in tried), None)
+        preferred = None
+    for key in _candidate_keys(preferred):
+        if key in tried or (model and _cooling(key, model)):
+            continue
+        return key
+    return None
 
 
 def _log_attempt_failure(model: str, api_key: str, error: Exception,
@@ -306,7 +341,11 @@ async def generate(contents, *, system: str = "", model: Optional[str] = None,
         return ""
 
     for model_index, model_name in enumerate(models):
-        current_key = first_key if model_index == 0 else (_initial_key(None) or first_key)
+        preferred = first_key if model_index == 0 else (_initial_key(None) or first_key)
+        current_key = preferred if api_key else _key_for_model(model_name, preferred)
+        if not current_key:
+            log.info("[llm] model=%s: все ключи на паузе — следующая модель", model_name)
+            continue
         tried_keys: set[str] = set()
         transient_retries = 0
         has_fallback = model_index < len(models) - 1
@@ -367,7 +406,7 @@ async def generate(contents, *, system: str = "", model: Optional[str] = None,
                 kind = _error_kind(error)
                 if kind == "rate_limit":
                     tried_keys.add(current_key)
-                    next_key = _next_key_after_limit(current_key, tried_keys)
+                    next_key = _next_key_after_limit(current_key, tried_keys, model_name, error)
                     if next_key:
                         current_key = next_key
                         transient_retries = 0
@@ -456,7 +495,11 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
         return
 
     for model_index, model_name in enumerate(models):
-        current_key = first_key if model_index == 0 else (_initial_key(None) or first_key)
+        preferred = first_key if model_index == 0 else (_initial_key(None) or first_key)
+        current_key = preferred if api_key else _key_for_model(model_name, preferred)
+        if not current_key:
+            log.info("[llm] model=%s: все ключи на паузе — следующая модель", model_name)
+            continue
         tried_keys: set[str] = set()
         transient_retries = 0
         while current_key:
@@ -499,7 +542,7 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
                 kind = _error_kind(error)
                 if kind == "rate_limit":
                     tried_keys.add(current_key)
-                    next_key = _next_key_after_limit(current_key, tried_keys)
+                    next_key = _next_key_after_limit(current_key, tried_keys, model_name, error)
                     if next_key:
                         current_key = next_key
                         transient_retries = 0
