@@ -149,10 +149,6 @@
    "open.app",
    "яндекс музыка"
   ],
-  "screenshot.describe": [
-   "screenshot.describe",
-   ""
-  ],
   "screenshot.run": [
    "screenshot.run",
    ""
@@ -171,10 +167,6 @@
   ],
   "system.lock": [
    "system.lock",
-   ""
-  ],
-  "system.sleep": [
-   "system.sleep",
    ""
   ],
   "youtube.forward": [

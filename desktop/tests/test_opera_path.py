@@ -31,5 +31,6 @@ def test_missing_override_falls_through():
 
 def test_nothing_found_returns_first_candidate():
     env = {"LOCALAPPDATA": r"C:\Users\x\AppData\Local"}
-    assert browser.find_opera_exe(env, exists=lambda p: False) == r"C:\Users\x\AppData\Local\Programs\Opera GX\opera.exe"
+    expected = r"C:\Users\x\AppData\Local\Programs\Opera GX\opera.exe"
+    assert browser.find_opera_exe(env, exists=lambda p: False) == expected
     assert browser.find_opera_exe({}, exists=lambda p: False) == browser._OPERA_LEGACY
