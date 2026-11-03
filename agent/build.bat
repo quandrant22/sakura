@@ -51,6 +51,8 @@ pyinstaller ^
     --hidden-import "securechannel.pairing" ^
     --hidden-import "securechannel.noise.core" ^
     --hidden-import "noise" ^
+    --hidden-import "noise.connection" ^
+    --hidden-import "cryptography" ^
     --collect-submodules "securechannel" ^
     --collect-submodules "noise" ^
     --add-data "..\securechannel\wordlist_ru.txt;securechannel" ^

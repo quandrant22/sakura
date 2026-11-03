@@ -189,6 +189,28 @@ golden, промпта — зелёные. **Перед выкатом: полн
 | 10-29 | документы | FORMAL.md §0: таблица «свойство → модель → ожидаемый → фактический» (фактический = «ожидает запуска»), §3.2 уточнён (офлайн-перебор без QR); `results/README.md` с командами; DECISIONS CV1–CV11 |
 | — | запуск ProVerif | ждёт владельца: `results/ik.txt`, `results/xxpsk3.txt` → затем фактические результаты и разбор атак в FORMAL.md |
 
+## Агент: транспорт Noise (feat/agent-securechannel, 2026-10-29)
+
+Перенесено из локальной ветки владельца. Весь трафик `agent/core/agent.py` идёт
+через `core/transport.py` (Noise IK поверх того же `ws://`), token — только на
+старом транспорте. Решения — DECISIONS A1–A16.
+
+| блок | состояние |
+|---|---|
+| `transport.open_connection` / `Conn` | `send`, `send_json`, `recv`, `async for`, `close`, `secure`, `transport`, `close_code` |
+| Noise | `securechannel.client.connect_session`, таймаут 10 с, ошибки → `SecureHandshakeFailed`; отката на token нет |
+| исходящий трафик | все отправки агента и `outbox.flush` — через `Conn.send_json` |
+| ротация ключа сервера | `secure_server_key` → `set_next_server_pub` (только по Noise); `promote_next` |
+| коды закрытия | 4408/4409 — backoff; 4412 — ожидание ключей; 4413 — очередь очищена, 60 с |
+| статус | 🔒 в оверлее и трее из `conn.secure` |
+| хранилище ключа | ТЗ-4: `core/secure_store.py` в master (CV20) |
+
+Тесты (Windows, Python 3.11, на момент ветки): `python -m pytest agent/tests -q` — 228 passed;
+`test_transport.py` (22) — против настоящего `securechannel.server.accept`, проверено
+мутацией (с откатом на token падают 6 тестов). После ТЗ-4 (Windows, 2026-11-04):
+`test_secure_store`, `test_agent_pairing`, `test_tray_pairing`, `test_transport` —
+39 passed, 1 skipped (POSIX-права), настоящий DPAPI — пройден.
+
 ## Крипта: интеграция и CI (2026-11-03)
 
 | шаг | состояние |
