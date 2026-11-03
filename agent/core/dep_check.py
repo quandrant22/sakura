@@ -20,6 +20,8 @@ log = logging.getLogger("sakura.agent")
 # (import-имя, pip-имя, что отвалится без пакета)
 _CRITICAL_PACKAGES = [
     ("websockets",     "websockets",     "связь с VPS-сервером недоступна"),
+    ("noise",          "noiseprotocol",  "защищённый канал (Noise) и спаривание недоступны"),
+    ("cryptography",   "cryptography",   "защищённый канал (Noise) и спаривание недоступны"),
     ("winsdk",         "winsdk",         "управление музыкой недоступно"),
     ("yandex_music",   "yandex-music",   "API Яндекс Музыки недоступен"),
     ("sounddevice",    "sounddevice",    "захват/воспроизведение звука недоступны"),

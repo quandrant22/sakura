@@ -488,6 +488,48 @@ class Agent:
         except transport.SecureHandshakeFailed:
             return True     # файл ключей есть, но битый — на токен не уходим
 
+    async def pair_device(self, code: str) -> str:
+        """Спаривание из трея (ТЗ-4): ключи → переподключение по Noise без рестарта.
+
+        Текущее соединение по токену закрывается — основной цикл
+        переподключается и уже находит ключи. Секреты не журналируются.
+        """
+        from core import pairing
+        try:
+            result = await pairing.pair_device(code)
+        except pairing.PairingError as e:
+            text = f"Спаривание не удалось: {e}"
+            self.bus.emit("agent_alert", text=text)
+            return text
+        text = pairing.describe(result)
+        self.bus.emit("agent_alert", text=text)
+        conn = self._ws
+        if conn is not None and not getattr(conn, "secure", False):
+            await conn.close(1000, "paired")
+        return text
+
+    async def reset_pairing(self) -> str:
+        """«Сбросить спаривание»: удалить ключи и переподключиться."""
+        from core import secure_store
+        secure_store.wipe()
+        self._set_secure_status(False, STATUS_NOT_PAIRED)
+        conn = self._ws
+        if conn is not None and getattr(conn, "secure", False):
+            await conn.close(1000, "unpaired")
+        return "Спаривание сброшено — ключи устройства удалены"
+
+    def run_in_loop(self, coro_fn, *args, done=None) -> bool:
+        """Запустить корутину агента из потока Qt; done(result) — в потоке цикла."""
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            return False
+        fut = asyncio.run_coroutine_threadsafe(coro_fn(*args), loop)
+        if done is not None:
+            fut.add_done_callback(
+                lambda f: done(f.result() if not f.exception() else
+                               f"Ошибка: {type(f.exception()).__name__}"))
+        return True
+
     def _set_secure_status(self, secure: bool, text: str, alert: bool = False):
         """Статус канала в трей/оверлей (🔒 — только из conn.secure)."""
         if getattr(self, "_secure_status", None) == (secure, text):
@@ -804,15 +846,17 @@ class Agent:
         # Без токена VPS не пустит — не стучимся вовсе (токен только из .env).
         # Спаренному устройству токен не нужен (вход по ключу Noise), в режиме
         # required без ключей ждём спаривания — токен тоже не нужен.
+        self._loop = asyncio.get_running_loop()
         if (not str(getattr(config, "WS_TOKEN", "") or "").strip()
                 and not self._has_keys()
                 and transport.normalize_mode(config.AGENT_SECURE) != "required"):
             log.error("WS_TOKEN не задан в .env")
-            # Окно не закрываем — показываем причину в оверлее
+            # Окно не закрываем — показываем причину в оверлее; спаривание из
+            # трея (ТЗ-4) работает и без токена — ждём ключей.
             self.bus.emit("agent_alert",
-                          text="Не задан WS_TOKEN (.env) — агент не подключается")
-            return
-        self._loop = asyncio.get_running_loop()
+                          text="Не задан WS_TOKEN (.env) — агент не подключается; "
+                               "можно спарить: трей → «Спарить с сервером…»")
+            await transport.wait_for_keys()
         from core.presence import prime_system_info
         prime_system_info()
         # Запускаем локальный WS сервер для расширения браузера

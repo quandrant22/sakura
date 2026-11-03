@@ -201,5 +201,6 @@ golden, промпта — зелёные. **Перед выкатом: полн
 | ProVerif, запуск 1 (`a35ceb1`) | полные модели — тайм-аут 3000 с; xxpsk3 Q1–Q6 совпали; разбор — FINDINGS F1 |
 | ProVerif, варианты (CV17) | `ik_core` 8/8 и `xxpsk3_auth` 8/8 совпали с ожидаемыми (CI `3ccc9d7`: 5:08 и 5:12; сырой вывод в `results/`) |
 | открыто | ik Q8/Q9 (KCI), сценарий D, weaksecret xx Q7/Q8 — CV18 |
-| ждёт | выкат на VPS — владелец (ROLLOUT.md); ТЗ-4 для `required` |
+| ТЗ-4 (`feat/agent-pairing`) | `core/secure_store.py` (DPAPI + icacls), `core/pairing.py` (QR/слова против `securechannel.client.pair`), трей «Спарить…»/«Сбросить», переподключение без рестарта; зависимости и `build.bat`; тесты `agent/` 249 passed, 1 skipped (Linux, без Qt-оверлеев и GigaAM; DPAPI — только на Windows) |
+| ждёт | слияние `feat/agent-pairing`; выкат на VPS и спаривание агента по QR — владелец (ROLLOUT.md) |
 

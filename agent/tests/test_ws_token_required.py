@@ -30,20 +30,26 @@ def test_empty_token_no_connect_and_error(monkeypatch, caplog, token):
     spawn = MagicMock()
     monkeypatch.setattr(agent_module, "spawn", spawn)
 
+    async def wait_for_keys(*a, **k):
+        raise _Stop          # агент ждёт спаривания, а не подключается по токену
+
+    monkeypatch.setattr(transport, "wait_for_keys", wait_for_keys)
+
     a = agent_module.Agent.__new__(agent_module.Agent)
     a.hearing = MagicMock()
     a.bus = MagicMock()
 
-    with caplog.at_level("ERROR", logger="sakura.agent"):
+    with caplog.at_level("ERROR", logger="sakura.agent"), pytest.raises(_Stop):
         asyncio.run(a.run())
 
     connect.assert_not_called()
     spawn.assert_not_called()
     a.hearing.start.assert_not_called()
     assert "WS_TOKEN не задан в .env" in caplog.text
-    # оверлей получает причину (окно не закрывается — run() просто выходит)
+    # оверлей получает причину и подсказку про спаривание из трея (ТЗ-4)
     a.bus.emit.assert_called_once_with(
-        "agent_alert", text="Не задан WS_TOKEN (.env) — агент не подключается")
+        "agent_alert", text="Не задан WS_TOKEN (.env) — агент не подключается; "
+                            "можно спарить: трей → «Спарить с сервером…»")
 
 
 def _run_until_connect(monkeypatch, tmp_path, store, mode):
