@@ -84,7 +84,7 @@ PROTO_V2 = os.getenv("PROTO_V2", "1").strip().lower() not in ("0", "false", "no"
 # tts_end; пока звук идёт (сообщения моложе TURN_ACTIVE_GRACE_S) — не
 # зависание, но не дольше TURN_TIMEOUT_MAX_S. 0 — сторож выключен.
 TURN_TIMEOUT_S = float(os.getenv("TURN_TIMEOUT_S", "30"))
-TURN_ACTIVE_GRACE_S = 5.0
+TURN_ACTIVE_GRACE_S = 12.0   # живой синтез Gemini отдаёт звук рывками с паузами > 5 с
 TURN_TIMEOUT_MAX_S = 120.0
 # «на рабочем ноутбуке» в команде → это устройство (feat/pc-control).
 WORK_LAPTOP_DEVICE = os.getenv("WORK_LAPTOP_DEVICE", "mostech").strip()
