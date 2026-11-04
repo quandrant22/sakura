@@ -39,6 +39,7 @@ def lesson_from_dict(d: dict) -> Lesson:
         start=time.fromisoformat(d["start"]), end=time.fromisoformat(d["end"]),
         group=d.get("group", ""), subject=d.get("subject", ""), room=d.get("room", ""),
         kind=d.get("kind", "other"), kind_raw=d.get("kind_raw", ""), teacher=d.get("teacher", ""),
+        department=d.get("department", ""),
     )
 
 

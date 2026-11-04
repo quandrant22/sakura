@@ -34,3 +34,6 @@ class FakeNotifier:
 
     def enqueue_changes(self, changes, now):
         self.changes.extend(changes)
+
+    def enqueue_text(self, text):
+        self.changes.append(text)

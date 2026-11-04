@@ -1,8 +1,11 @@
-"""Разбор расписания МУИВ: поле `ttable` из ответа /services/timetable/ajax.php.
+"""Разбор расписания МУИВ из двух мест сайта вуза.
 
-Источник не важен (прямой запрос или букмарклет): на вход — HTML-фрагмент
-вида  <h2>05.11.2026 (четверг)</h2><div class="tableScroll"><table>…</table></div>
-и так по дням. На выход — список Lesson, отсортированный по дате и времени.
+- `parse_ttable` — поле `ttable` из www.muiv.ru/services/timetable/ajax.php
+  (прямой запрос или букмарклет): <h2>05.11.2026 (четверг)</h2><table>…</table>.
+- `parse_eios` — личная страница ЭИОС e.muiv.ru/local/student_timetable/view.php:
+  <div class="ttdate">05.11.2026</div><div class="table"><div class="row">… (без
+  колонки «Группа», зато с «Кафедрой»).
+На выход — список Lesson, отсортированный по дате и времени.
 """
 from __future__ import annotations
 
@@ -29,6 +32,7 @@ _HEADERS = {
     "аудитория": "room",
     "вид занятия": "kind",
     "преподаватель": "teacher",
+    "кафедра": "department",
 }
 _DEFAULT_ORDER = ["time", "group", "subject", "room", "kind", "teacher"]
 
@@ -55,6 +59,7 @@ class Lesson:
     kind: str        # lecture | seminar | lab | exam | credit | consult | other
     kind_raw: str    # «Семинары ИПЗ»
     teacher: str
+    department: str = ""   # кафедра — есть только в ЭИОС
 
     @property
     def uid(self) -> str:
@@ -154,5 +159,62 @@ def parse_ttable(html: str) -> list[Lesson]:
                 break
             lessons.extend(_parse_table(sib, day))
             break
+    lessons.sort(key=lambda x: (x.date, x.start, x.subject))
+    return lessons
+
+
+def _cell_rows(table: Tag) -> list[list[str]]:
+    return [[_clean(c.get_text(" ")) for c in row.find_all("div", class_="cell", recursive=False)]
+            for row in table.find_all("div", class_="row", recursive=False)]
+
+
+def parse_eios(html: str, group: str) -> list[Lesson]:
+    """Страница «Расписание занятий» ЭИОС → занятия. Группа на странице не
+    указана (она личная) — берём из настроек. Не та страница → ParseError."""
+    if not html or not html.strip():
+        return []
+    soup = BeautifulSoup(html, "html.parser")
+    root = soup.find("div", class_="studtimetable")
+    if root is None:
+        if "__jhash_" in html or "get_jhash" in html:
+            raise ParseError("похоже на страницу проверки антибота, а не на расписание")
+        if soup.find("input", attrs={"type": "password"}) is not None:
+            raise ParseError("страница входа ЭИОС, а не расписание (сессия не открыта)")
+        if soup.find("div", class_="main_container_studtimetable") is not None:
+            return []          # раздел есть, пар нет
+        raise ParseError("на странице нет расписания")
+
+    lessons: list[Lesson] = []
+    for head in root.find_all("div", class_="ttdate"):
+        m = _DATE_RE.search(head.get_text())
+        table = head.find_next_sibling("div", class_="table")
+        if not m or table is None:
+            continue
+        dd, mm, yyyy = map(int, m.groups())
+        try:
+            day = date(yyyy, mm, dd)
+        except ValueError:
+            log.warning("[schedule] неверная дата в заголовке дня")
+            continue
+        order = None
+        for cells in _cell_rows(table):
+            low = [c.lower() for c in cells]
+            if any(c in _HEADERS for c in low):
+                order = [_HEADERS.get(c, f"_{i}") for i, c in enumerate(low)]
+                continue
+            if order is None or len(cells) != len(order):
+                log.warning("[schedule] строка ЭИОС пропущена: %d ячеек", len(cells))
+                continue
+            f = dict(zip(order, cells))
+            span = parse_time_range(f.get("time", ""))
+            if span is None or not f.get("subject"):
+                log.warning("[schedule] строка ЭИОС пропущена: нет времени или дисциплины")
+                continue
+            lessons.append(Lesson(
+                date=day, start=span[0], end=span[1], group=f.get("group") or group,
+                subject=f["subject"], room=normalize_room(f.get("room", "")),
+                kind=normalize_kind(f.get("kind", "")), kind_raw=f.get("kind", ""),
+                teacher=f.get("teacher", ""), department=f.get("department", ""),
+            ))
     lessons.sort(key=lambda x: (x.date, x.start, x.subject))
     return lessons

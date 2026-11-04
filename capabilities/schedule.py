@@ -8,7 +8,6 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 
-import config
 from sakura_core.executor import ExecutionContext, Handler, register_table
 from sakura_core.schedule import query
 
@@ -27,6 +26,9 @@ def _voice(ctx: ExecutionContext) -> bool:
 
 
 def _no_data() -> str:
+    from sakura_core.schedule.sync import auto_source
+    if auto_source() is not None:
+        return "Расписания у меня пока нет — сейчас загружу. Спроси через минуту или скажи «обнови расписание»."
     return "Расписания у меня пока нет. " + PUSH_HINT
 
 
@@ -68,14 +70,16 @@ async def _next(ctx: ExecutionContext) -> tuple[str, bool]:
 
 
 async def _refresh(_ctx: ExecutionContext) -> tuple[str, bool]:
-    if "direct" not in config.SCHEDULE_SOURCES:
+    from sakura_core.schedule.sync import auto_source, sync_auto
+    src = auto_source()
+    if src is None:
         return (PUSH_HINT, True)
-    from sakura_core.schedule.sync import sync_direct
-    res = await sync_direct(_now())
+    res = await sync_auto(src, _now())
     if res.ok:
         return (f"Обновила расписание: {res.summary()}.", True)
     if res.error == "blocked":
-        return ("Сайт вуза не пускает сервер. " + PUSH_HINT, False)
+        where = "ЭИОС" if src == "eios" else "Сайт вуза"
+        return (f"{where} не пускает сервер. " + PUSH_HINT, False)
     return (f"Не получилось обновить: {res.summary()}.", False)
 
 

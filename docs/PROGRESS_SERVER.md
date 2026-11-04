@@ -243,3 +243,5 @@ golden, промпта — зелёные. **Перед выкатом: полн
 | живая проверка (2026-11-04) | реальный `ttable` с сайта (браузер, ИД 86.1/М1-25) → `/schedule/push` → 200 «5 занятий, без изменений»; ответы голосом/в Telegram с ФИО и аудиториями, напоминание за 85 мин; на давно открытой вкладке сайт отдаёт заглушку и браузеру — до перезагрузки |
 | полный pytest | 1755 passed, 3 skipped; красные только давние `test_voice_perf` (2), как на master |
 | ждёт | на VPS: `SCHEDULE_PUSH_TOKEN` в `.env`, блок Caddy, сборка закладки, первая выгрузка; письмо в ИТ-отдел вуза для `direct` |
+| источник eios (2026-11-04) | `www` с VPS — страница проверки (curl: `text/html`, 13 602 байт); ЭИОС с VPS — без проверки (86 440 байт). `sakura_core/schedule/eios.py` (вход Moodle, сессия в памяти, стоп после неверного пароля), `parse_eios`, `sync_auto`, проверка `python -m sakura_core.schedule.check eios`; `SCHEDULE_SOURCES=eios,push` по умолчанию |
+| ждёт (eios) | `EIOS_USERNAME`/`EIOS_PASSWORD` в `.env` на VPS, живая проверка `check eios`, слияние в master |

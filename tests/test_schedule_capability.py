@@ -116,11 +116,34 @@ def test_refresh_direct_blocked(loaded, monkeypatch):
     from sakura_core.schedule.sync import SyncResult
     monkeypatch.setattr(config, "SCHEDULE_SOURCES", ("direct", "push"))
 
-    async def blocked(now):
+    async def blocked(source, now):
+        assert source == "direct"
         return SyncResult(False, "direct", error="blocked")
-    monkeypatch.setattr(sync, "sync_direct", blocked)
+    monkeypatch.setattr(sync, "sync_auto", blocked)
     text, ok = call(cap, "schedule.refresh")
-    assert not ok and "не пускает" in text
+    assert not ok and "Сайт вуза не пускает" in text
+
+
+def test_refresh_eios(loaded, monkeypatch):
+    cap, _ = loaded
+    from sakura_core.schedule import sync
+    from sakura_core.schedule.sync import SyncResult
+    monkeypatch.setattr(config, "SCHEDULE_SOURCES", ("eios", "push"))
+    monkeypatch.setattr(config, "EIOS_USERNAME", "u")
+    monkeypatch.setattr(config, "EIOS_PASSWORD", "p")
+
+    async def ok(source, now):
+        assert source == "eios"
+        return SyncResult(True, "eios", count=5)
+    monkeypatch.setattr(sync, "sync_auto", ok)
+    assert call(cap, "schedule.refresh") == ("Обновила расписание: 5 занятий, без изменений.", True)
+
+
+def test_eios_without_credentials_is_not_auto(monkeypatch):
+    from sakura_core.schedule.sync import auto_source
+    monkeypatch.setattr(config, "SCHEDULE_SOURCES", ("eios", "push"))
+    monkeypatch.setattr(config, "EIOS_USERNAME", "")
+    assert auto_source() is None
 
 
 # ── контекст (modules/context.py) ─────────────────────────────────────

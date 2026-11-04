@@ -72,6 +72,11 @@ class Notifier:
             pending = list(self.store.meta("pending", []) or [])
             self.store.set_meta("pending", (pending + urgent)[-10:])
 
+    def enqueue_text(self, text: str) -> None:
+        pending = list(self.store.meta("pending_notes", []) or [])
+        if text not in pending:
+            self.store.set_meta("pending_notes", (pending + [text])[-5:])
+
     # ── такт ───────────────────────────────────────────────────────
     async def tick(self, now: datetime) -> list[str]:
         if now.hour >= NIGHT_START or now.hour < NIGHT_END:
@@ -92,10 +97,13 @@ class Notifier:
 
     def _pending(self) -> str | None:
         pending = self.store.meta("pending", []) or []
-        if not pending:
+        notes = self.store.meta("pending_notes", []) or []
+        if not pending and not notes:
             return None
         self.store.set_meta("pending", [])
-        return "Расписание поменялось. " + " ".join(pending)
+        self.store.set_meta("pending_notes", [])
+        parts = (["Расписание поменялось. " + " ".join(pending)] if pending else []) + notes
+        return " ".join(parts)
 
     def _reminder(self, now: datetime) -> str | None:
         before = config.SCHEDULE_REMIND_BEFORE_MIN
@@ -125,6 +133,10 @@ class Notifier:
         if self.store.meta("stale_nag") == today:
             return None
         self.store.set_meta("stale_nag", today)
+        from sakura_core.schedule.sync import auto_source
+        if auto_source() is not None:
+            return (f"Не получается обновить расписание — последние данные от {at:%d.%m}. "
+                    f"Проверь, открывается ли ЭИОС.")
         return (f"Расписание у меня от {at:%d.%m}. Открой страницу расписания и нажми "
                 f"закладку «Сакура: расписание» — обновлю.")
 
