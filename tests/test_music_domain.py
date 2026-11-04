@@ -70,8 +70,9 @@ def test_all_vps_actions_registered():
     # 19 доменов VPS этапа 5 + 7 развязанных на этапе 7 (coding.* и
     # calendar.list): их реализация тоже серверная, поэтому executor=vps.
     # feat/vision: vision.ask, vision.glance.on/off; server/browser-step: browser.task/browser.stop.
+    # feat/schedule: schedule.today/tomorrow/week/next/refresh — 31 → 36.
     want = {d.id for d in load() if d.executor == "vps"}
-    assert len(want) == 31
+    assert len(want) == 36
     assert not (want - set(registered())), f"нет хендлеров: {want - set(registered())}"
 
 

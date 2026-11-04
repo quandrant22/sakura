@@ -229,3 +229,17 @@ golden, промпта — зелёные. **Перед выкатом: полн
 | ждёт | живые проверки «глянь на экран» и голоса (U6); спаривание телефона → `required` и вывод `WS_SECRET` (ROLLOUT шаги 3–4); запрет отката `noise`→`ws` у спаренного desktop |
 | единый клиент (`feat/unified-client`) | desktop слит в master (U1–U6); desktop-ci на Windows: ядро 1075 passed, интерфейс — зелёный |
 
+
+## Расписание вуза (feat/schedule, 2026-11-04)
+
+| шаг | состояние |
+|---|---|
+| разведка | эндпоинт `ajax.php` (`el=groupnames`), формат `ttable`, JS-проверка защиты для запросов без браузерных кук — `docs/SCHEDULE.md` |
+| `sakura_core/schedule/` | `parse`, `store`, `diff`, `fetch` (direct, Blocked → 24 ч), `sync` (ingest + фоновый цикл), `notify`, `query`, `push_server` |
+| команды | `schedule.today/tomorrow/week/next/refresh` (`capabilities/schedule.py`), реестр 126 → 131 |
+| интеграция | `modules/context.py` (пара вместо `maybe_vuz`, режим `lesson`, строка «ПАРЫ СЕГОДНЯ»), `modules/briefing.py`, `main.py` (фоновые `schedule`, `schedule_push`), `Caddyfile.example` |
+| букмарклет | `tools/schedule_bookmarklet/` (`bookmarklet.js`, `build.py`) |
+| тесты | `test_schedule_parse/core/notify/push/capability/bookmarklet` |
+| живая проверка (2026-11-04) | реальный `ttable` с сайта (браузер, ИД 86.1/М1-25) → `/schedule/push` → 200 «5 занятий, без изменений»; ответы голосом/в Telegram с ФИО и аудиториями, напоминание за 85 мин; на давно открытой вкладке сайт отдаёт заглушку и браузеру — до перезагрузки |
+| полный pytest | 1755 passed, 3 skipped; красные только давние `test_voice_perf` (2), как на master |
+| ждёт | на VPS: `SCHEDULE_PUSH_TOKEN` в `.env`, блок Caddy, сборка закладки, первая выгрузка; письмо в ИТ-отдел вуза для `direct` |

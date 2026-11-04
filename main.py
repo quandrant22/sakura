@@ -318,6 +318,8 @@ async def main(*, lifecycle=None, stop_event=None):
     from modules.reflection import reflection_loop
     from sakura_core.proactive import proactive_loop
     from sakura_core.vision.glance import loop as vision_glance_loop
+    from sakura_core.schedule.sync import loop as schedule_loop
+    from sakura_core.schedule.push_server import serve as schedule_push_serve
     from sakura_core.memory_tasks import daily_analysis
     from sakura_core.llm import ask_gemini
     from sakura_core.startup import guarded_add, init_japanese_vocab, init_weather
@@ -390,6 +392,8 @@ async def main(*, lifecycle=None, stop_event=None):
             ("daily_analysis", daily_analysis()),
             ("proactive_loop", proactive_loop()),
             ("vision_glance", vision_glance_loop()),
+            ("schedule", schedule_loop()),
+            ("schedule_push", schedule_push_serve()),
             ("steam_library_loop", steam_library_loop()),
             ("steam_achievements_loop", steam_achievements_loop()),
             ("reflection_loop", reflection_loop(

@@ -910,8 +910,56 @@
   confirm: false
   followup: ack
   triggers: ['.calendar', 'календарь', 'мои события', 'какие встречи',
-             'расписание на сегодня', 'что сегодня по расписанию',
              'покажи ближайшие события']
+
+# ── Расписание вуза (feat/schedule, sakura_core/schedule) ─────────────
+# «Расписание на сегодня» раньше вело в calendar.list; пары живут здесь.
+
+- id: schedule.today
+  desc: 'Пары на сегодня (расписание вуза)'
+  executor: vps
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['расписание на сегодня', 'что сегодня по расписанию', 'какие сегодня пары',
+             'какие пары сегодня', 'есть ли сегодня пары', 'сегодня есть пары',
+             'во сколько сегодня пары', 'пары на сегодня']
+
+- id: schedule.tomorrow
+  desc: 'Пары на завтра'
+  executor: vps
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['расписание на завтра', 'какие завтра пары', 'какие пары завтра',
+             'есть ли завтра пары', 'завтра есть пары', 'пары на завтра']
+
+- id: schedule.week
+  desc: 'Пары на неделю'
+  executor: vps
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['расписание на неделю', 'пары на неделю', 'какие пары на неделе',
+             'расписание пар', 'покажи расписание пар']
+
+- id: schedule.next
+  desc: 'Ближайшая пара: когда и в какой аудитории'
+  executor: vps
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['где у меня пара', 'какая аудитория', 'в какой аудитории пара',
+             'когда следующая пара', 'следующая пара', 'ближайшая пара',
+             'когда у меня пара']
+
+- id: schedule.refresh
+  desc: 'Обновить расписание вуза'
+  executor: vps
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['обнови расписание', 'обнови пары', 'проверь расписание']
 
 
 # ── Управление компьютером (feat/pc-control) ─────────────────────────

@@ -52,14 +52,15 @@ def index(registry):
 # --- загрузка и валидация -------------------------------------------------
 
 
-def test_load_returns_126_declarations(registry):
+def test_load_returns_131_declarations(registry):
     # system.volume was intentionally added in commit 5fe1b3f,
     # music.restart и алиас music.restart_playing — fix/music-restart,
     # 32 действия управления компьютером и computer.do — feat/pc-control.
     # system.sleep слит в power.sleep (server/power): 123 → 122.
     # feat/vision: screenshot.describe → vision.ask, + vision.glance.on/off: 122 → 124;
     # browser.task и browser.stop — server/browser-step: 124 → 126.
-    assert len(registry) == 126
+    # feat/schedule: schedule.today/tomorrow/week/next/refresh: 126 → 131.
+    assert len(registry) == 131
 
 
 def test_validate_passes_on_real_registry(registry):

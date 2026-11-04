@@ -136,6 +136,39 @@ def _get_anniversaries_snippet() -> str:
         return ""
 
 
+def _get_schedule_snippet() -> str:
+    """Пары на сегодня и изменения расписания за сутки (sakura_core/schedule)."""
+    try:
+        from datetime import timedelta
+
+        from sakura_core.schedule import query
+        from sakura_core.schedule.diff import room_suffix, short_subject
+        from sakura_core.schedule.store import get_store
+        now = datetime.now()  # noqa: DTZ005 — локальное время (R10)
+        if not query.has_data():
+            return ""
+        parts = []
+        lessons = query.on(now.date())
+        if lessons:
+            parts.append("Пары сегодня: " + "; ".join(
+                f"{x.start:%H:%M} {short_subject(x.subject)}{room_suffix(x.room)}" for x in lessons))
+        changed = []
+        for h in get_store().history():
+            try:
+                at = datetime.fromisoformat(h["at"])
+            except (KeyError, ValueError):
+                continue
+            if now - at <= timedelta(hours=24):
+                changed += [c.get("kind", "") for c in h.get("changes", [])]
+        if changed:
+            parts.append(f"Расписание за сутки поменялось (изменений: {len(changed)}).")
+        if query.is_stale(now):
+            parts.append("Расписание давно не обновлялось.")
+        return " ".join(parts)
+    except (ImportError, OSError, ValueError, KeyError):
+        return ""
+
+
 async def build_briefing_prompt() -> str:
     loop = asyncio.get_running_loop()
 
@@ -144,6 +177,7 @@ async def build_briefing_prompt() -> str:
     weather       = await loop.run_in_executor(None, _get_weather_snippet)
     self_mem      = await loop.run_in_executor(None, _get_self_snippet)
     anniversaries = await loop.run_in_executor(None, _get_anniversaries_snippet)
+    schedule      = await loop.run_in_executor(None, _get_schedule_snippet)
 
     now  = datetime.now()
     hour = now.hour
@@ -159,6 +193,8 @@ async def build_briefing_prompt() -> str:
         parts.append(f"Погода: {weather}.")
     if calendar:
         parts.append(calendar)
+    if schedule:
+        parts.append(schedule)
     if tasks:
         parts.append(tasks)
     if anniversaries:

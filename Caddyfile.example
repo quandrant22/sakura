@@ -30,6 +30,13 @@ your.domain.com {
         }
     }
 
+    # Расписание вуза из букмарклета (sakura_core/schedule/push_server.py,
+    # docs/SCHEDULE.md). Приёмник слушает только 127.0.0.1:8771 и
+    # запускается, если в .env задан SCHEDULE_PUSH_TOKEN.
+    handle /schedule/push {
+        reverse_proxy 127.0.0.1:8771
+    }
+
     # Опционально: блокировать все остальные пути
     handle {
         respond "Not Found" 404

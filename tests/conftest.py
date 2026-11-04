@@ -32,6 +32,8 @@ def isolated_chat_log(monkeypatch, tmp_path):
     from modules import chat_log
 
     monkeypatch.setattr(config, "CHAT_DB_PATH", str(tmp_path / "chat.db"))
+    # Расписание вуза — своё пустое хранилище, не memory/muiv_schedule.json
+    monkeypatch.setattr(config, "SCHEDULE_PATH", str(tmp_path / "muiv_schedule.json"), raising=False)
     monkeypatch.setattr(config, "CHAT_LOG_PAUSED", False)
     monkeypatch.setattr(config, "CHAT_LOG_ACKS", False)
     monkeypatch.setattr(config, "CHAT_LOG_RETENTION_DAYS", 0)

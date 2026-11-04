@@ -50,7 +50,7 @@ _GAME_HINTS = ["cyberpunk", "steam", "satisfactory", "remnant", "barotrauma",
                "epic games", "gog", "origin", "ubisoft"] + _HORROR + _ACTION + _CALM
 
 
-def get_location_context(hour: int, minute: int, weekday: int) -> dict:
+def _location_by_clock(hour: int, minute: int, weekday: int) -> dict:
     from datetime import date as _date
     total = hour * 60 + minute
     month = _date.today().month
@@ -79,6 +79,53 @@ def get_location_context(hour: int, minute: int, weekday: int) -> dict:
             return {"location": "home", "status": "free", "desc": "дома, свободен"}
 
     return {"location": "home", "status": "free", "desc": "дома, выходной"}
+
+
+def lesson_context(now: datetime) -> dict | None:
+    """Факт из расписания вуза (sakura_core/schedule) вместо догадки по часам.
+
+    None — данных нет или они устарели: тогда работает прежняя логика
+    (обратная совместимость). Иначе {"current": Lesson|None, "upcoming": Lesson|None}
+    — пара идёт сейчас / следующая сегодня."""
+    try:
+        from sakura_core.schedule import query
+        if not query.has_data() or query.is_stale(now):
+            return None
+        cur = query.current_lesson(now)
+        upcoming = next((x for x in query.on(now.date()) if x.start > now.time()), None)
+        return {"current": cur, "upcoming": upcoming}
+    except (ImportError, OSError, ValueError, KeyError):
+        return None
+
+
+def _lesson_phrase(x) -> str:
+    from sakura_core.schedule.diff import room_suffix, short_subject
+    return f"{short_subject(x.subject)}{room_suffix(x.room)}"
+
+
+def get_location_context(hour: int, minute: int, weekday: int) -> dict:
+    """Где Мастер по расписанию: часы работы + реальные пары из расписания вуза.
+
+    Есть свежее расписание — «может, в вузе» больше не угадывается: идёт пара →
+    vuz/studying; пары нет → прежний ответ по часам без maybe_vuz (R5)."""
+    base = _location_by_clock(hour, minute, weekday)
+    if base.get("status") == "sleeping":
+        return base
+    # наивное локальное время, как во всём модуле (R10)
+    now = datetime.combine(date.today(), datetime.min.time()).replace(hour=hour, minute=minute)  # noqa: DTZ011
+    lc = lesson_context(now)
+    if lc is None:
+        return base
+    cur, upcoming = lc["current"], lc["upcoming"]
+    if cur is not None:
+        return {"location": "vuz", "status": "studying",
+                "desc": f"на паре: {_lesson_phrase(cur)} (до {cur.end:%H:%M})"}
+    if base["location"] == "maybe_vuz":
+        base = {"location": "home", "status": "free", "desc": "дома, свободен"}
+    if upcoming is not None:
+        base = {**base, "desc": f"{base['desc']}; сегодня в {upcoming.start:%H:%M} пара: "
+                                f"{_lesson_phrase(upcoming)}"}
+    return base
 
 
 # ─────────────────────────────────────────────
@@ -290,6 +337,9 @@ def get_full_context(active_window_override: str | None = None) -> dict:
     state = pres["state"] if pres else None
     if state == "at_pc":
         location = {"location": "home", "status": "free", "desc": describe_presence(pres)}
+        if schedule.get("location") == "vuz":
+            # P9: окно/ПК главнее расписания, но пара — факт, его стоит знать
+            location["desc"] += f"; по расписанию сейчас {schedule['desc']}"
     elif state == "at_work":
         location = {"location": "work", "status": "working", "desc": describe_presence(pres)}
     elif state == "away_from_pc":
@@ -373,6 +423,9 @@ def get_presence(ctx: dict) -> dict:
         mode, d = "away_work", "Он на работе. Жди, не дёргай. Если пишешь — строго по делу и коротко."
     elif loc == "transit":
         mode, d = "transit", "Едет домой. Можно мягко окликнуть, но без долгих заходов."
+    elif loc == "vuz":
+        mode, d = "lesson", ("Он на паре. Не дёргай; если пишешь — в Telegram, коротко и по делу. "
+                             "Не ответит — это нормально.")
     elif loc == "maybe_vuz":
         mode, d = "maybe_busy", "Может быть на парах — точно не знаешь. Не навязывайся; не ответит — это нормально."
     elif hour >= 22:
@@ -401,6 +454,13 @@ def build_context_block(active_window_override: str | None = None) -> str:
                            ctx["sakura"], ctx["proactive"], ctx["body"])
     lines = [f"СЕЙЧАС: {t['now']} ({t['time_of_day']}), {t['weekday']}",
              f"МАСТЕР: {m['location_desc']}"]
+    try:
+        from sakura_core.schedule.query import today_prompt_line
+        _pairs = today_prompt_line(datetime.now())  # noqa: DTZ005 — локальное время (R10)
+        if _pairs:
+            lines.append(_pairs)
+    except (ImportError, OSError, ValueError, KeyError):
+        _pairs = ""  # расписание недоступно — блок без строки пар
 
     activity_map = {
         "gaming":   f"играет ({m['current_app']})" if m["current_app"] else "играет",
