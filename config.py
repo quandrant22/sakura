@@ -163,6 +163,27 @@ GLANCE_AFTER_TURN_S = _env_int("GLANCE_AFTER_TURN_S", 120)        # тишина
 GLANCE_AFTER_SPOKEN_S = _env_int("GLANCE_AFTER_SPOKEN_S", 900)    # после своей реплики
 SEEN_TTL_S = _env_int("SEEN_TTL_S", 1800, 60)                     # «увиденное» в контексте
 
+# ── feat/schedule: расписание вуза (sakura_core/schedule, docs/SCHEDULE.md) ──
+# Группа — не секрет. Значения — ровно как на странице расписания МУИВ.
+MUIV_TIMETABLE_URL = os.getenv("MUIV_TIMETABLE_URL", "https://www.muiv.ru/services/timetable/ajax.php")
+MUIV_BRANCH = os.getenv("MUIV_BRANCH", "gv")
+MUIV_FACULTY = os.getenv("MUIV_FACULTY", "Информационных технологий")
+MUIV_YEAR = os.getenv("MUIV_YEAR", "Курс 2")
+MUIV_STUDYFORM = os.getenv("MUIV_STUDYFORM", "Очная")
+MUIV_GROUP = os.getenv("MUIV_GROUP", "ИД 86.1/М1-25")
+SCHEDULE_PATH = os.getenv("SCHEDULE_PATH", "memory/muiv_schedule.json")
+# direct — VPS опрашивает сайт сам (только если вуз внёс IP в исключения:
+# JS-проверку антибота не обходим, R2); push — присылает браузер Мастера.
+SCHEDULE_SOURCES = tuple(s.strip() for s in os.getenv("SCHEDULE_SOURCES", "push").split(",") if s.strip())
+SCHEDULE_SYNC_HOURS = tuple(int(h) for h in os.getenv("SCHEDULE_SYNC_HOURS", "7,19").split(",") if h.strip())
+SCHEDULE_REMIND_BEFORE_MIN = _env_int("SCHEDULE_REMIND_BEFORE_MIN", 90, 0)   # 0 — не напоминать
+SCHEDULE_STALE_DAYS = _env_int("SCHEDULE_STALE_DAYS", 7, 1)
+# Приём из букмарклета: слушает только localhost, наружу — через Caddy.
+# Пустой токен — приёмник не запускается. Токен — секрет: не логировать.
+SCHEDULE_PUSH_TOKEN = os.getenv("SCHEDULE_PUSH_TOKEN", "")
+SCHEDULE_PUSH_HOST = os.getenv("SCHEDULE_PUSH_HOST", "127.0.0.1")
+SCHEDULE_PUSH_PORT = _env_int("SCHEDULE_PUSH_PORT", 8771, 1)
+
 # ── feat/search-searxng: поставщики поиска (sakura_core/search/providers.py) ──
 # parallel — Parallel Search MCP; searxng — свой метапоисковик (deploy/searxng).
 SEARCH_PROVIDERS = os.getenv("SEARCH_PROVIDERS", "parallel,searxng")
