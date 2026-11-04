@@ -39,10 +39,30 @@ async def _run(source: str) -> int:
                    else parse_ttable(got.ttable))
     except ParseError as e:
         print(f"{source}: СТРАНИЦА НЕ РАЗОБРАНА — {e}")
+        if source == "eios":
+            print(diagnose(got.ttable, getattr(client, "last_url", "")))
         return 5
     days = sorted({x.date.strftime("%d.%m") for x in lessons})
     print(f"{source}: OK — занятий {len(lessons)}, дни: {', '.join(days) or 'нет'}")
     return 0
+
+
+_MARKERS = ("studtimetable", "main_container_studtimetable", "ttdate", "type=\"password\"",
+            "policy", "sesskey", "region-main", "logout.php", "/local/student_timetable/",
+            "__jhash_", "notifyproblem", "alert-danger", "page-local-student_timetable",
+            "data-region=\"user-menu\"", "usermenu")
+
+
+def diagnose(html: str, path: str) -> str:
+    """Что пришло вместо расписания: адрес, заголовок, метки разметки.
+    Без текста страницы — в нём могут быть ФИО и личные данные."""
+    import re
+    title = re.search(r"<title>(.*?)</title>", html, re.DOTALL | re.IGNORECASE)
+    body_id = re.search(r'<body[^>]*\bid="([^"]+)"', html)
+    found = [m for m in _MARKERS if m in html]
+    return (f"  адрес: {path or '?'}\n  заголовок: {title.group(1).strip()[:80] if title else '?'}\n"
+            f"  body id: {body_id.group(1) if body_id else '?'}\n  размер: {len(html)} байт\n"
+            f"  метки: {', '.join(found) or 'нет'}")
 
 
 def main() -> int:

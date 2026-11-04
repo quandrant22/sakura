@@ -76,6 +76,7 @@ class EiosClient:
     def __init__(self, client: httpx.AsyncClient | None = None):
         self._client = client
         self.auth_failed = False
+        self.last_url = ""          # путь последней страницы — для диагностики (без query)
 
     def _http(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -122,6 +123,7 @@ class EiosClient:
                 if r.status_code != 200:
                     return FetchError(f"http_{r.status_code}")
                 if not _is_login_page(r.url, r.text):
+                    self.last_url = r.url.path
                     return Fetched(r.text)
                 if attempt == 2:
                     return FetchError("session_lost")
