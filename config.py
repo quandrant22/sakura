@@ -176,7 +176,7 @@ SCHEDULE_PATH = os.getenv("SCHEDULE_PATH", "memory/muiv_schedule.json")
 # JS-проверку антибота не обходим, R2); push — присылает браузер Мастера.
 # eios — сервер входит в ЭИОС (e.muiv.ru) под учёткой Мастера (R11). С VPS
 # ЭИОС показывает капчу вместо расписания (R14) — по умолчанию выключен.
-SCHEDULE_SOURCES = tuple(s.strip() for s in os.getenv("SCHEDULE_SOURCES", "push").split(",") if s.strip())
+SCHEDULE_SOURCES = tuple(s.strip() for s in os.getenv("SCHEDULE_SOURCES", "direct").split(",") if s.strip())
 EIOS_URL = os.getenv("EIOS_URL", "https://e.muiv.ru")
 # Учётка ЭИОС — секрет: только в .env, не логировать, на диск не писать.
 EIOS_USERNAME = os.getenv("EIOS_USERNAME", "")
