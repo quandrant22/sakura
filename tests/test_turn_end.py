@@ -247,6 +247,7 @@ def test_ensure_turn_end_respects_since(monkeypatch):
 
     async def _go():
         await tts._send_end(ws, "laptop")          # прошлый ход
+        await asyncio.sleep(0.02)
         since = time.monotonic()
         await tts.ensure_turn_end(ws, "laptop", since)   # добавлен
         await tts.ensure_turn_end(ws, "laptop", since)   # уже есть
