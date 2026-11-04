@@ -174,9 +174,9 @@ MUIV_GROUP = os.getenv("MUIV_GROUP", "ИД 86.1/М1-25")
 SCHEDULE_PATH = os.getenv("SCHEDULE_PATH", "memory/muiv_schedule.json")
 # direct — VPS опрашивает www.muiv.ru сам (только если вуз внёс IP в исключения:
 # JS-проверку антибота не обходим, R2); push — присылает браузер Мастера.
-# eios — сервер сам входит в ЭИОС (e.muiv.ru) под учёткой Мастера и читает
-# «Расписание занятий»: полностью автоматически, без ПК и домена (R11).
-SCHEDULE_SOURCES = tuple(s.strip() for s in os.getenv("SCHEDULE_SOURCES", "eios,push").split(",") if s.strip())
+# eios — сервер входит в ЭИОС (e.muiv.ru) под учёткой Мастера (R11). С VPS
+# ЭИОС показывает капчу вместо расписания (R14) — по умолчанию выключен.
+SCHEDULE_SOURCES = tuple(s.strip() for s in os.getenv("SCHEDULE_SOURCES", "push").split(",") if s.strip())
 EIOS_URL = os.getenv("EIOS_URL", "https://e.muiv.ru")
 # Учётка ЭИОС — секрет: только в .env, не логировать, на диск не писать.
 EIOS_USERNAME = os.getenv("EIOS_USERNAME", "")

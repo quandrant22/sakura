@@ -36,7 +36,14 @@ class AuthError:
 
 
 def _stub(text: str) -> bool:
-    return any(m in text[:20000] for m in _STUB_MARKERS)
+    """Страница защиты вместо данных: JS-проверка или капча (2026-11-04 ЭИОС
+    отдала VPS страницу «Captcha» на месте расписания). Не проходим (R2)."""
+    head = text[:20000]
+    if any(m in head for m in _STUB_MARKERS):
+        return True
+    import re
+    title = re.search(r"<title>\s*([^<]*?)\s*</title>", head, re.IGNORECASE)
+    return bool(title and re.search(r"captcha|капч|проверка", title.group(1), re.IGNORECASE))
 
 
 def _is_login_page(url: httpx.URL, text: str) -> bool:

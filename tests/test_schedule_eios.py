@@ -201,3 +201,10 @@ def test_auto_due_for_eios(tmp_path, monkeypatch):
     assert auto_due(datetime(2026, 11, 4, 19, 59), store, "eios")
     assert not auto_due(datetime(2026, 11, 4, 12, 0), store, "eios")
     assert not auto_due(datetime(2026, 11, 4, 19, 59), store, "direct")   # direct не включён
+
+
+def test_captcha_page_is_blocked(creds):
+    captcha = "<html><head><title>Captcha</title></head><body><form>…</form></body></html>"
+    m = FakeMoodle(page=captcha)
+    got = asyncio.run(client_for(m).fetch())
+    assert isinstance(got, Blocked)
