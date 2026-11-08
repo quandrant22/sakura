@@ -966,7 +966,6 @@ class Hearing(threading.Thread):
         if not speaking:
             self.agent.set_state("idle")
             return False
-        return True
 
         if timeline is not None:
             log.info("[timeline] id=%s phase=last_voice_frame", timeline["id"])
@@ -1013,6 +1012,7 @@ class Hearing(threading.Thread):
             return
         self._update_dialog(text)
         self.agent.submit_user_text(text, timeline=timeline)
+        return True
 
     def _maybe_game_mode(self, text: str) -> bool:
         import difflib
