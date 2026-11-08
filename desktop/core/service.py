@@ -863,10 +863,18 @@ class CoreService:
                     return self._agent.player.is_playing()
                 return False
 
+            def _on_caller_speech(text: str):
+                resp = cm.process_caller_speech(text)
+                clean = text.lower().strip()
+                if "сакура" in clean and not cm.held_request:
+                    if self._agent:
+                        prompt = f"[В звонке Discord друг говорит]: \"{text}\". Ответь другу едко, с сарказмом и в характере Сакуры, коротко в 1 предложение."
+                        self._agent.submit_user_text(prompt, source="call")
+
             loopback = get_loopback_speech_listener()
             loopback.is_active_fn = _is_loopback_active
             loopback.is_muted_fn = _is_tts_playing
-            loopback.on_caller_speech = lambda text: cm.process_caller_speech(text)
+            loopback.on_caller_speech = _on_caller_speech
             loopback.on_watch_speech = lambda text: (wa.feed_speech(text), wa.maybe_comment())
             loopback.start()
 

@@ -108,8 +108,11 @@ class Player:
         # Предзаполнение: старт звука, когда накоплено PLAYER_PREROLL_MS
         # (или пришёл tts_end, или прошло _PREROLL_MAX_WAIT с первого чанка)
         self._preroll_bytes = int(getattr(config, "PLAYER_PREROLL_MS", 0) * rate / 1000) * 2
+        self._cable_stream = None
+        self._cable_buf = bytearray()
         self._reset_response()
         self._open_stream()
+        self._open_cable_stream()
         threading.Thread(target=self._watchdog, daemon=True).start()
 
     def _open_stream(self):
@@ -141,6 +144,41 @@ class Player:
                     break
                 except Exception as e:
                     log.warning(f"[voice] Устройство {dev}: {e}")
+
+    def _open_cable_stream(self):
+        if not sd:
+            return
+        try:
+            cable_idx = None
+            for i, d in enumerate(sd.query_devices()):
+                if "cable input" in d["name"].lower() and d["max_output_channels"] > 0:
+                    cable_idx = i
+                    break
+            if cable_idx is not None:
+                self._cable_stream = sd.RawOutputStream(
+                    samplerate=self._rate,
+                    channels=1,
+                    dtype="int16",
+                    blocksize=_BLOCKSIZE,
+                    device=cable_idx,
+                    callback=self._cable_callback,
+                    latency="low",
+                )
+                self._cable_stream.start()
+                log.info(f"[voice] Вывод в виртуальный кабель Discord открыт: dev {cable_idx}")
+        except Exception as e:
+            log.warning(f"[voice] Кабель Discord не открыт: {e}")
+
+    def _cable_callback(self, outdata, frames, time_info, status):
+        need = frames * 2
+        n = 0
+        with self._lock:
+            n = min(need, len(self._cable_buf))
+            if n:
+                outdata[:n] = bytes(self._cable_buf[:n])
+                del self._cable_buf[:n]
+        if n < need:
+            outdata[n:] = b"\x00" * (need - n)
 
     def _watchdog(self):
         time.sleep(3.0)
@@ -224,6 +262,8 @@ class Player:
             if not self._started and not self._first_chunk_ts:
                 self._first_chunk_ts = time.monotonic()
             self._buf.extend(pcm)
+            if self._cable_stream and self._cable_stream.active:
+                self._cable_buf.extend(pcm)
             self.last_feed_ts = time.monotonic()
 
     def feed_binary(self, data: bytes):
@@ -243,6 +283,7 @@ class Player:
         """Баржинг — очищаем буфер."""
         with self._lock:
             self._buf.clear()
+            self._cable_buf.clear()
             self._finish_response()
 
     def buffer_bytes(self) -> int:
