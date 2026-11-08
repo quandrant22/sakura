@@ -155,17 +155,18 @@ class Player:
                     cable_idx = i
                     break
             if cable_idx is not None:
+                # 48000 Hz, блок 1024 сэмпла для максимальной плавности и отсутствия прерываний в Discord
                 self._cable_stream = sd.RawOutputStream(
-                    samplerate=self._rate,
+                    samplerate=48000,
                     channels=1,
                     dtype="int16",
-                    blocksize=_BLOCKSIZE,
+                    blocksize=1024,
                     device=cable_idx,
                     callback=self._cable_callback,
                     latency="low",
                 )
                 self._cable_stream.start()
-                log.info(f"[voice] Вывод в виртуальный кабель Discord открыт: dev {cable_idx}")
+                log.info(f"[voice] Вывод в виртуальный кабель Discord открыт (48кГц, блок 1024): dev {cable_idx}")
         except Exception as e:
             log.warning(f"[voice] Кабель Discord не открыт: {e}")
 
@@ -263,7 +264,12 @@ class Player:
                 self._first_chunk_ts = time.monotonic()
             self._buf.extend(pcm)
             if self._cable_stream and self._cable_stream.active:
-                self._cable_buf.extend(pcm)
+                # 24k -> 48k ресемплинг + 0.40 громкость (чтобы не глушило шумоподавление Krisp и не хрипело в Discord)
+                import numpy as np
+                pcm_arr = np.frombuffer(pcm, dtype=np.int16)
+                pcm_48k = np.repeat(pcm_arr, 2)
+                pcm_scaled = (pcm_48k * 0.40).astype(np.int16).tobytes()
+                self._cable_buf.extend(pcm_scaled)
             self.last_feed_ts = time.monotonic()
 
     def feed_binary(self, data: bytes):

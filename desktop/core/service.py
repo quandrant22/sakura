@@ -863,13 +863,22 @@ class CoreService:
                     return self._agent.player.is_playing()
                 return False
 
+            _last_caller_reply = 0.0
+
             def _on_caller_speech(text: str):
+                nonlocal _last_caller_reply
+                now = time.monotonic()
                 resp = cm.process_caller_speech(text)
                 clean = text.lower().strip()
-                if "сакура" in clean and not cm.held_request:
-                    if self._agent:
-                        prompt = f"[В звонке Discord друг говорит]: \"{text}\". Ответь другу едко, с сарказмом и в характере Сакуры, коротко в 1 предложение."
-                        self._agent.submit_user_text(prompt, source="call")
+                import re
+                has_sakura = bool(re.search(r'\bсакур[а-я]*\b', clean))
+
+                if has_sakura and not cm.held_request:
+                    if (now - _last_caller_reply) > 6.0:
+                        if self._agent and getattr(self._agent, "_state", "") not in ("thinking", "speaking"):
+                            _last_caller_reply = now
+                            prompt = f"[В звонке Discord друг говорит]: \"{text}\". Ответь другу едко, с сарказмом и в характере Сакуры, коротко в 1 предложение."
+                            self._agent.submit_user_text(prompt, source="call")
 
             loopback = get_loopback_speech_listener()
             loopback.is_active_fn = _is_loopback_active

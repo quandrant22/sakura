@@ -752,6 +752,14 @@ class Hearing(threading.Thread):
             return True
         return now < self._mute_until
 
+    def reset_dialog(self):
+        self._dialog = False
+        self._follow_until = 0.0
+        self._dialog_idle_count = 0
+        if getattr(self.agent, "_state", "") == "listening":
+            self.agent.set_state("idle")
+        log.info("[dialog] диалог и прослушка принудительно сброшены")
+
     def open_followup(self, seconds: float = config.FOLLOWUP_SEC):
         self._follow_until = time.monotonic() + seconds
 
@@ -843,7 +851,16 @@ class Hearing(threading.Thread):
 
                     if self._dialog or time.monotonic() < self._follow_until:
                         self._follow_until = 0.0
-                        self._capture(stream)
+                        got_voice = self._capture(stream)
+                        if self._dialog and not got_voice:
+                            _dialog_idle_count = getattr(self, '_dialog_idle_count', 0) + 1
+                            self._dialog_idle_count = _dialog_idle_count
+                            if _dialog_idle_count >= 2:
+                                self._dialog = False
+                                self._dialog_idle_count = 0
+                                log.info("[dialog] режим диалога ВЫКЛ по таймауту тишины")
+                        else:
+                            self._dialog_idle_count = 0
                         _drain(stream)
                         wake = _fresh_wake()
                         continue
@@ -948,7 +965,8 @@ class Hearing(threading.Thread):
 
         if not speaking:
             self.agent.set_state("idle")
-            return
+            return False
+        return True
 
         if timeline is not None:
             log.info("[timeline] id=%s phase=last_voice_frame", timeline["id"])
