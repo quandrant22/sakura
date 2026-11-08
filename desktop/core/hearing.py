@@ -868,6 +868,10 @@ class Hearing(threading.Thread):
                     if _dt > _budget_ms and time.monotonic() - _last_warn >= 5.0:
                         _last_warn = time.monotonic()
                         log.warning(f"[hearing] блок обработан за {_dt:.0f}мс при бюджете {_budget_ms:.0f}мс — поток отстаёт")
+                        avail = getattr(stream, 'read_available', 0)
+                        if avail > config.WAKE_BLOCK * 2:
+                            for _ in range(min(5, avail // config.WAKE_BLOCK)):
+                                stream.read(config.WAKE_BLOCK)
                     mode = VT.choose_mode(self.wake_sensitivity, self.noise.db)
                     if VT.wake_hit(tuple(config.WAKE_WORDS), mode, partial, final):
                         self._timeline_sequence += 1
