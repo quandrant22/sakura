@@ -143,3 +143,5 @@ data/quiz_eval/
 
 # Рабочий образ Сакуры (перезаписывается во время работы)
 memory/persona/
+
+.temp_vbcable/

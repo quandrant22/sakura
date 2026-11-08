@@ -53,9 +53,11 @@ class CallModeManager:
         self,
         on_say_in_call: Optional[Callable[[str], None]] = None,
         on_action: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+        on_notify: Optional[Callable[[str, str], None]] = None,
     ):
         self.on_say_in_call = on_say_in_call or (lambda text: log.info("Call Say: %s", text))
         self.on_action = on_action or (lambda act, args: log.info("Call Action: %s (%s)", act, args))
+        self.on_notify = on_notify or (lambda title, text: log.info("Call Notify: %s: %s", title, text))
         self.active: bool = False
         self.current_app: str = "Discord"  # Discord, Telegram, Zoom, Teams
         self.active_errand: Optional[CallErrand] = None
@@ -87,8 +89,9 @@ class CallModeManager:
             return None
 
         clean = text.lower().strip()
+        self.on_notify(f"{self.current_app} (Друг)", text)
 
-        # Если активно поручение на выбор игры
+        # 1. Если активно поручение на выбор игры
         if self.active_errand and not self.active_errand.is_expired:
             if self.active_errand.action == "launch_game":
                 # Друг назвал игру
@@ -99,7 +102,29 @@ class CallModeManager:
                     suggested_args={"game": game_name},
                 )
                 self.active_errand = None
-                return f"Ребята в звонке предлагают запустить «{game_name}». Запустить? (Скажи «Да» для подтверждения)"
+                prompt = f"Ребята в звонке предлагают запустить «{game_name}». Запустить? (Скажи «Да» для подтверждения)"
+                self.on_say_in_call(prompt)
+                return prompt
+
+        # 2. Друг обратился к Сакуре («Сакура, ...»)
+        if "сакура" in clean:
+            # Опасные действия требуют подтверждения мастера
+            dangerous = any(w in clean for w in ("закрой", "удали", "выключи", "перезагрузи", "убей", "сотри"))
+            if dangerous:
+                self.held_request = HeldRequest(
+                    caller_text=text,
+                    suggested_action="system_command",
+                    suggested_args={"command": text},
+                )
+                prompt = f"Друг в звонке просит «{text}». Разрешить мастер?"
+                self.on_say_in_call(prompt)
+                return prompt
+            else:
+                # Дружелюбный ответ в звонок
+                reply = f"Привет! Я слышу вас в {self.current_app}, но слушаюсь только своего мастера."
+                if any(w in clean for w in ("привет", "хай", "здравствуй")):
+                    self.on_say_in_call(reply)
+                    return reply
 
         return None
 

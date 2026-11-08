@@ -23,6 +23,7 @@ from desktop.core.gamesense import GameSenseDetector
 from desktop.core.husk import HuskManager
 from desktop.core.ink import InkManager
 from desktop.core.lookout import LookoutEngine
+from desktop.core.loopback_speech import LoopbackSpeechListener
 from desktop.core.mic_mix import MicMixManager
 from desktop.core.watch_along import WatchAlongManager
 
@@ -37,6 +38,7 @@ _call_mode_manager: Optional[CallModeManager] = None
 _mic_mix_manager: Optional[MicMixManager] = None
 _watch_along_manager: Optional[WatchAlongManager] = None
 _care_manager: Optional[CareManager] = None
+_loopback_speech_listener: Optional[LoopbackSpeechListener] = None
 
 
 def get_husk_manager() -> HuskManager:
@@ -100,3 +102,10 @@ def get_care_manager() -> CareManager:
     if _care_manager is None:
         _care_manager = CareManager()
     return _care_manager
+
+
+def get_loopback_speech_listener() -> LoopbackSpeechListener:
+    global _loopback_speech_listener
+    if _loopback_speech_listener is None:
+        _loopback_speech_listener = LoopbackSpeechListener()
+    return _loopback_speech_listener

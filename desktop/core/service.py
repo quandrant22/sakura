@@ -844,7 +844,33 @@ class CoreService:
             lookout = get_lookout_engine()
             lookout.on_alert = lambda msg: self._emit({"type": "notify", "text": msg, "level": "info"})
 
-            log.info("[companion] Все подсистемы Capri Suite (Husk, Ink, Clips, Care, Lookout) успешно запущены")
+            # 6. Call Mode & Watch Along loopback speech listener (захват речи друга из Discord/видео)
+            from desktop.core.features import (
+                get_call_mode_manager, get_watch_along_manager, get_loopback_speech_listener
+            )
+            cm = get_call_mode_manager()
+            cm.on_say_in_call = lambda text: self._emit({"type": "notify", "text": f"Сакура (в звонок): {text}", "level": "info"})
+            cm.on_notify = lambda title, text: self._emit({"type": "notify", "text": f"{title}: {text}", "level": "info"})
+
+            wa = get_watch_along_manager()
+            wa.on_comment = lambda text: self._emit({"type": "notify", "text": f"Сакура: {text}", "level": "info"})
+
+            def _is_loopback_active():
+                return cm.active or wa.active
+
+            def _is_tts_playing():
+                if self._agent and getattr(self._agent, "player", None):
+                    return self._agent.player.is_playing()
+                return False
+
+            loopback = get_loopback_speech_listener()
+            loopback.is_active_fn = _is_loopback_active
+            loopback.is_muted_fn = _is_tts_playing
+            loopback.on_caller_speech = lambda text: cm.process_caller_speech(text)
+            loopback.on_watch_speech = lambda text: (wa.feed_speech(text), wa.maybe_comment())
+            loopback.start()
+
+            log.info("[companion] Все подсистемы Capri Suite (Husk, Ink, Clips, Care, Lookout, LoopbackSpeech) успешно запущены")
         except Exception as e:
             log.warning("[companion] Ошибка инициализации подсистем: %s", e)
 
