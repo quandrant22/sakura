@@ -361,7 +361,7 @@ async def ws_handler(websocket):
                 from config import VOICE_MODEL_CHAIN
                 farewell = await ask_gemini(
                     get_farewell_prompt(), save_history=False,
-                    chain=VOICE_MODEL_CHAIN,
+                    chain=VOICE_MODEL_CHAIN, search=False,
                 )
                 if farewell:
                     await send_to_master(farewell)
@@ -741,13 +741,13 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
                 _lr = await ask_gemini(
                     f'Скажи Мастеру его сохранённые команды: {cmd_list}. Коротко.',
                     save_history=False, history_limit=VOICE_HISTORY_LIMIT,
-                    chain=VOICE_MODEL_CHAIN,
+                    chain=VOICE_MODEL_CHAIN, search=False,
                 )
             else:
                 _lr = await ask_gemini(
                     'Скажи Мастеру что он ещё не добавил своих команд. Можно добавить голосом: "запомни: слово = действие".',
                     save_history=False, history_limit=VOICE_HISTORY_LIMIT,
-                    chain=VOICE_MODEL_CHAIN,
+                    chain=VOICE_MODEL_CHAIN, search=False,
                 )
             if _lr:
                 _active_ws, _ad = _get_active_ws()
@@ -764,7 +764,7 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
             _tr = await ask_gemini(
                 f'Запомнила команду "{_trigger}". Подтверди коротко.',
                 save_history=False, history_limit=VOICE_HISTORY_LIMIT,
-                chain=VOICE_MODEL_CHAIN,
+                chain=VOICE_MODEL_CHAIN, search=False,
             )
             if _tr:
                 _active_ws, _ad = _get_active_ws()
@@ -785,6 +785,7 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
             _chain_reply = await ask_gemini(
                 _chain_prompt, save_history=False,
                 history_limit=VOICE_HISTORY_LIMIT, chain=VOICE_MODEL_CHAIN,
+                search=False,
             )
             if _chain_reply and ws_dev:
                 await stream_tts_to_device(_chain_reply, ws_dev, device_id or "laptop",
@@ -811,6 +812,7 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
             _trig_reply = await ask_gemini(
                 _trig_prompt, save_history=False,
                 history_limit=VOICE_HISTORY_LIMIT, chain=VOICE_MODEL_CHAIN,
+                search=False,
             )
             if _trig_reply and ws_dev:
                 await stream_tts_to_device(_trig_reply, ws_dev, device_id or "laptop",

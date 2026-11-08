@@ -856,13 +856,59 @@ def execute_command(action: str) -> dict:
         # Подтверждение выключения уже получено на сервере (_pending_system в
         # modules/ws_handlers.py) — платформа выполняет сразу.
         delay = config.SHUTDOWN_DELAY_S
-        done = {"lock": "заблокировано", "shutdown": f"выключение через {delay} с",
-                "restart": f"перезагрузка через {delay} с", "shutdown_cancel": "выключение отменено",
+        done = {"lock": "заблокировано", "shutdown": f"выключение через {delay} с" if delay else "выключаю",
+                "restart": f"перезагрузка через {delay} с" if delay else "перезагружаю", "shutdown_cancel": "выключение отменено",
                 "sleep": "уходим в сон"}
         if arg not in done:
             return {"result": f"неизвестная системная команда: {arg}"}
         get_platform().power(arg)
         return {"result": done[arg]}
+
+    # Клипирование (Capri Clips)
+    if verb in ("clip", "clip_that"):
+        from desktop.core.features import get_clip_buffer
+        dur = int(arg) if arg and arg.isdigit() else 30
+        path = get_clip_buffer().save_clip(dur)
+        return {"result": f"клип сохранён: {path}" if path else "не удалось сохранить клип"}
+
+    # Экранные чернила (Capri Ink)
+    if verb in ("ink", "draw_ink"):
+        from desktop.core.features import get_ink_manager
+        get_ink_manager().draw(arg)
+        return {"result": "нарисовала на экране"}
+    if verb == "clear_ink":
+        from desktop.core.features import get_ink_manager
+        get_ink_manager().clear()
+        return {"result": "стёрла рисунок"}
+
+    # Дозор экрана (Capri Lookout)
+    if verb in ("lookout", "watch_for"):
+        from desktop.core.features import get_lookout_engine
+        wid = get_lookout_engine().add_watch(arg)
+        return {"result": f"слежу за экраном #{wid}: {arg}"}
+    if verb == "stop_watch":
+        from desktop.core.features import get_lookout_engine
+        get_lookout_engine().remove_watch(arg)
+        return {"result": "перестала следить за экраном"}
+
+    # Режим звонков (Capri Call Mode)
+    if verb == "call_mode":
+        from desktop.core.features import get_call_mode_manager
+        if arg in ("on", "start"):
+            get_call_mode_manager().enable()
+            return {"result": "режим звонков включен"}
+        elif arg in ("off", "stop"):
+            get_call_mode_manager().disable()
+            return {"result": "режим звонков выключен"}
+
+    # Совместный просмотр (Capri Watch Along)
+    if verb == "watch_along":
+        from desktop.core.features import get_watch_along_manager
+        if arg in ("off", "stop"):
+            get_watch_along_manager().stop()
+            return {"result": "совместный просмотр остановлен"}
+        get_watch_along_manager().start(arg)
+        return {"result": f"смотрю с тобой {arg}" if arg else "смотрю с тобой экран"}
 
     return {"result": f"неизвестная команда: {action}"}
 

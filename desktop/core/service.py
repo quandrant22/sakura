@@ -173,8 +173,9 @@ class CoreService:
             what = "Перезагружаю" if data.get("action") == "restart" else "Выключаю"
             seconds = int(data.get("seconds") or 0)
             self._emit({"type": "power_pending", "action": data.get("action"), "seconds": seconds})
-            self.chat.reply(f"{what} компьютер через {seconds} секунд. Скажи «отмени», чтобы остановить.",
-                            kind="proactive")
+            msg = f"{what} компьютер через {seconds} секунд. Скажи «отмени», чтобы остановить." if seconds > 0 else f"{what} компьютер."
+            self.chat.reply(msg, kind="proactive")
+
         elif event == "power_cancelled":
             self._emit({"type": "power_cancelled"})
         elif event == "transport_state":
@@ -464,6 +465,30 @@ class CoreService:
             if not arg:
                 raise ApiError("bad_request", "не указан сценарий")
             return await self.link.request({"type": "scenario_run", "id": str(arg)})
+        if kind == "clip_that":
+            from desktop.core.features import get_clip_buffer
+            path = await asyncio.to_thread(get_clip_buffer().save_clip, 30)
+            return {"text": f"Клип сохранён: {path}" if path else "Не удалось сохранить клип"}
+        if kind == "clear_ink":
+            from desktop.core.features import get_ink_manager
+            get_ink_manager().clear()
+            return {"text": "Рисунок стёрт"}
+        if kind == "toggle_call_mode":
+            from desktop.core.features import get_call_mode_manager
+            cm = get_call_mode_manager()
+            if cm.active:
+                cm.disable()
+            else:
+                cm.enable()
+            return {"active": cm.active}
+        if kind == "toggle_watch_along":
+            from desktop.core.features import get_watch_along_manager
+            wa = get_watch_along_manager()
+            if wa.active:
+                wa.stop()
+            else:
+                wa.start("видео")
+            return {"active": wa.active}
         raise ApiError("bad_request", f"неизвестное быстрое действие: {kind}")
 
     async def cmd_list_apps(self, msg: dict):
@@ -782,6 +807,48 @@ class CoreService:
         except Exception as e:  # noqa: BLE001
             log.warning("[music] наблюдатель SMTC не запущен: %s", type(e).__name__)
 
+    def _start_companion_features(self):
+        """Автозапуск подсистем Capri Companion Suite при старте ядра."""
+        try:
+            from desktop.core.features import (
+                get_husk_manager, get_ink_manager, get_clip_buffer,
+                get_care_manager, get_lookout_engine
+            )
+            # 1. Husk manager (тело для AI-агентов)
+            husk = get_husk_manager()
+            husk.on_notify = lambda title, text: self._emit({"type": "notify", "text": f"{title}: {text}", "level": "info"})
+            husk.on_say = lambda text: self._emit({"type": "notify", "text": text, "level": "info"})
+            husk.start()
+
+            # 2. Ink manager -> отправка событий рисования в UI
+            ink = get_ink_manager()
+            ink.on_render = lambda shapes: self._emit({"type": "ink_render", "shapes": shapes})
+
+            # 3. Clip buffer -> захват кадров экрана в кольцевой буфер
+            from desktop.core.hands import take_screenshot
+            import base64
+            def _capture_clip_frame():
+                try:
+                    b64 = take_screenshot()
+                    return base64.b64decode(b64) if b64 else None
+                except Exception:
+                    return None
+            clips = get_clip_buffer()
+            clips.capture_func = _capture_clip_frame
+            clips.start()
+
+            # 4. Care manager -> периодические напоминания
+            care = get_care_manager()
+            care.on_care_nudge = lambda k, msg: self._emit({"type": "notify", "text": f"Сакура: {msg}", "level": "info"})
+
+            # 5. Lookout engine
+            lookout = get_lookout_engine()
+            lookout.on_alert = lambda msg: self._emit({"type": "notify", "text": msg, "level": "info"})
+
+            log.info("[companion] Все подсистемы Capri Suite (Husk, Ink, Clips, Care, Lookout) успешно запущены")
+        except Exception as e:
+            log.warning("[companion] Ошибка инициализации подсистем: %s", e)
+
     async def run(self, api_port: int = 0):
         await self.api.start(api_port)
         from desktop.core import support
@@ -797,6 +864,7 @@ class CoreService:
             self._agent = await asyncio.to_thread(factory, self.bus, server_link=self.link)
             self._agent.media = self.media
             self._attach_vision()
+            self._start_companion_features()
             self._apply_voice_settings()
             self._emit({"type": "settings", "settings": self.settings_snapshot()})
         await self._agent.run()

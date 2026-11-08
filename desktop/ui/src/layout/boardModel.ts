@@ -13,7 +13,7 @@ export const MARGIN: [number, number] = [20, 20];
 export const COLLAPSED_ROWS = 3;
 
 export type WidgetType = "music" | "video" | "window" | "system" | "scenarios" | "today" | "server" | "notes"
-  | "notifications" | "focus-timer" | "quick-actions";
+  | "notifications" | "focus-timer" | "quick-actions" | "companion";
 export type Category = "media" | "system" | "assistant";
 export type Size = "S" | "M" | "L";
 
@@ -55,6 +55,9 @@ export const CATALOG: Record<WidgetType, WidgetMeta> = {
   "quick-actions": { title: "Быстрые действия", description: "Скриншот, фокус, микрофон, игровой режим",
                      category: "system", singleton: true,
                      sizes: { S: { w: 6, h: 6 }, M: { w: 9, h: 8 }, L: { w: 12, h: 8 } }, min: { w: 5, h: 5 } },
+  companion: { title: "Компаньон", description: "Husk-агент, клипы, чернила, звонки и забота",
+               category: "assistant", singleton: true,
+               sizes: { S: { w: 6, h: 8 }, M: { w: 9, h: 12 }, L: { w: 12, h: 14 } }, min: { w: 5, h: 6 } },
 };
 export const WIDGET_TYPES = Object.keys(CATALOG) as WidgetType[];
 

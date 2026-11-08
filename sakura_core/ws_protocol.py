@@ -104,6 +104,7 @@ async def handle_register(websocket, data, ctx) -> None:
     if is_master_device(device_id) and should_greet_device(device_id):
         greeting = await ask_gemini(
             get_greeting_prompt(), save_history=False, chain=VOICE_MODEL_CHAIN,
+            search=False,
         )
         if greeting:
             await bot.send_message(MASTER_ID, greeting)
@@ -212,6 +213,7 @@ async def handle_ping(websocket, data, ctx) -> None:
             prompt = make_music_comment_prompt(track, mem[:200])
             reply = await ask_gemini(
                 prompt, save_history=False, chain=VOICE_MODEL_CHAIN,
+                search=False,
             )
             if reply:
                 await bot.send_message(MASTER_ID, reply)
@@ -226,6 +228,7 @@ async def handle_ping(websocket, data, ctx) -> None:
         if alert:
             reply_pc = await ask_gemini(
                 alert["prompt"], save_history=False, chain=VOICE_MODEL_CHAIN,
+                search=False,
             )
             if reply_pc:
                 await bot.send_message(MASTER_ID, reply_pc)
@@ -270,7 +273,7 @@ async def handle_kettle_ready(websocket, data, ctx) -> None:
     ws_k = st.connected_devices.get(dev)
     prompt = f"Чайник закипел и выключился, температура {temp}°C. Скажи Мастеру одной короткой фразой — чай готов. Без банальщины."
     reply_k = await ask_gemini(
-        prompt, save_history=False, chain=VOICE_MODEL_CHAIN,
+        prompt, save_history=False, chain=VOICE_MODEL_CHAIN, search=False,
     )
     if reply_k:
         if ws_k:
@@ -299,7 +302,7 @@ async def handle_notification(websocket, data, ctx) -> None:
                     "Скажи Мастеру одной короткой фразой обратить внимание. Без банальщины."
                 )
                 _reply = await ask_gemini(
-                    prompt, save_history=False, chain=VOICE_MODEL_CHAIN,
+                    prompt, save_history=False, chain=VOICE_MODEL_CHAIN, search=False,
                 )
                 if _reply:
                     await stream_tts_to_device(_reply, _active_ws, _ad or "laptop", literal=True,
@@ -339,7 +342,8 @@ async def _answer_read_result(action, ok, detail, dev_name, ask_gemini, bot) -> 
         if detail:
             try:
                 text = await ask_gemini(_READ_PROMPT.format(desc=desc, detail=detail),
-                                        save_history=False, chain=VOICE_MODEL_CHAIN)
+                                        save_history=False, chain=VOICE_MODEL_CHAIN,
+                                        search=False)
             except Exception as e:
                 log.debug(f"[pc] пересказ {action}: {type(e).__name__}: {e}")
         text = (text or detail or "Пусто.").strip()
@@ -445,7 +449,7 @@ async def _handle_command_result(websocket, data, ctx) -> None:
                 _page_reply = await ask_gemini(
                     _page_prompt, save_history=False,
                     history_limit=VOICE_HISTORY_LIMIT,
-                    chain=VOICE_MODEL_CHAIN,
+                    chain=VOICE_MODEL_CHAIN, search=False,
                 )
                 if _page_reply and ext_ws:
                     log.info(f"[голос] ответ: {_page_reply!r}")
@@ -546,7 +550,7 @@ async def _handle_command_result(websocket, data, ctx) -> None:
         from config import VOICE_HISTORY_LIMIT
         music_reply = await ask_gemini(
             prompt, save_history=False, history_limit=VOICE_HISTORY_LIMIT,
-            chain=VOICE_MODEL_CHAIN,
+            chain=VOICE_MODEL_CHAIN, search=False,
         )
         if music_reply:
             log.info(f"[голос] ответ: {music_reply!r}")
@@ -585,7 +589,7 @@ async def _handle_command_result(websocket, data, ctx) -> None:
                 if event:
                     ev_reply = await ask_gemini(
                         make_event_prompt(event), save_history=False,
-                        chain=VOICE_MODEL_CHAIN,
+                        chain=VOICE_MODEL_CHAIN, search=False,
                     )
                     if ev_reply:
                         ws_ev = st.connected_devices.get(dev_name)
@@ -610,7 +614,7 @@ async def _handle_command_result(websocket, data, ctx) -> None:
             f"'запомни {app_name} = C:\\путь\\к\\файлу.exe'",
             save_history=False,
             history_limit=VOICE_HISTORY_LIMIT,
-            chain=VOICE_MODEL_CHAIN)
+            chain=VOICE_MODEL_CHAIN, search=False)
         await bot.send_message(MASTER_ID, reply)
     elif result:
         err_triggers = ("ошибка", "не нашла", "не найдено", "app_not_found", "оффлайн")

@@ -1,6 +1,6 @@
 // Тип виджета → иконка и отрисовка. Метаданные (название, размеры, singleton) — boardModel.CATALOG.
 import {
-  AppWindow, Bell, CalendarDays, Cpu, Film, Music2, NotebookPen, Server, Timer, Workflow, Zap,
+  AppWindow, Bell, CalendarDays, Cpu, Film, Music2, NotebookPen, Server, Sparkles, Timer, Workflow, Zap,
 } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
 
@@ -13,6 +13,7 @@ import {
 } from "./widgets/SmallWidgets";
 import { SystemWidget } from "./widgets/SystemWidget";
 import { VideoWidget } from "./widgets/VideoWidget";
+import { CompanionWidget } from "./widgets/CompanionWidget";
 
 export interface WidgetView {
   icon: ReactNode;
@@ -33,4 +34,5 @@ export const VIEWS: Record<WidgetType, WidgetView> = {
   notifications: { icon: <Bell size={16} />, Component: NotificationsWidget },
   "focus-timer": { icon: <Timer size={16} />, Component: FocusTimerWidget },
   "quick-actions": { icon: <Zap size={16} />, Component: QuickActionsWidget },
+  companion: { icon: <Sparkles size={16} />, Component: CompanionWidget },
 };

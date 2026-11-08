@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 import re
 import time
 
@@ -131,12 +132,28 @@ async def _telegram(text: str, buttons: str | None = None) -> None:
 
 # ── вопрос ───────────────────────────────────────────────────────────
 
-def _question(verb: str, targets: list[str], everyone: bool) -> str:
+def confirm_questions(verb: str, target: str, doing: str | None = None) -> list[str]:
+    v_low = verb.lower()
+    variants = [
+        f"{verb} {target}?",
+        f"Точно {v_low} {target}?",
+        f"{verb} {target}, точно?",
+        f"{verb} {target}, подтверждаешь?",
+    ]
+    if doing and doing.endswith("ю"):
+        variants.append(f"{doing[:-1]}ем {target}?")
+    elif doing:
+        variants.append(f"{doing} {target}?")
+    return variants
+
+
+def _question(verb: str, targets: list[str], everyone: bool, doing: str | None = None) -> str:
     dm = _dm()
     if everyone and len(targets) > 1:
-        return (f"{verb} все компьютеры ({', '.join(dm.device_short(t) for t in targets)})? "
-                f"Да или нет?")
-    return f"{verb} {dm.device_acc(targets[0])}? Да или нет?"
+        target = f"все компьютеры ({', '.join(dm.device_short(t) for t in targets)})"
+    else:
+        target = dm.device_acc(targets[0])
+    return random.choice(confirm_questions(verb, target, doing))
 
 
 def choose_targets(action_id: str, text: str, ctx_device: str | None,
@@ -199,11 +216,11 @@ def _clear_other_dialogs() -> None:
 
 
 async def _ask(action_id: str, targets: list[str], everyone: bool, source: str | None) -> None:
-    verb = ACTIONS[action_id][0]
+    verb, _, doing = ACTIONS[action_id]
     pid = f"{int(time.time() * 1000) % 10**9:x}"
     st._pending_power = {"id": pid, "action": action_id, "targets": targets,
                          "ts": time.monotonic(), "ttl": TTL_S, "source": source}
-    question = _question(verb, targets, everyone)
+    question = _question(verb, targets, everyone, doing=doing)
     log.info(f"[power] вопрос: {action_id} → {targets} (источник {source})")
     from modules.presence_sync import pc_voice_allowed
     at_pc = source not in (None, "telegram") and pc_voice_allowed()

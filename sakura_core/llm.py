@@ -976,7 +976,24 @@ async def ask_gemini(
 
     search_facts = None
     search_sources = []
-    from modules.web_search import needs_search, facts_prompt, format_sources
+    from modules.web_search import (
+        needs_search, facts_prompt, format_sources,
+        wants_sources, is_pure_sources_request,
+        get_latest_sources, set_latest_sources,
+    )
+
+    if is_pure_sources_request(user_message):
+        recent_sources = get_latest_sources()
+        if recent_sources:
+            reply = "Вот источники:\n" + "\n".join(f"• {u}" for u in recent_sources[:3])
+        else:
+            reply = "Мастер, я отвечала по памяти, без поиска в интернете, поэтому ссылок нет."
+        if save_history:
+            from memory.memory import add_to_history
+            add_to_history("user", user_message)
+            add_to_history("model", reply)
+        return reply
+
     # Продолжение разговора после вопроса по экрану: поиск с темой экрана.
     vf_query, vf_context = _vision_followup(user_message) if search is not False else (None, "")
     if vf_context:
@@ -988,6 +1005,7 @@ async def ask_gemini(
         if ev.ok:
             search_facts = ev.facts
             search_sources = ev.sources
+            set_latest_sources(search_sources)
         else:
             full_system += SEARCH_NOT_FOUND
 
@@ -1018,7 +1036,7 @@ async def ask_gemini(
         log.error(f"[ask_gemini] {e}")
         reply = ""
 
-    if search_sources and reply:
+    if search_sources and reply and wants_sources(user_message):
         reply += format_sources(search_sources, limit=3)
     _t_total = _t_mono() - _t0
     _llm_s    = (_t_total - _t_prep) if _t_llm is None else (_t_llm - _t_prep)
@@ -1143,6 +1161,9 @@ async def ask_gemini_voice(
     if search_needed:
         ev = await _web_search(user_message, "voice", hint=vf_query or "")
         search_facts = ev.facts if ev.ok else None
+        if ev.ok and ev.sources:
+            from modules.web_search import set_latest_sources
+            set_latest_sources(ev.sources)
 
     # С фактами из поиска промпт длиннее: потолок ответа 14 с вместо 8 (ход
     # целиком всё равно под сторожем TURN_TIMEOUT_S), факты для голоса — короче.

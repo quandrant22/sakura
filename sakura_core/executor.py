@@ -207,7 +207,7 @@ async def execute_critical_action(critical_action: str, ws_dev, device_id,
         _kreply = await ask_gemini(
             f"Мастер попросил: {text}. Команда: {critical_action}. Скажи коротко.",
             save_history=False, history_limit=VOICE_HISTORY_LIMIT,
-            chain=VOICE_MODEL_CHAIN)
+            chain=VOICE_MODEL_CHAIN, search=False)
         if _kreply:
             await stream_tts_to_device(_kreply, ws_dev, device_id or "laptop", literal=True,
                                        reply_kind="llm")

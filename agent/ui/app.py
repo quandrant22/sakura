@@ -55,6 +55,11 @@ class UiBridge(QObject):
 
 
 def _make_icon(color: str = "#9a7fb5") -> QIcon:
+    from pathlib import Path
+    for p in (Path(__file__).resolve().parent.parent / "assets" / "sakura.ico",
+              Path(__file__).resolve().parent.parent / "sakura.ico"):
+        if p.exists():
+            return QIcon(str(p))
     px = QPixmap(16, 16)
     px.fill(QColor(color))
     return QIcon(px)

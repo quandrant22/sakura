@@ -1,6 +1,6 @@
 // Небольшие виджеты каталога: сценарии, сегодня, сервер, заметки, уведомления, фокус-таймер,
 // быстрые действия. Каждый получает свой элемент доски и может хранить настройки в нём (settings).
-import { Camera, Gamepad2, Mic, MicOff, Pause, Play, RotateCcw, Target, Volume2, Workflow } from "lucide-react";
+import { Camera, Eraser, Eye, Film, Gamepad2, Mic, MicOff, Pause, PhoneCall, Play, RotateCcw, Target, Volume2, Workflow } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { EmptyState, Loadable, modeLabel, timeHM, toneLabel } from "../../components/ui";
@@ -170,6 +170,10 @@ export function QuickActionsWidget() {
     <div className="flex min-h-0 flex-1 flex-wrap content-start gap-2 overflow-y-auto px-4 pb-4">
       <button type="button" className={chip} onClick={() => void listen()}><Volume2 size={13} /> Говорить</button>
       <button type="button" className={chip} onClick={() => void quick("screenshot")}><Camera size={13} /> Скриншот</button>
+      <button type="button" className={chip} onClick={() => void quick("clip_that")}><Film size={13} /> Клип 30с</button>
+      <button type="button" className={chip} onClick={() => void quick("clear_ink")}><Eraser size={13} /> Чернила</button>
+      <button type="button" className={chip} onClick={() => void quick("toggle_call_mode")}><PhoneCall size={13} /> Звонок</button>
+      <button type="button" className={chip} onClick={() => void quick("toggle_watch_along")}><Eye size={13} /> Вместе</button>
       <button type="button" className={chip} onClick={() => void quick("focus_mode")}><Target size={13} /> Фокус</button>
       <button type="button" className={chip} aria-pressed={!mic} onClick={() => void toggleMic()}>
         {mic ? <Mic size={13} /> : <MicOff size={13} />} {mic ? "Микрофон вкл." : "Микрофон выкл."}

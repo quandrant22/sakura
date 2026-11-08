@@ -1326,3 +1326,51 @@
   confirm: false
   followup: ack
   triggers: ['стоп задача', 'останови задачу', 'отмени задачу', 'стоп браузер', 'хватит в браузере', 'останови браузер']
+
+- id: companion.clip
+  desc: 'Сохранить откат (клип последних 30 секунд)'
+  executor: agent
+  reversible: false
+  confirm: false
+  followup: ack
+  triggers: ['заклипай это', 'заклипай', 'сохрани клип', 'сохрани откат', 'сделай откат']
+
+- id: companion.ink_clear
+  desc: 'Стереть экранные чернила и пометки'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['сотри с экрана', 'сотри рисунок', 'убери рисунок с экрана', 'сотри чернила']
+
+- id: companion.call_mode_on
+  desc: 'Включить режим звонка (Discord/Telegram)'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['включи режим звонка', 'зайди в звонок', 'включи колл мод']
+
+- id: companion.call_mode_off
+  desc: 'Выключить режим звонка'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['выключи режим звонка', 'выйди из звонка', 'отключи режим звонков']
+
+- id: companion.watch_along_start
+  desc: 'Начать совместный просмотр видео'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['посмотри со мной', 'смотри со мной', 'давай смотреть вместе']
+
+- id: companion.watch_along_stop
+  desc: 'Остановить совместный просмотр видео'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['хватит смотреть', 'перестань смотреть', 'не смотри со мной']

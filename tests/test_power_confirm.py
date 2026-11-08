@@ -70,7 +70,8 @@ def answer(text, source):
 def test_shutdown_asks_with_active_pc_name_then_yes_sends_confirmed(world):
     ws, spoken, _ = world
     assert say("выключи комп", "laptop", ws) == []          # мост молчит, вопрос задан сам
-    assert spoken == [("laptop", "Выключить игровой компьютер? Да или нет?", "confirm")]
+    assert len(spoken) == 1 and spoken[0][0] == "laptop" and spoken[0][2] == "confirm"
+    assert spoken[0][1] in pcm.confirm_questions("Выключить", "игровой компьютер", "Выключаю")
     assert all(w.commands() == [] for w in ws.values()), "без «да» ничего не уходит"
     assert answer("да", "laptop")
     (cmd,) = ws["pc"].commands()
@@ -81,7 +82,7 @@ def test_shutdown_asks_with_active_pc_name_then_yes_sends_confirmed(world):
 def test_no_cancels_and_sends_nothing(world):
     ws, spoken, _ = world
     say("перезагрузи ноутбук", "laptop", ws)
-    assert spoken[0][1] == "Перезагрузить ноутбук? Да или нет?"
+    assert spoken[0][1] in pcm.confirm_questions("Перезагрузить", "ноутбук", "Перезагружаю")
     assert answer("нет", "laptop")
     assert all(w.commands() == [] for w in ws.values()) and not st._pending_power
     assert not answer("да", "laptop"), "после «нет» «да» уже ничего не значит"
@@ -99,7 +100,7 @@ def test_yes_from_telegram_confirms_voice_question(world):
 def test_named_pc_wins_over_source_and_sleep_goes_to_it(world):
     ws, spoken, _ = world
     say("усыпи игровой", "laptop", ws)
-    assert spoken[0][1] == "Усыпить игровой компьютер? Да или нет?"
+    assert spoken[0][1] in pcm.confirm_questions("Усыпить", "игровой компьютер", "Усыпляю")
     answer("да", "laptop")
     (cmd,) = ws["pc"].commands()
     assert cmd["action"] == "power.sleep" and cmd["confirmed"] is True
@@ -109,7 +110,7 @@ def test_named_pc_wins_over_source_and_sleep_goes_to_it(world):
 def test_work_laptop_by_name(world):
     ws, spoken, _ = world
     say("усыпи рабочий ноутбук", "pc", ws)
-    assert spoken[0][1] == "Усыпить рабочий ноутбук? Да или нет?"
+    assert spoken[0][1] in pcm.confirm_questions("Усыпить", "рабочий ноутбук", "Усыпляю")
     answer("да", "pc")
     assert [c["action"] for c in ws["mostech"].commands()] == ["power.sleep"]
 
@@ -121,14 +122,14 @@ def test_system_sleep_is_legacy_synonym_of_power_sleep(world):
     assert "system:sleep" in decls["power.sleep"].legacy and decls["power.sleep"].confirm
     ws, spoken, _ = world
     say("спящий режим", "laptop", ws)
-    assert spoken[0][1].startswith("Усыпить ") and st._pending_power["action"] == "power.sleep"
+    assert spoken[0][1] in pcm.confirm_questions("Усыпить", "игровой компьютер", "Усыпляю") and st._pending_power["action"] == "power.sleep"
 
 
 def test_all_pcs_lists_online(world):
     ws, spoken, _ = world
     del st.connected_devices["mostech"]
     say("выключи все компы", "laptop", ws)
-    assert spoken[0][1] == "Выключить все компьютеры (игровой, ноутбук)? Да или нет?"
+    assert spoken[0][1] in pcm.confirm_questions("Выключить", "все компьютеры (игровой, ноутбук)", "Выключаю")
     answer("да", "laptop")
     assert len(ws["pc"].commands()) == len(ws["laptop"].commands()) == 1
     assert ws["mostech"].commands() == []
@@ -181,7 +182,7 @@ def test_telegram_asks_with_buttons_and_button_resolves(world):
     out = say("выключи комп", "pc", ws, source="telegram")
     assert out == [] and spoken == []
     text, pid = tg[0]
-    assert text == "Выключить игровой компьютер? Да или нет?" and pid
+    assert text in pcm.confirm_questions("Выключить", "игровой компьютер", "Выключаю") and pid
     assert asyncio.run(pcm.resolve("confirm", "old")) is None, "чужая кнопка не действует"
     reply = asyncio.run(pcm.resolve("confirm", pid))
     assert reply.startswith("Выключаю")
@@ -274,7 +275,7 @@ def test_which_computer_then_name_then_yes(world, monkeypatch):
     assert spoken[-1][1] == "Какой компьютер: игровой, ноутбук?" and spoken[-1][2] == "confirm"
     assert st._pending_power["stage"] == "which"
     assert answer("игровой", "laptop")
-    assert spoken[-1][1] == "Выключить игровой компьютер? Да или нет?"
+    assert spoken[-1][1] in pcm.confirm_questions("Выключить", "игровой компьютер", "Выключаю")
     assert all(w.commands() == [] for w in ws.values())
     assert answer("да", "laptop")
     (cmd,) = ws["pc"].commands()

@@ -62,7 +62,7 @@ SECURE_CHANNEL = os.getenv("SECURE_CHANNEL", "off").strip().lower()
 SECURE_DIR = os.getenv("SECURE_DIR", "memory/secure")
 SECURE_BACKEND = os.getenv("SECURE_BACKEND", "lib").strip().lower()   # lib | edu
 # Адрес сервера для QR спаривания (клиент подключается к нему).
-SECURE_PUBLIC_URL = os.getenv("SECURE_PUBLIC_URL", "ws://31.76.80.5:8765")
+SECURE_PUBLIC_URL = os.getenv("SECURE_PUBLIC_URL", "ws://48.102.162.187:8765")
 # Журнал чата (modules/chat_log.py): SQLite вне git, права 600.
 CHAT_DB_PATH = os.getenv("CHAT_DB_PATH", "memory/chat.db")
 # 1 — запись журнала на паузе (как после команды «не записывай»).

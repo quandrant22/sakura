@@ -34,6 +34,7 @@ async def make_tg_notif_cb(_get_active_ws, stream_tts_to_device, ask_gemini):
                 )
                 reply = await ask_gemini(
                     prompt, save_history=False, chain=VOICE_MODEL_CHAIN,
+                    search=False,
                 )
                 if reply:
                     await stream_tts_to_device(reply, ws, dev or "laptop",

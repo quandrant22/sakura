@@ -34,7 +34,7 @@ if ENV_FILE:
     load_dotenv(ENV_FILE, override=True)
 
 # ── Подключение к VPS ───────────────────────────────────────────────
-VPS_WS_URL   = os.getenv("VPS_WS_URL",   "ws://31.76.80.5:8765")
+VPS_WS_URL   = os.getenv("VPS_WS_URL",   "ws://48.102.162.187:8765")
 # Транспорт до сервера (desktop.core.transport): ws | wss | noise; пусто — по схеме VPS_WS_URL.
 SERVER_TRANSPORT = os.getenv("SERVER_TRANSPORT", "")
 # Закрепление сертификата для wss: SHA-256 отпечаток DER (hex, двоеточия допустимы).
@@ -105,7 +105,7 @@ KETTLE_KEY_FILE = os.getenv("KETTLE_KEY_FILE") or os.path.join(DATA_DIR, "kettle
 KETTLE_PAIR     = os.getenv("KETTLE_PAIR", "0") == "1"
 
 # Выключение и перезагрузка — с задержкой: успеть сказать «отмени» или нажать «Отмена».
-SHUTDOWN_DELAY_S = int(os.getenv("SHUTDOWN_DELAY_S", "30"))
+SHUTDOWN_DELAY_S = int(os.getenv("SHUTDOWN_DELAY_S", "0"))
 
 # Папки с играми
 GAME_DIRS = [d.strip() for d in os.getenv("GAME_DIRS", r"C:\Games").split(";") if d.strip()]

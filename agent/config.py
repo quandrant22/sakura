@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 # ── Подключение к VPS ───────────────────────────────────────────────
-VPS_WS_URL   = os.getenv("VPS_WS_URL",   "ws://31.76.80.5:8765")
+VPS_WS_URL   = os.getenv("VPS_WS_URL",   "ws://48.102.162.187:8765")
 DEVICE_ID    = os.getenv("DEVICE_ID",     "laptop")
 WS_TOKEN     = os.getenv("WS_TOKEN",      "")  # только из .env, без значения по умолчанию
 # Защищённый канал (Noise, docs/security/PROTOCOL.md), core/transport.py:
