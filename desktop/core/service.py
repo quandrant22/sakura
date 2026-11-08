@@ -21,6 +21,8 @@ DEFAULT_SETTINGS = {
     "quick_prompts": ["Что у меня сегодня?", "Погода", "Включи музыку"],
     "language": "ru",
     "theme": "sakura-night",
+    "voice_volume": 50,
+    "cable_volume": 20,
     # Зрение (docs/VISION.md): поглядывать без просьбы — только с разрешения.
     "vision_glance_allowed": False,
     "vision_private": [],
@@ -29,7 +31,8 @@ DEFAULT_SETTINGS = {
 SETTINGS_KEYS = frozenset(DEFAULT_SETTINGS) | {"autostart", "game_processes", "wake_sensitivity",
                                                "stt_model", "hotkey_talk", "input_device",
                                                "output_device", "music_accessibility", "stt_replacements",
-                                               "vision_glance_allowed", "vision_private"}
+                                               "vision_glance_allowed", "vision_private",
+                                               "voice_volume", "cable_volume"}
 # Встроенный сценарий «Фокус» на сервере.
 FOCUS_SCENARIO_ID = "focus"
 
@@ -264,6 +267,7 @@ class CoreService:
         c("extension_set", self.cmd_extension_set)
         c("browser_resume", self.cmd_browser_resume)
         c("core_restart", self.cmd_core_restart)
+        c("companion_status", self.cmd_companion_status)
         if os.getenv("SAKURA_LIVECHECK") == "1":
             c("run_action", self.cmd_run_action)
         if self.media is not None:
@@ -435,6 +439,18 @@ class CoreService:
         return {"db": round(noise.db, 1) if noise is not None else None,
                 "mic_enabled": bool(getattr(hearing, "mic_enabled", False))}
 
+    async def cmd_companion_status(self, msg: dict):
+        from desktop.core.features import get_call_mode_manager, get_watch_along_manager, get_husk_agent_bridge
+        cm = get_call_mode_manager()
+        wa = get_watch_along_manager()
+        husk = get_husk_agent_bridge()
+        return {
+            "call_mode": bool(cm.active),
+            "caller_name": cm.caller_name if cm.active else "",
+            "watch_along": bool(wa.active),
+            "husk_port": getattr(husk, "port", 19482),
+        }
+
     async def cmd_core_restart(self, msg: dict):
         """Перезапуск ядра (новые значения .env): окно (CoreSupervisor) запустит ядро заново."""
         log.info("[core] перезапуск по запросу интерфейса")
@@ -533,6 +549,16 @@ class CoreService:
     def _apply_voice_settings(self):
         """Голос: чувствительность «Сакура» — в слух, таблица замен — в агента."""
         items = self.settings.items()
+        if "voice_volume" in items:
+            try:
+                config.VOICE_VOLUME = int(items["voice_volume"])
+            except Exception:
+                pass
+        if "cable_volume" in items:
+            try:
+                config.CABLE_VOLUME = int(items["cable_volume"])
+            except Exception:
+                pass
         agent = getattr(self, "_agent", None)
         hearing = getattr(agent, "hearing", None)
         if hearing is not None:

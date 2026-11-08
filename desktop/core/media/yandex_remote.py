@@ -234,8 +234,16 @@ class YandexRemote:
                 return await asyncio.to_thread(self.likes.dislike, title, artist)
             return await asyncio.to_thread(self.likes.lyrics, title, artist)
         if op == "open_app":
+            from desktop.core.app_launch import AppLauncher
+            launcher = AppLauncher()
+            st = launcher.state("yandex_music")
+            if st.get("running") and not st.get("with_flag"):
+                return await asyncio.to_thread(launcher.restart, "yandex_music")
+            res = await asyncio.to_thread(launcher.launch, "yandex_music")
+            if res.get("ok"):
+                return res
             opener = self._open_link or (lambda url: self.platform.open_path(url))
             if opener("yandexmusic://"):
                 return R.done("открыла Яндекс.Музыку")
-            return R.failed("Не удалось открыть Яндекс.Музыку — запустите приложение из меню «Пуск»")
+            return res or R.failed("Не удалось открыть Яндекс.Музыку — запустите приложение из меню «Пуск»")
         return R.unsupported(f"неизвестная операция: {op}")

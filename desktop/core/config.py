@@ -55,6 +55,8 @@ RECONNECT_SEC = int(os.getenv("RECONNECT_SEC", "3"))
 # ── Аудио-выход (TTS) ───────────────────────────────────────────────
 TTS_RATE  = int(os.getenv("TTS_RATE", "24000"))
 TTS_SPEED = float(os.getenv("TTS_SPEED", "1.0"))
+VOICE_VOLUME = int(os.getenv("VOICE_VOLUME", "50"))
+CABLE_VOLUME = int(os.getenv("CABLE_VOLUME", "20"))
 # Шаг «громче/тише» для музыки без числа, %
 VOLUME_STEP = int(os.getenv("VOLUME_STEP", "10"))
 

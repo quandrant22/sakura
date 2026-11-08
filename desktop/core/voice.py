@@ -262,13 +262,26 @@ class Player:
                 self._finish_response()
             if not self._started and not self._first_chunk_ts:
                 self._first_chunk_ts = time.monotonic()
-            self._buf.extend(pcm)
-            if self._cable_stream and self._cable_stream.active:
-                # 24k -> 48k ресемплинг + 0.40 громкость (чтобы не глушило шумоподавление Krisp и не хрипело в Discord)
-                import numpy as np
+            import numpy as np
+            # 1. Громкость наушников мастера (микшер VOICE_VOLUME 0..100%)
+            vol_pct = getattr(config, "VOICE_VOLUME", 50)
+            gain = max(0.0, min(1.0, vol_pct / 100.0))
+            if gain != 1.0:
+                pcm_arr = np.frombuffer(pcm, dtype=np.int16)
+                pcm_head = (pcm_arr * gain).astype(np.int16).tobytes()
+            else:
+                pcm_head = pcm
+            self._buf.extend(pcm_head)
+
+            # 2. Вывод в кабель Discord ТОЛЬКО при включённом режиме звонка (Call Mode)!
+            from desktop.core.features import get_call_mode_manager
+            cm = get_call_mode_manager()
+            if cm.active and self._cable_stream and self._cable_stream.active:
                 pcm_arr = np.frombuffer(pcm, dtype=np.int16)
                 pcm_48k = np.repeat(pcm_arr, 2)
-                pcm_scaled = (pcm_48k * 0.40).astype(np.int16).tobytes()
+                c_pct = getattr(config, "CABLE_VOLUME", 20)
+                c_gain = max(0.0, min(1.0, c_pct / 100.0))
+                pcm_scaled = (pcm_48k * c_gain).astype(np.int16).tobytes()
                 self._cable_buf.extend(pcm_scaled)
             self.last_feed_ts = time.monotonic()
 

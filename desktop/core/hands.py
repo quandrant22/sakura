@@ -444,6 +444,14 @@ def open_app(name: str) -> str:
     Честный отказ вместо fallback'a в ОС для неизвестных имён приложений.
     """
     name = name.strip()
+    low = name.lower()
+    if any(k in low for k in ("яндекс музыка", "яндекс.музыка", "yandex music", "yandex_music")):
+        from desktop.core.app_launch import AppLauncher
+        res = AppLauncher().launch("yandex_music")
+        if res.get("ok"):
+            return "открыла Яндекс.Музыку с поддержкой кнопок"
+        res_rst = AppLauncher().restart("yandex_music")
+        return res_rst.get("detail", "открыла Яндекс.Музыку с поддержкой кнопок")
 
     if _is_target(name):
         return f"открыл {name}" if _launch(name) else f"app_not_found:{name}"
