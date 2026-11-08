@@ -7,6 +7,7 @@ hands и ServerLink. Всё живёт в одном asyncio-цикле с аг�
 import asyncio
 import logging
 import os
+import time
 import uuid
 
 from desktop.core import config
@@ -867,12 +868,14 @@ class CoreService:
 
             def _on_caller_speech(text: str):
                 nonlocal _last_caller_reply
-                now = time.monotonic()
+                # 1. Уведомление в UI и обработка реплики друга — ВСЕГДА в первую очередь
                 resp = cm.process_caller_speech(text)
+                now = time.monotonic()
                 clean = text.lower().strip()
                 import re
                 has_sakura = bool(re.search(r'\bсакур[а-я]*\b', clean))
 
+                # 2. Если друг обратился к Сакуре («Сакура, ...»)
                 if has_sakura and not cm.held_request:
                     if (now - _last_caller_reply) > 6.0:
                         if self._agent and getattr(self._agent, "_state", "") not in ("thinking", "speaking"):
