@@ -914,6 +914,8 @@ class CoreService:
             loopback.is_muted_fn = _is_tts_playing
             loopback.on_caller_speech = _on_caller_speech
             loopback.on_watch_speech = lambda text: (wa.feed_speech(text), wa.maybe_comment())
+            if self._agent and getattr(self._agent, "hearing", None):
+                loopback.recognizer = getattr(self._agent.hearing, "recognizer", None)
             loopback.start()
 
             log.info("[companion] Все подсистемы Capri Suite (Husk, Ink, Clips, Care, Lookout, LoopbackSpeech) успешно запущены")
