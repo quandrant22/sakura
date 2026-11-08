@@ -679,7 +679,10 @@ def take_screenshot() -> str | None:
         )
         return base64.b64encode(raw).decode()
     except Exception as e:
-        log.error(f"screenshot: {e}")
+        now = time.time()
+        if now - getattr(take_screenshot, "_last_err", 0) > 30.0:
+            take_screenshot._last_err = now
+            log.warning(f"screenshot unavailable: {e}")
         return None
 
 

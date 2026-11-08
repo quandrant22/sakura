@@ -824,7 +824,7 @@ class CoreService:
             ink = get_ink_manager()
             ink.on_render = lambda shapes: self._emit({"type": "ink_render", "shapes": shapes})
 
-            # 3. Clip buffer -> захват кадров экрана в кольцевой буфер
+            # 3. Clip buffer -> инициализация (запуск захвата только по запросу/в игре)
             from desktop.core.hands import take_screenshot
             import base64
             def _capture_clip_frame():
@@ -835,7 +835,6 @@ class CoreService:
                     return None
             clips = get_clip_buffer()
             clips.capture_func = _capture_clip_frame
-            clips.start()
 
             # 4. Care manager -> периодические напоминания
             care = get_care_manager()
