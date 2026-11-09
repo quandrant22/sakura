@@ -285,9 +285,18 @@ class Agent:
             return
         self.bus.emit("user_text", text=text, source=source)
         self._set_state("thinking")
+
+        loop = getattr(self, "_loop", None)
+        # Перехват любых просьб нарисовать что-либо на экране (Screen Ink) — без нравоучений и морали
+        from desktop.core.ink import resolve_drawing_request
+        draw_plan = resolve_drawing_request(text)
+        if draw_plan and loop is not None and loop.is_running():
+            shapes_cmd, reply_phrase = draw_plan
+            asyncio.run_coroutine_threadsafe(self._execute_draw_and_reply(shapes_cmd, reply_phrase), loop)
+            return
+
         # Нет связи с сервером — локальный разбор команд компьютера (в очередь не ставим: иначе после
         # переподключения команда выполнилась бы второй раз).
-        loop = getattr(self, "_loop", None)
         if getattr(self, "_ws", None) is None and loop is not None and loop.is_running():
             asyncio.run_coroutine_threadsafe(self._offline_text(text), loop)
             return
@@ -302,6 +311,20 @@ class Agent:
         if channel:  # протокол v2: voice | text (по умолчанию сервер считает voice)
             msg["channel"] = channel
         self.send_threadsafe(msg, wake_detected_at=wake_detected_at, timeline=timeline)
+
+    async def _execute_draw_and_reply(self, shapes_cmd: str, reply_phrase: str):
+        try:
+            from desktop.core.features import get_ink_manager
+            ink = get_ink_manager()
+            if shapes_cmd == "clear":
+                ink.clear()
+            else:
+                ink.draw(shapes_cmd)
+        except Exception as e:
+            log.error("[ink] Ошибка рисования: %s", e)
+
+        self.bus.emit("sakura_text", text=reply_phrase, kind="normal")
+        self._set_state("idle")
 
     async def _offline_text(self, text: str) -> dict:
         """Офлайн-режим: команда из реестра — выполнить локально и ответить шаблоном; иначе «нужна связь»."""
