@@ -62,9 +62,9 @@ def guarded_add(cat: str, item: str):
 
 async def extract_and_remember(user_message: str, reply: str):
     await asyncio.sleep(3)
-    from modules.intimacy_mode import is_active as _im_active
-    if _im_active():
-        log.info("[memory] extraction skipped: intimacy mode")
+    from modules.intimacy_mode import is_active as _im_active, is_intimate_content
+    if _im_active() or is_intimate_content(user_message) or is_intimate_content(reply):
+        log.info("[memory] extraction skipped: intimacy mode or content")
         return
     key = get_active_key()
     if not key:
@@ -178,6 +178,10 @@ async def extract_and_remember(user_message: str, reply: str):
 
 
 async def summarize_session():
+    from modules.intimacy_mode import is_active as _im_active
+    if _im_active():
+        log.info("[memory] summarize_session skipped: intimacy mode active")
+        return
     history = get_history()
     if len(history) < 10:
         return

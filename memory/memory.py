@@ -240,10 +240,25 @@ def load_history() -> list:
 
 
 def save_history(history: list):
+    try:
+        from modules.intimacy_mode import is_intimate_content
+        history = [
+            m for m in history
+            if not any(is_intimate_content(p) for p in m.get("parts", []))
+        ]
+    except Exception:
+        pass
     _atomic_write(HISTORY_FILE, history)
 
 
 def add_to_history(role: str, text: str):
+    try:
+        from modules.intimacy_mode import is_active as _im_active, is_intimate_content
+        if _im_active() or is_intimate_content(text):
+            log.info("[memory] add_to_history: интимная реплика отфильтрована от записи в историю")
+            return
+    except Exception:
+        pass
     history = load_history()
     history.append({"role": role, "parts": [text]})
     if len(history) > MAX_HISTORY:
@@ -252,7 +267,15 @@ def add_to_history(role: str, text: str):
 
 
 def get_history() -> list:
-    return load_history()
+    raw = load_history()
+    try:
+        from modules.intimacy_mode import is_intimate_content
+        return [
+            m for m in raw
+            if not any(is_intimate_content(p) for p in m.get("parts", []))
+        ]
+    except Exception:
+        return raw
 
 
 def clear_history():

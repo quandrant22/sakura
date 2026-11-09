@@ -1051,42 +1051,52 @@ async def ask_gemini(
         reply = "Мастер, что-то мешает мне ответить. Попробуй ещё раз."
 
     if save_history:
-        from memory.memory import add_to_history
-        add_to_history("user", user_message)
-        add_to_history("model", reply)
-        # Ленивый импорт: extract_and_remember → ask_gemini (цикл через функции)
-        from sakura_core.memory_tasks import extract_and_remember
-        spawn(extract_and_remember(user_message, reply), name="remember-from-chat")
-        from memory.memory import should_summarize
-        from sakura_core.memory_tasks import summarize_session
-        if should_summarize():
-            spawn(summarize_session(), name="summarize-session")
-        from modules.context import get_full_context
-        ctx_snap = get_full_context()
-        from modules.timeline import extract_and_save_from_dialogue
-        spawn(asyncio.to_thread(
-            extract_and_save_from_dialogue, user_message, reply, ctx_snap
-        ), name="save-dialogue-timeline")
-        from modules.mood_vector import mark_interaction, auto_detect_mood_from_reply
-        mark_interaction()
-        spawn(asyncio.to_thread(
-            auto_detect_mood_from_reply, reply, user_message
-        ), name="update-mood-from-reply")
-        try:
-            from modules.self_correction import process_conversation
+        from modules.intimacy_mode import is_active as _im_active, is_intimate_content
+        is_intimate = (
+            _im_active()
+            or (channel and _im_active(channel))
+            or is_intimate_content(user_message)
+            or is_intimate_content(reply)
+        )
+        if not is_intimate:
+            from memory.memory import add_to_history
+            add_to_history("user", user_message)
+            add_to_history("model", reply)
+            # Ленивый импорт: extract_and_remember → ask_gemini (цикл через функции)
+            from sakura_core.memory_tasks import extract_and_remember
+            spawn(extract_and_remember(user_message, reply), name="remember-from-chat")
+            from memory.memory import should_summarize
+            from sakura_core.memory_tasks import summarize_session
+            if should_summarize():
+                spawn(summarize_session(), name="summarize-session")
+            from modules.context import get_full_context
+            ctx_snap = get_full_context()
+            from modules.timeline import extract_and_save_from_dialogue
             spawn(asyncio.to_thread(
-                process_conversation, user_message, reply
-            ), name="self-correction")
-        except Exception as e:
-            log.debug(f"[llm] ask_gemini: {type(e).__name__}: {e}")
-        try:
-            from modules.secret_diary import write_entry as diary_write
-            spawn(diary_write(
-                f"Мастер: {user_message[:200]}\nСакура: {reply[:200] if reply else ''}",
-                "neutral"
-            ), name="write-diary-entry")
-        except Exception as e:
-            log.debug(f"[llm] ask_gemini: {type(e).__name__}: {e}")
+                extract_and_save_from_dialogue, user_message, reply, ctx_snap
+            ), name="save-dialogue-timeline")
+            from modules.mood_vector import mark_interaction, auto_detect_mood_from_reply
+            mark_interaction()
+            spawn(asyncio.to_thread(
+                auto_detect_mood_from_reply, reply, user_message
+            ), name="update-mood-from-reply")
+            try:
+                from modules.self_correction import process_conversation
+                spawn(asyncio.to_thread(
+                    process_conversation, user_message, reply
+                ), name="self-correction")
+            except Exception as e:
+                log.debug(f"[llm] ask_gemini: {type(e).__name__}: {e}")
+            try:
+                from modules.secret_diary import write_entry as diary_write
+                spawn(diary_write(
+                    f"Мастер: {user_message[:200]}\nСакура: {reply[:200] if reply else ''}",
+                    "neutral"
+                ), name="write-diary-entry")
+            except Exception as e:
+                log.debug(f"[llm] ask_gemini: {type(e).__name__}: {e}")
+        else:
+            log.info("[llm] memory skipped for intimate conversation turn")
 
     return reply
 
@@ -1106,6 +1116,7 @@ async def ask_gemini_voice(
     length       : str = "short",
     gate         = None,
     received_at  : float | None = None,
+    channel      : str = "voice",
 ) -> tuple[str, str]:
     """Голосовой ответ с истинным стримингом LLM→TTS.
 
@@ -1133,7 +1144,7 @@ async def ask_gemini_voice(
     _t_build = __import__("time").monotonic()
     full_system = await _build_system(query=user_message,
                                       profile=config.VOICE_PROMPT_PROFILE,
-                                      channel="voice")
+                                      channel=channel)
     len_hint = _LEN_HINT.get(length, "")
     if len_hint:
         full_system = f"{full_system}\n\n{len_hint}"
@@ -1247,10 +1258,19 @@ async def ask_gemini_voice(
         from sakura_core.chat_hooks import note_spoken
         note_spoken(clean_text)
 
-    add_to_history("user",  user_message)
-    add_to_history("model", clean_text)
-    from modules.intimacy_mode import redact as _im_redact
-    log.info(f"[голос] ответ: {_im_redact(clean_text, 'voice')}")
+    from modules.intimacy_mode import is_active as _im_active, is_intimate_content, redact as _im_redact
+    is_intimate = (
+        _im_active()
+        or (channel and _im_active(channel))
+        or is_intimate_content(user_message)
+        or is_intimate_content(clean_text)
+    )
+    if not is_intimate:
+        add_to_history("user",  user_message)
+        add_to_history("model", clean_text)
+    else:
+        log.info("[voice] history skipped for intimate turn")
+    log.info(f"[{channel}] ответ: {_im_redact(clean_text, channel)}")
 
     try:
         from modules.mood_broadcast import broadcast_mood_after_reply

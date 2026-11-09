@@ -154,14 +154,19 @@ def _history_dir() -> Path:
     return persona_dir() / ".history"
 
 
+_archive_seq: int = 0
+
+
 def _archive(mode: str) -> None:
     """Кладёт действующий рабочий файл в историю и подрезает её."""
+    global _archive_seq
     cur = _runtime_path(mode)
     if not cur.exists():
         return
     hist = _history_dir()
     hist.mkdir(parents=True, exist_ok=True)
-    stamp = time.strftime("%Y%m%d-%H%M%S") + f"-{time.monotonic_ns() % 1_000_000:06d}"
+    _archive_seq += 1
+    stamp = time.strftime("%Y%m%d-%H%M%S") + f"-{_archive_seq:06d}"
     _atomic_write(hist / f"{mode}-{stamp}.md", cur.read_text(encoding="utf-8"))
     old = history(mode)
     for p in old[HISTORY_KEEP:]:

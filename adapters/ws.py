@@ -495,10 +495,12 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
     ctx_str    = f"\n\nПассивный контекст: {' | '.join(context)}" if context else ""
     ws_dev     = st.connected_devices.get(device_id)
     text_lower = text.lower()
-    # Интим-режим: детект на каждое сообщение Мастера (voice_command — только мастер-устройство)
-    _im_mark(text, "voice")
+    raw_channel = data.get("channel", "voice")
+    channel = "text" if raw_channel == "text" else "voice"
+    # Интим-режим: детект на каждое сообщение Мастера с учётом канала
+    _im_mark(text, channel)
     from modules.intimacy_mode import redact as _im_redact
-    log.info(f"[voice] получено: {_im_redact(text, 'voice')}")
+    log.info(f"[{channel}] получено: {_im_redact(text, channel)}")
 
     # ── СТОП долгой озвучки («стоп», «хватит», «достаточно») ─────────
     # Если идёт чтение полного списка и Мастер просит остановить — ставим
@@ -626,6 +628,7 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
             active_window = data.get("active_window", ""),
             gate          = voice_gate,
             received_at   = t_recv,
+            channel       = channel,
         ))
 
     prefetch_closed = False
@@ -878,6 +881,7 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
                 device_id     = device_id or "laptop",
                 active_window = active_win,
                 received_at   = t_recv,
+                channel       = channel,
             )
         # ── ПРАНКИ + РЕАКЦИИ САКУРЫ (фоновая задача) ──────
         async def _maybe_prank_and_react():
