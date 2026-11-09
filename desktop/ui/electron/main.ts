@@ -415,11 +415,28 @@ async function takeScreenshots(specs: ShotSpec[], outDir: string): Promise<void>
 
 // SAKURA_E2E и снимки экранов (ядро не запускают) — рядом с рабочим окном: без запрета второго экземпляра.
 if (!process.env.SAKURA_E2E && !process.env.SAKURA_SCREENSHOT_SPECS && !app.requestSingleInstanceLock()) {
+  try {
+    fs.mkdirSync(logDir, { recursive: true });
+    fs.appendFileSync(path.join(logDir, "electron.log"), `[${new Date().toISOString()}] Single-instance lock rejected (another instance running)\n`);
+  } catch {}
   app.quit();
 } else {
   // Повторный запуск показывает окно; с --quit — тот же «Выход», что в трее (остановка из скриптов).
-  app.on("second-instance", (_e, argv) => (argv.includes("--quit") ? quitAll() : showWindow()));
+  app.on("second-instance", (_e, argv) => {
+    try {
+      fs.appendFileSync(path.join(logDir, "electron.log"), `[${new Date().toISOString()}] second-instance event: showing window\n`);
+    } catch {}
+    if (argv.includes("--quit")) {
+      quitAll();
+    } else {
+      showWindow();
+    }
+  });
   app.whenReady().then(async () => {
+    try {
+      fs.mkdirSync(logDir, { recursive: true });
+      fs.appendFileSync(path.join(logDir, "electron.log"), `[${new Date().toISOString()}] app.whenReady started\n`);
+    } catch {}
     const specs = process.env.SAKURA_SCREENSHOT_SPECS;
     if (specs) {
       await takeScreenshots(JSON.parse(specs) as ShotSpec[], process.env.SAKURA_SCREENSHOT_DIR ?? ".");
@@ -455,7 +472,34 @@ if (!process.env.SAKURA_E2E && !process.env.SAKURA_SCREENSHOT_SPECS && !app.requ
       console.log(`[panic] неверное сочетание PANIC_HOTKEY: ${panicKey}`);
     }
     win = createWindow();
-    win.once("ready-to-show", () => win?.show());
+    win.webContents.on("did-fail-load", (_e, code, desc) => {
+      try {
+        fs.appendFileSync(path.join(logDir, "electron.log"), `[${new Date().toISOString()}] did-fail-load: ${code} ${desc}\n`);
+      } catch {}
+    });
+    win.webContents.on("console-message", (_e, level, message) => {
+      if (level >= 2) {
+        try {
+          fs.appendFileSync(path.join(logDir, "electron.log"), `[${new Date().toISOString()}] [console-${level}] ${message}\n`);
+        } catch {}
+      }
+    });
+    win.once("ready-to-show", () => {
+      try {
+        fs.appendFileSync(path.join(logDir, "electron.log"), `[${new Date().toISOString()}] win ready-to-show\n`);
+      } catch {}
+      win?.show();
+    });
+    // Страховка: если ready-to-show не вызвался за 2.5 сек, гарантированно показать окно
+    setTimeout(() => {
+      if (win && !win.isVisible()) {
+        try {
+          fs.appendFileSync(path.join(logDir, "electron.log"), `[${new Date().toISOString()}] fallback timeout: showing window\n`);
+        } catch {}
+        win.show();
+      }
+    }, 2500);
+
     createTray();
     await loadPage(win);
   });
