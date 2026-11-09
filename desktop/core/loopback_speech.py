@@ -163,6 +163,14 @@ class LoopbackSpeechListener:
                 except Exception as e:
                     log.debug("[loopback_speech] SileroVAD не загружен: %s", e)
 
+                vad_resampler = None
+                if sample_rate != 16000:
+                    try:
+                        import torchaudio.transforms as T
+                        vad_resampler = T.Resample(sample_rate, 16000)
+                    except Exception:
+                        pass
+
                 # Буферы детекции
                 pre_roll = collections.deque(maxlen=10)  # ~0.35 сек предзаписи
                 current_speech: list[np.ndarray] = []
@@ -203,8 +211,15 @@ class LoopbackSpeechListener:
                     # 1. Проверка голоса через Silero VAD или по RMS
                     has_voice = False
                     if vad is not None:
-                        # Ресемплируем чанк в 16кГц для Silero VAD
-                        chunk_16k = resample_to_16k(chunk, sample_rate)
+                        # Ресемплируем чанк в 16кГц для Silero VAD (быстрый кэшированный ресемплер)
+                        if vad_resampler is not None:
+                            try:
+                                import torch
+                                chunk_16k = vad_resampler(torch.from_numpy(chunk).unsqueeze(0)).squeeze(0).numpy()
+                            except Exception:
+                                chunk_16k = resample_to_16k(chunk, sample_rate)
+                        else:
+                            chunk_16k = resample_to_16k(chunk, sample_rate)
                         pcm_16k = (np.clip(chunk_16k, -1.0, 1.0) * 32767).astype(np.int16).tobytes()
                         vad_pcm_buffer.extend(pcm_16k)
 
@@ -277,12 +292,10 @@ class LoopbackSpeechListener:
         if len(audio_16k) > 16000 * 20:
             audio_16k = audio_16k[: 16000 * 20]
 
-        # Нормализация громкости речи: приведение тихого голоса из наушников к рабочему RMS
-        rms = float(np.sqrt(np.mean(audio_16k**2))) if len(audio_16k) else 0.0
-        if 0.0 < rms < 0.08:
-            target_rms = 0.09
-            gain = min(6.0, target_rms / max(rms, 1e-4))
-            audio_16k = np.clip(audio_16k * gain, -1.0, 1.0)
+        # Чистая нормализация громкости по пику без клиппинга и искажений фонем:
+        max_val = float(np.max(np.abs(audio_16k))) if len(audio_16k) else 0.0
+        if max_val > 1e-4:
+            audio_16k = (audio_16k / max_val * 0.92).astype(np.float32)
 
         rec = self.recognizer
         if not rec:

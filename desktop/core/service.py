@@ -23,6 +23,7 @@ DEFAULT_SETTINGS = {
     "theme": "sakura-night",
     "voice_volume": 50,
     "cable_volume": 20,
+    "stt_model": "v2_ctc",
     # Зрение (docs/VISION.md): поглядывать без просьбы — только с разрешения.
     "vision_glance_allowed": False,
     "vision_private": [],
@@ -559,6 +560,10 @@ class CoreService:
                 config.CABLE_VOLUME = int(items["cable_volume"])
             except Exception:
                 pass
+        if "stt_model" in items:
+            m = str(items["stt_model"] or "").strip().lower()
+            if m:
+                config.GIGAAM_MODEL = m
         agent = getattr(self, "_agent", None)
         hearing = getattr(agent, "hearing", None)
         if hearing is not None:
@@ -894,11 +899,12 @@ class CoreService:
 
             def _on_caller_speech(text: str):
                 nonlocal _last_caller_reply
+                clean = text.lower().strip()
+                import re
+                clean = re.sub(r'\bс[аоеи][кг]ур[а-я]*\b', 'сакура', clean)
                 # 1. Уведомление в UI и обработка реплики друга — ВСЕГДА в первую очередь
                 resp = cm.process_caller_speech(text)
                 now = time.monotonic()
-                clean = text.lower().strip()
-                import re
                 has_sakura = bool(re.search(r'\bсакур[а-я]*\b', clean))
 
                 # 2. Если друг обратился к Сакуре («Сакура, ...»)

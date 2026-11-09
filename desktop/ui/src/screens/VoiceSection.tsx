@@ -51,6 +51,16 @@ export function VoiceSection() {
         <input aria-label="Клавиша говорить" className={input} defaultValue={String(s?.hotkey_talk ?? DEFAULT_TALK)}
                placeholder={DEFAULT_TALK} onBlur={(e) => void setHotkey(e.target.value.trim())} />
       </div>
+      <div className="grid grid-cols-[220px_1fr] items-start gap-4 border-b border-line py-3">
+        <div><div className="text-ink">Модель распознавания (STT)</div><div className="text-xs text-ink-dim">GigaAM v2 — точная акустическая модель для войса</div></div>
+        <select aria-label="Модель распознавания STT" className={input} value={String(s?.stt_model ?? "v2_ctc")}
+                onChange={(e) => void set("stt_model", e.target.value)}>
+          <option value="v2_ctc">GigaAM v2 CTC (рекомендовано для Discord)</option>
+          <option value="v3_ctc">GigaAM v3 CTC</option>
+          <option value="v3_e2e_ctc">GigaAM v3 E2E</option>
+          <option value="vosk">Vosk (легковесный фолбэк)</option>
+        </select>
+      </div>
       <div className="grid grid-cols-[220px_1fr] items-start gap-4 py-3">
         <div><div className="text-ink">Замены распознанного</div><div className="text-xs text-ink-dim">Например «вал хейм» → «Valheim»</div></div>
         <div className="space-y-1.5">

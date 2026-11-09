@@ -89,6 +89,8 @@ class CallModeManager:
             return None
 
         clean = text.lower().strip()
+        import re
+        clean = re.sub(r'\bс[аоеи][кг]ур[а-я]*\b', 'сакура', clean)
         self.on_notify(f"{self.current_app} (Друг)", text)
 
         # 1. Если активно поручение на выбор игры
