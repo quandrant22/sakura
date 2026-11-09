@@ -76,21 +76,36 @@ class DiscordRpcManager:
         self._running = False
         self._close_pipe()
 
-    def get_active_speaker(self, max_age_sec: float = 6.0) -> tuple[Optional[str], Optional[str], bool]:
+    def get_active_speaker(
+        self,
+        max_age_sec: float = 8.0,
+        include_self: bool = False,
+    ) -> tuple[Optional[str], Optional[str], bool]:
         """Возвращает (имя_говорящего, user_id, is_master).
 
-        Если кто-то говорил в течение последних max_age_sec секунд — возвращает его имя.
-        Если в звонке только один собеседник (помимо Мастера) — возвращает его имя.
-        Иначе возвращает (None, None, False).
+        Если include_self=False (по умолчанию для входящего звука звонка loopback):
+        Сам пользователь (Мастер / is_self) полностью исключается, так как звук
+        из наушников исходит исключительно от собеседников в звонке, а не от самого пользователя.
         """
         now = time.monotonic()
-        recent = [
-            (uid, ts)
-            for uid, ts in self.speaker_timestamps.items()
-            if (now - ts) <= max_age_sec
-        ]
+        recent = []
+        for uid, ts in self.speaker_timestamps.items():
+            if (now - ts) > max_age_sec:
+                continue
+            u = self.participants.get(uid)
+            is_self = False
+            if self.self_user and uid == self.self_user.id:
+                is_self = True
+            elif u and u.is_self:
+                is_self = True
+
+            if not include_self and is_self:
+                continue
+
+            recent.append((uid, ts))
+
         if recent:
-            # Самый свежий голос
+            # Самый свежий голос собеседника
             recent.sort(key=lambda x: x[1], reverse=True)
             active_id = recent[0][0]
             user = self.participants.get(active_id)
@@ -98,7 +113,7 @@ class DiscordRpcManager:
                 return user.display_name, user.id, user.is_self
             return "Собеседник", active_id, False
 
-        # Фолбэк: если в звонке ровно 1 собеседник кроме Мастера — звук гарантированно от него
+        # Фолбэк: если в звонке ровно 1 собеседник кроме Мастера — входящий звук гарантированно от него
         other_participants = [p for p in self.participants.values() if not p.is_self]
         if len(other_participants) == 1:
             friend = other_participants[0]

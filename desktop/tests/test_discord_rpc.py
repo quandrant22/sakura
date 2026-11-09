@@ -23,10 +23,16 @@ def test_get_active_speaker_recent():
     assert speaker_id == "101"
     assert is_master is False
 
-    # Master spoke more recently
+    # Master spoke more recently, but include_self=False by default (for loopback callers)
     time.sleep(0.05)
     m.speaker_timestamps["102"] = time.monotonic()
-    speaker_name, speaker_id, is_master = m.get_active_speaker(max_age_sec=2.0)
+    speaker_name, speaker_id, is_master = m.get_active_speaker(max_age_sec=2.0, include_self=False)
+    assert speaker_name == "Алексей"
+    assert speaker_id == "101"
+    assert is_master is False
+
+    # When include_self=True, master can be returned
+    speaker_name, speaker_id, is_master = m.get_active_speaker(max_age_sec=2.0, include_self=True)
     assert speaker_name == "Мастер"
     assert speaker_id == "102"
     assert is_master is True

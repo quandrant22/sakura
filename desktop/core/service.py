@@ -913,7 +913,7 @@ class CoreService:
                 clean = re.sub(r'\bс[аоеи][кг]ур[а-я]*\b', 'сакура', clean)
 
                 # Имя и статус говорящего участника из Discord
-                speaker_name, speaker_id, is_master = drpc.get_active_speaker()
+                speaker_name, speaker_id, is_master = drpc.get_active_speaker(include_self=False)
                 speaker_label = speaker_name or "Друг"
 
                 # 1. Уведомление в UI с конкретным именем участника
