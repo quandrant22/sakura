@@ -20,6 +20,31 @@ phrases.en = [
 ]
 
 [[commands]]
+id = "draw_ink"
+type = "action"
+action = "ink"
+args = "circle 450 350 200 200; arrow 300 200 430 330; text 450 580 Зона внимания Сакуры"
+priority = 25
+description = "Draw neon ink pointer on screen"
+
+phrases.ru = [
+    "нарисуй на экране",
+    "покажи на экране",
+    "отметь на экране",
+    "включи чернила",
+    "покажи чернила",
+    "нарисуй указку",
+    "покажи указку",
+    "тестовый рисунок",
+]
+phrases.en = [
+    "draw on screen",
+    "point on screen",
+    "show ink",
+    "test ink",
+]
+
+[[commands]]
 id = "clear_ink"
 type = "action"
 action = "clear_ink"

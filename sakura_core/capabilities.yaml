@@ -1343,6 +1343,14 @@
   followup: ack
   triggers: ['сотри с экрана', 'сотри рисунок', 'убери рисунок с экрана', 'сотри чернила']
 
+- id: companion.ink_draw
+  desc: 'Нарисовать неоновую указку или подсказку на экране'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['нарисуй на экране', 'покажи на экране', 'отметь на экране', 'включи чернила', 'покажи чернила', 'нарисуй указку', 'тестовый рисунок', 'покажи указку']
+
 - id: companion.call_mode_on
   desc: 'Включить режим звонка (Discord/Telegram)'
   executor: agent

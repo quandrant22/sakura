@@ -182,6 +182,22 @@ def _legacy_action(action: str, arg: str = "") -> str:
         if a[:1] in ("+", "-") and a[1:].isdigit():
             return f"volume_{'up' if a[0] == '+' else 'down'}:{a[1:]}"
         return "volume"
+    if domain == "companion":
+        if verb == "clip":
+            return "clip:30"
+        if verb in ("ink_clear", "clear_ink"):
+            return "clear_ink:"
+        if verb in ("ink_draw", "draw_ink"):
+            demo = "circle 450 350 200 200; arrow 300 200 430 330; text 450 580 Зона внимания Сакуры"
+            return f"ink:{arg or demo}"
+        if verb == "call_mode_on":
+            return "call_mode:on"
+        if verb == "call_mode_off":
+            return "call_mode:off"
+        if verb == "watch_along_start":
+            return f"watch_along:{arg or 'видео'}"
+        if verb == "watch_along_stop":
+            return "watch_along:stop"
     return action
 
 
