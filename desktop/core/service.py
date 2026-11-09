@@ -918,7 +918,8 @@ class CoreService:
                 "message": ev.message,
             })
 
-            def _on_bus_game_mode(on: bool):
+            def _on_bus_game_mode(data):
+                on = bool(data.get("on", False)) if isinstance(data, dict) else bool(data)
                 if on:
                     gs.start()
                     clips.start()
