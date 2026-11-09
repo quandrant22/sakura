@@ -11,6 +11,8 @@ import { Chat, ChatStrip } from "./components/Chat";
 import { CoreFailedBanner } from "./components/CoreFailedBanner";
 import { BrowserTaskBanner, ConfirmDialog, ControlBanner } from "./components/ControlSafety";
 import { OfflineBanner } from "./components/OfflineBanner";
+import { ScreenInkOverlay } from "./components/ScreenInkOverlay";
+import { GameSenseHUD } from "./components/GameSenseHUD";
 import { useTalkHotkey } from "./screens/VoiceSection";
 
 function TalkHotkey() {
@@ -248,6 +250,8 @@ function Shell() {
         {loaded ? <Workspace section={section} galleryOpen={gallery} onCloseGallery={() => setGallery(false)} />
           : <div className="flex-1" aria-busy="true" />}
       </div>
+      <ScreenInkOverlay />
+      <GameSenseHUD />
       <Toast />
       <PowerToast />
     </div>

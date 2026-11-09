@@ -4,8 +4,10 @@ import {
   Eraser,
   Eye,
   Film,
+  Gamepad2,
   Headphones,
   HeartPulse,
+  PenTool,
   PhoneCall,
   Sliders,
   Sparkles,
@@ -21,11 +23,14 @@ export function CompanionWidget({}: WidgetProps) {
   const client = useMediaClient();
   const quick = useApp((s) => s.quickAction);
   const s = useApp((s) => s.settings);
+  const game = useApp((s) => s.gameMode);
+  const setGameMode = useApp((s) => s.setGameMode);
 
   const [callActive, setCallActive] = useState(false);
   const [watchActive, setWatchActive] = useState(false);
   const [callerName, setCallerName] = useState("");
   const [loading, setLoading] = useState(false);
+  const [recentGameEvent, setRecentGameEvent] = useState<string | null>(null);
 
   // Initial fetch of companion status
   useEffect(() => {
@@ -40,8 +45,18 @@ export function CompanionWidget({}: WidgetProps) {
         }
       })
       .catch(() => {});
+
+    // Listen to real-time events
+    const unreg = client.onEvent((ev: any) => {
+      if (ev.type === "gamesense_event") {
+        setRecentGameEvent(ev.kind || "alert");
+        setTimeout(() => setRecentGameEvent(null), 3500);
+      }
+    });
+
     return () => {
       alive = false;
+      unreg();
     };
   }, [client]);
 
@@ -77,6 +92,14 @@ export function CompanionWidget({}: WidgetProps) {
     }
   };
 
+  const handleToggleGame = async () => {
+    try {
+      await setGameMode(!game);
+    } catch {
+      await quick("toggle_game_mode");
+    }
+  };
+
   const voiceVol = typeof s?.voice_volume === "number" ? s.voice_volume : 50;
   const cableVol = typeof s?.cable_volume === "number" ? s.cable_volume : 85;
 
@@ -96,21 +119,78 @@ export function CompanionWidget({}: WidgetProps) {
             <div>
               <div className="text-xs font-semibold text-ink flex items-center gap-1.5">
                 <span>Companion Suite</span>
-                <span className="text-[10px] text-ink-dim font-normal">(Husk AI)</span>
+                <span className="text-[10px] text-ink-dim font-normal">(Capri & Husk AI)</span>
               </div>
-              <p className="text-[10px] text-ink-dim">Озвучка действий Claude Code, Codex и подтверждений</p>
+              <p className="text-[10px] text-ink-dim">Клипы, GameSense, чернила Ink и вызовы</p>
             </div>
           </div>
           <span className="inline-flex items-center gap-1.5 rounded-full border border-online/20 bg-online/10 px-2 py-0.5 text-[10px] font-medium text-online shadow-sm">
             <span className="h-1.5 w-1.5 rounded-full bg-online animate-pulse" />
-            127.0.0.1:19482
+            Active
           </span>
         </div>
       </div>
 
-      {/* 2. Discord Call Mode Hero Card */}
+      {/* 2. GameSense & Gaming Hero Card */}
       <div
         className={`relative overflow-hidden rounded-2xl border transition-all duration-300 p-3.5 shadow-soft backdrop-blur-md ${
+          game
+            ? "border-accent/80 bg-accent/10 shadow-[0_0_20px_rgba(255,42,133,0.25)]"
+            : "border-line/70 bg-panel2/60 hover:border-line"
+        }`}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div
+              className={`grid h-8 w-8 shrink-0 place-items-center rounded-xl transition-all ${
+                game
+                  ? "bg-accent text-white shadow-[0_0_14px_rgba(255,42,133,0.6)]"
+                  : "bg-panel text-ink-dim"
+              }`}
+            >
+              <Gamepad2 size={16} />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-ink">
+                  {game ? "Игровой режим (GameSense)" : "GameSense"}
+                </span>
+                {game && (
+                  <span className="rounded-full bg-accent/20 px-1.5 py-0.2 text-[9px] font-bold text-accent uppercase tracking-wider animate-pulse">
+                    LIVE
+                  </span>
+                )}
+                {recentGameEvent && (
+                  <span className="rounded-full bg-red-500/20 px-1.5 py-0.2 text-[9px] font-bold text-red-400 uppercase tracking-wider animate-bounce">
+                    {recentGameEvent === "hurt" ? "Урон!" : recentGameEvent === "flash" ? "Вспышка!" : "Смерть!"}
+                  </span>
+                )}
+              </div>
+              <p className="text-[10px] text-ink-dim truncate">
+                {game
+                  ? "Анализ экрана: урон, вспышки, авто-клипы и фразы Сакуры"
+                  : "Мгновенные выкрики при уроне и буфер клипов MP4"}
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => void handleToggleGame()}
+            className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all duration-200 cursor-pointer ${
+              game
+                ? "bg-accent text-white shadow-[0_0_15px_rgba(255,42,133,0.5)] hover:brightness-110 active:scale-95"
+                : "border border-line/80 bg-panel text-ink hover:border-accent hover:text-accent active:scale-95"
+            }`}
+          >
+            {game ? "В игре" : "Включить"}
+          </button>
+        </div>
+      </div>
+
+      {/* 3. Discord Call Mode Card */}
+      <div
+        className={`relative overflow-hidden rounded-2xl border transition-all duration-300 p-3 shadow-soft backdrop-blur-md ${
           callActive
             ? "border-accent/80 bg-accent/10 shadow-[0_0_20px_rgba(255,42,133,0.2)]"
             : "border-line/70 bg-panel2/60 hover:border-line"
@@ -119,18 +199,18 @@ export function CompanionWidget({}: WidgetProps) {
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
             <div
-              className={`grid h-8 w-8 shrink-0 place-items-center rounded-xl transition-all ${
+              className={`grid h-7 w-7 shrink-0 place-items-center rounded-xl transition-all ${
                 callActive
-                  ? "bg-accent text-white shadow-[0_0_14px_rgba(255,42,133,0.6)]"
+                  ? "bg-accent text-white shadow-[0_0_12px_rgba(255,42,133,0.5)]"
                   : "bg-panel text-ink-dim"
               }`}
             >
-              <PhoneCall size={16} />
+              <PhoneCall size={14} />
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold text-ink">
-                  {callActive ? "В звонке Discord" : "Режим звонка"}
+                  {callActive ? "В звонке Discord" : "Звонок Discord"}
                 </span>
                 {callActive && (
                   <span className="rounded-full bg-accent/20 px-1.5 py-0.2 text-[9px] font-bold text-accent uppercase tracking-wider animate-pulse">
@@ -142,7 +222,7 @@ export function CompanionWidget({}: WidgetProps) {
                 {callActive
                   ? callerName
                     ? `Слушает: ${callerName} · говорит в кабель`
-                    : "Слушает друзей через наушники и отвечает в кабель"
+                    : "Слушает друзей и отвечает в кабель"
                   : "Перенаправляет речь Сакуры в виртуальный кабель Discord"}
               </p>
             </div>
@@ -151,20 +231,80 @@ export function CompanionWidget({}: WidgetProps) {
           <button
             type="button"
             onClick={() => void handleToggleCall()}
-            className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all duration-200 cursor-pointer ${
+            className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold transition-all duration-200 cursor-pointer ${
               callActive
-                ? "bg-accent text-white shadow-[0_0_15px_rgba(255,42,133,0.5)] hover:brightness-110 active:scale-95"
+                ? "bg-accent text-white shadow-[0_0_12px_rgba(255,42,133,0.4)] hover:brightness-110 active:scale-95"
                 : "border border-line/80 bg-panel text-ink hover:border-accent hover:text-accent active:scale-95"
             }`}
           >
-            {callActive ? "Завершить звонок" : "Войти в звонок"}
+            {callActive ? "Завершить" : "Войти"}
           </button>
         </div>
       </div>
 
-      {/* 3. Audio Routing & Volume Mixer */}
+      {/* 4. Interactive Actions (Clips, Screen Ink, Watch) */}
       <div className="rounded-2xl border border-line/70 bg-panel2/50 p-3 shadow-soft backdrop-blur-md">
-        <div className="mb-2.5 flex items-center justify-between text-xs font-semibold text-ink">
+        <div className="mb-2 flex items-center justify-between text-xs font-semibold text-ink">
+          <div className="flex items-center gap-1.5">
+            <Activity size={13} className="text-accent" />
+            <span>Экранный интерактив</span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-4 gap-1.5">
+          {/* 1. Clip That */}
+          <button
+            type="button"
+            onClick={() => void quick("clip_that")}
+            title="Сохранить последние 30 секунд геймплея в MP4"
+            className="flex flex-col items-center justify-center gap-1 rounded-xl border border-line/60 bg-panel/70 py-2 px-1 text-ink-dim transition-all duration-200 hover:border-accent hover:text-ink hover:shadow-[0_0_12px_rgba(255,42,133,0.2)] active:scale-95 cursor-pointer"
+          >
+            <Film size={14} className="text-accent" />
+            <span className="text-[10px] font-medium">Клип 30с</span>
+          </button>
+
+          {/* 2. Draw Ink */}
+          <button
+            type="button"
+            onClick={() => void quick("draw_demo_ink")}
+            title="Нарисовать неоновую указку поверх экрана"
+            className="flex flex-col items-center justify-center gap-1 rounded-xl border border-line/60 bg-panel/70 py-2 px-1 text-ink-dim transition-all duration-200 hover:border-accent hover:text-ink hover:shadow-[0_0_12px_rgba(255,42,133,0.2)] active:scale-95 cursor-pointer"
+          >
+            <PenTool size={14} className="text-accent" />
+            <span className="text-[10px] font-medium">Чернила</span>
+          </button>
+
+          {/* 3. Clear Ink */}
+          <button
+            type="button"
+            onClick={() => void quick("clear_ink")}
+            title="Стереть рисунок с экрана"
+            className="flex flex-col items-center justify-center gap-1 rounded-xl border border-line/60 bg-panel/70 py-2 px-1 text-ink-dim transition-all duration-200 hover:border-accent hover:text-ink active:scale-95 cursor-pointer"
+          >
+            <Eraser size={14} className="text-ink-dim" />
+            <span className="text-[10px] font-medium">Стереть</span>
+          </button>
+
+          {/* 4. Watch Along */}
+          <button
+            type="button"
+            onClick={() => void handleToggleWatch()}
+            title="Режим совместного просмотра"
+            className={`flex flex-col items-center justify-center gap-1 rounded-xl border py-2 px-1 transition-all duration-200 active:scale-95 cursor-pointer ${
+              watchActive
+                ? "border-accent bg-accent/15 text-accent shadow-[0_0_12px_rgba(255,42,133,0.25)]"
+                : "border-line/60 bg-panel/70 text-ink-dim hover:border-accent hover:text-ink"
+            }`}
+          >
+            <Eye size={14} className={watchActive ? "text-accent" : "text-ink-dim"} />
+            <span className="text-[10px] font-medium">Смотреть</span>
+          </button>
+        </div>
+      </div>
+
+      {/* 5. Audio Routing & Volume Mixer */}
+      <div className="rounded-2xl border border-line/70 bg-panel2/50 p-3 shadow-soft backdrop-blur-md">
+        <div className="mb-2 flex items-center justify-between text-xs font-semibold text-ink">
           <div className="flex items-center gap-1.5">
             <Sliders size={13} className="text-accent" />
             <span>Микшер громкости</span>
@@ -174,7 +314,7 @@ export function CompanionWidget({}: WidgetProps) {
           </span>
         </div>
 
-        <div className="flex flex-col gap-2.5">
+        <div className="flex flex-col gap-2">
           {/* Headphones Slider */}
           <div className="flex items-center justify-between gap-3 rounded-xl bg-panel/70 px-2.5 py-1.5 border border-line/40">
             <div className="flex items-center gap-2 min-w-0">
@@ -236,50 +376,7 @@ export function CompanionWidget({}: WidgetProps) {
         </div>
       </div>
 
-      {/* 4. Companion Actions (GameSense, Clips, Watch) */}
-      <div className="rounded-2xl border border-line/70 bg-panel2/50 p-3 shadow-soft backdrop-blur-md">
-        <div className="mb-2 flex items-center justify-between text-xs font-semibold text-ink">
-          <div className="flex items-center gap-1.5">
-            <Activity size={13} className="text-accent" />
-            <span>Интерактивные действия</span>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-3 gap-2">
-          <button
-            type="button"
-            onClick={() => void quick("clip_that")}
-            className="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-line/60 bg-panel/70 py-2 px-1 text-ink-dim transition-all duration-200 hover:border-accent hover:text-ink hover:shadow-[0_0_12px_rgba(255,42,133,0.2)] active:scale-95"
-          >
-            <Film size={14} className="text-accent" />
-            <span className="text-[10px] font-medium">Откат 30с</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => void handleToggleWatch()}
-            className={`flex flex-col items-center justify-center gap-1.5 rounded-xl border py-2 px-1 transition-all duration-200 active:scale-95 ${
-              watchActive
-                ? "border-accent bg-accent/15 text-accent shadow-[0_0_12px_rgba(255,42,133,0.25)]"
-                : "border-line/60 bg-panel/70 text-ink-dim hover:border-accent hover:text-ink"
-            }`}
-          >
-            <Eye size={14} className={watchActive ? "text-accent" : "text-ink-dim"} />
-            <span className="text-[10px] font-medium">Смотреть</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => void quick("clear_ink")}
-            className="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-line/60 bg-panel/70 py-2 px-1 text-ink-dim transition-all duration-200 hover:border-accent hover:text-ink hover:shadow-[0_0_12px_rgba(255,42,133,0.2)] active:scale-95"
-          >
-            <Eraser size={14} className="text-accent" />
-            <span className="text-[10px] font-medium">Чернила</span>
-          </button>
-        </div>
-      </div>
-
-      {/* 5. Health & Care Metrics */}
+      {/* 6. Health & Care Metrics */}
       <div className="rounded-2xl border border-line/70 bg-panel2/50 p-3 shadow-soft backdrop-blur-md">
         <div className="mb-2 flex items-center justify-between">
           <div className="flex items-center gap-1.5 font-semibold text-ink text-xs">

@@ -19,7 +19,7 @@ from typing import Optional
 from desktop.core.call_mode import CallModeManager
 from desktop.core.care import CareManager
 from desktop.core.clips import ClipBuffer
-from desktop.core.gamesense import GameSenseDetector
+from desktop.core.gamesense import GameSenseDetector, GameSenseRunner, get_gamesense_runner
 from desktop.core.husk import HuskManager
 from desktop.core.ink import InkManager
 from desktop.core.lookout import LookoutEngine
@@ -49,10 +49,7 @@ def get_husk_manager() -> HuskManager:
 
 
 def get_gamesense_detector() -> GameSenseDetector:
-    global _gamesense_detector
-    if _gamesense_detector is None:
-        _gamesense_detector = GameSenseDetector()
-    return _gamesense_detector
+    return get_gamesense_runner().detector
 
 
 def get_lookout_engine() -> LookoutEngine:

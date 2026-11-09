@@ -492,11 +492,32 @@ class CoreService:
         if kind == "clip_that":
             from desktop.core.features import get_clip_buffer
             path = await asyncio.to_thread(get_clip_buffer().save_clip, 30)
-            return {"text": f"Клип сохранён: {path}" if path else "Не удалось сохранить клип"}
+            if path:
+                self._emit({"type": "clip_saved", "path": str(path)})
+                if self._agent and getattr(self._agent, "_state", "") not in ("speaking", "thinking"):
+                    self._agent.submit_user_text("[Геймплей]: Скажи коротко: «Момент заклипан, Мастер! Видео сохранено в папку Clips.»", source="clip")
+                return {"text": f"Клип сохранён: {path.name}", "path": str(path)}
+            return {"text": "Не удалось сохранить клип"}
         if kind == "clear_ink":
             from desktop.core.features import get_ink_manager
             get_ink_manager().clear()
-            return {"text": "Рисунок стёрт"}
+            self._emit({"type": "ink_clear"})
+            return {"text": "Чернила стёрты"}
+        if kind == "draw_demo_ink":
+            from desktop.core.features import get_ink_manager
+            get_ink_manager().draw("circle 400 300 200 200; arrow 250 150 380 280; text 400 520 Интерактивная зона Сакуры")
+            return {"text": "Нарисовала подсказку на экране"}
+        if kind == "toggle_game_mode":
+            from desktop.core.features import get_gamesense_runner, get_clip_buffer
+            gs = get_gamesense_runner()
+            new_active = not gs.active
+            if new_active:
+                gs.start()
+                get_clip_buffer().start()
+            else:
+                gs.stop()
+            self.bus.emit("game_mode", on=new_active)
+            return {"active": new_active}
         if kind == "toggle_call_mode":
             from desktop.core.features import get_call_mode_manager
             cm = get_call_mode_manager()
@@ -860,19 +881,11 @@ class CoreService:
 
             # 2. Ink manager -> отправка событий рисования в UI
             ink = get_ink_manager()
-            ink.on_render = lambda shapes: self._emit({"type": "ink_render", "shapes": shapes})
+            ink.on_render = lambda shapes: self._emit({"type": "ink_render", "shapes": shapes, "duration": getattr(ink.current_drawing, "duration", 10.0)})
 
-            # 3. Clip buffer -> инициализация (запуск захвата только по запросу/в игре)
-            from desktop.core.hands import take_screenshot
-            import base64
-            def _capture_clip_frame():
-                try:
-                    b64 = take_screenshot()
-                    return base64.b64decode(b64) if b64 else None
-                except Exception:
-                    return None
+            # 3. Clip buffer -> фоновый буфер последних 30-60 секунд
             clips = get_clip_buffer()
-            clips.capture_func = _capture_clip_frame
+            clips.start()
 
             # 4. Care manager -> периодические напоминания
             care = get_care_manager()
@@ -881,6 +894,37 @@ class CoreService:
             # 5. Lookout engine
             lookout = get_lookout_engine()
             lookout.on_alert = lambda msg: self._emit({"type": "notify", "text": msg, "level": "info"})
+
+            # 6. GameSense Runner (мгновенные игровые реакции: урон, вспышка, смерть)
+            from desktop.core.features import get_gamesense_runner
+            gs = get_gamesense_runner()
+
+            def _on_gamesense_reaction(ev, phrase):
+                self._emit({
+                    "type": "gamesense_event",
+                    "kind": ev.kind,
+                    "strength": ev.strength,
+                    "message": phrase,
+                })
+                if self._agent and getattr(self._agent, "_state", "") not in ("speaking", "thinking"):
+                    prompt = f'[Событие в игре ({ev.kind})]: Скажи эмоционально и коротко: "{phrase}"'
+                    self._agent.submit_user_text(prompt, source="game")
+
+            gs.on_reaction = _on_gamesense_reaction
+            gs.on_event = lambda ev: self._emit({
+                "type": "gamesense_event",
+                "kind": ev.kind,
+                "strength": ev.strength,
+                "message": ev.message,
+            })
+
+            def _on_bus_game_mode(on: bool):
+                if on:
+                    gs.start()
+                    clips.start()
+                else:
+                    gs.stop()
+            self.bus.on("game_mode", _on_bus_game_mode)
 
             # 6. Call Mode & Watch Along loopback speech listener (захват речи друга из Discord/видео)
             from desktop.core.features import (

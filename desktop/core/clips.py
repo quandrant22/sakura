@@ -116,6 +116,13 @@ class ClipBuffer:
                 frame_file.write_bytes(frame.jpeg_bytes)
 
             ffmpeg_bin = shutil.which("ffmpeg")
+            if not ffmpeg_bin:
+                try:
+                    import imageio_ffmpeg
+                    ffmpeg_bin = imageio_ffmpeg.get_ffmpeg_exe()
+                except Exception:
+                    pass
+
             if ffmpeg_bin:
                 try:
                     cmd = [
@@ -140,17 +147,31 @@ class ClipBuffer:
             log.info("FFmpeg not found; saved last frame to %s", fallback_path)
             return fallback_path
 
+    def _default_capture(self) -> Optional[bytes]:
+        try:
+            import io
+            from PIL import ImageGrab
+            img = ImageGrab.grab()
+            if img.width > 1280:
+                scale = 1280.0 / img.width
+                img = img.resize((1280, int(img.height * scale)))
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=65)
+            return buf.getvalue()
+        except Exception:
+            return None
+
     def _capture_loop(self):
         interval = 1.0 / max(1, self.fps)
+        func = self.capture_func or self._default_capture
         while self._running:
             start_t = time.time()
-            if self.capture_func:
-                try:
-                    frame = self.capture_func()
-                    if frame:
-                        self.add_frame(frame)
-                except Exception as e:
-                    log.debug("Clip capture error: %s", e)
+            try:
+                frame = func()
+                if frame:
+                    self.add_frame(frame)
+            except Exception as e:
+                log.debug("Clip capture error: %s", e)
 
             elapsed = time.time() - start_t
             sleep_t = max(0.01, interval - elapsed)

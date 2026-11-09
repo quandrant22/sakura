@@ -191,3 +191,118 @@ class GameSenseDetector:
         self.old_red_ratio = red_ratio
         self.is_first_frame = False
         return events
+
+
+class GameSenseRunner:
+    """Фоновый захват экрана и анализ игровых событий (Hurt, Flash, Dark/Death)."""
+
+    def __init__(
+        self,
+        detector: Optional[GameSenseDetector] = None,
+        on_reaction: Optional[Callable[[GameSenseEvent, str], None]] = None,
+        on_event: Optional[Callable[[GameSenseEvent], None]] = None,
+        fps: int = 10,
+    ):
+        self.detector = detector or GameSenseDetector()
+        self.on_reaction = on_reaction
+        self.on_event = on_event
+        self.fps = fps
+        self.active = False
+        self._thread: Optional[threading.Thread] = None
+        self._lock = threading.Lock()
+        self.last_reaction_time = 0.0
+        self.reaction_gap = 4.0  # минимум 4 секунды между репликами Сакуры
+
+        # Подключаем внутренний обработчик детектора
+        self.detector.on_event = self._handle_event
+
+    def start(self):
+        with self._lock:
+            if self.active:
+                return
+            self.active = True
+            self.detector.reset()
+            self._thread = threading.Thread(target=self._run_loop, name="GameSenseRunner", daemon=True)
+            self._thread.start()
+            log.info("[gamesense] Фоновый анализатор запущен (fps=%d)", self.fps)
+
+    def stop(self):
+        with self._lock:
+            self.active = False
+            self._thread = None
+            log.info("[gamesense] Фоновый анализатор остановлен")
+
+    def _handle_event(self, ev: GameSenseEvent):
+        if self.on_event:
+            try:
+                self.on_event(ev)
+            except Exception as e:
+                log.debug("[gamesense] on_event error: %s", e)
+
+        now = time.time()
+        if now - self.last_reaction_time < self.reaction_gap:
+            return
+
+        import random
+        phrases = {
+            "hurt": [
+                "Мастер, аккуратнее, тебя задели!",
+                "Куда под пули прёшь?! ХП улетает!",
+                "Тебя коцают, отойди в укрытие!",
+            ],
+            "flash": [
+                "Ой, мои глаза! Кто светошумовую кинул?!",
+                "Белый экран! Осторожно, ты ослеп!",
+            ],
+            "dark": [
+                "Ну вот, приехали. Опять на респаун?",
+                "Великолепный тактический ход... прямо на кладбище.",
+                "Капец. Ты погиб, Мастер.",
+            ],
+        }
+
+        choices = phrases.get(ev.kind)
+        if choices:
+            self.last_reaction_time = now
+            chosen = random.choice(choices)
+            log.info("[gamesense] Реакция на %s: %s", ev.kind, chosen)
+            if self.on_reaction:
+                try:
+                    self.on_reaction(ev, chosen)
+                except Exception as e:
+                    log.warning("[gamesense] on_reaction error: %s", e)
+
+    def _run_loop(self):
+        from PIL import ImageGrab
+        interval = 1.0 / max(1, self.fps)
+        while self.active:
+            t0 = time.time()
+            try:
+                # Быстрый захват кадра и сжатие в 160x90 для минимального использования процессора
+                img = ImageGrab.grab()
+                small = img.resize((160, 90))
+                # RGBA байты
+                rgba = small.convert("RGBA").tobytes()
+                # Для BGRA переставляем каналы (или подаем напрямую в детектор)
+                # В numpy-версии детектора sample[:, :, 0] = Blue, 1 = Green, 2 = Red
+                # Преобразуем RGBA в BGRA байты
+                bgra = bytearray(rgba)
+                bgra[0::4], bgra[2::4] = bgra[2::4], bgra[0::4]
+                self.detector.feed_frame(bytes(bgra), 160, 90, t0)
+            except Exception as e:
+                log.debug("[gamesense] Capture loop error: %s", e)
+
+            elapsed = time.time() - t0
+            sleep_t = max(0.02, interval - elapsed)
+            time.sleep(sleep_t)
+
+
+# Синглтон
+_gamesense_runner: Optional[GameSenseRunner] = None
+
+
+def get_gamesense_runner() -> GameSenseRunner:
+    global _gamesense_runner
+    if _gamesense_runner is None:
+        _gamesense_runner = GameSenseRunner()
+    return _gamesense_runner
