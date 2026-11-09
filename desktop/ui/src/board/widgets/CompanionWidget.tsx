@@ -78,7 +78,7 @@ export function CompanionWidget({}: WidgetProps) {
   };
 
   const voiceVol = typeof s?.voice_volume === "number" ? s.voice_volume : 50;
-  const cableVol = typeof s?.cable_volume === "number" ? s.cable_volume : 20;
+  const cableVol = typeof s?.cable_volume === "number" ? s.cable_volume : 85;
 
   const updateVol = (key: "voice_volume" | "cable_volume", val: number) => {
     void client.call("settings_set", { key, value: val });

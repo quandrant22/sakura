@@ -13,8 +13,8 @@ export interface WidgetProps {
 }
 
 const body = "flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4 pb-4 text-sm";
-const chip = "flex items-center gap-1.5 rounded-full border border-line/70 bg-panel2/60 px-3 py-1.5 text-xs text-ink-dim hover:border-accent hover:text-ink hover:bg-accent/10 hover:shadow-[0_0_10px_rgba(255,42,133,0.15)] transition-all duration-200 active:scale-95";
-const activeChip = "flex items-center gap-1.5 rounded-full border border-accent bg-accent/20 px-3 py-1.5 text-xs text-accent font-medium shadow-[0_0_10px_rgba(255,42,133,0.25)] transition-all duration-200 active:scale-95";
+const chip = "flex items-center gap-2 rounded-xl border border-white/[0.08] bg-panel2/70 px-3 py-2 text-xs font-medium text-ink-dim hover:border-accent/60 hover:text-ink hover:bg-accent/10 hover:shadow-[0_0_14px_rgba(255,106,227,0.25)] transition-all duration-200 active:scale-95 backdrop-blur-md";
+const activeChip = "flex items-center gap-2 rounded-xl border border-accent bg-accent/20 px-3 py-2 text-xs font-semibold text-accent shadow-[0_0_16px_rgba(255,106,227,0.35)] transition-all duration-200 active:scale-95 backdrop-blur-md";
 
 export function ScenariosWidget() {
   const scenarios = useApp((s) => s.scenarios);
@@ -114,12 +114,33 @@ export function NotificationsWidget() {
     <div className={body}>
       {items.length === 0 ? <EmptyState text="Уведомлений пока нет" /> : (
         <ul className="flex flex-col gap-2">
-          {items.map((n, i) => (
-            <li key={`${n.ts}-${i}`} className="rounded-xl border border-line/60 bg-panel2/60 p-2.5 backdrop-blur-sm transition-all hover:border-accent/40 shadow-soft">
-              <div className={n.level === "info" ? "text-ink" : "text-accent font-medium"}>{n.text}</div>
-              <div className="mt-1 text-[10px] text-ink-dim">{timeHM(n.ts)}</div>
-            </li>
-          ))}
+          {items.map((n, i) => {
+            const isDiscord = n.text.toLowerCase().includes("discord");
+            return (
+              <li key={`${n.ts}-${i}`} className={`rounded-xl border p-2.5 backdrop-blur-sm transition-all duration-200 shadow-soft ${
+                isDiscord
+                  ? "border-[#5865F2]/40 bg-[#5865F2]/10 hover:border-[#5865F2]/70 shadow-[0_0_12px_rgba(88,101,242,0.15)]"
+                  : n.level === "info"
+                    ? "border-line/60 bg-panel2/60 hover:border-accent/40"
+                    : "border-accent/50 bg-accent/10 hover:border-accent"
+              }`}>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <div className="flex items-center gap-1.5">
+                    {isDiscord && <span className="h-1.5 w-1.5 rounded-full bg-[#5865F2] shadow-[0_0_6px_#5865F2]" />}
+                    <span className="text-[10px] font-mono text-ink-dim">{timeHM(n.ts)}</span>
+                  </div>
+                  {isDiscord && (
+                    <span className="rounded bg-[#5865F2]/20 px-1.5 py-0.5 text-[9px] font-medium text-[#7983f5]">
+                      Discord Call
+                    </span>
+                  )}
+                </div>
+                <div className={n.level === "info" ? "text-xs text-ink/90 font-normal leading-relaxed" : "text-xs text-accent font-medium leading-relaxed"}>
+                  {n.text}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

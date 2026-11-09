@@ -52,6 +52,38 @@ def find_output_device():
     return None, "дефолт"
 
 
+def find_cable_device() -> tuple[int | None, str]:
+    """Поиск виртуального кабеля (VB-Audio Virtual Cable) с приоритетом WASAPI стерео."""
+    if not sd:
+        return None, ""
+    try:
+        devices = sd.query_devices()
+        apis = sd.query_hostapis()
+        # 1. Приоритет: WASAPI со стерео (2 канала), совпадает с нативным форматом VB-Audio Cable
+        for i, d in enumerate(devices):
+            if "cable input" in d["name"].lower() and d["max_output_channels"] >= 2:
+                api_name = apis[d["hostapi"]]["name"].lower()
+                if "wasapi" in api_name:
+                    return i, d["name"]
+        # 2. DirectSound со стерео
+        for i, d in enumerate(devices):
+            if "cable input" in d["name"].lower() and d["max_output_channels"] >= 2:
+                api_name = apis[d["hostapi"]]["name"].lower()
+                if "directsound" in api_name:
+                    return i, d["name"]
+        # 3. Любое устройство CABLE Input с >= 2 каналами
+        for i, d in enumerate(devices):
+            if "cable input" in d["name"].lower() and d["max_output_channels"] >= 2:
+                return i, d["name"]
+        # 4. Фолбэк на любое устройство CABLE Input
+        for i, d in enumerate(devices):
+            if "cable input" in d["name"].lower() and d["max_output_channels"] > 0:
+                return i, d["name"]
+    except Exception as e:
+        log.warning(f"[voice] Ошибка поиска Virtual Cable: {e}")
+    return None, ""
+
+
 def list_output_devices() -> str:
     if not sd:
         return "sounddevice недоступен"
@@ -97,6 +129,9 @@ class Player:
     _ended = False
     _format_logged = False
     _ur_count = _ur_total = _ur_max = _ur_cur = 0
+    _cable_stream = None
+    _cable_lock = None
+    _cable_buf = None
 
     def __init__(self, rate: int):
         self._rate   = rate
@@ -109,6 +144,7 @@ class Player:
         # (или пришёл tts_end, или прошло _PREROLL_MAX_WAIT с первого чанка)
         self._preroll_bytes = int(getattr(config, "PLAYER_PREROLL_MS", 0) * rate / 1000) * 2
         self._cable_stream = None
+        self._cable_lock = threading.Lock()
         self._cable_buf = bytearray()
         self._reset_response()
         self._open_stream()
@@ -148,17 +184,24 @@ class Player:
     def _open_cable_stream(self):
         if not sd:
             return
-        try:
-            cable_idx = None
-            for i, d in enumerate(sd.query_devices()):
-                if "cable input" in d["name"].lower() and d["max_output_channels"] > 0:
-                    cable_idx = i
-                    break
-            if cable_idx is not None:
-                # 48000 Hz, блок 1024 сэмпла для максимальной плавности и отсутствия прерываний в Discord
+        cable_idx, cable_name = find_cable_device()
+        if cable_idx is None:
+            log.warning("[voice] Виртуальный кабель не найден среди устройств вывода")
+            return
+        with self._cable_lock:
+            if self._cable_stream:
+                try:
+                    self._cable_stream.stop()
+                    self._cable_stream.close()
+                except Exception:
+                    pass
+                self._cable_stream = None
+            try:
+                # 48000 Hz, 2 канала (Stereo), blocksize 1024 сэмплов
+                # Полное совпадение с нативной конфигурацией VB-Audio Cable (ch 2, 48000 Hz, 1024 smp)
                 self._cable_stream = sd.RawOutputStream(
                     samplerate=48000,
-                    channels=1,
+                    channels=2,
                     dtype="int16",
                     blocksize=1024,
                     device=cable_idx,
@@ -166,12 +209,12 @@ class Player:
                     latency="low",
                 )
                 self._cable_stream.start()
-                log.info(f"[voice] Вывод в виртуальный кабель Discord открыт (48кГц, блок 1024): dev {cable_idx}")
-        except Exception as e:
-            log.warning(f"[voice] Кабель Discord не открыт: {e}")
+                log.info(f"[voice] Вывод в виртуальный кабель Discord открыт (WASAPI 48кГц Стерео, блок 1024): dev {cable_idx} ({cable_name})")
+            except Exception as e:
+                log.warning(f"[voice] Кабель Discord (dev {cable_idx}) не открыт: {e}")
 
     def _cable_callback(self, outdata, frames, time_info, status):
-        need = frames * 2
+        need = frames * 4  # 2 channels * 2 bytes/sample
         n = 0
         with self._lock:
             n = min(need, len(self._cable_buf))
@@ -191,6 +234,14 @@ class Player:
                 if not alive:
                     log.warning("[voice] Стрим упал — переоткрываем")
                     self._open_stream()
+            except Exception:
+                pass
+            try:
+                with self._cable_lock:
+                    cable_alive = self._cable_stream and self._cable_stream.active
+                if not cable_alive:
+                    log.warning("[voice] Стрим кабеля упал — переоткрываем")
+                    self._open_cable_stream()
             except Exception:
                 pass
 
@@ -276,13 +327,20 @@ class Player:
             # 2. Вывод в кабель Discord ТОЛЬКО при включённом режиме звонка (Call Mode)!
             from desktop.core.features import get_call_mode_manager
             cm = get_call_mode_manager()
-            if cm.active and self._cable_stream and self._cable_stream.active:
+            cable_s = getattr(self, '_cable_stream', None)
+            if cm.active and cable_s and getattr(cable_s, 'active', False):
                 pcm_arr = np.frombuffer(pcm, dtype=np.int16)
+                # Переводим 24кГц моно -> 48кГц стерео для виртуального кабеля Discord
                 pcm_48k = np.repeat(pcm_arr, 2)
-                c_pct = getattr(config, "CABLE_VOLUME", 20)
+                c_pct = getattr(config, "CABLE_VOLUME", 85)
                 c_gain = max(0.0, min(1.0, c_pct / 100.0))
-                pcm_scaled = (pcm_48k * c_gain).astype(np.int16).tobytes()
-                self._cable_buf.extend(pcm_scaled)
+                if c_gain != 1.0:
+                    pcm_scaled = (pcm_48k * c_gain).astype(np.int16)
+                else:
+                    pcm_scaled = pcm_48k
+                pcm_stereo = np.column_stack((pcm_scaled, pcm_scaled)).ravel().tobytes()
+                if getattr(self, '_cable_buf', None) is not None:
+                    self._cable_buf.extend(pcm_stereo)
             self.last_feed_ts = time.monotonic()
 
     def feed_binary(self, data: bytes):

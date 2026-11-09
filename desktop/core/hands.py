@@ -445,7 +445,7 @@ def open_app(name: str) -> str:
     """
     name = name.strip()
     low = name.lower()
-    if any(k in low for k in ("яндекс музыка", "яндекс.музыка", "yandex music", "yandex_music")):
+    if any(k in low for k in ("яндекс музыка", "яндекс.музыка", "yandex music", "yandex_music", "музыка", "музыку", "яндекс")):
         from desktop.core.app_launch import AppLauncher
         res = AppLauncher().launch("yandex_music")
         if res.get("ok"):

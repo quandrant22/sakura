@@ -85,7 +85,7 @@ export function Widget({ title, icon, editing, fixed, pinned, collapsed, bare, a
 
   if (bare && !collapsed) {
     return (
-      <section {...common} className={"relative flex h-full overflow-hidden rounded-card bg-panel outline-none focus-visible:ring-2 focus-visible:ring-accent " + ring}>
+      <section {...common} className={"relative flex h-full overflow-hidden rounded-card border border-white/[0.08] bg-gradient-to-b from-panel2/80 via-panel/90 to-panel/95 backdrop-blur-xl shadow-soft shadow-black/50 transition-all duration-300 hover:border-white/[0.15] outline-none focus-visible:ring-2 focus-visible:ring-accent " + ring}>
         {!fixed && (
           <div className={handle + "grid w-5 shrink-0 place-items-center text-ink-dim/60 hover:text-ink"} title="Перетащить">
             <GripVertical size={14} />
@@ -98,10 +98,10 @@ export function Widget({ title, icon, editing, fixed, pinned, collapsed, bare, a
     );
   }
   return (
-    <section {...common} className={"relative flex h-full flex-col overflow-hidden rounded-card bg-panel outline-none focus-visible:ring-2 focus-visible:ring-accent " + ring}>
-      <header className={handle + "flex h-11 shrink-0 select-none items-center gap-2 px-4"} onDoubleClick={actions.toggleCollapse}>
-        {icon && <span className="text-accent">{icon}</span>}
-        <h2 className="min-w-0 truncate text-sm font-semibold text-ink">{title}</h2>
+    <section {...common} className={"relative flex h-full flex-col overflow-hidden rounded-card border border-white/[0.08] bg-gradient-to-b from-panel2/80 via-panel/90 to-panel/95 backdrop-blur-xl shadow-soft shadow-black/50 transition-all duration-300 hover:border-white/[0.15] before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-[1px] before:bg-gradient-to-r before:from-transparent before:via-white/[0.16] before:to-transparent outline-none focus-visible:ring-2 focus-visible:ring-accent " + ring}>
+      <header className={handle + "flex h-11 shrink-0 select-none items-center gap-2.5 px-4 border-b border-white/[0.04] bg-white/[0.015]"} onDoubleClick={actions.toggleCollapse}>
+        {icon && <span className="grid h-6 w-6 place-items-center rounded-lg bg-accent/10 text-accent shadow-[0_0_8px_rgba(255,106,227,0.25)]">{icon}</span>}
+        <h2 className="min-w-0 truncate text-xs font-semibold tracking-wider uppercase text-ink/90">{title}</h2>
         {pinned && <Pin size={12} className="shrink-0 text-ink-dim" aria-label="закреплён" />}
         <div className={NO_DRAG + " ml-auto flex items-center gap-1"}>
           <button type="button" onClick={actions.toggleCollapse} aria-label={collapsed ? "Развернуть" : "Свернуть"}

@@ -65,7 +65,7 @@ export function SoundSection() {
   );
 
   const voiceVol = typeof s?.voice_volume === "number" ? s.voice_volume : 50;
-  const cableVol = typeof s?.cable_volume === "number" ? s.cable_volume : 20;
+  const cableVol = typeof s?.cable_volume === "number" ? s.cable_volume : 85;
 
   return (
     <div className="px-4 pb-2">
@@ -86,7 +86,7 @@ export function SoundSection() {
           <span className="w-10 text-xs font-semibold text-accent">{voiceVol}%</span>
         </div>
       </Row>
-      <Row label="Громкость в Discord (виртуальный кабель)" hint="Громкость в виртуальном кабеле (только в режиме звонка). Рекомендуется 15–25%, чтобы Krisp не глушил звук.">
+      <Row label="Громкость в Discord (виртуальный кабель)" hint="Громкость в виртуальном кабеле (только в режиме звонка). Рекомендуется 80–90% для чистого звучания в Discord.">
         <div className="flex items-center gap-3">
           <input
             type="range"

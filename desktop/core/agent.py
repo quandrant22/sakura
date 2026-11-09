@@ -662,6 +662,13 @@ class Agent:
                             f"буфер {self.player.buffer_bytes()} байт)")
                 self.player.flush()
                 self._set_state("idle")
+        elif state == "listening":
+            # Защита от бесконечной прослушки (шум в звонке, зависший поток или VAD)
+            if now - self._state_since >= 16.0:
+                log.warning("[state] listening завис (>16с) -> idle")
+                if hasattr(self, "hearing") and self.hearing:
+                    self.hearing.reset_dialog()
+                self._set_state("idle")
         elif state == "thinking":
             if now - self._state_since >= _THINK_TIMEOUT_SEC:
                 log.warning("[state] thinking без ответа -> idle")
@@ -724,8 +731,12 @@ class Agent:
             target = action.split(":", 1)[1] if ":" in action else arg
             key = app_launch.app_key(target)
             if key is not None:
-                if not await asyncio.to_thread(lambda: launcher.state(key)["running"]):
+                st = await asyncio.to_thread(lambda: launcher.state(key))
+                if not st.get("running"):
                     await _send_ack(await asyncio.to_thread(launcher.launch, key))
+                    return
+                elif not st.get("with_flag"):
+                    await _send_ack(await asyncio.to_thread(launcher.restart, key))
                     return
 
         # Управление ПК (п. 2.3): окна, питание, процессы, буфер, экран и звук, сеть, клавиши, файлы.

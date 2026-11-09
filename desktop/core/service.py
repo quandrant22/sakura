@@ -22,7 +22,7 @@ DEFAULT_SETTINGS = {
     "language": "ru",
     "theme": "sakura-night",
     "voice_volume": 50,
-    "cable_volume": 20,
+    "cable_volume": 85,
     "stt_model": "v2_ctc",
     # Зрение (docs/VISION.md): поглядывать без просьбы — только с разрешения.
     "vision_glance_allowed": False,

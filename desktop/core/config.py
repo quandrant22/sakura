@@ -56,7 +56,7 @@ RECONNECT_SEC = int(os.getenv("RECONNECT_SEC", "3"))
 TTS_RATE  = int(os.getenv("TTS_RATE", "24000"))
 TTS_SPEED = float(os.getenv("TTS_SPEED", "1.0"))
 VOICE_VOLUME = int(os.getenv("VOICE_VOLUME", "50"))
-CABLE_VOLUME = int(os.getenv("CABLE_VOLUME", "20"))
+CABLE_VOLUME = int(os.getenv("CABLE_VOLUME", "85"))
 # Шаг «громче/тише» для музыки без числа, %
 VOLUME_STEP = int(os.getenv("VOLUME_STEP", "10"))
 
@@ -149,7 +149,7 @@ GIGAAM_ENABLED = os.getenv("GIGAAM_ENABLED", "1").strip().lower() not in ("0", "
 MIC_RATE        = 16000
 MIC_BLOCK       = 512    # кадр для Silero VAD — менять нельзя
 WAKE_BLOCK      = 1024   # блок цикла вейк-ворда: 64 мс звука вместо 32
-MAX_UTTER_SEC   = 60
+MAX_UTTER_SEC   = float(os.getenv("MAX_UTTER_SEC", "12.0"))
 FOLLOWUP_SEC    = 4.0
 VAD_THRESHOLD   = 0.45     # Снижен — ловит тихую речь в тихой комнате
 VAD_END_SILENCE = 1.0      # Возврат к 1.0 — стабильнее для разговора
