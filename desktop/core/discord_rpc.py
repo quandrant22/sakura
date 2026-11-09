@@ -17,11 +17,11 @@ import os
 import struct
 import threading
 import time
-import urllib.parse
-import urllib.request
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
+
+import requests
 
 from desktop.core import config
 
@@ -160,24 +160,30 @@ class DiscordRpcManager:
 
     def _exchange_code_for_token(self, code: str) -> Optional[str]:
         try:
-            data = urllib.parse.urlencode({
-                "client_id": self.client_id,
-                "client_secret": self.client_secret,
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": "http://127.0.0.1",
-            }).encode("utf-8")
-            req = urllib.request.Request(
+            resp = requests.post(
                 "https://discord.com/api/oauth2/token",
-                data=data,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                data={
+                    "client_id": self.client_id,
+                    "client_secret": self.client_secret,
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "redirect_uri": "http://127.0.0.1",
+                },
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                },
+                timeout=10.0,
             )
-            with urllib.request.urlopen(req, timeout=10.0) as resp:
-                res_data = json.loads(resp.read().decode("utf-8"))
+            if resp.status_code == 200:
+                res_data = resp.json()
                 self._save_token(res_data)
                 return res_data.get("access_token")
+            else:
+                log.error("[discord_rpc] Ошибка ответа OAuth-сервера Discord: HTTP %s: %s", resp.status_code, resp.text)
+                return None
         except Exception as e:
-            log.error("[discord_rpc] Ошибка обмена OAuth-кода на токен: %s", e)
+            log.error("[discord_rpc] Ошибка запроса токена OAuth: %s", e)
             return None
 
     def _authenticate(self) -> bool:
