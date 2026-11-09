@@ -445,11 +445,17 @@ class CoreService:
         cm = get_call_mode_manager()
         wa = get_watch_along_manager()
         husk = get_husk_agent_bridge()
+        from desktop.core.discord_rpc import get_discord_rpc_manager
+        drpc = get_discord_rpc_manager()
+        active_sp = drpc.get_active_speaker()[0]
         return {
             "call_mode": bool(cm.active),
-            "caller_name": cm.caller_name if cm.active else "",
+            "caller_name": active_sp or (getattr(cm, "caller_name", "") if cm.active else ""),
             "watch_along": bool(wa.active),
             "husk_port": getattr(husk, "port", 19482),
+            "discord_connected": drpc.connected,
+            "discord_channel": drpc.current_channel_name,
+            "discord_participants": [p.display_name for p in drpc.participants.values()],
         }
 
     async def cmd_core_restart(self, msg: dict):
@@ -896,23 +902,34 @@ class CoreService:
                 return False
 
             _last_caller_reply = 0.0
+            from desktop.core.discord_rpc import get_discord_rpc_manager
+            drpc = get_discord_rpc_manager()
+            drpc.start()
 
             def _on_caller_speech(text: str):
                 nonlocal _last_caller_reply
                 clean = text.lower().strip()
                 import re
                 clean = re.sub(r'\bс[аоеи][кг]ур[а-я]*\b', 'сакура', clean)
-                # 1. Уведомление в UI и обработка реплики друга — ВСЕГДА в первую очередь
-                resp = cm.process_caller_speech(text)
+
+                # Имя и статус говорящего участника из Discord
+                speaker_name, speaker_id, is_master = drpc.get_active_speaker()
+                speaker_label = speaker_name or "Друг"
+
+                # 1. Уведомление в UI с конкретным именем участника
+                resp = cm.process_caller_speech(text, speaker_name=speaker_label)
                 now = time.monotonic()
                 has_sakura = bool(re.search(r'\bсакур[а-я]*\b', clean))
 
-                # 2. Если друг обратился к Сакуре («Сакура, ...»)
+                # 2. Если собеседник обратился к Сакуре («Сакура, ...»)
                 if has_sakura and not cm.held_request:
-                    if (now - _last_caller_reply) > 6.0:
+                    if (now - _last_caller_reply) > 5.0:
                         if self._agent and getattr(self._agent, "_state", "") not in ("thinking", "speaking"):
                             _last_caller_reply = now
-                            prompt = f"[В звонке Discord друг говорит]: \"{text}\". Ответь другу едко, с сарказмом и в характере Сакуры, коротко в 1 предложение."
+                            if is_master:
+                                prompt = f"[В звонке Discord говорит Мастер]: \"{text}\". Ответь Мастеру."
+                            else:
+                                prompt = f"[В звонке Discord говорит {speaker_label}]: \"{text}\". Ответь {speaker_label} едко, с сарказмом и в характере Сакуры, коротко в 1 предложение, обратившись к нему по имени."
                             self._agent.submit_user_text(prompt, source="call")
 
             loopback = get_loopback_speech_listener()

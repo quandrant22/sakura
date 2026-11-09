@@ -83,15 +83,16 @@ class CallModeManager:
             self.on_say_in_call(message)
         return errand
 
-    def process_caller_speech(self, text: str) -> Optional[str]:
-        """Обработка реплики участника звонка (друга)."""
+    def process_caller_speech(self, text: str, speaker_name: str = "Друг") -> Optional[str]:
+        """Обработка реплики участника звонка."""
         if not self.active:
             return None
 
         clean = text.lower().strip()
         import re
         clean = re.sub(r'\bс[аоеи][кг]ур[а-я]*\b', 'сакура', clean)
-        self.on_notify(f"{self.current_app} (Друг)", text)
+        self.caller_name = speaker_name
+        self.on_notify(f"{self.current_app} ({speaker_name})", text)
 
         # 1. Если активно поручение на выбор игры
         if self.active_errand and not self.active_errand.is_expired:

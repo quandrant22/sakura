@@ -155,14 +155,21 @@ class WindowsPlatform(make_stub("windows")):
 
         def _cb(hwnd, _):
             if not win32gui.IsWindowVisible(hwnd):
-                return
+                return True
             try:
                 _, pid = win32process.GetWindowThreadProcessId(hwnd)
                 exe = psutil.Process(pid).name()
             except Exception:
                 exe = ""
-            out.append((hwnd, win32gui.GetWindowText(hwnd), exe, win32gui.GetClassName(hwnd)))
-        win32gui.EnumWindows(_cb, None)
+            try:
+                out.append((hwnd, win32gui.GetWindowText(hwnd), exe, win32gui.GetClassName(hwnd)))
+            except Exception:
+                pass
+            return True
+        try:
+            win32gui.EnumWindows(_cb, None)
+        except Exception:
+            pass
         return out
 
     def close_browser_window(self) -> str | None:

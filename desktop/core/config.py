@@ -52,6 +52,11 @@ PING_INTERVAL = int(os.getenv("PING_INTERVAL", "25"))
 WINDOW_POLL   = int(os.getenv("WINDOW_POLL", "2"))
 RECONNECT_SEC = int(os.getenv("RECONNECT_SEC", "3"))
 
+
+# ── Discord Local RPC (Call Mode) ──────────────────────────────────
+DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID", "1517097834057306163")
+DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET", "jHAazXp6QYbfHKxz23BP-VvrllJ01k1a")
+
 # ── Аудио-выход (TTS) ───────────────────────────────────────────────
 TTS_RATE  = int(os.getenv("TTS_RATE", "24000"))
 TTS_SPEED = float(os.getenv("TTS_SPEED", "1.0"))
