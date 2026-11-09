@@ -98,6 +98,8 @@ class DiscordRpcManager:
                 is_self = True
             elif u and u.is_self:
                 is_self = True
+            elif u and u.display_name.lower() in ("друид", "druid"):
+                is_self = True
 
             if not include_self and is_self:
                 continue
@@ -316,7 +318,10 @@ class DiscordRpcManager:
             global_name = u.get("global_name")
             username = u.get("username", "Собеседник")
             display = nick or global_name or username
-            is_self = bool(self.self_user and self.self_user.id == uid)
+            is_self = bool(
+                (self.self_user and (self.self_user.id == uid or (self.self_user.username and self.self_user.username == username)))
+                or display.lower() in ("друид", "druid")
+            )
             new_participants[uid] = DiscordUser(
                 id=uid,
                 username=username,

@@ -47,6 +47,8 @@ def get_husk_manager() -> HuskManager:
         _husk_manager = HuskManager()
     return _husk_manager
 
+get_husk_agent_bridge = get_husk_manager
+
 
 def get_gamesense_detector() -> GameSenseDetector:
     return get_gamesense_runner().detector

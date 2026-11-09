@@ -46,7 +46,12 @@ export function ScreenInkOverlay() {
 
   return (
     <div className="pointer-events-none fixed inset-0 z-50 overflow-hidden transition-opacity duration-500 ease-out">
-      <svg className="h-full w-full" xmlns="http://www.w3.org/2000/svg">
+      <svg
+        className="h-full w-full"
+        viewBox="0 0 1920 1080"
+        preserveAspectRatio="xMidYMid meet"
+        xmlns="http://www.w3.org/2000/svg"
+      >
         <defs>
           <filter id="neon-glow-pink" x="-50%" y="-50%" width="200%" height="200%">
             <feGaussianBlur stdDeviation="4" result="coloredBlur" />
@@ -83,8 +88,8 @@ export function ScreenInkOverlay() {
             const [x = 0, y = 0, w = 0, h = 0] = s.points;
             const rx = Math.abs(w) / 2;
             const ry = Math.abs(h) / 2;
-            const cx = x + rx;
-            const cy = y + ry;
+            const cx = x > rx ? x : x + rx;
+            const cy = y > ry ? y : y + ry;
             return (
               <ellipse
                 key={idx}
@@ -155,25 +160,27 @@ export function ScreenInkOverlay() {
 
           if (s.kind === "text" && s.points.length >= 2) {
             const [x = 0, y = 0] = s.points;
+            const textWidth = ((s.text?.length || 5) * 9) + 24;
             return (
               <g key={idx} transform={`translate(${x}, ${y})`}>
                 <rect
-                  x="-8"
+                  x={-textWidth / 2}
                   y="-22"
-                  width={((s.text?.length || 5) * 8) + 16}
-                  height="28"
-                  rx="6"
+                  width={textWidth}
+                  height="30"
+                  rx="8"
                   fill="#120c18"
                   stroke={color}
                   strokeWidth="1.5"
                   filter="url(#neon-glow-pink)"
-                  opacity="0.9"
+                  opacity="0.95"
                 />
                 <text
                   x="0"
-                  y="-3"
+                  y="-2"
+                  textAnchor="middle"
                   fill="#ffffff"
-                  fontSize="13"
+                  fontSize="14"
                   fontWeight="bold"
                   fontFamily="system-ui, sans-serif"
                   letterSpacing="0.05em"
@@ -270,37 +277,24 @@ export function ScreenInkOverlay() {
           }
 
           if (s.kind === "path" && s.text) {
-            if (s.points.length >= 2) {
-              const [cx = 960, cy = 480, size = 180] = s.points;
-              const scale = size / 100;
-              return (
-                <g
-                  key={idx}
-                  transform={`translate(${cx - 50 * scale}, ${cy - 50 * scale}) scale(${scale})`}
-                  className="animate-pulse"
-                >
-                  <path
-                    d={s.text}
-                    fill="rgba(255, 42, 133, 0.28)"
-                    stroke={color}
-                    strokeWidth={Math.max(1.5, strokeWidth / scale)}
-                    filter="url(#neon-glow-pink)"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </g>
-              );
-            }
+            const [cx = 960, cy = 460, size = 220] = s.points.length >= 2 ? s.points : [960, 460, 220];
+            const scale = size / 100;
             return (
-              <path
+              <g
                 key={idx}
-                d={s.text}
-                fill="none"
-                stroke={color}
-                strokeWidth={strokeWidth}
-                filter="url(#neon-glow-pink)"
+                transform={`translate(${cx - 50 * scale}, ${cy - 50 * scale}) scale(${scale})`}
                 className="animate-pulse"
-              />
+              >
+                <path
+                  d={s.text}
+                  fill="rgba(255, 42, 133, 0.25)"
+                  stroke={color}
+                  strokeWidth={Math.max(2.5, (strokeWidth || 3) / scale)}
+                  filter="url(#neon-glow-pink)"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </g>
             );
           }
 
