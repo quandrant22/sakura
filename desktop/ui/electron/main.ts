@@ -148,7 +148,8 @@ function quitAll(): void {
 }
 
 function createTray(): void {
-  const icon = nativeImage.createFromPath(path.join(here, "..", "electron", "assets", "tray.png"));
+  const iconPath = fs.existsSync(appIcon) ? appIcon : path.join(here, "..", "electron", "assets", "tray.png");
+  const icon = nativeImage.createFromPath(iconPath);
   tray = new Tray(icon);
   tray.setToolTip("Sakura");
   tray.on("click", showWindow);
