@@ -270,6 +270,27 @@ export function ScreenInkOverlay() {
           }
 
           if (s.kind === "path" && s.text) {
+            if (s.points.length >= 2) {
+              const [cx = 960, cy = 480, size = 180] = s.points;
+              const scale = size / 100;
+              return (
+                <g
+                  key={idx}
+                  transform={`translate(${cx - 50 * scale}, ${cy - 50 * scale}) scale(${scale})`}
+                  className="animate-pulse"
+                >
+                  <path
+                    d={s.text}
+                    fill="rgba(255, 42, 133, 0.28)"
+                    stroke={color}
+                    strokeWidth={Math.max(1.5, strokeWidth / scale)}
+                    filter="url(#neon-glow-pink)"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </g>
+              );
+            }
             return (
               <path
                 key={idx}

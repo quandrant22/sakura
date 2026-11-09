@@ -39,3 +39,31 @@ def test_ink_manager_operations():
     payload3 = manager.draw(action="clear")
     assert len(payload3) == 0
     assert len(rendered[-1]) == 0
+
+
+def test_resolve_drawing_request():
+    from desktop.core.ink import resolve_drawing_request
+
+    # Heart
+    cmd, phrase = resolve_drawing_request("Нарисуй на экране сердечко")
+    assert "heart" in cmd or "path" in cmd
+    assert "сердечко" in phrase
+
+    # Cat
+    cmd, phrase = resolve_drawing_request("Сакура нарисуй котика")
+    assert "cat" in cmd or "path" in cmd
+    assert "котик" in phrase
+
+    # Uncensored / Mature
+    cmd, phrase = resolve_drawing_request("нарисуй член")
+    assert "path" in cmd
+    assert "член" in phrase
+
+    # Arbitrary object
+    cmd, phrase = resolve_drawing_request("нарисуй космический корабль")
+    assert "circle" in cmd or "path" in cmd
+    assert "космический корабль" in phrase
+
+    # Clear
+    cmd, phrase = resolve_drawing_request("сотри с экрана")
+    assert cmd == "clear"
