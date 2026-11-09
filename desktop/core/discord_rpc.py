@@ -76,10 +76,11 @@ class DiscordRpcManager:
         self._running = False
         self._close_pipe()
 
-    def get_active_speaker(self, max_age_sec: float = 2.5) -> tuple[Optional[str], Optional[str], bool]:
+    def get_active_speaker(self, max_age_sec: float = 6.0) -> tuple[Optional[str], Optional[str], bool]:
         """Возвращает (имя_говорящего, user_id, is_master).
 
         Если кто-то говорил в течение последних max_age_sec секунд — возвращает его имя.
+        Если в звонке только один собеседник (помимо Мастера) — возвращает его имя.
         Иначе возвращает (None, None, False).
         """
         now = time.monotonic()
@@ -88,17 +89,22 @@ class DiscordRpcManager:
             for uid, ts in self.speaker_timestamps.items()
             if (now - ts) <= max_age_sec
         ]
-        if not recent:
-            return None, None, False
+        if recent:
+            # Самый свежий голос
+            recent.sort(key=lambda x: x[1], reverse=True)
+            active_id = recent[0][0]
+            user = self.participants.get(active_id)
+            if user:
+                return user.display_name, user.id, user.is_self
+            return "Собеседник", active_id, False
 
-        # Самый свежий голос
-        recent.sort(key=lambda x: x[1], reverse=True)
-        active_id = recent[0][0]
-        user = self.participants.get(active_id)
-        if user:
-            return user.display_name, user.id, user.is_self
+        # Фолбэк: если в звонке ровно 1 собеседник кроме Мастера — звук гарантированно от него
+        other_participants = [p for p in self.participants.values() if not p.is_self]
+        if len(other_participants) == 1:
+            friend = other_participants[0]
+            return friend.display_name, friend.id, False
 
-        return "Собеседник", active_id, False
+        return None, None, False
 
     def _close_pipe(self):
         with self._pipe_lock:
@@ -275,13 +281,14 @@ class DiscordRpcManager:
         self.current_channel_id = chan_id
         self.current_channel_name = channel_data.get("name", "Звонок")
 
-        # Подписываемся на индикаторы речи в этом канале
-        self._send_ipc(self.OP_FRAME, {
-            "cmd": "SUBSCRIBE",
-            "evt": "SPEAKING",
-            "args": {"channel_id": chan_id},
-            "nonce": str(uuid.uuid4()),
-        })
+        # Подписываемся на события речи и изменений участников в канале
+        for evt_name in ("SPEAKING_START", "SPEAKING_STOP", "VOICE_STATE_CREATE", "VOICE_STATE_DELETE", "VOICE_STATE_UPDATE"):
+            self._send_ipc(self.OP_FRAME, {
+                "cmd": "SUBSCRIBE",
+                "evt": evt_name,
+                "args": {"channel_id": chan_id},
+                "nonce": str(uuid.uuid4()),
+            })
 
         # Обновляем участников
         new_participants = {}
@@ -326,14 +333,22 @@ class DiscordRpcManager:
             else:
                 self._update_channel_data(None)
 
-        elif evt == "SPEAKING":
+        elif evt in ("SPEAKING_START", "SPEAKING_STOP", "SPEAKING"):
             uid = str(data.get("user_id", ""))
-            speaking = data.get("speaking", 0)
-            if uid and speaking:
+            if uid:
                 self.speaker_timestamps[uid] = time.monotonic()
                 user = self.participants.get(uid)
                 name = user.display_name if user else uid
-                log.debug("[discord_rpc] Речь в войсе: %s", name)
+                log.info("[discord_rpc] Речь в войсе (%s): %s (uid=%s)", evt, name, uid)
+
+        elif evt in ("VOICE_STATE_CREATE", "VOICE_STATE_DELETE", "VOICE_STATE_UPDATE"):
+            # Обновился состав участников или статус микрофона — перезапрашиваем канал
+            chan_nonce = str(uuid.uuid4())
+            self._send_ipc(self.OP_FRAME, {
+                "cmd": "GET_SELECTED_VOICE_CHANNEL",
+                "args": {},
+                "nonce": chan_nonce,
+            })
 
         elif resp.get("cmd") == "GET_SELECTED_VOICE_CHANNEL":
             self._update_channel_data(data)
