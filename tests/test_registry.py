@@ -59,8 +59,9 @@ def test_load_returns_131_declarations(registry):
     # system.sleep слит в power.sleep (server/power): 123 → 122.
     # feat/vision: screenshot.describe → vision.ask, + vision.glance.on/off: 122 → 124;
     # browser.task и browser.stop — server/browser-step: 124 → 126.
-    # feat/schedule: schedule.today/tomorrow/week/next/refresh: 126 → 131.
-    assert len(registry) == 131
+    # feat/schedule: schedule.today/tomorrow/week/next/refresh: 126 → 131;
+    # games-overlay-widgets (7) + music.play_track (1) → 139.
+    assert len(registry) == 139
 
 
 def test_validate_passes_on_real_registry(registry):

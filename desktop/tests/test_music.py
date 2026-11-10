@@ -169,3 +169,38 @@ def test_extrapolate_position():
     assert music.extrapolate_position({**info, "playing": False}) == 10.0
     assert music.extrapolate_position({**info, "updated_age_s": 500}) == 200.0
     assert music.extrapolate_position(None) is None
+
+
+def test_open_track_and_search(monkeypatch):
+    opened = []
+    monkeypatch.setattr(yamusic_app.os, "startfile", opened.append, raising=False)
+    assert yamusic_app.open_track(5307396, 38633712) is True
+    assert opened and opened[0] == "yandexmusic://album/5307396/track/38633712"
+    assert yamusic_app.open_search("Кино Группа крови") is True
+    assert "search?text=" in opened[1]
+
+
+def test_ym_play_track_mocked(monkeypatch):
+    class FakeTrack:
+        id = 38633712
+        title = "Группа крови"
+        albums = [type("Album", (), {"id": 5307396})()]
+        artists = [type("Artist", (), {"name": "Кино"})()]
+
+    class FakeResults:
+        tracks = type("Tracks", (), {"results": [FakeTrack()]})()
+
+    class FakeClient:
+        def search(self, query, type_=None):
+            return FakeResults()
+        def play_audio(self, *a, **k):
+            return True
+
+    opened = []
+    monkeypatch.setattr(music, "_get_ym_client", lambda: FakeClient())
+    monkeypatch.setattr(yamusic_app.os, "startfile", opened.append, raising=False)
+
+    res = music._ym_play_track("Кино Группа крови")
+    assert res["ok"] is True
+    assert "Кино — Группа крови" in res["result"]
+    assert opened and opened[0] == "yandexmusic://album/5307396/track/38633712"

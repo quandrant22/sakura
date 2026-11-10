@@ -2,7 +2,7 @@
 // Похожа на родной плеер: обложка 64×64, название, «…», кнопки с большой жёлтой «играть»,
 // справа «Текст», настройки и громкость; фон — по цвету обложки; прогресс — по нижней кромке.
 import {
-  ExternalLink, Heart, HeartCrack, ListMusic, MoreHorizontal, Pause, Play, Repeat, Repeat1, Settings2, Shuffle,
+  ExternalLink, Heart, HeartCrack, ListMusic, MoreHorizontal, Pause, Play, Repeat, Repeat1, Search, Settings2, Shuffle,
   SkipBack, SkipForward, Volume2, VolumeX, X,
 } from "lucide-react";
 import { type MouseEvent, type PointerEvent, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -121,6 +121,8 @@ export function YandexBar({ onMenu }: { onMenu?(): void }) {
   const [help, setHelp] = useState(false);
   const [lyrics, setLyrics] = useState<string | null>(null);
   const [queue, setQueue] = useState<QueueRow[] | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [drag, setDrag] = useState<number | null>(null); // доля 0..1 во время перетаскивания
   const bg = useCoverColor(st?.cover);
   const show = visibleControls(width);
@@ -201,6 +203,39 @@ export function YandexBar({ onMenu }: { onMenu?(): void }) {
             </li>))}</ol>
         </div>
       )}
+      {searchOpen && (
+        <div role="dialog" aria-label="Включить трек"
+             className="absolute inset-x-3 bottom-2 top-2 z-20 flex flex-col justify-center rounded-btn bg-panel2 p-3 text-xs shadow-soft">
+          <div className="mb-2 flex items-center justify-between font-medium text-ink">
+            <span>Включить трек в Яндекс.Музыке</span>
+            <button type="button" aria-label="Закрыть поиск" onClick={() => setSearchOpen(false)}><X size={14} /></button>
+          </div>
+          <form className="flex items-center gap-1.5" onSubmit={(e) => {
+            e.preventDefault();
+            if (searchQuery.trim()) {
+              void control("play_track", searchQuery.trim());
+              setSearchOpen(false);
+              setSearchQuery("");
+            }
+          }}>
+            <input
+              autoFocus
+              aria-label="Название трека или исполнитель"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Название трека или артист (например: Кино Группа крови)…"
+              className="min-w-0 flex-1 rounded-btn border border-line bg-panel px-2.5 py-1.5 text-xs text-ink outline-none placeholder:text-ink-dim focus:border-accent"
+            />
+            <button
+              type="submit"
+              disabled={!searchQuery.trim()}
+              className="rounded-btn bg-ym-yellow px-3 py-1.5 font-medium text-ym-on disabled:opacity-40"
+            >
+              Включить
+            </button>
+          </form>
+        </div>
+      )}
     </>
   );
 
@@ -225,11 +260,18 @@ export function YandexBar({ onMenu }: { onMenu?(): void }) {
         <div className="grid h-16 w-16 shrink-0 place-items-center rounded-[10px] bg-panel2 text-ink-dim"><ListMusic size={24} /></div>
         <div className="min-w-0 flex-1 text-sm text-ink-dim">{text}</div>
         {bubble}
+        {popups}
         {st && st.status !== "no_smtc" && st.status !== "starting" && (
-          <button type="button" onClick={() => void control("open_app")}
-                  className="flex shrink-0 items-center gap-1.5 rounded-full bg-ym-yellow px-3 py-1.5 text-xs font-medium text-ym-on">
-            <ExternalLink size={13} /> Открыть Яндекс.Музыку
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <button type="button" onClick={() => setSearchOpen(true)}
+                    className="flex shrink-0 items-center gap-1.5 rounded-full border border-line bg-panel2 px-3 py-1.5 text-xs text-ink hover:text-accent">
+              <Search size={13} /> Включить трек
+            </button>
+            <button type="button" onClick={() => void control("open_app")}
+                    className="flex shrink-0 items-center gap-1.5 rounded-full bg-ym-yellow px-3 py-1.5 text-xs font-medium text-ym-on">
+              <ExternalLink size={13} /> Открыть Яндекс.Музыку
+            </button>
+          </div>
         )}
         {onMenu && <IconBtn label="Меню панели" onClick={onMenu}><MoreHorizontal size={18} /></IconBtn>}
       </div>
@@ -281,6 +323,7 @@ export function YandexBar({ onMenu }: { onMenu?(): void }) {
       </div>
 
       <div className="flex shrink-0 items-center gap-1">
+        <IconBtn label="Включить трек" onClick={() => setSearchOpen(true)}><Search size={16} /></IconBtn>
         {show.extras && (
           <>
             <button type="button" title={st.can_lyrics ? "Текст песни" : `Текст. ${st.like_hint}`}

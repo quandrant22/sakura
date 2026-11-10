@@ -98,6 +98,9 @@ for _a in _MUSIC_APP_ACTIONS:
 _MUSIC_INBOUND["music:wave"] = ("app", "music.wave", "music:wave")
 _MUSIC_INBOUND["music:play"] = ("app", "music.play", "music:play")
 _MUSIC_INBOUND["music:pause"] = ("app", "music.pause", "music:pause")
+_MUSIC_INBOUND["music.play_track"] = ("smtc", "music.play_track", "music_play_track")
+_MUSIC_INBOUND["music_play_track"] = ("smtc", "music.play_track", "music_play_track")
+_MUSIC_INBOUND["music:play_track"] = ("smtc", "music.play_track", "music_play_track")
 # легаси-имя волны из LLM-роутера v2: в v2 шло в music_command, которая его# не знала (мёртвый путь); теперь — в приложение, как music:wave
 _MUSIC_INBOUND["music_play_wave"] = ("app", "music.wave", "music_play_wave")
 
@@ -177,6 +180,8 @@ def _legacy_action(action: str, arg: str = "") -> str:
     # «+N»/«-N» — относительно текущей (hands: volume_up/volume_down).
     if action == "music.restart_playing":
         return "music.restart"
+    if action == "music.play_track":
+        return f"music_play_track:{arg}" if arg else "music_play_track"
     if action == "system.volume":
         a = (arg or "").strip()
         if a[:1] in ("+", "-") and a[1:].isdigit():
@@ -705,7 +710,7 @@ class Agent:
             # Защита от бесконечной прослушки (шум в звонке, зависший поток или VAD)
             if now - self._state_since >= 16.0:
                 log.warning("[state] listening завис (>16с) -> idle")
-                if hasattr(self, "hearing") and self.hearing:
+                if hasattr(self, "hearing") and self.hearing and hasattr(self.hearing, "reset_dialog"):
                     self.hearing.reset_dialog()
                 self._set_state("idle")
         elif state == "thinking":
@@ -858,6 +863,8 @@ class Agent:
                 if _mbackend == "smtc":
                     # SMTC + Яндекс Музыка API
                     from desktop.core.music import music_command
+                    if _mcanon == "music.play_track" and arg and not _mlegacy.startswith("music_play_track:"):
+                        _mlegacy = f"music_play_track:{arg}"
                     log.info(f"[music] начата обработка {_mcanon} → {_mlegacy} (id={cmd_id})")
                     result = await asyncio.wait_for(music_command(_mlegacy), timeout=15.0)
                     result["action"] = _mlegacy
@@ -880,6 +887,11 @@ class Agent:
                         ok = await asyncio.to_thread(_ym.open_wave)
                         detail = "Моя волна" if ok else "не удалось открыть"
                     elif _mcanon == "music.play":
+                        if arg:
+                            from desktop.core.music import _ym_play_track
+                            res = await asyncio.to_thread(_ym_play_track, arg)
+                            await _send_ack(R.from_legacy(res), extra={"music": res})
+                            return
                         ok = await asyncio.to_thread(_ym.play_pause)
                         detail = "играет" if ok else "SMTC сессия не найдена"
                     elif _mcanon == "music.pause":

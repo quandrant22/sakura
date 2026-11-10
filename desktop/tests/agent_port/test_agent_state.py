@@ -232,9 +232,17 @@ def test_watchdog_ignores_idle_and_listening(caplog):
     a = make_agent()
     for st in ("idle", "listening"):
         a._set_state(st)
-        a._check_state_stall(now=10_000.0)
+        a._check_state_stall(now=a._state_since + 5.0)
         assert a.state == st
     assert "[state]" not in caplog.text
+
+
+def test_watchdog_listening_timeout(caplog):
+    a = make_agent()
+    a._set_state("listening")
+    a._check_state_stall(now=a._state_since + 20.0)
+    assert a.state == "idle"
+    assert "listening завис" in caplog.text
 
 
 def test_watchdog_sees_state_set_by_hearing(monkeypatch):

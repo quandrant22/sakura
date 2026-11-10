@@ -426,6 +426,19 @@
   followup: llm
   triggers: ['включи волну', 'включи мою волну', 'волну включи', 'мою волну', 'моя волна']
 
+- id: music.play_track
+  legacy: [music:play_track, music_play_track]
+  desc: 'Включить трек в Яндекс Музыке'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: llm
+  triggers: ['включи трек', 'включи песню', 'поставь трек', 'поставь песню', 'найди трек', 'вруби трек', 'вруби песню']
+  param:
+    name: query
+    pattern: '(?:включи|поставь|найди|сыграй|вруби)\\s+(?:трек|песню)?\\s*(.+)'
+    required: ask
+
 - id: music_stats.recent
   legacy: [music_stats:recent]
   desc: 'Что я слушал сегодня/вчера/за неделю'

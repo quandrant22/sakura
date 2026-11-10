@@ -233,6 +233,18 @@ class YandexRemote:
             if op == "dislike":
                 return await asyncio.to_thread(self.likes.dislike, title, artist)
             return await asyncio.to_thread(self.likes.lyrics, title, artist)
+        if op == "play_track":
+            from desktop.core.music import _ym_play_track
+            res = await asyncio.to_thread(_ym_play_track, str(value or ""))
+            return R.from_legacy(res)
+        if op == "play_playlist":
+            from desktop.core.music import _ym_play_playlist
+            res = await asyncio.to_thread(_ym_play_playlist, str(value or ""))
+            return R.from_legacy(res)
+        if op == "play_wave":
+            from desktop.core.music import _ym_play_wave
+            res = await asyncio.to_thread(_ym_play_wave)
+            return R.from_legacy(res)
         if op == "open_app":
             from desktop.core.app_launch import AppLauncher
             launcher = AppLauncher()

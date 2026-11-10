@@ -94,7 +94,11 @@ export function AppWindowWidget({ item }: Partial<WidgetProps>) {
   // Поток — в <video> через callback-ref (без записи ref во время рендера).
   const attachVideo = (el: HTMLVideoElement | null) => {
     videoRef.current = el;
-    if (el && el.srcObject !== stream) el.srcObject = stream;
+    if (el) {
+      if (el.srcObject !== stream) el.srcObject = stream;
+      if (stream) void el.play().catch(() => {});
+      if (el.videoWidth > 0 && el.videoHeight > 0) onResize(el);
+    }
   };
   useEffect(() => {
     if (state !== "live" && state !== "black") return;
@@ -229,9 +233,13 @@ export function AppWindowWidget({ item }: Partial<WidgetProps>) {
       {note && <div role="status" className="mb-1 truncate text-xs text-ink-dim" title={note}>{note}</div>}
       <div ref={stageRef} className={"relative min-h-0 flex-1 rounded-btn bg-black " + (r.scroll ? "overflow-auto" : "overflow-hidden")}>
         <video ref={attachVideo} autoPlay muted playsInline aria-label="Показ окна"
+               onLoadedMetadata={(e) => onResize(e.currentTarget)}
+               onPlay={(e) => onResize(e.currentTarget)}
+               onPlaying={(e) => onResize(e.currentTarget)}
+               onTimeUpdate={(e) => { if (!src.width && e.currentTarget.videoWidth > 0) onResize(e.currentTarget); }}
                onResize={(e) => onResize(e.currentTarget)}
                className={"absolute max-w-none " + (view.mode === "fill" ? "object-cover" : "object-contain")}
-               style={{ left: r.left, top: r.top, width: r.width, height: r.height }} />
+               style={src.width > 0 && src.height > 0 ? { left: r.left, top: r.top, width: r.width, height: r.height } : { inset: 0, width: "100%", height: "100%" }} />
         {state === "black" && (
           <div className="absolute inset-0 grid place-items-center bg-panel/90 text-center text-sm text-ink-dim" role="status">
             Окно свёрнуто или защищено от показа
