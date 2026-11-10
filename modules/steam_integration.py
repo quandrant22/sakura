@@ -233,11 +233,69 @@ async def load_library(force: bool = False) -> list[dict]:
     return _library
 
 
+def _sync_from_local_manifests():
+    """Синхронизирует библиотеку из локальных appmanifest_*.acf при отсутствии Steam Web API ключа."""
+    global _library, _library_at
+    import re, os
+    libs = []
+    try:
+        from desktop.core.hands import _steam_path
+        base = _steam_path()
+        if base:
+            libs.append(os.path.join(base, "steamapps"))
+            vdf = os.path.join(base, "steamapps", "libraryfolders.vdf")
+            if os.path.exists(vdf):
+                v_txt = open(vdf, encoding="utf-8", errors="ignore").read()
+                for m in re.finditer(r'"path"\s*"([^"]+)"', v_txt):
+                    libs.append(os.path.join(m.group(1).replace("\\\\", "\\"), "steamapps"))
+    except Exception:
+        pass
+    for extra_drive in ("D:", "E:", "F:", "G:"):
+        extra_lib = os.path.join(f"{extra_drive}\\", "SteamLibrary", "steamapps")
+        if os.path.isdir(extra_lib) and extra_lib not in libs:
+            libs.append(extra_lib)
+
+    seen = set()
+    local_games = []
+    for lib in libs:
+        if not os.path.isdir(lib):
+            continue
+        for fn in os.listdir(lib):
+            if not (fn.startswith("appmanifest_") and fn.endswith(".acf")):
+                continue
+            try:
+                acf_txt = open(os.path.join(lib, fn), encoding="utf-8", errors="ignore").read()
+                appid_m = re.search(r'"appid"\s*"(\d+)"', acf_txt)
+                name_m = re.search(r'"name"\s*"([^"]+)"', acf_txt)
+                last_played_m = re.search(r'"LastPlayed"\s*"(\d+)"', acf_txt)
+                if appid_m and name_m:
+                    aid = int(appid_m.group(1))
+                    if aid not in seen:
+                        seen.add(aid)
+                        lp = int(last_played_m.group(1)) if last_played_m else 0
+                        local_games.append({
+                            "appid": aid,
+                            "name": name_m.group(1).strip(),
+                            "playtime_forever": 120,
+                            "playtime_2weeks": 0,
+                            "rtime_last_played": lp,
+                            "img_icon_url": "",
+                        })
+            except Exception:
+                pass
+    if local_games:
+        _save_to_db(local_games)
+        _library = _load_from_db()
+        _library_at = time.monotonic()
+        log.info(f"[steam] Local manifest sync: {len(local_games)} игр сохранено в БД")
+
+
 async def _sync_from_api():
     """Обновляет библиотеку из Steam API и сохраняет в БД."""
     global _library, _library_at
     key, sid = _get_config()
     if not key or not sid:
+        _sync_from_local_manifests()
         return
 
     url = (

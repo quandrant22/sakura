@@ -10,7 +10,7 @@ load_dotenv()
 log = logging.getLogger(__name__)
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-MASTER_ID      = int(os.getenv("MASTER_ID"))
+MASTER_ID      = int(os.getenv("MASTER_ID", "0"))
 HIMARI_ID      = int(os.getenv("HIMARI_ID", "0")) or None
 GROUP_CHAT_ID  = int(os.getenv("GROUP_CHAT_ID", "0")) or None
 UNSPLASH_KEY  = os.getenv("UNSPLASH_KEY", "")

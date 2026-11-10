@@ -115,7 +115,7 @@ KETTLE_PAIR     = os.getenv("KETTLE_PAIR", "0") == "1"
 SHUTDOWN_DELAY_S = int(os.getenv("SHUTDOWN_DELAY_S", "0"))
 
 # Папки с играми
-GAME_DIRS = [d.strip() for d in os.getenv("GAME_DIRS", r"C:\Games").split(";") if d.strip()]
+GAME_DIRS = [d.strip() for d in os.getenv("GAME_DIRS", r"C:\Games;D:\Games").split(";") if d.strip()]
 
 # ── Wake word (Vosk) ────────────────────────────────────────────────
 def _find_model(name: str) -> str:

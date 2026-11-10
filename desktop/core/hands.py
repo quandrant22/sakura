@@ -288,6 +288,10 @@ def _scan_steam() -> dict:
     if not base:
         return apps
     libs = [os.path.join(base, "steamapps")]
+    for extra_drive in ("D:", "E:", "F:", "G:"):
+        extra_lib = os.path.join(f"{extra_drive}\\", "SteamLibrary", "steamapps")
+        if os.path.isdir(extra_lib) and extra_lib not in libs:
+            libs.append(extra_lib)
     vdf  = os.path.join(base, "steamapps", "libraryfolders.vdf")
     try:
         if os.path.exists(vdf):
@@ -349,7 +353,40 @@ def scan_apps(force: bool = False) -> dict:
             return cached
 
     apps = {}
-    for source in (_scan_start_menu, _scan_start_apps, _scan_steam, _scan_game_dirs):
+
+def _scan_desktop() -> dict:
+    """Ярлыки на рабочем столе (.url и .lnk)."""
+    apps = {}
+    desktop_dirs = []
+    user_desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+    if os.path.isdir(user_desktop):
+        desktop_dirs.append(user_desktop)
+    pub = os.environ.get("PUBLIC", r"C:\Users\Public")
+    pub_desktop = os.path.join(pub, "Desktop")
+    if os.path.isdir(pub_desktop):
+        desktop_dirs.append(pub_desktop)
+
+    for d in desktop_dirs:
+        try:
+            for fn in os.listdir(d):
+                p_file = os.path.join(d, fn)
+                low = fn.lower()
+                clean_name = re.sub(r"\s*-\s*ярлык$", "", os.path.splitext(fn)[0], flags=re.IGNORECASE).strip().lower()
+                if low.endswith(".url"):
+                    try:
+                        ct = open(p_file, encoding="utf-8", errors="ignore").read()
+                        m = re.search(r"^URL=(.+)$", ct, re.MULTILINE)
+                        if m:
+                            apps[clean_name] = m.group(1).strip()
+                    except Exception:
+                        pass
+                elif low.endswith(".lnk"):
+                    apps[clean_name] = p_file
+        except Exception:
+            pass
+    return apps
+
+    for source in (_scan_start_menu, _scan_start_apps, _scan_steam, _scan_game_dirs, _scan_desktop):
         try:
             apps.update(source())
         except Exception as e:

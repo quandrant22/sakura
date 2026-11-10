@@ -323,7 +323,7 @@ class Agent:
         except Exception as e:
             log.error("[ink] Ошибка рисования: %s", e)
 
-        self.bus.emit("sakura_text", text=reply_phrase, kind="normal")
+        self.bus.emit("sakura_text", text=reply_phrase, kind="command")
         self._set_state("idle")
 
     async def _offline_text(self, text: str) -> dict:

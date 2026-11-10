@@ -56,7 +56,7 @@ BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
 APPS_FILE = os.path.join(BASE_DIR, "apps.json")
 
 # Папки с играми
-GAME_DIRS = [d.strip() for d in os.getenv("GAME_DIRS", r"C:\Games").split(";") if d.strip()]
+GAME_DIRS = [d.strip() for d in os.getenv("GAME_DIRS", r"C:\Games;D:\Games").split(";") if d.strip()]
 
 # ── Wake word (Vosk) ────────────────────────────────────────────────
 VOSK_MODEL_PATH = os.path.join(BASE_DIR, "vosk-model-small-ru-0.22")
