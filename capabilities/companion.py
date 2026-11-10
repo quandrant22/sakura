@@ -12,6 +12,7 @@ COMPANION_COMMANDS = {
     "companion.call_mode_off": AgentCommand("call_mode:off"),
     "companion.watch_along_start": AgentCommand("watch_along:видео"),
     "companion.watch_along_stop": AgentCommand("watch_along:stop"),
+    "companion.husk_status": AgentCommand("husk:status"),
 }
 
 register_table(COMPANION_COMMANDS)

@@ -960,6 +960,11 @@ def execute_command(action: str) -> dict:
         get_watch_along_manager().start(arg)
         return {"result": f"смотрю с тобой {arg}" if arg else "смотрю с тобой экран"}
 
+    # Статус кодинг-агента (Capri Husk / Antigravity)
+    if verb in ("husk", "husk_status", "agent_status"):
+        from desktop.core.features import get_husk_manager
+        return {"result": get_husk_manager().stats.format_progress()}
+
     return {"result": f"неизвестная команда: {action}"}
 
 

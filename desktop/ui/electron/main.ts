@@ -66,6 +66,7 @@ function createWindow(): BrowserWindow {
       sandbox: true,
       webSecurity: true,
       spellcheck: false,
+      webviewTag: true,
     },
   });
 

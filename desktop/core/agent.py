@@ -203,6 +203,8 @@ def _legacy_action(action: str, arg: str = "") -> str:
             return f"watch_along:{arg or 'видео'}"
         if verb == "watch_along_stop":
             return "watch_along:stop"
+        if verb == "husk_status":
+            return "husk:status"
     return action
 
 

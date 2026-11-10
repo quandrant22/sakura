@@ -51,9 +51,13 @@ class HuskStats:
         self.errors: int = 0
         self.approvals: int = 0
         self.recent_actions: list[str] = []
+        self.last_task_status: str = "idle"
+        self.last_action_time: float = 0.0
 
     def record_action(self, action: str):
         self.actions += 1
+        self.last_action_time = time.time()
+        self.last_task_status = "running"
         self.recent_actions.append(action[:140])
         if len(self.recent_actions) > 5:
             self.recent_actions.pop(0)
@@ -66,7 +70,17 @@ class HuskStats:
             "errors": self.errors,
             "approvals": self.approvals,
             "recent": list(self.recent_actions),
+            "status": self.last_task_status,
         }
+
+    def format_progress(self) -> str:
+        if self.last_task_status == "complete":
+            recent = f" Последнее действие: {self.recent_actions[-1]}." if self.recent_actions else ""
+            return f"Антигравити завершил задачу! Всего выполнено действий: {self.actions}, файлов затронуто: {self.files_edited}.{recent}"
+        if self.last_task_status == "running" or (time.time() - self.last_action_time < 300 and self.actions > 0):
+            current = f" Сейчас: {self.recent_actions[-1]}." if self.recent_actions else ""
+            return f"Антигравити сейчас в работе: выполнено шагов — {self.actions}, файлов отредактировано — {self.files_edited}.{current}"
+        return "Сейчас активных задач в Антигравити нет. Агент свободен."
 
 
 def format_action_caption(tool: str, tool_input: dict[str, Any]) -> str:
@@ -263,5 +277,6 @@ class HuskManager:
 
         # Завершение задачи / сессии
         elif event_name in ("SessionEnd", "task_complete", "complete"):
-            self.on_say("Агент завершил задачу!")
-            self.on_notify("Сакура", f"Задача завершена: {summary[:100]}" if summary else "Агент завершил задачу.")
+            self.stats.last_task_status = "complete"
+            self.on_say("Мастер, агент Антигравити завершил задачу!")
+            self.on_notify("Сакура", f"Задача завершена: {summary[:100]}" if summary else "Агент Антигравити завершил задачу.")

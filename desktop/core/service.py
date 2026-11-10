@@ -987,7 +987,12 @@ class CoreService:
             # 1. Husk manager (тело для AI-агентов)
             husk = get_husk_manager()
             husk.on_notify = lambda title, text: self._emit({"type": "notify", "text": f"{title}: {text}", "level": "info"})
-            husk.on_say = lambda text: self._emit({"type": "notify", "text": text, "level": "info"})
+            def _husk_say(text: str):
+                self._emit({"type": "notify", "text": text, "level": "info"})
+                if self._agent and getattr(self._agent, "_state", "") not in ("speaking", "thinking"):
+                    prompt = f'[Оповещение]: Скажи голосом для Мастера: "{text}"'
+                    self._agent.submit_user_text(prompt, source="husk")
+            husk.on_say = _husk_say
             husk.start()
 
             # 2. Ink manager -> отправка событий рисования в UI

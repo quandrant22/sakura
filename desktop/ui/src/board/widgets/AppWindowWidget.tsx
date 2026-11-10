@@ -2,7 +2,7 @@
 // Только по явному действию; кадры не пишутся на диск и не уходят на сервер, кроме одного кадра
 // по кнопке «Спросить про окно». Чёрный список (WINDOW_BLOCKLIST) и окна Сакуры не предлагаются.
 import {
-  AppWindow, Maximize2, MessageSquareText, Minus, Monitor, PictureInPicture2, Plus, RefreshCw, RotateCcw, Search, Square, X,
+  AppWindow, ArrowLeft, ArrowRight, Globe, Home, Maximize2, MessageSquareText, Minus, Monitor, PictureInPicture2, Plus, RefreshCw, RotateCcw, Search, Square, X,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
@@ -85,6 +85,39 @@ export function AppWindowWidget({ item }: Partial<WidgetProps>) {
   const [now, setNow] = useState(0);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
+  const [browserUrl, setBrowserUrl] = useState<string | null>(null);
+  const [inputUrl, setInputUrl] = useState("");
+  const webviewRef = useRef<any>(null);
+
+  const openBrowser = (url: string) => {
+    setBrowserUrl(url);
+    setInputUrl(url);
+    setSources(null);
+  };
+
+  const handleUrlSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    let target = inputUrl.trim();
+    if (!target) return;
+    if (!target.startsWith("http://") && !target.startsWith("https://")) {
+      if (target.includes(".") && !target.includes(" ")) {
+        target = "https://" + target;
+      } else {
+        target = `https://ya.ru/search/?text=${encodeURIComponent(target)}`;
+      }
+    }
+    setBrowserUrl(target);
+    setInputUrl(target);
+  };
+
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const url = (e as CustomEvent<{ url?: string }>).detail?.url || "https://ya.ru";
+      openBrowser(url);
+    };
+    window.addEventListener("sakura:open_browser", onOpen);
+    return () => window.removeEventListener("sakura:open_browser", onOpen);
+  }, []);
 
   const view = (source && views[source.name]) || { mode: "fit" as CaptureMode, zoom: 1 };
   const setView = (v: Partial<typeof view>) => {
@@ -145,6 +178,51 @@ export function AppWindowWidget({ item }: Partial<WidgetProps>) {
   const live = state === "live" || state === "black";
   const r = captureRect(stage.w, stage.h, src.width, src.height, view.mode, view.zoom);
 
+  if (browserUrl) {
+    return (
+      <div ref={rootRef} className="flex min-h-0 flex-1 flex-col px-3 pb-3">
+        <div className="mb-2 flex flex-wrap items-center gap-1.5" aria-label="Панель браузера">
+          <button type="button" className={btn} onClick={() => webviewRef.current?.goBack?.()} title="Назад">
+            <ArrowLeft size={12} />
+          </button>
+          <button type="button" className={btn} onClick={() => webviewRef.current?.goForward?.()} title="Вперёд">
+            <ArrowRight size={12} />
+          </button>
+          <button type="button" className={btn} onClick={() => webviewRef.current?.reload?.()} title="Обновить">
+            <RefreshCw size={12} />
+          </button>
+          <button type="button" className={btn} onClick={() => openBrowser("https://ya.ru")} title="На главную">
+            <Home size={12} />
+          </button>
+          <form onSubmit={handleUrlSubmit} className="flex min-w-0 flex-1 items-center gap-1">
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-btn border border-line bg-panel2/60 px-2 py-1">
+              <Globe size={13} className="text-accent" />
+              <input
+                aria-label="Адресная строка"
+                value={inputUrl}
+                onChange={(e) => setInputUrl(e.target.value)}
+                placeholder="Введите адрес или поисковый запрос…"
+                className="min-w-0 flex-1 bg-transparent text-xs text-ink outline-none placeholder:text-ink-dim"
+              />
+            </div>
+            <button type="submit" className={btn}>Перейти</button>
+          </form>
+          <button type="button" className={btn} onClick={() => setBrowserUrl(null)} title="Закрыть браузер">
+            <X size={12} />
+          </button>
+        </div>
+        <div className="relative min-h-0 flex-1 overflow-hidden rounded-btn border border-line bg-white">
+          <webview
+            ref={webviewRef}
+            src={browserUrl}
+            className="h-full w-full border-none"
+            allowpopups={true}
+          />
+        </div>
+      </div>
+    );
+  }
+
   if (!live && state !== "starting") {
     return (
       <div ref={rootRef} className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4 pb-4 text-sm">
@@ -152,10 +230,23 @@ export function AppWindowWidget({ item }: Partial<WidgetProps>) {
         {error && <div role="alert" className="text-accent">{error}</div>}
         {!sources ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center text-ink-dim">
-            <AppWindow size={28} className="text-accent" />
-            <span>Показать окно приложения внутри Сакуры</span>
-            <span className="text-xs">Только по вашему действию, ничего не записывается</span>
-            <button type="button" className={btn} onClick={() => void pick()} disabled={loading}><Maximize2 size={13} /> Выбрать окно или экран</button>
+            <div className="flex items-center gap-2">
+              <AppWindow size={26} className="text-accent" />
+              <Globe size={26} className="text-accent/60" />
+            </div>
+            <span>Показать окно приложения или открыть браузер</span>
+            <span className="text-xs">Всё работает прямо внутри виджета, не вылетая на весь экран</span>
+            <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+              <button type="button" className={btn} onClick={() => void pick()} disabled={loading}><Maximize2 size={13} /> Выбрать окно или экран</button>
+              <button type="button" className={btn + " border-accent/60 text-accent"} onClick={() => openBrowser("https://ya.ru")}><Globe size={13} /> Встроенный браузер</button>
+            </div>
+            <div className="flex flex-wrap items-center justify-center gap-1.5 pt-1 text-xs">
+              <span className="text-[11px] text-ink-dim">Быстрый запуск:</span>
+              <button type="button" className="rounded-btn border border-line px-2 py-0.5 text-[11px] hover:border-accent hover:text-ink" onClick={() => openBrowser("https://ya.ru")}>Яндекс</button>
+              <button type="button" className="rounded-btn border border-line px-2 py-0.5 text-[11px] hover:border-accent hover:text-ink" onClick={() => openBrowser("https://google.com")}>Google</button>
+              <button type="button" className="rounded-btn border border-line px-2 py-0.5 text-[11px] hover:border-accent hover:text-ink" onClick={() => openBrowser("https://youtube.com")}>YouTube</button>
+              <button type="button" className="rounded-btn border border-line px-2 py-0.5 text-[11px] hover:border-accent hover:text-ink" onClick={() => openBrowser("https://github.com")}>GitHub</button>
+            </div>
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col gap-2">

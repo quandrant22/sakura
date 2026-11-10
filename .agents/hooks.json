@@ -1,0 +1,29 @@
+{
+  "sakura-husk": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "command": "python desktop/core/agy_hook.py pre_tool"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "command": "python desktop/core/agy_hook.py post_tool"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "command": "python desktop/core/agy_hook.py stop"
+      }
+    ]
+  }
+}

@@ -412,6 +412,10 @@
   "companion.watch_along_stop": [
    "watch_along:stop",
    ""
+  ],
+  "companion.husk_status": [
+   "husk:status",
+   ""
   ]
  }
 }
