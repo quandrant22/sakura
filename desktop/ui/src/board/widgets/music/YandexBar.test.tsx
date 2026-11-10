@@ -50,7 +50,7 @@ test("«Предыдущий»: на 10 с одинарный клик — в н
   expect(c.ops.map((o) => o.op)).toEqual(["restart", "prev"]);
 });
 
-const HINT = "Нужен доступ к Яндекс.Музыке. Добавь YANDEX_MUSIC_TOKEN в C:\\sakura-git\\agent\\.env и перезапусти Сакуру";
+const HINT = "Нужен доступ к Яндекс.Музыке: вставь YANDEX_MUSIC_TOKEN в «Настройки → Секреты» — перезапуск не нужен";
 
 test("лайк без токена: приглушён, по клику — полная подсказка и «Как это сделать», в ядро не уходит", async () => {
   const c = setup({ ...new RemoteClient("normal").state, like_hint: HINT });
@@ -64,7 +64,7 @@ test("лайк без токена: приглушён, по клику — по
   expect(hint.textContent).toContain(HINT);           // полностью, без обрезки
   expect(hint.className).toContain("text-warn");      // цвет предупреждения, не акцента
   fireEvent.click(screen.getByText("Как это сделать"));
-  expect(screen.getByRole("dialog", { name: "Как подключить Яндекс.Музыку" }).textContent).toContain("перезапустите Сакуру");
+  expect(screen.getByRole("dialog", { name: "Как подключить Яндекс.Музыку" }).textContent).toContain("без перезапуска");
   expect(c.ops).toEqual([]);
 });
 

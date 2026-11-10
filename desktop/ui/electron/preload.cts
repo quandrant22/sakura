@@ -59,7 +59,8 @@ const api = {
     set: (enabled: boolean): Promise<boolean> => ipcRenderer.invoke("autostart:set", enabled),
   },
   capture: {
-    sources: (): Promise<{ id: string; name: string }[]> => ipcRenderer.invoke("capture:sources"),
+    sources: (): Promise<{ id: string; name: string; kind: "window" | "screen"; thumb: string | null; icon: string | null }[]> =>
+      ipcRenderer.invoke("capture:sources"),
     blocklist: (): Promise<string[]> => ipcRenderer.invoke("capture:blocklist"),
     select: (id: string): Promise<boolean> => ipcRenderer.invoke("capture:select", id),
     openMini: (id: string, aspect: number): Promise<void> => ipcRenderer.invoke("capture:mini-open", id, aspect),
@@ -69,6 +70,26 @@ const api = {
       const h = () => cb();
       ipcRenderer.on("capture:mini-closed", h);
       return () => ipcRenderer.removeListener("capture:mini-closed", h);
+    },
+  },
+  displays: {
+    list: (): Promise<unknown[]> => ipcRenderer.invoke("displays:list"),
+    onChanged: (cb: () => void): (() => void) => {
+      const h = () => cb();
+      ipcRenderer.on("displays:changed", h);
+      return () => ipcRenderer.removeListener("displays:changed", h);
+    },
+  },
+  stage: {
+    get: (): Promise<{ displayId: number | null; enabled: boolean; current: number }> => ipcRenderer.invoke("stage:get"),
+    setDisplay: (id: number | null): Promise<unknown> => ipcRenderer.invoke("stage:set-display", id),
+    setEnabled: (on: boolean): Promise<boolean> => ipcRenderer.invoke("stage:set-enabled", on),
+    want: (on: boolean): Promise<void> => ipcRenderer.invoke("stage:want", on),
+    display: (): Promise<unknown> => ipcRenderer.invoke("stage:display"),
+    onDisplay: (cb: (d: unknown) => void): (() => void) => {
+      const h = (_e: unknown, d: unknown) => cb(d);
+      ipcRenderer.on("stage:display", h);
+      return () => ipcRenderer.removeListener("stage:display", h);
     },
   },
   media: {

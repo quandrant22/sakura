@@ -3,3 +3,4 @@
 #   --extra-index-url https://download.pytorch.org/whl/cpu
 mutagen==1.48.1
 cryptography==50.0.2  # securechannel: X25519, ChaCha20-Poly1305 (Apache-2.0/BSD)
+mss==10.0.0           # быстрый захват выбранного монитора для игр (screens.FastGrabber, MIT); без него — PIL

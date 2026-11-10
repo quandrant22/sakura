@@ -87,7 +87,7 @@ export function CompanionWidget({}: WidgetProps) {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-4 text-xs select-none">
       {/* 1. Header / AI Companion & Husk Bridge */}
-      <div className="relative overflow-hidden rounded-2xl border border-line/70 bg-gradient-to-br from-panel2/90 via-panel2/60 to-panel/80 p-3 shadow-soft backdrop-blur-md transition-all duration-300 hover:border-accent/40">
+      <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-gradient-to-br from-panel2/90 via-panel2/60 to-panel/80 p-3 shadow-soft backdrop-blur-md transition-all duration-300 hover:border-accent/40">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="grid h-7 w-7 place-items-center rounded-xl bg-accent/15 text-accent shadow-[0_0_12px_rgba(255,42,133,0.3)]">
@@ -113,7 +113,7 @@ export function CompanionWidget({}: WidgetProps) {
         className={`relative overflow-hidden rounded-2xl border transition-all duration-300 p-3.5 shadow-soft backdrop-blur-md ${
           callActive
             ? "border-accent/80 bg-accent/10 shadow-[0_0_20px_rgba(255,42,133,0.2)]"
-            : "border-line/70 bg-panel2/60 hover:border-line"
+            : "border-white/[0.06] bg-panel2/60 hover:border-line"
         }`}
       >
         <div className="flex items-center justify-between gap-3">
@@ -154,7 +154,7 @@ export function CompanionWidget({}: WidgetProps) {
             className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all duration-200 cursor-pointer ${
               callActive
                 ? "bg-accent text-white shadow-[0_0_15px_rgba(255,42,133,0.5)] hover:brightness-110 active:scale-95"
-                : "border border-line/80 bg-panel text-ink hover:border-accent hover:text-accent active:scale-95"
+                : "border border-white/[0.06] bg-panel text-ink hover:border-accent hover:text-accent active:scale-95"
             }`}
           >
             {callActive ? "Завершить звонок" : "Войти в звонок"}
@@ -163,7 +163,7 @@ export function CompanionWidget({}: WidgetProps) {
       </div>
 
       {/* 3. Audio Routing & Volume Mixer */}
-      <div className="rounded-2xl border border-line/70 bg-panel2/50 p-3 shadow-soft backdrop-blur-md">
+      <div className="rounded-2xl border border-white/[0.06] bg-panel2/50 p-3 shadow-soft backdrop-blur-md">
         <div className="mb-2.5 flex items-center justify-between text-xs font-semibold text-ink">
           <div className="flex items-center gap-1.5">
             <Sliders size={13} className="text-accent" />
@@ -176,7 +176,7 @@ export function CompanionWidget({}: WidgetProps) {
 
         <div className="flex flex-col gap-2.5">
           {/* Headphones Slider */}
-          <div className="flex items-center justify-between gap-3 rounded-xl bg-panel/70 px-2.5 py-1.5 border border-line/40">
+          <div className="flex items-center justify-between gap-3 rounded-xl bg-panel/70 px-2.5 py-1.5 border border-white/[0.06]">
             <div className="flex items-center gap-2 min-w-0">
               <Headphones size={13} className="text-accent shrink-0" />
               <span className="text-[11px] text-ink font-medium">Наушники:</span>
@@ -203,7 +203,7 @@ export function CompanionWidget({}: WidgetProps) {
             className={`flex items-center justify-between gap-3 rounded-xl px-2.5 py-1.5 border transition-all ${
               callActive
                 ? "bg-accent/10 border-accent/40"
-                : "bg-panel/70 border-line/40 opacity-80"
+                : "bg-panel/70 border-white/[0.06] opacity-80"
             }`}
           >
             <div className="flex items-center gap-2 min-w-0">
@@ -237,7 +237,7 @@ export function CompanionWidget({}: WidgetProps) {
       </div>
 
       {/* 4. Companion Actions (GameSense, Clips, Watch) */}
-      <div className="rounded-2xl border border-line/70 bg-panel2/50 p-3 shadow-soft backdrop-blur-md">
+      <div className="rounded-2xl border border-white/[0.06] bg-panel2/50 p-3 shadow-soft backdrop-blur-md">
         <div className="mb-2 flex items-center justify-between text-xs font-semibold text-ink">
           <div className="flex items-center gap-1.5">
             <Activity size={13} className="text-accent" />
@@ -249,7 +249,7 @@ export function CompanionWidget({}: WidgetProps) {
           <button
             type="button"
             onClick={() => void quick("clip_that")}
-            className="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-line/60 bg-panel/70 py-2 px-1 text-ink-dim transition-all duration-200 hover:border-accent hover:text-ink hover:shadow-[0_0_12px_rgba(255,42,133,0.2)] active:scale-95"
+            className="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-white/[0.06] bg-panel/70 py-2 px-1 text-ink-dim transition-all duration-200 hover:border-accent hover:text-ink hover:shadow-[0_0_12px_rgba(255,42,133,0.2)] active:scale-95"
           >
             <Film size={14} className="text-accent" />
             <span className="text-[10px] font-medium">Откат 30с</span>
@@ -261,7 +261,7 @@ export function CompanionWidget({}: WidgetProps) {
             className={`flex flex-col items-center justify-center gap-1.5 rounded-xl border py-2 px-1 transition-all duration-200 active:scale-95 ${
               watchActive
                 ? "border-accent bg-accent/15 text-accent shadow-[0_0_12px_rgba(255,42,133,0.25)]"
-                : "border-line/60 bg-panel/70 text-ink-dim hover:border-accent hover:text-ink"
+                : "border-white/[0.06] bg-panel/70 text-ink-dim hover:border-accent hover:text-ink"
             }`}
           >
             <Eye size={14} className={watchActive ? "text-accent" : "text-ink-dim"} />
@@ -271,7 +271,7 @@ export function CompanionWidget({}: WidgetProps) {
           <button
             type="button"
             onClick={() => void quick("clear_ink")}
-            className="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-line/60 bg-panel/70 py-2 px-1 text-ink-dim transition-all duration-200 hover:border-accent hover:text-ink hover:shadow-[0_0_12px_rgba(255,42,133,0.2)] active:scale-95"
+            className="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-white/[0.06] bg-panel/70 py-2 px-1 text-ink-dim transition-all duration-200 hover:border-accent hover:text-ink hover:shadow-[0_0_12px_rgba(255,42,133,0.2)] active:scale-95"
           >
             <Eraser size={14} className="text-accent" />
             <span className="text-[10px] font-medium">Чернила</span>
@@ -280,7 +280,7 @@ export function CompanionWidget({}: WidgetProps) {
       </div>
 
       {/* 5. Health & Care Metrics */}
-      <div className="rounded-2xl border border-line/70 bg-panel2/50 p-3 shadow-soft backdrop-blur-md">
+      <div className="rounded-2xl border border-white/[0.06] bg-panel2/50 p-3 shadow-soft backdrop-blur-md">
         <div className="mb-2 flex items-center justify-between">
           <div className="flex items-center gap-1.5 font-semibold text-ink text-xs">
             <HeartPulse size={13} className="text-accent" />
@@ -290,19 +290,19 @@ export function CompanionWidget({}: WidgetProps) {
         </div>
 
         <div className="grid grid-cols-2 gap-2 text-[11px]">
-          <div className="flex items-center justify-between rounded-xl border border-line/40 bg-panel/70 px-2.5 py-1.5">
+          <div className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-panel/70 px-2.5 py-1.5">
             <span className="text-ink-dim">💧 Вода</span>
             <span className="font-semibold text-online">В норме</span>
           </div>
-          <div className="flex items-center justify-between rounded-xl border border-line/40 bg-panel/70 px-2.5 py-1.5">
+          <div className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-panel/70 px-2.5 py-1.5">
             <span className="text-ink-dim">🧘 Разминка</span>
             <span className="font-semibold text-ink">~45 мин</span>
           </div>
-          <div className="flex items-center justify-between rounded-xl border border-line/40 bg-panel/70 px-2.5 py-1.5">
+          <div className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-panel/70 px-2.5 py-1.5">
             <span className="text-ink-dim">👀 Глаза 20/20</span>
             <span className="font-semibold text-accent">Активно</span>
           </div>
-          <div className="flex items-center justify-between rounded-xl border border-line/40 bg-panel/70 px-2.5 py-1.5">
+          <div className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-panel/70 px-2.5 py-1.5">
             <span className="text-ink-dim">🌙 Сон</span>
             <span className="font-semibold text-ink">до 01:00</span>
           </div>

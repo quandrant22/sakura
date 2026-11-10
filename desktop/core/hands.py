@@ -676,8 +676,10 @@ def take_screenshot() -> str | None:
     if not ImageGrab:
         return None
     try:
-        img = ImageGrab.grab().convert("RGB")
+        from desktop.core import screens
+        img = screens.grab(ImageGrab.grab).convert("RGB")
         view = _fit_for_vision(img)
+        screens.note_shot_size(view.width, view.height)
         buf = io.BytesIO()
         view.save(buf, format="JPEG", quality=config.SCREENSHOT_QUALITY)
         raw = buf.getvalue()

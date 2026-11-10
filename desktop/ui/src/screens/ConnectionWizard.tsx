@@ -45,9 +45,9 @@ export function ConnectionWizard() {
 
   useEffect(() => {
     let alive = true;
-    client.call<Cfg>("config_values").then((r) => { if (alive) { setCfg(r); setForm(r.values); } }, () => {});
+    client.call<Cfg>("config_values").then((r) => { if (alive) { setCfg(r); setForm(r?.values ?? {}); } }, () => {});
     client.call<{ keys: Record<string, boolean> }>("secrets_status").then(
-      (r) => { if (alive) setYmSet(Boolean(r.keys.YANDEX_MUSIC_TOKEN)); }, () => {});
+      (r) => { if (alive) setYmSet(Boolean(r?.keys?.YANDEX_MUSIC_TOKEN)); }, () => {});
     return () => { alive = false; };
   }, [client]);
 

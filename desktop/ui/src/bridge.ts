@@ -4,6 +4,28 @@ export interface CoreConnection {
   token: string;
 }
 
+export interface Rect { x: number; y: number; width: number; height: number }
+
+/** Монитор (electron/displays.ts): bounds — логические пиксели, physical — физические (для ядра). */
+export interface DisplayInfo {
+  id: number;
+  label: string;
+  primary: boolean;
+  bounds: Rect;
+  physical: Rect;
+  scaleFactor: number;
+}
+
+export interface CaptureSource {
+  id: string;
+  name: string;
+  kind: "window" | "screen";
+  /** Превью (data URL) — только для списка выбора. */
+  thumb: string | null;
+  /** Иконка приложения окна (data URL). */
+  icon: string | null;
+}
+
 export type CoreProcessState = "idle" | "starting" | "running" | "restarting" | "failed" | "external" | "stopped";
 
 export interface SakuraBridge {
@@ -49,13 +71,28 @@ export interface SakuraBridge {
   autostart: { get(): Promise<boolean>; set(enabled: boolean): Promise<boolean> };
   /** Захват окна — только по явному выбору; кадры не пишутся на диск. */
   capture: {
-    sources(): Promise<{ id: string; name: string }[]>;
+    sources(): Promise<CaptureSource[]>;
     blocklist(): Promise<string[]>;
     select(id: string): Promise<boolean>;
     openMini(id: string, aspect: number): Promise<void>;
     closeMini(): Promise<void>;
     miniSelect(): Promise<void>;
     onMiniClosed(cb: () => void): () => void;
+  };
+  /** Мониторы. */
+  displays: {
+    list(): Promise<DisplayInfo[]>;
+    onChanged(cb: () => void): () => void;
+  };
+  /** Сцена — прозрачный оверлей на «экране Сакуры» (рисование, субтитры, игровые реакции). */
+  stage: {
+    get(): Promise<{ displayId: number | null; enabled: boolean; current: number }>;
+    setDisplay(id: number | null): Promise<DisplayInfo | null>;
+    setEnabled(on: boolean): Promise<boolean>;
+    /** Только из окна сцены: есть что показать — окно видно, нет — спрятано. */
+    want(on: boolean): Promise<void>;
+    display(): Promise<DisplayInfo | null>;
+    onDisplay(cb: (d: DisplayInfo | null) => void): () => void;
   };
   media: {
     openMini(url: string): Promise<void>;
@@ -104,6 +141,11 @@ const fallback: SakuraBridge = {
   capture: {
     sources: async () => [], blocklist: async () => [], select: async () => false, openMini: async () => {},
     closeMini: async () => {}, miniSelect: async () => {}, onMiniClosed: () => () => {},
+  },
+  displays: { list: async () => [], onChanged: () => () => {} },
+  stage: {
+    get: async () => ({ displayId: null, enabled: false, current: 0 }), setDisplay: async () => null,
+    setEnabled: async (v) => v, want: async () => {}, display: async () => null, onDisplay: () => () => {},
   },
   media: { openMini: async () => {}, closeMini: async () => {}, miniPreset: async () => {}, onMiniClosed: () => () => {}, setProxy: async () => {}, chooseFolder: async () => null },
 };

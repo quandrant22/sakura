@@ -6,6 +6,7 @@ import { bridge } from "../bridge";
 import { useT } from "../i18n";
 import type { CoreVisualState } from "../core-gfx/coreFrame";
 import { SakuraCore } from "../core-gfx/SakuraCore";
+import { STATE_STYLE } from "../core-gfx/stateStyle";
 import { usePrefs } from "../layout/prefs";
 import { useApp } from "../store";
 
@@ -47,6 +48,12 @@ function useVisualState(): CoreVisualState {
   return online ? state : "offline";
 }
 
+/** Лепестки в покое: позиция, снос, длительность и задержка — постоянные (без перерисовок). */
+const PETALS = [
+  { left: 38, drift: 46, dur: 11, delay: 0 }, { left: 72, drift: -30, dur: 13, delay: 3.5 },
+  { left: 18, drift: 60, dur: 12, delay: 7 }, { left: 85, drift: -48, dur: 10, delay: 9.5 },
+];
+
 export function CoreCard() {
   const visual = useVisualState();
   const getLevel = useApp((s) => s.getLevel);
@@ -81,7 +88,16 @@ export function CoreCard() {
   useEffect(() => () => clearTimeout(timer.current), []);
 
   return (
-    <section className="relative h-[287px] w-[300px] shrink-0 overflow-visible rounded-card bg-panel" aria-label="Ядро Сакуры">
+    <section className="card-depth relative h-[287px] w-[300px] shrink-0 overflow-visible rounded-card bg-panel" aria-label="Ядро Сакуры">
+      {/* Подсветка карточки цветом состояния и лепестки в покое — внутри, с обрезкой по скруглению. */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-card" aria-hidden>
+        <div className="absolute inset-0 transition-[background] duration-700"
+             style={{ background: `radial-gradient(120% 70% at 50% 30%, ${STATE_STYLE[visual].glow}, transparent 65%)`, opacity: 0.55 }} />
+        {visual === "idle" && PETALS.map((p, i) => (
+          <span key={i} className="petal" style={{ left: `${p.left}%`, ["--drift" as string]: `${p.drift}px`,
+                                                    ["--dur" as string]: `${p.dur}s`, ["--delay" as string]: `${p.delay}s` }} />
+        ))}
+      </div>
       {/* Центр капли — (150, 98) от угла карточки; viewBox 260 → центр svg (130, 130). */}
       <SakuraCore state={visual} level={getLevel} mobility={mobility} preset={preset} size={260}
                   className="pointer-events-none absolute left-[20px] top-[-32px]" />
@@ -91,10 +107,12 @@ export function CoreCard() {
               onPointerDown={down} onPointerUp={up} onPointerLeave={cancel} onKeyDown={key}
               className="absolute left-[90px] top-[38px] h-[120px] w-[120px] rounded-full outline-none focus-visible:ring-2 focus-visible:ring-accent" />
       <div className="absolute inset-x-0 top-[196px] text-center">
-        <div className="text-lg font-semibold text-ink">Sakura</div>
+        <div className="font-display text-lg font-bold tracking-[0.28em] text-ink">SAKURA</div>
         <div className="mt-1 flex items-center justify-center gap-2 text-sm text-ink-dim" role="status">
-          <span className={"h-2 w-2 rounded-full " + (visual === "offline" ? "bg-ink-dim" : "bg-online")} />
+          <span className="h-2 w-2 rounded-full transition-colors duration-500"
+                style={{ background: STATE_STYLE[visual].color, boxShadow: `0 0 8px ${STATE_STYLE[visual].glow}` }} />
           {STATUS[visual]}
+          <span className="text-xs opacity-60" aria-hidden>{STATE_STYLE[visual].kana}</span>
           {!mic && <span className="flex items-center gap-1 text-accent"><MicOff size={14} /> микрофон выкл.</span>}
         </div>
         {detail && <div className="mt-1 px-4 text-xs text-ink-dim">{detail}</div>}

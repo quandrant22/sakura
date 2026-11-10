@@ -27,13 +27,29 @@ DEFAULT_SETTINGS = {
     # Зрение (docs/VISION.md): поглядывать без просьбы — только с разрешения.
     "vision_glance_allowed": False,
     "vision_private": [],
+    # Экран Сакуры (desktop/core/screens.py): монитор для зрения, рисования и оверлея; None — основной.
+    "target_display": None,
+    # Присутствие в играх (desktop/core/game_presence.py): уровень по умолчанию и по играм.
+    "game_presence_default": "reactions",
+    "game_presence": {},
+    # Оверлей поверх игр и экрана (окно «сцена» в Electron).
+    "stage_enabled": True,
+    "stage_subtitles_always": False,
+    # Игры: «это игра» / «это не игра» (exe), автоклипы, приглушать игру, пока Сакура говорит.
+    "game_processes": [],
+    "game_not_processes": [],
+    "game_autoclip": True,
+    "game_duck": True,
 }
 # Ключи настроек, которые интерфейс может менять (остальное — через .env).
 SETTINGS_KEYS = frozenset(DEFAULT_SETTINGS) | {"autostart", "game_processes", "wake_sensitivity",
                                                "stt_model", "hotkey_talk", "input_device",
                                                "output_device", "music_accessibility", "stt_replacements",
                                                "vision_glance_allowed", "vision_private",
-                                               "voice_volume", "cable_volume"}
+                                               "voice_volume", "cable_volume", "target_display",
+                                               "game_presence_default", "game_presence", "stage_enabled",
+                                               "stage_subtitles_always", "game_not_processes", "game_autoclip",
+                                               "game_duck"}
 # Встроенный сценарий «Фокус» на сервере.
 FOCUS_SCENARIO_ID = "focus"
 
@@ -242,6 +258,12 @@ class CoreService:
         c("list_audio_devices", self.cmd_list_audio_devices)
         c("settings_set", self.cmd_settings_set)
         c("game_mode", self.cmd_game_mode)
+        c("games_state", self.cmd_games_state)
+        c("game_presence_set", self.cmd_game_presence_set)
+        c("game_mark", self.cmd_game_mark)
+        c("gsi_install", self.cmd_gsi_install)
+        c("fullscreen_fix", self.cmd_fullscreen_fix)
+        c("ink_test", self.cmd_ink_test)
         c("apps_state", self.cmd_apps_state)
         c("music_ui_ack", self.cmd_music_ui_ack)
         c("ym_token_check", self.cmd_ym_token_check)
@@ -370,6 +392,15 @@ class CoreService:
                                     self._restrict)
         except envfile.SecretError as e:
             raise ApiError("bad_request", str(e)) from None
+        key = str(msg.get("key") or "")
+        if key == "YANDEX_MUSIC_TOKEN":
+            # Токен Яндекс.Музыки применяется сразу: клиенты API пересоздадутся с новым значением.
+            from desktop.core import music
+            music.apply_ym_token(str(msg.get("value") or ""))
+            remote = getattr(self.media, "_ym_remote", None) if getattr(self, "media", None) else None
+            if remote is not None:
+                remote._likes = None
+            return {"keys": envfile.status(path), "restart_suggested": False}
         return {"keys": envfile.status(path), "restart_suggested": True}
 
     # ── Настройки → «Расширение браузера» ──
@@ -538,6 +569,9 @@ class CoreService:
             raise ApiError("bad_request", f"нельзя менять настройку: {key}")
         self.settings.set(key, msg.get("value"))
         self._apply_voice_settings()
+        if key == "target_display":
+            from desktop.core import screens
+            screens.set_target(msg.get("value"))
         if key == "music_accessibility":
             from desktop.core import app_launch
             app_launch.PREFS["yandex_music"] = bool(msg.get("value"))
@@ -583,6 +617,83 @@ class CoreService:
         on = bool(msg.get("on"))
         self.bus.emit("game_mode", on=on)
         return {"on": on}
+
+    # ── Игры (desktop/core/game_director.py) ──
+    def _director(self):
+        d = getattr(self, "_games", None)
+        if d is None:
+            raise ApiError("unsupported", "игровой модуль ещё запускается")
+        return d
+
+    async def cmd_games_state(self, msg: dict):
+        from desktop.core import fullscreen
+        from desktop.core import game_integrations as gi
+        from desktop.core.game_presence import LEVEL_NAMES, LEVELS
+        d = getattr(self, "_games", None)
+        gsi = await asyncio.to_thread(lambda: [gi.gsi_status(g) for g in gi.GSI_GAMES])
+        return {
+            "session": d.snapshot() if d else {"active": False},
+            "levels": [{"id": lv, "name": LEVEL_NAMES[lv]} for lv in LEVELS],
+            "presence": self.settings.get("game_presence", {}) or {},
+            "presence_default": self.settings.get("game_presence_default", "reactions"),
+            "games": self.settings.get("game_processes", []) or [],
+            "not_games": self.settings.get("game_not_processes", []) or [],
+            "gsi": gsi,
+            "global_fso_disabled": await asyncio.to_thread(fullscreen.global_fso_disabled),
+        }
+
+    async def cmd_game_presence_set(self, msg: dict):
+        key = str(msg.get("key") or "").strip().lower()
+        if not key:
+            raise ApiError("bad_request", "нет key (exe игры)")
+        level = self._director().set_level(key, str(msg.get("level") or ""))
+        self._emit({"type": "settings", "settings": self.settings_snapshot()})
+        return {"key": key, "level": level}
+
+    async def cmd_game_mark(self, msg: dict):
+        """«Это игра» / «это не игра» для exe: списки game_processes / game_not_processes."""
+        exe = str(msg.get("exe") or "").strip().lower()
+        if not exe.endswith(".exe") or len(exe) > 120:
+            raise ApiError("bad_request", "нужно имя exe, например game.exe")
+        is_game = bool(msg.get("is_game", True))
+        games = [g for g in (self.settings.get("game_processes", []) or []) if g != exe]
+        not_games = [g for g in (self.settings.get("game_not_processes", []) or []) if g != exe]
+        (games if is_game else not_games).append(exe)
+        self.settings.set("game_processes", games)
+        self.settings.set("game_not_processes", not_games)
+        self._emit({"type": "settings", "settings": self.settings_snapshot()})
+        return {"games": games, "not_games": not_games}
+
+    async def cmd_gsi_install(self, msg: dict):
+        from desktop.core import game_integrations as gi
+        game = str(msg.get("game") or "")
+        if game not in gi.GSI_GAMES:
+            raise ApiError("bad_request", "игра: cs2 или dota2")
+        return await asyncio.to_thread(gi.install_gsi, game, self._director().gsi_token)
+
+    async def cmd_ink_test(self, msg: dict):
+        """«Проверить сцену»: обвести центр «экрана Сакуры» на 4 с — видно, тот ли монитор выбран."""
+        from desktop.core import screens
+        from desktop.core.features import get_ink_manager
+        b = screens.target()
+        w, h = (b.width, b.height) if b else (1920, 1080)
+        screens.note_shot_size(w, h)
+        cx, cy, r = w // 2, h // 2, min(w, h) // 8
+        shapes = (f"circle {cx - r} {cy - r} {cx + r} {cy + r};"
+                  f" arrow {cx - 3 * r} {cy - 2 * r} {cx - r} {cy - r // 2};"
+                  f" text {cx - r} {cy + r + 40} Я здесь ✿")
+        get_ink_manager().draw(shapes, duration=4)
+        return {"display": screens.describe()}
+
+    async def cmd_fullscreen_fix(self, msg: dict):
+        """Только по явному действию Мастера: снять «Отключить оптимизацию во весь экран»."""
+        from desktop.core import fullscreen
+        if msg.get("scope") == "global":
+            return await asyncio.to_thread(fullscreen.enable_global_fso)
+        path = str(msg.get("path") or "")
+        if not path.lower().endswith(".exe"):
+            raise ApiError("bad_request", "нужен путь к exe игры")
+        return await asyncio.to_thread(fullscreen.enable_fso_for, path)
 
     async def cmd_server(self, msg: dict):
         inner = msg.get("message")
@@ -860,7 +971,10 @@ class CoreService:
 
             # 2. Ink manager -> отправка событий рисования в UI
             ink = get_ink_manager()
-            ink.on_render = lambda shapes: self._emit({"type": "ink_render", "shapes": shapes})
+            from desktop.core import screens
+            ink.on_render = lambda shapes: self._emit({
+                "type": "ink_render", "shapes": shapes, "space": screens.ink_space(),
+                "duration": ink.current_drawing.duration})
 
             # 3. Clip buffer -> инициализация (запуск захвата только по запросу/в игре)
             from desktop.core.hands import take_screenshot
@@ -881,6 +995,20 @@ class CoreService:
             # 5. Lookout engine
             lookout = get_lookout_engine()
             lookout.on_alert = lambda msg: self._emit({"type": "notify", "text": msg, "level": "info"})
+            # Текст экрана — встроенный OCR Windows по выбранному монитору (без сети).
+            from desktop.core import ocr
+            lookout.capture_func = ocr.screen_text
+
+            # 5b. Игры: определение по процессу, GameSense, игровые API, клипы, тильт, приглушение.
+            from desktop.core.game_director import GameDirector
+
+            def _send_game(msg: dict):
+                if self._agent is not None:
+                    self._agent.send_threadsafe({**msg, "device_id": config.DEVICE_ID, "token": config.WS_TOKEN.strip()})
+
+            self._games = GameDirector(self.settings, emit=self._emit, send_server=_send_game, bus=self.bus,
+                                       clips=clips)
+            self._games.start()
 
             # 6. Call Mode & Watch Along loopback speech listener (захват речи друга из Discord/видео)
             from desktop.core.features import (
@@ -960,6 +1088,8 @@ class CoreService:
             self._agent = await asyncio.to_thread(factory, self.bus, server_link=self.link)
             self._agent.media = self.media
             self._attach_vision()
+            from desktop.core import screens
+            screens.set_target(self.settings.get("target_display"))
             self._start_companion_features()
             self._apply_voice_settings()
             self._emit({"type": "settings", "settings": self.settings_snapshot()})

@@ -76,8 +76,14 @@ def test_api_secrets_status_and_set(tmp_path, monkeypatch):
     st = asyncio.run(svc.cmd_secrets_status({}))
     assert st["keys"] == {"WS_TOKEN": True, "YANDEX_MUSIC_TOKEN": False} and st["exists"] is True
     out = asyncio.run(svc.cmd_secrets_set({"key": "YANDEX_MUSIC_TOKEN", "value": FAKE}))
-    assert out == {"keys": {"WS_TOKEN": True, "YANDEX_MUSIC_TOKEN": True}, "restart_suggested": True}
+    # Токен Яндекс.Музыки применяется сразу (music.apply_ym_token) — перезапуск не нужен.
+    assert out == {"keys": {"WS_TOKEN": True, "YANDEX_MUSIC_TOKEN": True}, "restart_suggested": False}
     assert FAKE not in repr(out)
+    from desktop.core import config, music
+    assert config.YANDEX_MUSIC_TOKEN == FAKE
+    music.apply_ym_token("")
+    out = asyncio.run(svc.cmd_secrets_set({"key": "WS_TOKEN", "value": FAKE}))
+    assert out["restart_suggested"] is True
     with pytest.raises(ApiError) as e:
         asyncio.run(svc.cmd_secrets_set({"key": "DEVICE_ID", "value": "z"}))
     assert e.value.code == "bad_request"
