@@ -1238,7 +1238,7 @@ class Agent:
                         }))
                     self.bus.emit("connection", online=True)
                     _backoff = config.RECONNECT_SEC
-                    log.info("[agent] Подключено к VPS! Приложений: %s", len(apps))
+                    log.info("[agent] Подключено к VPS! Приложений: %s", len(apps) if apps else 0)
                     await self._recv_loop()
             except Exception as e:
                 log.exception("[agent] WS ошибка: %s", e)

@@ -340,20 +340,6 @@ def _scan_game_dirs() -> dict:
     return apps
 
 
-def scan_apps(force: bool = False) -> dict:
-    """Собирает все источники. Более «играбельные» переопределяют общие, ручные — поверх всех.
-    При force=False сначала пытается загрузить свежий кэш с диска (TTL ~6 часов).
-    """
-    global _app_cache
-    if not force:
-        cached = _load_apps_cache()
-        if cached is not None:
-            _app_cache = cached
-            log.info(f"Загружен apps_cache.json: {len(cached)} приложений")
-            return cached
-
-    apps = {}
-
 def _scan_desktop() -> dict:
     """Ярлыки на рабочем столе (.url и .lnk)."""
     apps = {}
@@ -386,6 +372,20 @@ def _scan_desktop() -> dict:
             pass
     return apps
 
+
+def scan_apps(force: bool = False) -> dict:
+    """Собирает все источники. Более «играбельные» переопределяют общие, ручные — поверх всех.
+    При force=False сначала пытается загрузить свежий кэш с диска (TTL ~6 часов).
+    """
+    global _app_cache
+    if not force:
+        cached = _load_apps_cache()
+        if cached is not None:
+            _app_cache = cached
+            log.info(f"Загружен apps_cache.json: {len(cached)} приложений")
+            return cached
+
+    apps = {}
     for source in (_scan_start_menu, _scan_start_apps, _scan_steam, _scan_game_dirs, _scan_desktop):
         try:
             apps.update(source())
