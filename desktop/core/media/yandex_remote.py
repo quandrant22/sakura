@@ -16,8 +16,8 @@ from desktop.core import results as R
 log = logging.getLogger("sakura.media.yandex")
 
 APP_NAMES = ("яндекс", "yandex")
-ENV_PATH = r"C:\sakura-git\agent\.env"
-TOKEN_HINT = f"Нужен доступ к Яндекс.Музыке. Добавь YANDEX_MUSIC_TOKEN в {ENV_PATH} и перезапусти Сакуру"
+SECRETS_PLACE = "Настройки → Секреты"
+TOKEN_HINT = f"Нужен доступ к Яндекс.Музыке: вставь YANDEX_MUSIC_TOKEN в «{SECRETS_PLACE}» — перезапуск не нужен"
 NO_SOUND = "Звук Яндекс.Музыки не найден: включите трек — повторю через 2 с"
 NO_PLAYER = "Яндекс.Музыка ничего не воспроизводит — включите трек в приложении"
 SEEK_NO = "Приложение Яндекс.Музыки не даёт перематывать через Windows — перемотайте в окне приложения"
@@ -186,7 +186,7 @@ class YandexRemote:
             from desktop.core import config
             uid = getattr(config, "YANDEX_UID", "") or ""
             if not uid:
-                return R.unsupported(f"Для подкастов нужен YANDEX_UID: добавь его в {ENV_PATH} и перезапусти Сакуру")
+                return R.unsupported("Для подкастов нужен YANDEX_UID: добавь его в .env рядом с Сакурой и перезапусти её")
             opener = self._open_link or (lambda url: self.platform.open_path(url))
             ok = opener(f"https://music.yandex.ru/users/{uid}/podcast-subscriptions")
             return R.done("открыла подкасты") if ok else R.failed("Не удалось открыть подкасты в браузере")

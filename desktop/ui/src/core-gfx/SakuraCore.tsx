@@ -3,6 +3,7 @@ import {
   coreFrame, MERGE_PRESETS, VIEWBOX,
   type CoreFrame, type CoreVisualState, type MergePreset, type Mobility,
 } from "./coreFrame";
+import { STATE_STYLE } from "./stateStyle";
 
 interface Props {
   state: CoreVisualState;
@@ -106,14 +107,17 @@ export function SakuraCore({
   const f0 = coreFrame(0, state, 0, mobility);
   const m = MERGE_PRESETS[preset];
   const { x, y, w, h } = VIEWBOX;
+  // Цвет состояния плавно перетекает (stop-color и stroke анимируются CSS-переходом).
+  const st = STATE_STYLE[state];
+  const fade = reduced ? undefined : { transition: "stop-color 600ms ease, stroke 600ms ease" };
 
   return (
     <svg viewBox={`${x} ${y} ${w} ${h}`} width={size} height={(size * h) / w} className={className}
       style={{ overflow: "visible" }} role="img" aria-label={`Ядро: ${state}`}>
       <defs>
         <radialGradient id={`g${id}`} gradientUnits="userSpaceOnUse" cx={-21.5} cy={-17} r={71.4}>
-          <stop stopColor="#FF6AE3" />
-          <stop offset="1" stopColor="#3E0074" />
+          <stop stopColor={st.color} style={fade} />
+          <stop offset="1" stopColor={st.deep} style={fade} />
         </radialGradient>
         {/* sRGB и atop: форма берётся из «слипшейся» альфы, цвет — из исходного градиента без размытия и каймы. */}
         <filter id={`f${id}`} x="-50%" y="-50%" width="200%" height="200%" colorInterpolationFilters="sRGB">
@@ -125,7 +129,7 @@ export function SakuraCore({
       {Array.from({ length: RINGS }, (_, i) => (
         <circle key={i} ref={(el) => { if (el) ringRefs.current[i] = el; }}
           cx={0} cy={0} r={f0.rings[i]?.r ?? 0} opacity={f0.rings[i]?.opacity ?? 0}
-          fill="none" stroke="#FF6AE3" strokeWidth={2} />
+          fill="none" stroke={st.color} strokeWidth={2} style={fade} />
       ))}
       <g ref={groupRef} filter={`url(#f${id})`} fill={`url(#g${id})`} opacity={f0.opacity}>
         <circle ref={dropRef} cx={0} cy={0} r={f0.drop.r} />

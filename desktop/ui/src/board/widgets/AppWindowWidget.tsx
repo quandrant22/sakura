@@ -2,12 +2,14 @@
 // Только по явному действию; кадры не пишутся на диск и не уходят на сервер, кроме одного кадра
 // по кнопке «Спросить про окно». Чёрный список (WINDOW_BLOCKLIST) и окна Сакуры не предлагаются.
 import {
-  AppWindow, Maximize2, MessageSquareText, Minus, PictureInPicture2, Plus, RotateCcw, Square,
+  AppWindow, Maximize2, MessageSquareText, Minus, Monitor, PictureInPicture2, Plus, RefreshCw, RotateCcw, Search, Square, X,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { bridge } from "../../bridge";
-import { CAPTURE_MODES, type CaptureMode, captureRect, filterSources, fitWidgetRows, type WindowSource, ZOOM } from "../../capture/captureLogic";
+import {
+  CAPTURE_MODES, type CaptureMode, captureRect, filterSources, fitWidgetRows, groupSources, matchSource, type WindowSource, ZOOM,
+} from "../../capture/captureLogic";
 import { useWindowCapture } from "../../capture/useWindowCapture";
 import { MARGIN, ROW_HEIGHT, setWidgetHeight } from "../../layout/boardModel";
 import { usePrefs } from "../../layout/prefs";
@@ -41,6 +43,25 @@ function useHidden() {
   return hidden;
 }
 
+/** Карточка источника в списке выбора: превью, иконка приложения, название. */
+function SourceCard({ s, onPick }: { s: WindowSource; onPick(s: WindowSource): void }) {
+  return (
+    <button type="button" onClick={() => onPick(s)} title={s.name}
+            className="group flex min-w-0 flex-col overflow-hidden rounded-btn border border-line bg-panel2/60 text-left transition hover:border-accent hover:shadow-glow">
+      <div className="relative aspect-video w-full overflow-hidden bg-black/60">
+        {s.thumb
+          ? <img src={s.thumb} alt="" className="h-full w-full object-contain transition group-hover:scale-[1.02]" draggable={false} />
+          : <div className="grid h-full place-items-center text-ink-dim">{s.kind === "screen" ? <Monitor size={22} /> : <AppWindow size={22} />}</div>}
+      </div>
+      <div className="flex min-w-0 items-center gap-1.5 px-2 py-1.5">
+        {s.icon ? <img src={s.icon} alt="" className="h-4 w-4 shrink-0" draggable={false} />
+          : s.kind === "screen" ? <Monitor size={14} className="shrink-0 text-accent" /> : null}
+        <span className="truncate text-xs text-ink">{s.name}</span>
+      </div>
+    </button>
+  );
+}
+
 function elapsed(since: number, now: number) {
   const s = Math.max(0, Math.floor((now - since) / 1000));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -62,6 +83,8 @@ export function AppWindowWidget({ item }: Partial<WidgetProps>) {
   const [source, setSource] = useState<WindowSource | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [now, setNow] = useState(0);
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const view = (source && views[source.name]) || { mode: "fit" as CaptureMode, zoom: 1 };
   const setView = (v: Partial<typeof view>) => {
@@ -81,12 +104,20 @@ export function AppWindowWidget({ item }: Partial<WidgetProps>) {
 
   const pick = async () => {
     setNote(null);
-    const [list, block] = await Promise.all([bridge().capture.sources(), bridge().capture.blocklist()]);
-    setSources(filterSources(list, block.length ? block : undefined));
+    setLoading(true);
+    try {
+      const [list, block] = await Promise.all([bridge().capture.sources(), bridge().capture.blocklist()]);
+      setSources(filterSources(list, block.length ? block : undefined));
+    } catch (e) {
+      setNote(errorText(e));
+    } finally {
+      setLoading(false);
+    }
   };
   const start = (s: WindowSource) => {
     setSource(s);
     setSources(null);
+    setQuery("");
     void startCapture(s.id);
   };
   const ask = async () => {
@@ -120,19 +151,48 @@ export function AppWindowWidget({ item }: Partial<WidgetProps>) {
             <AppWindow size={28} className="text-accent" />
             <span>Показать окно приложения внутри Сакуры</span>
             <span className="text-xs">Только по вашему действию, ничего не записывается</span>
-            <button type="button" className={btn} onClick={() => void pick()}><Maximize2 size={13} /> Выбрать окно</button>
+            <button type="button" className={btn} onClick={() => void pick()} disabled={loading}><Maximize2 size={13} /> Выбрать окно или экран</button>
           </div>
-        ) : sources.length === 0 ? (
-          <div className="flex flex-1 items-center justify-center text-ink-dim">Нет окон для показа</div>
         ) : (
-          <ul aria-label="Окна" className="flex flex-col gap-1">
-            {sources.map((s) => (
-              <li key={s.id}>
-                <button type="button" onClick={() => start(s)}
-                        className="w-full truncate rounded-btn px-3 py-1.5 text-left text-ink hover:bg-panel2">{s.name}</button>
-              </li>
-            ))}
-          </ul>
+          <div className="flex min-h-0 flex-1 flex-col gap-2">
+            <div className="flex items-center gap-1.5">
+              <label className="flex min-w-0 flex-1 items-center gap-1.5 rounded-btn border border-line bg-panel2/60 px-2 py-1">
+                <Search size={13} className="text-ink-dim" />
+                <input aria-label="Найти окно" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Найти окно…"
+                       className="min-w-0 flex-1 bg-transparent text-xs text-ink outline-none placeholder:text-ink-dim" />
+              </label>
+              <button type="button" className={btn} onClick={() => void pick()} disabled={loading} aria-label="Обновить список">
+                <RefreshCw size={12} className={loading ? "animate-spin" : ""} /></button>
+              <button type="button" className={btn} onClick={() => { setSources(null); setQuery(""); }} aria-label="Отмена"><X size={12} /></button>
+            </div>
+            {(() => {
+              const { windows, screens } = groupSources(sources);
+              const shown = windows.filter((s) => matchSource(s, query));
+              if (!windows.length && !screens.length) {
+                return <div className="flex flex-1 items-center justify-center text-ink-dim">Нет окон для показа</div>;
+              }
+              return (
+                <>
+                  {screens.length > 0 && !query && (
+                    <section aria-label="Экраны">
+                      <div className="mb-1 text-[11px] uppercase tracking-wider text-ink-dim">Экраны</div>
+                      <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2">
+                        {screens.map((s) => <SourceCard key={s.id} s={s} onPick={start} />)}
+                      </div>
+                    </section>
+                  )}
+                  <section aria-label="Окна">
+                    <div className="mb-1 text-[11px] uppercase tracking-wider text-ink-dim">Окна</div>
+                    {shown.length === 0
+                      ? <div className="py-4 text-center text-xs text-ink-dim">Ничего не найдено</div>
+                      : <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2">
+                          {shown.map((s) => <SourceCard key={s.id} s={s} onPick={start} />)}
+                        </div>}
+                  </section>
+                </>
+              );
+            })()}
+          </div>
         )}
       </div>
     );

@@ -121,7 +121,7 @@ export function NotificationsWidget() {
                 isDiscord
                   ? "border-[#5865F2]/40 bg-[#5865F2]/10 hover:border-[#5865F2]/70 shadow-[0_0_12px_rgba(88,101,242,0.15)]"
                   : n.level === "info"
-                    ? "border-line/60 bg-panel2/60 hover:border-accent/40"
+                    ? "border-white/[0.06] bg-panel2/60 hover:border-accent/40"
                     : "border-accent/50 bg-accent/10 hover:border-accent"
               }`}>
                 <div className="flex items-center justify-between gap-2 mb-1">

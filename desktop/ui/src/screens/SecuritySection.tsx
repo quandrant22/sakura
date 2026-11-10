@@ -137,10 +137,10 @@ export function SecuritySection() {
       </Row>
       <Row label="Ключи" hint="Только отпечатки; сами ключи хранятся в Windows (DPAPI) и не показываются">
         <div className="space-y-0.5 text-xs">
-          <div>Это устройство: <span className="font-mono">{st?.keys.device_fp ?? "ключа ещё нет"}</span>
-            {st?.keys.storage === "dpapi" ? " · защищён Windows" : st?.keys.storage === "file" ? " · файл только для пользователя" : ""}</div>
-          <div>Сервер: <span className="font-mono">{st?.keys.server_fp ?? "не подключено"}</span>{st?.pinned ? " · закреплён" : ""}</div>
-          {st?.keys.device_id && <div>Имя на сервере: {st.keys.device_id}</div>}
+          <div>Это устройство: <span className="font-mono">{st?.keys?.device_fp ?? "ключа ещё нет"}</span>
+            {st?.keys?.storage === "dpapi" ? " · защищён Windows" : st?.keys?.storage === "file" ? " · файл только для пользователя" : ""}</div>
+          <div>Сервер: <span className="font-mono">{st?.keys?.server_fp ?? "не подключено"}</span>{st?.pinned ? " · закреплён" : ""}</div>
+          {st?.keys?.device_id && <div>Имя на сервере: {st.keys.device_id}</div>}
         </div>
       </Row>
       <Row label="Подключить это устройство" hint="В Telegram: /pair — придут QR и 8 слов (действуют 10 минут)">

@@ -23,6 +23,7 @@ core/music.py — полная интеграция с Яндекс Музыко
 """
 
 import asyncio
+import os
 import logging
 from typing import Optional
 
@@ -358,6 +359,23 @@ async def _smtc_control(action: str) -> bool:
 # ── Яндекс Музыка API ─────────────────────────────────────────────────
 
 _ym_client = None
+
+
+def apply_ym_token(token: str) -> None:
+    """Новый YANDEX_MUSIC_TOKEN из «Настроек → Секреты» — сразу в работу, без перезапуска.
+
+    Обновляет config и окружение и сбрасывает закэшированный клиент API: следующий вызов
+    создаст его с новым токеном. Значение токена не логируется.
+    """
+    global _ym_client
+    token = (token or "").strip()
+    try:
+        from desktop.core import config
+        config.YANDEX_MUSIC_TOKEN = token
+    except Exception:  # noqa: BLE001
+        pass
+    os.environ["YANDEX_MUSIC_TOKEN"] = token
+    _ym_client = None
 
 
 def _get_ym_client():

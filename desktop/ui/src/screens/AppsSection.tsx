@@ -29,7 +29,7 @@ export function AppsSection() {
   useEffect(() => {
     let alive = true;
     client.call<{ yandex_music: AppState }>("apps_state").then(
-      (r) => { if (alive) setSt(r.yandex_music); },
+      (r) => { if (alive) setSt(r?.yandex_music ?? null); },
       (e: unknown) => { if (alive) setMsg(errorText(e)); },
     );
     return () => { alive = false; };

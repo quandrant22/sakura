@@ -11,13 +11,15 @@ import type { MediaSettings } from "../media/types";
 import { TOKEN_STEPS } from "../board/widgets/music/barLogic";
 import { errorText } from "../store";
 import { AppsSection } from "./AppsSection";
+import { GamesSection } from "./GamesSection";
+import { ScreenSection } from "./ScreenSection";
 import { ConnectionWizard } from "./ConnectionWizard";
 import { SecretsSection } from "./SecretsSection";
 import { SecuritySection } from "./SecuritySection";
 import { VisionSection } from "./VisionSection";
 import { VoiceSection } from "./VoiceSection";
 import {
-  DiagnosticsSection, ExtensionSection, GameModeSection, LanguageSection, NetworkSection, SoundSection, UpdateSection,
+  DiagnosticsSection, ExtensionSection, LanguageSection, NetworkSection, SoundSection, UpdateSection,
 } from "./SettingsExtra";
 
 function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
@@ -187,7 +189,8 @@ export function Settings() {
       <Card title="Голос"><VoiceSection /></Card>
       <Card title="Сеть"><NetworkSection /></Card>
       <Card title="Расширение браузера"><ExtensionSection /></Card>
-      <Card title="Игровой режим"><GameModeSection /></Card>
+      <Card title="Экран и сцена"><ScreenSection /></Card>
+      <Card title="Игры"><GamesSection /></Card>
       <Card title="Система"><AutostartRow /></Card>
       <Card title="Приложения"><AppsSection /></Card>
       <Card title="Зрение"><VisionSection /></Card>

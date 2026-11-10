@@ -10,6 +10,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { coreAlready, type CoreState, CoreSupervisor, coreAutostartEnabled, pidAlive, readLockPid } from "./coreProcess.js";
+import {
+  CAPTURE_ID, describeDisplays, type DisplayInfo, pickDisplay, readStagePrefs, type StagePrefs, writeStagePrefs,
+} from "./displays.js";
 import { readLayout, writeLayout } from "./layoutFile.js";
 import {
   clampToArea, minSize, type Preset, presetSize, readBounds, snapToCorner, VIDEO_ASPECT, writeBounds,
@@ -22,6 +25,7 @@ const dataDir = path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), "A
 const tokenFile = process.env.SAKURA_UI_TOKEN ?? path.join(dataDir, "ui.token");
 const layoutFile = process.env.SAKURA_LAYOUT_FILE ?? path.join(dataDir, "layout.json");
 const miniBoundsFile = path.join(dataDir, "mini_windows.json");
+const stageFile = path.join(dataDir, "stage.json");
 // Корень репозитория (здесь лежит пакет desktop): dist-electron → ui → desktop → корень.
 const repoDir = process.env.SAKURA_REPO_DIR ?? path.join(here, "..", "..", "..");
 let core: CoreSupervisor | null = null;
@@ -226,11 +230,23 @@ ipcMain.handle("core:connection", () => {
 // которое выбрано в интерфейсе (capture:select), иначе запрос отклоняется.
 let pendingCaptureId: string | null = null;
 let captureMini: BrowserWindow | null = null;
-const CAPTURE_ID = /^window:\d+:\d+$/;
+const THUMB = { width: 320, height: 180 };
 
+// Источники: окна (с превью и иконкой приложения) и мониторы целиком. Превью — только для списка выбора,
+// никуда не сохраняются.
 ipcMain.handle("capture:sources", async () => {
-  const srcs = await desktopCapturer.getSources({ types: ["window"], thumbnailSize: { width: 0, height: 0 } });
-  return srcs.map((s) => ({ id: s.id, name: s.name }));
+  const srcs = await desktopCapturer.getSources({ types: ["window", "screen"], thumbnailSize: THUMB, fetchWindowIcons: true });
+  const displays = listDisplays();
+  return srcs.map((s) => {
+    const kind = s.id.startsWith("screen:") ? "screen" : "window";
+    const disp = kind === "screen" ? displays.find((d) => String(d.id) === s.display_id) : undefined;
+    return {
+      id: s.id, kind,
+      name: kind === "screen" ? (disp?.label ?? s.name) : s.name,
+      thumb: s.thumbnail.isEmpty() ? null : s.thumbnail.toDataURL(),
+      icon: s.appIcon && !s.appIcon.isEmpty() ? s.appIcon.resize({ width: 32, height: 32 }).toDataURL() : null,
+    };
+  });
 });
 ipcMain.handle("capture:blocklist", () => (process.env.WINDOW_BLOCKLIST ?? "").split(",").map((s) => s.trim()).filter(Boolean));
 ipcMain.handle("capture:select", (_e, id: string) => {
@@ -243,7 +259,7 @@ function installDisplayMediaHandler() {
     const id = pendingCaptureId;
     pendingCaptureId = null;
     if (!id) return callback({});
-    void desktopCapturer.getSources({ types: ["window"], thumbnailSize: { width: 0, height: 0 } }).then((srcs) => {
+    void desktopCapturer.getSources({ types: ["window", "screen"], thumbnailSize: { width: 0, height: 0 } }).then((srcs) => {
       const src = srcs.find((s) => s.id === id);
       callback(src ? { video: src } : {});
     });
@@ -306,6 +322,8 @@ ipcMain.handle("tray:state", (_e, state: { mic?: boolean; game?: boolean; busy?:
     trayState.game = state.game;
     // Игровой режим прячет мини-окно захвата, выход из него — возвращает.
     if (captureMini) { if (state.game) captureMini.hide(); else captureMini.showInactive(); }
+    // Сцена в игре держится поверх (игры поднимают себя наверх).
+    if (state.game) applyStageVisibility(); else stopStageTopmost();
   }
   buildTrayMenu();
 });
@@ -316,6 +334,122 @@ ipcMain.handle("autostart:set", (_e, enabled: boolean) => {
   app.setLoginItemSettings({ openAtLogin: Boolean(enabled), path: process.execPath, args: loginArgs });
   return app.getLoginItemSettings({ args: loginArgs }).openAtLogin;
 });
+
+// ── Мониторы и сцена (оверлей поверх игр и экрана) ─────────────────────
+// Сцена — прозрачное окно на весь выбранный монитор: рисование Сакуры (Ink), субтитры её реплик,
+// игровые реакции и маленькое ядро. Клики проходят насквозь, фокус не забирает, в Alt+Tab и панели
+// задач не видна. Показывается только когда есть что показать: пустое прозрачное окно поверх игры
+// заставило бы Windows компоновать кадр игры (лишняя задержка).
+// Поверх «настоящего» эксклюзивного полноэкранного режима (старые DX9/DX11 без оптимизаций
+// полноэкранного режима) обычное окно не рисуется — для таких игр ядро предлагает включить оптимизации
+// или оконный режим без рамки, а сцена переезжает на второй монитор (desktop/core/fullscreen.py).
+let stagePrefs: StagePrefs = readStagePrefs(stageFile);
+let stageWin: BrowserWindow | null = null;
+let stageWanted = false; // страница сцены просит показать окно (есть содержимое)
+let stageTopmostTimer: ReturnType<typeof setInterval> | null = null;
+
+function listDisplays(): DisplayInfo[] {
+  const dip = process.platform === "win32" ? (r: Electron.Rectangle) => screen.dipToScreenRect(null, r) : undefined;
+  return describeDisplays(screen.getAllDisplays(), screen.getPrimaryDisplay().id, dip);
+}
+
+function stageDisplay(): Electron.Display {
+  return pickDisplay(screen.getAllDisplays(), stagePrefs.displayId, screen.getPrimaryDisplay());
+}
+
+function placeStage(): void {
+  if (!stageWin) return;
+  stageWin.setBounds(stageDisplay().bounds);
+}
+
+function createStage(): void {
+  if (stageWin || !stagePrefs.enabled) return;
+  const d = stageDisplay();
+  stageWin = new BrowserWindow({
+    ...d.bounds, frame: false, transparent: true, backgroundColor: "#00000000", resizable: false, movable: false,
+    minimizable: false, maximizable: false, fullscreenable: false, focusable: false, skipTaskbar: true,
+    hasShadow: false, alwaysOnTop: true, show: false, title: "Sakura · сцена",
+    ...(process.platform === "win32" ? { type: "toolbar" } : {}),
+    webPreferences: { preload: path.join(here, "preload.cjs"), contextIsolation: true, nodeIntegration: false,
+                      sandbox: true, backgroundThrottling: false },
+  });
+  stageWin.setIgnoreMouseEvents(true);
+  stageWin.setAlwaysOnTop(true, "screen-saver");
+  stageWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  stageWin.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  stageWin.webContents.on("will-navigate", (e) => e.preventDefault());
+  stageWin.on("closed", () => {
+    stageWin = null;
+    stopStageTopmost();
+  });
+  void loadPage(stageWin, "?view=stage");
+}
+
+function destroyStage(): void {
+  stopStageTopmost();
+  stageWin?.destroy();
+  stageWin = null;
+}
+
+/** Игры поднимают себя наверх; пока сцена видна в игре — раз в 1.5 с возвращаем её поверх, без фокуса. */
+function startStageTopmost(): void {
+  if (stageTopmostTimer) return;
+  stageTopmostTimer = setInterval(() => {
+    if (!stageWin || !stageWin.isVisible()) return;
+    stageWin.setAlwaysOnTop(true, "screen-saver");
+    stageWin.moveTop();
+  }, 1500);
+}
+function stopStageTopmost(): void {
+  if (stageTopmostTimer) clearInterval(stageTopmostTimer);
+  stageTopmostTimer = null;
+}
+
+function applyStageVisibility(): void {
+  if (!stageWin) return;
+  if (stageWanted && stagePrefs.enabled) {
+    if (!stageWin.isVisible()) stageWin.showInactive();
+    stageWin.setAlwaysOnTop(true, "screen-saver");
+    stageWin.moveTop();
+    if (trayState.game) startStageTopmost();
+  } else {
+    stopStageTopmost();
+    if (stageWin.isVisible()) stageWin.hide();
+  }
+}
+
+ipcMain.handle("displays:list", () => listDisplays());
+ipcMain.handle("stage:get", () => ({ ...stagePrefs, current: stageDisplay().id }));
+ipcMain.handle("stage:set-display", (_e, id: unknown) => {
+  stagePrefs = { ...stagePrefs, displayId: typeof id === "number" && Number.isFinite(id) ? id : null };
+  writeStagePrefs(stageFile, stagePrefs);
+  placeStage();
+  const d = listDisplays().find((x) => x.id === stageDisplay().id) ?? null;
+  stageWin?.webContents.send("stage:display", d);
+  return d;
+});
+ipcMain.handle("stage:set-enabled", (_e, on: unknown) => {
+  stagePrefs = { ...stagePrefs, enabled: Boolean(on) };
+  writeStagePrefs(stageFile, stagePrefs);
+  if (stagePrefs.enabled) createStage();
+  else destroyStage();
+  return stagePrefs.enabled;
+});
+ipcMain.handle("stage:want", (e, on: unknown) => {
+  if (!stageWin || e.sender !== stageWin.webContents) return;
+  stageWanted = Boolean(on);
+  applyStageVisibility();
+});
+ipcMain.handle("stage:display", () => listDisplays().find((x) => x.id === stageDisplay().id) ?? null);
+function watchDisplays(): void {
+  const onChange = () => {
+    placeStage();
+    win?.webContents.send("displays:changed");
+  };
+  screen.on("display-added", onChange);
+  screen.on("display-removed", onChange);
+  screen.on("display-metrics-changed", onChange);
+}
 
 // ── Медиа: мини-окно YouTube и прокси только для плеера ──────────────
 const LOCAL_PLAYER = /^http:\/\/127\.0\.0\.1:\d+\/youtube\/player\.html\?/;
@@ -502,6 +636,8 @@ if (!process.env.SAKURA_E2E && !process.env.SAKURA_SCREENSHOT_SPECS && !app.requ
     }, 2500);
 
     createTray();
+    watchDisplays();
+    createStage();
     await loadPage(win);
   });
   app.on("before-quit", () => {

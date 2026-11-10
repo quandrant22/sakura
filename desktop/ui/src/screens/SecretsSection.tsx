@@ -31,7 +31,7 @@ function SecretField({ k, label, hint, isSet, onSaved }: {
     try {
       const r = await client.call<{ keys: Record<string, boolean> }>("secrets_set", { key: k, value });
       setErr(null);
-      onSaved(r.keys);
+      onSaved(r?.keys ?? {});
     } catch (e) {
       setErr(errorText(e));
     } finally {
