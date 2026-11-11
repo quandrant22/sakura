@@ -233,7 +233,7 @@ KEYWORD_MAP: list[tuple[tuple[str, ...], str]] = [
     (("солнц", "солнышк", "sun"), "sun"),
     (("губ", "поцелу", "lips", "kiss"), "lips"),
     (("очк", "glasses"), "glasses"),
-    (("нот", "музык", "music", "note"), "music"),
+    (("нот", "ноту", "ноты", "скрипичный ключ", "note"), "music"),
     (("щит", "защит", "shield"), "shield"),
     (("прицел", "мишен", "target", "aim"), "target"),
     (("лун", "месяц", "moon"), "moon"),
@@ -319,19 +319,18 @@ def resolve_drawing_request(raw_text: str) -> Optional[tuple[str, str]]:
     if any(w in clean for w in ("сотри", "очисти экран", "убери рисунок", "удали рисунок", "сотри чернила")):
         return "clear", "Стёрла рисунок с экрана."
 
-    # 2. Проверка: является ли фраза запросом на рисование
-    prefixes = ("нарисуй", "начерти", "изобрази", "покажи на экране", "нарисуй на экране", "отметь на экране", "рисуй")
-    is_draw = any(clean.startswith(p) for p in prefixes) or "нарисуй" in clean or "на экране" in clean
+    # 2. Проверка: является ли фраза явным запросом на рисование
+    prefixes = ("нарисуй", "начерти", "изобрази", "рисуй")
+    is_draw = any(clean.startswith(p) for p in prefixes) or any(w in clean for w in ("нарисуй", "начерти", "изобрази", "нарисуй на экране"))
+    if not is_draw:
+        return None
 
-    # Если прямо назван предмет из словаря даже без слова «нарисуй»
+    # Поиск предмета из словаря силуэтов 100x100
     matched_key: Optional[str] = None
     for kw_tuple, shape_key in KEYWORD_MAP:
         if any(kw in clean for kw in kw_tuple):
             matched_key = shape_key
             break
-
-    if not is_draw and not matched_key:
-        return None
 
     # Если нашли в словаре силуэтов 100x100
     if matched_key and matched_key in SHAPES_100:

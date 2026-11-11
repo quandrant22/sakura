@@ -67,3 +67,7 @@ def test_resolve_drawing_request():
     # Clear
     cmd, phrase = resolve_drawing_request("сотри с экрана")
     assert cmd == "clear"
+
+    # Not drawing
+    assert resolve_drawing_request("Включи музыку.") is None
+    assert resolve_drawing_request("Какая музыка играет?") is None
