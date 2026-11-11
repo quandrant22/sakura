@@ -779,10 +779,22 @@ class Agent:
             if key is not None:
                 st = await asyncio.to_thread(lambda: launcher.state(key))
                 if not st.get("running"):
-                    await _send_ack(await asyncio.to_thread(launcher.launch, key))
+                    res = await asyncio.to_thread(launcher.launch, key)
+                    if key == "yandex_music":
+                        await asyncio.sleep(1.0)
+                        from desktop.core import yamusic_app as _ym
+                        await asyncio.to_thread(_ym.open_wave)
+                    await _send_ack(res)
                     return
                 elif not st.get("with_flag"):
                     await _send_ack(await asyncio.to_thread(launcher.restart, key))
+                    return
+                elif key == "yandex_music":
+                    from desktop.core import yamusic_app as _ym
+                    res_play = await asyncio.to_thread(_ym.play_pause)
+                    if not res_play:
+                        await asyncio.to_thread(_ym.open_wave)
+                    await _send_ack(R.done("включила Яндекс.Музыку"))
                     return
 
         # Управление ПК (п. 2.3): окна, питание, процессы, буфер, экран и звук, сеть, клавиши, файлы.

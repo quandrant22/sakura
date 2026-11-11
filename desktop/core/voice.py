@@ -53,32 +53,28 @@ def find_output_device():
 
 
 def find_cable_device() -> tuple[int | None, str]:
-    """Поиск виртуального кабеля (VB-Audio Virtual Cable) с приоритетом WASAPI стерео."""
+    """Поиск виртуального кабеля (VB-Audio Virtual Cable) с проверкой открытия потока."""
     if not sd:
         return None, ""
     try:
         devices = sd.query_devices()
         apis = sd.query_hostapis()
-        # 1. Приоритет: WASAPI со стерео (2 канала), совпадает с нативным форматом VB-Audio Cable
+        keywords = ("cable in", "cable input", "vb-audio", "virtual audio cable")
+        candidates = []
         for i, d in enumerate(devices):
-            if "cable input" in d["name"].lower() and d["max_output_channels"] >= 2:
+            if d.get("max_output_channels", 0) > 0 and any(k in d["name"].lower() for k in keywords):
                 api_name = apis[d["hostapi"]]["name"].lower()
-                if "wasapi" in api_name:
-                    return i, d["name"]
-        # 2. DirectSound со стерео
-        for i, d in enumerate(devices):
-            if "cable input" in d["name"].lower() and d["max_output_channels"] >= 2:
-                api_name = apis[d["hostapi"]]["name"].lower()
-                if "directsound" in api_name:
-                    return i, d["name"]
-        # 3. Любое устройство CABLE Input с >= 2 каналами
-        for i, d in enumerate(devices):
-            if "cable input" in d["name"].lower() and d["max_output_channels"] >= 2:
-                return i, d["name"]
-        # 4. Фолбэк на любое устройство CABLE Input
-        for i, d in enumerate(devices):
-            if "cable input" in d["name"].lower() and d["max_output_channels"] > 0:
-                return i, d["name"]
+                score = 3 if "wasapi" in api_name else (2 if "directsound" in api_name else 1)
+                candidates.append((score, i, d["name"]))
+
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        for score, idx, name in candidates:
+            try:
+                s = sd.RawOutputStream(samplerate=48000, channels=2, dtype="int16", blocksize=1024, device=idx)
+                s.close()
+                return idx, name
+            except Exception:
+                continue
     except Exception as e:
         log.warning(f"[voice] Ошибка поиска Virtual Cable: {e}")
     return None, ""
@@ -146,6 +142,7 @@ class Player:
         self._cable_stream = None
         self._cable_lock = threading.Lock()
         self._cable_buf = bytearray()
+        self._last_cable_retry = 0.0
         self._reset_response()
         self._open_stream()
         self._open_cable_stream()
@@ -237,10 +234,11 @@ class Player:
             except Exception:
                 pass
             try:
+                now = time.monotonic()
                 with self._cable_lock:
                     cable_alive = self._cable_stream and self._cable_stream.active
-                if not cable_alive:
-                    log.warning("[voice] Стрим кабеля упал — переоткрываем")
+                if not cable_alive and (now - self._last_cable_retry) >= 30.0:
+                    self._last_cable_retry = now
                     self._open_cable_stream()
             except Exception:
                 pass

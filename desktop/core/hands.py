@@ -484,11 +484,18 @@ def open_app(name: str) -> str:
     low = name.lower()
     if any(k in low for k in ("яндекс музыка", "яндекс.музыка", "yandex music", "yandex_music", "музыка", "музыку", "яндекс")):
         from desktop.core.app_launch import AppLauncher
-        res = AppLauncher().launch("yandex_music")
-        if res.get("ok"):
-            return "открыла Яндекс.Музыку с поддержкой кнопок"
-        res_rst = AppLauncher().restart("yandex_music")
-        return res_rst.get("detail", "открыла Яндекс.Музыку с поддержкой кнопок")
+        from desktop.core import yamusic_app as _ym
+        launcher = AppLauncher()
+        st = launcher.state("yandex_music")
+        if not st.get("running"):
+            res = launcher.launch("yandex_music")
+            time.sleep(1.0)
+            _ym.open_wave()
+            return "запустила Яндекс.Музыку и включила «Мою волну»"
+        else:
+            if not _ym.play_pause():
+                _ym.open_wave()
+            return "включила Яндекс.Музыку"
 
     if _is_target(name):
         return f"открыл {name}" if _launch(name) else f"app_not_found:{name}"
