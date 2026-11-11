@@ -5,7 +5,7 @@
         "matcher": "*",
         "hooks": [
           {
-            "command": "python desktop/core/agy_hook.py pre_tool"
+            "command": "python agy_hook.py pre_tool"
           }
         ]
       }
@@ -15,14 +15,14 @@
         "matcher": "*",
         "hooks": [
           {
-            "command": "python desktop/core/agy_hook.py post_tool"
+            "command": "python agy_hook.py post_tool"
           }
         ]
       }
     ],
     "Stop": [
       {
-        "command": "python desktop/core/agy_hook.py stop"
+        "command": "python agy_hook.py stop"
       }
     ]
   }
