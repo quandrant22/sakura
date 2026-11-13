@@ -1,7 +1,7 @@
 Proverif 2.05. Cryptographic protocol verifier, by Bruno Blanchet, Vincent Cheval, and Marc Sylvestre
 model: xxpsk3_auth.pv (scripts/proverif_variants.py)
-commit: 3ccc9d7a680392ff71003e415015acec7fe7f715
-2026-11-03T09:20:30Z
+commit: 33a8da2c61aa5a180f19839ce0d43888ead5c242
+2026-11-13T23:08:40Z
 
 Linear part:
 exp(exp(gen,x),y) = exp(exp(gen,y),x)
@@ -1872,23 +1872,23 @@ Query not event(ClientPaired(words,x,s,e1,e2)) is false.
 --------------------------------------------------------------
 
 	Command being timed: "proverif /home/runner/work/_temp/pv/xxpsk3_auth.pv"
-	User time (seconds): 309.56
-	System time (seconds): 2.76
+	User time (seconds): 331.26
+	System time (seconds): 2.02
 	Percent of CPU this job got: 99%
-	Elapsed (wall clock) time (h:mm:ss or m:ss): 5:12.36
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 5:33.32
 	Average shared text size (kbytes): 0
 	Average unshared data size (kbytes): 0
 	Average stack size (kbytes): 0
 	Average total size (kbytes): 0
-	Maximum resident set size (kbytes): 2607656
+	Maximum resident set size (kbytes): 2607968
 	Average resident set size (kbytes): 0
-	Major (requiring I/O) page faults: 2
-	Minor (reclaiming a frame) page faults: 1232964
-	Voluntary context switches: 21
-	Involuntary context switches: 2229
+	Major (requiring I/O) page faults: 1
+	Minor (reclaiming a frame) page faults: 1232960
+	Voluntary context switches: 8
+	Involuntary context switches: 1921
 	Swaps: 0
 	File system inputs: 0
-	File system outputs: 696
+	File system outputs: 704
 	Socket messages sent: 0
 	Socket messages received: 0
 	Signals delivered: 0
