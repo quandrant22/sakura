@@ -121,7 +121,13 @@ def _open_db() -> sqlite3.Connection:
     # Подключаем sqlite-vec
     try:
         import sqlite_vec
-        sqlite_vec.load(conn)
+        # Загрузка расширений в sqlite3 по умолчанию запрещена («not authorized»):
+        # разрешаем только на время подключения sqlite-vec.
+        conn.enable_load_extension(True)
+        try:
+            sqlite_vec.load(conn)
+        finally:
+            conn.enable_load_extension(False)
     except Exception as e:
         log.warning(f"sqlite-vec недоступен: {e} — векторный поиск отключён")
 

@@ -53,10 +53,16 @@ def synth_calls(monkeypatch):
 
 
 def test_categories():
-    assert acks.choose("system.volume", "pc", "70") in {"Громкость 70.", "Сделала."}
-    assert acks.choose("music.volume_up", "pc") == "Сделала."      # без числа
-    assert acks.choose("app.switch_open", "pc", "Steam") in {"Открываю.", "Steam запущен."}
-    assert acks.choose("music.next", "pc") in {"Включаю.", "Готово."}
+    assert acks.choose("system.volume", "pc", "70") in {
+        "Громкость 70.", "Выставила на 70.", "Громкость на 70, как Вы просили.",
+        "Скорректировала звук.", "Готово."
+    }
+    assert acks.choose("music.volume_up", "pc") in {"Скорректировала звук.", "Готово."}      # без числа
+    assert acks.choose("app.switch_open", "pc", "Steam") in {
+        "Открываю Steam.", "Steam перед Вами.", "Вывожу Steam на экран.", "Запускаю Steam.",
+        "Открываю.", "Запускаю."
+    }
+    assert acks.choose("music.next", "pc") in {"Включаю.", "Переключаю.", "Хороший выбор.", "Сию секунду."}
     assert acks.choose("browser.back", "pc") in acks.PHRASES["default"]
 
 
@@ -69,8 +75,11 @@ def test_open_app_category_by_param(param, category):
 
 
 def test_open_app_phrases():
-    assert acks.choose("open.app", "pc", None) in {"Включаю.", "Готово."}
-    assert acks.choose("open.app", "pc", "Steam") in {"Открываю.", "Steam запущен."}
+    assert acks.choose("open.app", "pc", None) in {"Включаю.", "Переключаю.", "Хороший выбор.", "Сию секунду."}
+    assert acks.choose("open.app", "pc", "Steam") in {
+        "Открываю Steam.", "Steam перед Вами.", "Вывожу Steam на экран.", "Запускаю Steam.",
+        "Открываю.", "Запускаю."
+    }
 
 
 @pytest.mark.parametrize("action", ["music.volume_up", "music.volume_down", "music.mute"])
@@ -81,8 +90,12 @@ def test_relative_volume_never_says_number(action):
 
 
 def test_system_volume_says_number():
-    seen = {acks.choose("system.volume", "pc", "70") for _ in range(20)}
-    assert seen == {"Громкость 70.", "Сделала."}
+    seen = {acks.choose("system.volume", "pc", "70") for _ in range(50)}
+    assert any("70" in p for p in seen)
+    assert seen.issubset({
+        "Громкость 70.", "Выставила на 70.", "Громкость на 70, как Вы просили.",
+        "Скорректировала звук.", "Готово."
+    })
 
 
 def test_wit_probability(monkeypatch):

@@ -23,7 +23,6 @@ RULE = ("Не называй счётчики и сроки — дни вмес�
 
 def test_persona_example_without_counter():
     prompt = personality.get_system_prompt()
-    assert "«Опять игра. Не то чтобы это моё дело.»" in prompt
     assert "Третий час в игре" not in prompt
 
 

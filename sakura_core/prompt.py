@@ -140,6 +140,13 @@ def _persona_mode(channel: str | None) -> str:
     return "master"
 
 
+def _with_action_note(system: str) -> str:
+    """Гибридная фраза: добавить «что только что исполнено» (в кэш не попадает)."""
+    from sakura_core import action_note
+    block = action_note.prompt_block()
+    return f"{system}\n\n{block}" if block else system
+
+
 async def _build_system(
     include_calendar: bool = False,
     active_window: str | None = None,
@@ -177,7 +184,7 @@ async def _build_system(
         with _build_system_lock:
             entry = _build_system_cache.get(cache_key)
             if entry and _t.monotonic() < entry[1]:
-                return entry[0]
+                return _with_action_note(entry[0])
 
     _bs_t0 = _t.monotonic()
     # Классификация пути — на входе: embed, посчитанный этой сборкой,
@@ -542,7 +549,7 @@ async def _build_system(
                 for k, _ in sorted(_build_system_cache.items(), key=lambda kv: kv[1][1])[:len(_build_system_cache) - 32]:
                     del _build_system_cache[k]
 
-    return result
+    return _with_action_note(result)
 
 
 # ─────────────────────────────────────────────

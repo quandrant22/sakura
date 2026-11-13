@@ -29,7 +29,7 @@ WIRE = json.loads((Path(__file__).parent / "fixtures" / "agent_wire_actions.json
 # computer.do — только вместе с серверным computer_step (решение владельца).
 KNOWN_UNSUPPORTED = {"computer.do"}
 EXPECTED_DOMAINS = {"browser": 10, "app": 2, "close_window": 1, "ext": 2, "game_mode": 2,
-                    "music": 21, "system": 5, "open": 1, "screenshot": 1, "youtube": 12,
+                    "music": 21, "system": 5, "open": 1, "screenshot": 1, "youtube": 13,
                     "kettle": 5, "files": 6, "window": 7, "power": 3, "process": 2, "clipboard": 3,
                     "display": 2, "audio": 1, "net": 2, "keys": 3, "ui": 4, "computer": 1,
                     "companion": 8}
@@ -123,7 +123,7 @@ def _agent(calls):
 
 
 def test_registry_has_62_agent_actions_and_wire_for_each():
-    assert len(AGENT_CAPS) == 104
+    assert len(AGENT_CAPS) == 105
     assert dict(Counter(c["id"].split(".")[0] for c in AGENT_CAPS)) == EXPECTED_DOMAINS
     assert sorted(WIRE) == sorted(c["id"] for c in AGENT_CAPS)
 

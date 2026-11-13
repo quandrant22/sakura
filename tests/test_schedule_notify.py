@@ -18,6 +18,8 @@ from tests.schedule_support import FIXTURE, ttable
 def env(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "SCHEDULE_REMIND_BEFORE_MIN", 90)
     monkeypatch.setattr(config, "SCHEDULE_STALE_DAYS", 7)
+    # Тест не должен зависеть от локального .env (eios/direct): только закладка.
+    monkeypatch.setattr(config, "SCHEDULE_SOURCES", ("push",))
     store = ScheduleStore(str(tmp_path / "s.json"))
     sent: list[str] = []
     quiet = {"on": False}

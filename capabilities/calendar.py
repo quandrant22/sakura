@@ -36,7 +36,9 @@ def _render(events: list) -> str:
 
 async def _list(_ctx: ExecutionContext) -> tuple[str, bool]:
     """calendar.list → ближайшие события. Сеть — в поток, не в event loop."""
-    from modules.calendar_module import get_calendar_service, get_upcoming_events
+    from modules.calendar_module import (
+        CalendarUnavailable, get_calendar_service, get_upcoming_events,
+    )
 
     events = await asyncio.to_thread(get_upcoming_events, HOURS_AHEAD)
     if events:
@@ -47,6 +49,10 @@ async def _list(_ctx: ExecutionContext) -> tuple[str, bool]:
     # недоступность выглядела бы как пустой календарь (правило честности v2).
     try:
         await asyncio.to_thread(get_calendar_service)
+    except CalendarUnavailable as e:
+        # Не настроен (нет token.json / библиотек) — отвечаем сразу и честно.
+        log.warning(f"[calendar] не подключён: {e}")
+        return ("Google Календарь не подключён.", False)
     except Exception as e:
         log.error(f"[calendar] сервис недоступен: {type(e).__name__}: {e}")
         return ("Google Calendar недоступен — события прочитать не смогла.", False)

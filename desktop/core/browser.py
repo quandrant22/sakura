@@ -314,6 +314,7 @@ def music_podcasts() -> str:
 # никаких кликов мышью (раньше клик в центр страницы мог нажать на рекламу) и переключений окон.
 _YT_NO_EXT_SAFE = {"youtube_pause": "k"}
 YOUTUBE_TRENDING_URL = "https://www.youtube.com/feed/trending"
+YOUTUBE_HOME_URL = "https://www.youtube.com/"
 
 
 def youtube_player_cmd(action: str) -> dict:
@@ -326,6 +327,10 @@ def youtube_player_cmd(action: str) -> dict:
     if action == "youtube_trending":
         _open_url_background(YOUTUBE_TRENDING_URL)
         return R.done("открыла «Популярное» на YouTube")
+    if action == "youtube_open":
+        # Открыть сайт — расширение не нужно, как и для «Популярного».
+        _open_url_background(YOUTUBE_HOME_URL)
+        return R.done("открыла YouTube")
 
     try:
         from desktop.core import extension_server as _ext

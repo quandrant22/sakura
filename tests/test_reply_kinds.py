@@ -225,7 +225,7 @@ def test_ack_kinds_and_status_contract(ack_env, result, kind, text):
     if text:
         assert r["text"] == text
     else:
-        assert r["text"] in ("Включаю.", "Готово.")
+        assert r["text"] in {*acks.PHRASES["music"], *acks.PHRASES["default"], *acks.WIT}
 
 
 def test_ok_true_but_status_noop_never_says_done(ack_env):
@@ -400,7 +400,7 @@ def test_vision_request_answers_with_reply(monkeypatch, caplog):
     (MASTER, base64.b64encode(b"GIF89a....").decode(), "bad_request"),
     (MASTER, "A" * (vision_request.MAX_B64 + 4), "bad_request"),
     (MASTER, "", "bad_request"),
-])
+], ids=["guest", "not_base64", "not_jpeg", "too_large", "empty"])
 def test_vision_request_errors(device, image, code):
     r = _vreq(FakeWS(), device=device, image=image)
     assert r["type"] == "error" and r["code"] == code and r["request_id"] == "v1"

@@ -9,6 +9,7 @@ Run: python -m pytest tests/test_proto_v2.py -q
 
 import asyncio
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -321,8 +322,12 @@ def test_desktop_text_via_voice_command_channel_text(server):
 
 
 def test_history_paging_read_search_delete_clear(server):
+    # Явные метки времени: на Windows time.time() тикает раз в ~15 мс, пять
+    # записей подряд получали один ts и пагинация по before_ts теряла строки.
+    base = time.time() - 10
     for i in range(5):
-        chat_log.append("user", "voice", f"заметка номер {i}", device=MASTER)
+        chat_log.append("user", "voice", f"заметка номер {i}", device=MASTER,
+                        ts=base + i)
 
     async def sc(uri):
         c = await _connect(uri, MASTER)

@@ -72,10 +72,24 @@ class Param:
     # иначе декларация не матчится. None — фильтра нет (однозначные
     # триггеры вроде «переключись на» фильтровать не нужно).
     resolve: Optional[str] = None
+    # cue — regex слов, которые и без самого значения говорят, что речь
+    # о параметре («градусов», «температуру»). Нужен триггерам, которые
+    # кончаются предлогом перед числом («поставь чайник на»): без числа и
+    # без cue такой триггер не срабатывает — «поставь чайник на кухне»
+    # остаётся обычным кипячением, а не вопросом о температуре.
+    cue: Optional[str] = None
 
     def __post_init__(self):
         if isinstance(self.required, bool):
             object.__setattr__(self, "required", "true" if self.required else "false")
+
+    @property
+    def is_numeric(self) -> bool:
+        """Значение — число (шаблон ловит цифры, а не свободный текст)."""
+        return r"\d" in self.pattern and ".+" not in self.pattern
+
+    def cued(self, text: str) -> bool:
+        return bool(self.cue and re.search(self.cue, text or "", re.IGNORECASE))
 
     def extract(self, text: str) -> Optional[str]:
         """Извлечь значение параметра из текста. None если не найдено."""
@@ -171,7 +185,15 @@ def _parse_param(raw, where: str) -> Optional[Param]:
                 f"{where}: param.resolve должен быть одним из "
                 f"{PARAM_RESOLVES}, получено {resolve!r}"
             )
-    return Param(name=name, pattern=pattern, required=req, resolve=resolve)
+    cue = raw.get("cue")
+    if cue is not None:
+        if not isinstance(cue, str) or not cue:
+            raise RegistryError(f"{where}: param.cue должен быть непустой строкой (regex)")
+        try:
+            re.compile(cue)
+        except re.error as e:
+            raise RegistryError(f"{where}: param.cue невалидный regex: {e}")
+    return Param(name=name, pattern=pattern, required=req, resolve=resolve, cue=cue)
 
 
 def declaration_from_dict(raw: dict) -> Declaration:
@@ -358,6 +380,27 @@ def resolve_passes(value: Optional[str]) -> bool:
     return value.strip().lower() in apps
 
 
+_PARAM_PREPOSITIONS = frozenset({"на", "до"})
+
+
+def _ends_with_preposition(trigger: str) -> bool:
+    """«поставь чайник на», «нагрей до», «звук на» — после триггера ждут число."""
+    parts = trigger.split()
+    return len(parts) > 1 and parts[-1].lower() in _PARAM_PREPOSITIONS
+
+
+_TAIL_FILLERS = frozenset({"пожалуйста", "плиз", "сакура", "ну", "же", "ка"})
+
+
+def _has_words_after(pattern: "re.Pattern", lowered: str) -> bool:
+    """После триггера есть значимые слова (не вежливость и не пустота)."""
+    m = pattern.search(lowered)
+    if not m:
+        return False
+    tail = re.findall(r"[a-zа-яё0-9]+", lowered[m.end():])
+    return any(w not in _TAIL_FILLERS for w in tail)
+
+
 class TriggerIndex:
     """Индекс триггеров: поиск от самых длинных к коротким, по границам слов."""
 
@@ -425,6 +468,14 @@ class TriggerIndex:
                 continue  # списка нет (агент не подключён) — resolve-триггер молчит
             if declaration.param is not None:
                 param_value = declaration.param.extract(text)
+                if (param_value is None and declaration.param.is_numeric
+                        and _ends_with_preposition(trigger)
+                        and not declaration.param.cued(text)
+                        and _has_words_after(pattern, lowered)):
+                    # «поставь чайник на кухне»: после предлога не число, а
+                    # другое слово — это не этот триггер. Голое «нагрей до»
+                    # по-прежнему матчится и получает уточняющий вопрос.
+                    continue
                 req = declaration.param.required
                 if req == "true" and param_value is None:
                     continue  # required — пропускаем
@@ -462,7 +513,13 @@ def build_llm_catalog(declarations: Iterable[Declaration]) -> str:
     Триггеры и каталог — одни и те же данные, поэтому действие, забытое
     в каталоге (находка 2 инвентаризации), невозможно по построению.
     """
-    return "\n".join(f"- {d.id}: {d.desc}" for d in declarations)
+    lines = []
+    for d in declarations:
+        if d.param is not None:
+            lines.append(f"- {d.id} (param: {d.param.name}): {d.desc}")
+        else:
+            lines.append(f"- {d.id}: {d.desc}")
+    return "\n".join(lines)
 
 
 # ── followup по имени на проводе ────────────────────────────────────────

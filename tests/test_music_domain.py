@@ -55,7 +55,7 @@ def test_all_browser_actions_registered():
 
 def test_all_youtube_actions_registered():
     want = {d.id for d in load() if d.id.startswith("youtube.")}
-    assert len(want) == 12
+    assert len(want) == 13          # + youtube.open (этап 3 NLU)
     assert not (want - set(registered())), f"нет хендлеров: {want - set(registered())}"
 
 

@@ -736,7 +736,9 @@ def take_screenshot() -> str | None:
         now = time.time()
         if now - getattr(take_screenshot, "_last_err", 0) > 30.0:
             take_screenshot._last_err = now
-            log.warning(f"screenshot unavailable: {e}")
+            # Сбой захвата — ошибка (ERROR), но не чаще раза в 30 с: без
+            # ограничения цикл снимков заливал лог.
+            log.error(f"screenshot unavailable: {e}")
         return None
 
 

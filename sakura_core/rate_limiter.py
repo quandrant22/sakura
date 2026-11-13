@@ -31,7 +31,51 @@ import config
 
 log = logging.getLogger("sakura.rate_limiter")
 
-PT = ZoneInfo("America/Los_Angeles")
+
+class _PacificFallback(dt.tzinfo):
+    """Тихоокеанское время США без базы tzdata: PST (UTC−8) зимой, PDT
+    (UTC−7) со второго воскресенья марта по первое воскресенье ноября.
+    Нужен только если в системе нет зон (Windows без пакета tzdata)."""
+
+    _STD = dt.timedelta(hours=-8)
+    _HOUR = dt.timedelta(hours=1)
+
+    @staticmethod
+    def _nth_sunday(year: int, month: int, n: int) -> dt.datetime:
+        first = dt.datetime(year, month, 1)
+        return first + dt.timedelta(days=(6 - first.weekday()) % 7 + 7 * (n - 1))
+
+    def _is_dst_utc(self, utc: dt.datetime) -> bool:
+        # Переходы — в 2:00 местного: 10:00 UTC весной (из PST), 9:00 UTC осенью (из PDT).
+        start = self._nth_sunday(utc.year, 3, 2) + dt.timedelta(hours=10)
+        end = self._nth_sunday(utc.year, 11, 1) + dt.timedelta(hours=9)
+        return start <= utc < end
+
+    def fromutc(self, when: dt.datetime) -> dt.datetime:
+        naive = when.replace(tzinfo=None)
+        offset = self._STD + (self._HOUR if self._is_dst_utc(naive) else dt.timedelta(0))
+        return (naive + offset).replace(tzinfo=self)
+
+    def dst(self, when):
+        if when is None:
+            return dt.timedelta(0)
+        naive = when.replace(tzinfo=None)
+        # Местное время → UTC по стандартному смещению (погрешность — час у перехода).
+        return self._HOUR if self._is_dst_utc(naive - self._STD) else dt.timedelta(0)
+
+    def utcoffset(self, when):
+        return self._STD + self.dst(when)
+
+    def tzname(self, when):
+        return "PDT" if self.dst(when) else "PST"
+
+
+try:
+    PT = ZoneInfo("America/Los_Angeles")
+except Exception:
+    log.warning("[rate_limiter] нет базы часовых поясов (pip install tzdata) — "
+                "тихоокеанское время считаю по встроенным правилам")
+    PT = _PacificFallback()
 BACKOFF_S = (4.0, 8.0, 16.0, 32.0, 32.0)    # повторы 1…5; дальше — следующая модель
 MAX_429 = len(BACKOFF_S)
 MINUTE_BLOCK_S = 60.0

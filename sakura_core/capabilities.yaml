@@ -662,7 +662,7 @@
   reversible: true
   confirm: false
   followup: ack
-  triggers: ['какая погода', 'погода', 'что с погодой', 'погода сейчас', 'на улице холодно']
+  triggers: ['какая погода', 'погода', 'что с погодой', 'погода сейчас', 'на улице холодно', 'что там на улице', 'что на улице', 'как там на улице', 'что за окном', 'что там за окном', 'прогноз погоды']
 
 - id: youtube.forward
   legacy: [youtube_forward]
@@ -777,6 +777,14 @@
   followup: ack
   triggers: ['популярное на ютубе', 'что в тренде', 'тренды ютуба', 'популярные видео']
 
+- id: youtube.open
+  desc: 'Открыть YouTube (главную страницу)'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['открой ютуб', 'включи ютуб', 'запусти ютуб', 'зайди на ютуб', 'открой youtube', 'включи youtube', 'открой ютьюб', 'включи ютьюб']
+
 - id: kettle.boil
   legacy: [kettle:boil]
   desc: 'Вскипятить чайник'
@@ -811,11 +819,12 @@
   reversible: false
   confirm: false
   followup: ack
-  triggers: ['нагрей воду', 'нагрей до', 'чайник на', 'подогрей воду', 'нагрей воду до']
+  triggers: ['нагрей воду', 'нагрей до', 'чайник на', 'подогрей воду', 'нагрей воду до', 'поставь чайник на', 'включи чайник на', 'поставь чайник до', 'включи чайник до']
   param:
     name: temp
     pattern: '(?:до|на)\s+(\d+)'
     required: ask
+    cue: 'градус|температур'
 
 - id: kettle.boil_heat
   legacy: [kettle:boil_heat]

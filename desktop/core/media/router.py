@@ -20,7 +20,7 @@ MUSIC_ACTIONS = ("dislike", "history", "like", "liked_tracks", "mute", "next", "
                  "play_track", "playlists", "podcasts", "prev", "repeat", "restart", "seek_back", "seek_forward",
                  "shuffle", "volume_down", "volume_up", "wave")
 YOUTUBE_ACTIONS = ("forward", "fullscreen", "like", "mini", "next", "pause", "rewind", "speed_down",
-                   "speed_up", "sub_toggle", "theater", "trending")
+                   "speed_up", "sub_toggle", "theater", "trending", "open")
 
 # Встроенная реализация: действие → (команда плеера, аргумент по умолчанию).
 # None — у встроенного плеера нет аналога, всегда внешний путь.

@@ -35,6 +35,7 @@ EXPECTED = {
     "youtube.speed_up": ("video", "rateBy", 0.25), "youtube.speed_down": ("video", "rateBy", -0.25),
     "youtube.sub_toggle": ("video", "subtitles", None), "youtube.theater": ("video", "theater", None),
     "youtube.like": None, "youtube.trending": None,
+    "youtube.open": None,               # открыть сайт — всегда внешний браузер
     "music.restart": ("music", "seek", 0), "music.restart_playing": ("music", "seek", 0),
     "music.play_track": None,
 }
@@ -49,10 +50,10 @@ class Clock:
 
 
 def test_registry_has_30_media_actions_all_known():
-    assert len(MEDIA_IDS) == 33
+    assert len(MEDIA_IDS) == 34
     assert sorted(MEDIA_IDS) == sorted(EXPECTED)
     # 19 из реестра + music.restart («трек сначала», п. 7) — триггеры добавит серверный агент.
-    assert len(MUSIC_ACTIONS) == 20 and len(YOUTUBE_ACTIONS) == 12
+    assert len(MUSIC_ACTIONS) == 20 and len(YOUTUBE_ACTIONS) == 13
     assert set(MUSIC_ACTIONS) | {"restart_playing"} == {c.split(".")[1] for c in MEDIA_IDS if c.startswith("music.")}
 
 

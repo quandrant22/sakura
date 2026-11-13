@@ -24,9 +24,10 @@ def _add(text, role="user", channel="voice", device="laptop", **kw):
 def test_file_is_private_and_wal():
     _add("привет")
     path = config.CHAT_DB_PATH
-    for p in (path, path + "-wal", path + "-shm"):
-        if os.path.exists(p):
-            assert stat.S_IMODE(os.stat(p).st_mode) == 0o600, p
+    if os.name != "nt":
+        for p in (path, path + "-wal", path + "-shm"):
+            if os.path.exists(p):
+                assert stat.S_IMODE(os.stat(p).st_mode) == 0o600, p
     mode = sqlite3.connect(path).execute("PRAGMA journal_mode").fetchone()[0]
     assert mode == "wal"
 

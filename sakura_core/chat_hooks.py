@@ -84,7 +84,7 @@ async def apply_privacy(text: str) -> str | None:
 
 # ── подтверждения ──────────────────────────────────────────────────
 
-_EXTRA_ACKS = ("Готово, Мастер.",)
+_EXTRA_ACKS = ("Готово, Мастер.", "{app} запущен.")
 
 
 def _ack_patterns() -> list[re.Pattern]:

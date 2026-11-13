@@ -97,7 +97,13 @@ def _get_tasks_snippet() -> str:
 def _get_weather_snippet() -> str:
     try:
         import urllib.request
-        url = "https://wttr.in/?format=%C+%t+%h"
+        from urllib.parse import quote
+
+        import config
+        # Город Мастера, метрическая система, по-русски: без города wttr.in
+        # определял место по IP сервера и отвечал в Фаренгейтах.
+        city = quote(getattr(config, "MASTER_CITY", "") or "")
+        url = f"https://wttr.in/{city}?format=%C+%t+%h&m&lang=ru"
         with urllib.request.urlopen(url, timeout=3) as r:
             return r.read().decode("utf-8").strip()
     except Exception:
@@ -169,19 +175,24 @@ def _get_schedule_snippet() -> str:
         return ""
 
 
-async def build_briefing_prompt() -> str:
-    loop = asyncio.get_running_loop()
-
-    calendar      = await loop.run_in_executor(None, _get_calendar_snippet)
-    tasks         = await loop.run_in_executor(None, _get_tasks_snippet)
-    weather       = await loop.run_in_executor(None, _get_weather_snippet)
-    self_mem      = await loop.run_in_executor(None, _get_self_snippet)
-    anniversaries = await loop.run_in_executor(None, _get_anniversaries_snippet)
-    schedule      = await loop.run_in_executor(None, _get_schedule_snippet)
+async def build_briefing_facts() -> str:
+    """Факты сводки без инструкций для модели: время, погода, календарь,
+    пары, задачи, годовщины. Источники независимы — читаются одновременно;
+    недоступный источник просто не попадает в сводку."""
+    calendar, tasks, weather, self_mem, anniversaries, schedule = await asyncio.gather(
+        asyncio.to_thread(_get_calendar_snippet),
+        asyncio.to_thread(_get_tasks_snippet),
+        asyncio.to_thread(_get_weather_snippet),
+        asyncio.to_thread(_get_self_snippet),
+        asyncio.to_thread(_get_anniversaries_snippet),
+        asyncio.to_thread(_get_schedule_snippet),
+    )
 
     now  = datetime.now()
     hour = now.hour
-    if hour < 10:
+    if hour < 5:
+        time_label = "Ночь"
+    elif hour < 10:
         time_label = "Утро"
     elif hour < 13:
         time_label = "Доброе утро"
@@ -201,8 +212,11 @@ async def build_briefing_prompt() -> str:
         parts.append(anniversaries)
     if self_mem:
         parts.append(f"Из вчерашних мыслей: {self_mem}")
+    return "\n".join(parts)
 
-    content = "\n".join(parts)
+
+async def build_briefing_prompt() -> str:
+    content = await build_briefing_facts()
 
     return (
         f"Данные для брифинга:\n{content}\n\n"

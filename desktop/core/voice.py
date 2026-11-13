@@ -145,7 +145,9 @@ class Player:
         self._last_cable_retry = 0.0
         self._reset_response()
         self._open_stream()
-        self._open_cable_stream()
+        # Виртуальный кабель открывает сторожевой поток, а не конструктор:
+        # поиск кабеля пробует реальные аудиопотоки, это медленно и может
+        # уронить процесс на проблемном драйвере (и в тестах без карты).
         threading.Thread(target=self._watchdog, daemon=True).start()
 
     def _open_stream(self):
@@ -222,6 +224,11 @@ class Player:
             outdata[n:] = b"\x00" * (need - n)
 
     def _watchdog(self):
+        try:
+            self._last_cable_retry = time.monotonic()
+            self._open_cable_stream()
+        except Exception as e:
+            log.warning(f"[voice] Кабель Discord: {type(e).__name__}: {e}")
         time.sleep(3.0)
         while True:
             time.sleep(5.0)

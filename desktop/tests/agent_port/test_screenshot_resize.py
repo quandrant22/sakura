@@ -113,6 +113,7 @@ class TestTakeScreenshot(unittest.TestCase):
     def test_grab_failure_logged_not_raised(self):
         with patch.object(hands, "ImageGrab") as grab:
             grab.grab.side_effect = OSError("display gone")
+            hands.take_screenshot._last_err = 0      # ограничитель частоты — с нуля
             with self.assertLogs("sakura.hands", level="ERROR"):
                 self.assertIsNone(hands.take_screenshot())
 

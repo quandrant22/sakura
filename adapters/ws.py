@@ -704,6 +704,19 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
             async def _arm_ack(decision, cmd_id):
                 acks.arm(cmd_id, ws=ws_dev, device_id=device_id or "laptop",
                          action=decision.action, param=decision.param)
+            async def _v3_chat(chat_text: str):
+                # Гибрид «команда + разговор»: команды уже исполнены, prefetch
+                # снят вердиктом. Отвечаем заново — модель узнаёт о сделанном
+                # из sakura_core/action_note (блок системного промпта).
+                turn_timing.set_kind("conversation")
+                await ask_gemini_voice(
+                    user_message  = chat_text + ctx_str,
+                    websocket     = ws_dev,
+                    device_id     = device_id or "laptop",
+                    active_window = data.get("active_window", ""),
+                    received_at   = t_recv,
+                    channel       = channel,
+                )
             if await v3_fast_path(text, data=data, device_ws=ws_dev,
                                   device_id=device_id,
                                   register_command=ctx.get("_register_command"),
@@ -712,6 +725,7 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
                                   on_llm=_prefetch_voice,
                                   on_command=_on_command_verdict,
                                   on_agent_command=_arm_ack,
+                                  on_chat=_v3_chat if ws_dev is not None else None,
                                   source=device_id):
                 await _cancel_voice_prefetch()
                 return

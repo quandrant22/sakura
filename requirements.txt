@@ -12,6 +12,7 @@ psutil==7.2.2
 pydub==0.25.1
 python-dotenv==1.2.2
 pytz==2026.1.post1
+tzdata>=2025.1        # база часовых поясов для zoneinfo (на Windows её нет в системе)
 PyYAML==6.0.3
 sqlite-vec==0.1.9
 Telethon==1.44.0

@@ -416,6 +416,10 @@
   "companion.husk_status": [
    "husk:status",
    ""
+  ],
+  "youtube.open": [
+   "youtube.open",
+   ""
   ]
  }
 }

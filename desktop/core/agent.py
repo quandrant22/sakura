@@ -126,6 +126,7 @@ YOUTUBE_VERBS = {
     "mini": "mini", "next": "next", "pause": "pause", "rewind": "rewind",
     "speed_down": "speed_down", "speed_up": "speed_up",
     "sub_toggle": "sub_toggle", "theater": "theater", "trending": "trending",
+    "open": "open",
 }
 
 # ext.* → ext:<name> (ветка расширения)

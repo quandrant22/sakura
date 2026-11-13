@@ -92,7 +92,7 @@ class VoiceGate:
     """
 
     # Сколько ждать вердикта, дальше считаем «не команда» (спека п.2):
-    # config.VOICE_GATE_WAIT_S (env), по умолчанию 4с. Вердикт «команда»
+    # config.VOICE_GATE_WAIT_S (env), по умолчанию 3с. Вердикт «команда»
     # отменяет стрим раньше — через on_command в v3_fast_path.
     def __init__(self) -> None:
         import config
