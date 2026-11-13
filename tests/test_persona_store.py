@@ -66,7 +66,7 @@ def test_reset_returns_default_and_keeps_history(pdir):
     assert len(persona.history("intimate")) == 1
 
 
-@pytest.mark.parametrize("bad", ["", "   ", "коротко", "х" * (persona.MAX_CHARS + 1)])
+@pytest.mark.parametrize("bad", ["", "   ", "коротко", "х" * (persona.MAX_CHARS + 1)], ids=["empty", "spaces", "short", "too_long"])
 def test_invalid_text_rejected(pdir, bad):
     with pytest.raises(persona.PersonaError):
         persona.set("master", bad, source="test")

@@ -85,6 +85,105 @@ _SELF_STATE_RE = re.compile(
     r")"
 )
 
+# ── Контроль вывода источников (показывать ТОЛЬКО по просьбе Мастера) ──
+_NON_INFO_SOURCE_RE = re.compile(
+    r"(?<!\w)(?:"
+    r"(?:питания|тока|света|энергии|тепла|звука|радиации|бесперебойного|водн\w*|вод[ые]|термальн\w*|горяч\w*|минеральн\w*)\s+источник\w*"
+    r"|источник\w*\s+(?:питания|тока|света|энергии|тепла|звука|радиации|бесперебойного|вод[ые])"
+    r")(?!\w)",
+    re.IGNORECASE,
+)
+
+_SOURCES_EXPLICIT_RE = re.compile(
+    r"(?<!\w)(?:"
+    r"(?:с|со)\s+(?:источник\w*|ссылк\w*|пруф\w*)"
+    r"|(?:дай|скинь|кинь|пришли|покажи|приведи|укажи|назови|перечисли|напиши|прикрепи)\s+(?:мне\s+)?(?:все\s+)?(?:эти\s+)?(?:источник\w*|ссылк\w*|пруф\w*)"
+    r"|(?:какие|где|что\s+за)\s+(?:тут\s+)?(?:источник\w*|ссылк\w*|пруф\w*)"
+    r"|ссылк\w*\s+на\s+(?:источник\w*|материал\w*|стать\w*|сайт\w*)"
+    r"|пруфлинк\w*"
+    r"|откуда\s+(?:эта\s+)?(?:инфа|информация|данные|сведения|новости)"
+    r"|откуда\s+ты\s+(?:это\s+)?(?:взяла|узнала|вычитала|знаешь)"
+    r"|где\s+(?:ты\s+)?(?:это\s+)?(?:прочитала|нашла|вычитала|взяла)"
+    r"|где\s+это\s+написано"
+    r")(?!\w)",
+    re.IGNORECASE,
+)
+
+_SOURCES_STANDALONE_RE = re.compile(
+    r"^(?:а\s+)?(?:источники|источник|ссылки|ссылку|пруфы|пруф|пруфлинки)[?!.]*$",
+    re.IGNORECASE,
+)
+
+_SOURCES_PURE_QUERY_RE = re.compile(
+    r"^(?:а\s+)?(?:какие\s+)?(?:источники|источник|ссылки|ссылку|пруфы|пруф|пруфлинки)[?!.]*$"
+    r"|^(?:дай|скинь|кинь|пришли|покажи|приведи|укажи|назови|перечисли|напиши)\s+(?:мне\s+)?(?:все\s+)?(?:эти\s+)?(?:источники|источник|ссылки|ссылку|пруфы|пруф)[?!.]*$"
+    r"|^(?:какие|где|что\s+за)\s+(?:тут\s+)?(?:источники|источник|ссылки|ссылку|пруфы|пруф)[?!.]*$"
+    r"|^(?:откуда\s+(?:эта\s+)?(?:инфа|информация|данные|сведения|новости)"
+    r"|откуда\s+ты\s+(?:это\s+)?(?:взяла|узнала|вычитала|знаешь)"
+    r"|где\s+(?:ты\s+)?(?:это\s+)?(?:прочитала|нашла|вычитала|взяла)"
+    r"|где\s+это\s+написано)[?!.]*$",
+    re.IGNORECASE,
+)
+
+
+def wants_sources(text: str) -> bool:
+    """True, если пользователь явно просит источники, ссылки или пруфы.
+
+    По умолчанию источники в чате НЕ показываются (только факты голосом
+    Сакуры). Источники выводятся ТОЛЬКО при прямой просьбе Мастера
+    («со ссылками», «дай источники», «откуда инфа», «скинь ссылки»).
+    Бытовые «источник питания» / «горячие источники» отфильтрованы.
+    """
+    if not text:
+        return False
+    t = text.strip()
+    if _SOURCES_STANDALONE_RE.match(t):
+        return True
+    if _NON_INFO_SOURCE_RE.search(t):
+        return False
+    return bool(_SOURCES_EXPLICIT_RE.search(t))
+
+
+def is_pure_sources_request(text: str) -> bool:
+    """True, если реплика состоит ТОЛЬКО из просьбы показать источники/ссылки.
+
+    Например: «Откуда инфа?», «А источники?», «Скинь ссылки», «Какие источники?».
+    Такой запрос не запускает новый поиск, а отдаёт источники предыдущего ответа.
+    """
+    if not text:
+        return False
+    t = text.strip()
+    if _NON_INFO_SOURCE_RE.search(t):
+        return False
+    return bool(_SOURCES_PURE_QUERY_RE.match(t))
+
+
+_LATEST_SOURCES: list[str] = []
+_LATEST_SOURCES_TS: float = 0.0
+
+
+def set_latest_sources(sources: list[str]) -> None:
+    """Запоминает источники недавнего поиска, чтобы ответить на «откуда инфа?»."""
+    global _LATEST_SOURCES, _LATEST_SOURCES_TS
+    if sources:
+        _LATEST_SOURCES = list(sources)
+        _LATEST_SOURCES_TS = time.time()
+
+
+def get_latest_sources(max_age_s: float = 600.0) -> list[str]:
+    """Возвращает источники недавнего поиска, если они ещё свежие."""
+    if time.time() - _LATEST_SOURCES_TS <= max_age_s:
+        return list(_LATEST_SOURCES)
+    return []
+
+
+def clear_latest_sources() -> None:
+    """Сбрасывает кэш последних источников (для тестов)."""
+    global _LATEST_SOURCES, _LATEST_SOURCES_TS
+    _LATEST_SOURCES = []
+    _LATEST_SOURCES_TS = 0.0
+
+
 # ── Вспомогательные константы для needs_search ────────────────────────
 _QUESTION_WORDS = (
     "кто", "какой", "какая", "какие", "что", "где", "когда",
@@ -184,6 +283,9 @@ def needs_search(text: str) -> bool:
 
     # Приветы / команды / бытовое — не ищем (по границам слов)
     if _word_in(tl, SEARCH_STOP):
+        return False
+    # Вопрос об источниках предыдущего ответа — отдаётся из памяти, а не из сети
+    if is_pure_sources_request(tl):
         return False
     # а) прямая просьба: глагол поиска в начале фразы + любое продолжение
     if _starts_with_search_verb(tl):
@@ -503,6 +605,7 @@ async def search_grounded(query: str, queries: list[str] | None = None) -> tuple
         answer, sources, ok = "", [], False
     if ok and answer:
         sources = _dedup_domains(sources, limit=5)
+        set_latest_sources(sources)
         answer = _clip_answer(answer, limit=4000)   # бюджет промпта ~4к симв.
     _SEARCH_CACHE[norm] = (answer, sources, ok, time.time())
     return answer, sources, ok

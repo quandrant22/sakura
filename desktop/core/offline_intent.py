@@ -12,7 +12,7 @@ import yaml
 
 FUZZY = 0.86
 DOMAINS = ("system.volume", "music.", "open.app", "app.switch", "screenshot.run", "window.", "power.lock",
-           "keys.media", "files.find")
+           "keys.media", "files.find", "companion.")
 # Короткие ответы-шаблоны (без модели); {detail} — итог действия.
 REPLY_DONE = "Готово: {detail}. (офлайн-режим)"
 REPLY_FAIL = "Не получилось: {detail}. (офлайн-режим)"

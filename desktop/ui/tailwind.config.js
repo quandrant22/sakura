@@ -25,11 +25,15 @@ export default {
       // card — карточки по наброску (rx 20); win — окно; btn — кнопки и пункты меню.
       borderRadius: { win: "14px", card: "20px", panel: "20px", btn: "12px" },
       spacing: { gap: "20px", edge: "30px" },
-      fontFamily: { sans: ["Inter", "Segoe UI", "system-ui", "sans-serif"] },
+      // display — Orbitron из оригинального HUD Сакуры. В нём нет кириллицы: только латиница
+      // (логотип SAKURA, метки сцены), русские заголовки — Inter.
+      fontFamily: { sans: ["Inter", "Segoe UI", "system-ui", "sans-serif"], display: ["Orbitron", "Inter", "sans-serif"] },
       letterSpacing: { logo: "0.32em" },
       boxShadow: {
         soft: "0 8px 30px rgba(0,0,0,0.35)",
         glow: "0 0 18px var(--accent-soft)",
+        // Карточка: тонкий светлый край сверху и мягкая тень — глубина без жирных обводок.
+        card: "inset 0 1px 0 rgba(255,255,255,.05), 0 10px 30px rgba(0,0,0,.28)",
       },
       transitionDuration: { DEFAULT: "200ms" },
     },

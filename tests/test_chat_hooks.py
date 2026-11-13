@@ -136,7 +136,7 @@ def test_acks_logged_only_with_flag(monkeypatch, log_acks):
     texts = [t for _, _, t in _log()]
     assert texts[0] == "следующий трек"
     assert "Не получилось: плеер не отвечает." in texts, "ошибка пишется всегда"
-    has_ack = any(t in ("Включаю.", "Готово.") for t in texts)
+    has_ack = any(t in acks.PHRASES["music"] for t in texts)
     assert has_ack is log_acks
 
 

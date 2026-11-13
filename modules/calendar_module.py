@@ -1,17 +1,38 @@
 import os
 from datetime import datetime, timedelta
-from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
-from googleapiclient.discovery import build
+try:
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
+    from googleapiclient.discovery import build
+except ImportError:
+    Credentials = None
+    Request = None
+    build = None
 
 TOKEN_FILE = "token.json"
 SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
 
 
+class CalendarUnavailable(RuntimeError):
+    """Календарь не подключён: нет библиотек Google или token.json."""
+
+
+def unavailable_reason() -> str | None:
+    """Почему календарь не подключён; None — подключён. Без сети, мгновенно."""
+    if build is None:
+        return "не установлены библиотеки Google API"
+    if not os.path.exists(TOKEN_FILE):
+        return f"нет файла {TOKEN_FILE} (не пройдена авторизация auth_calendar.py)"
+    return None
+
+
 def get_calendar_service():
-    creds = None
-    if os.path.exists(TOKEN_FILE):
-        creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
+    # Без token.json build() ушёл бы искать учётные данные по умолчанию
+    # (метаданные облака) и висел несколько секунд — отказываем сразу.
+    reason = unavailable_reason()
+    if reason:
+        raise CalendarUnavailable(reason)
+    creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
     if creds and creds.expired and creds.refresh_token:
         creds.refresh(Request())
         with open(TOKEN_FILE, 'w') as f:

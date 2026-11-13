@@ -288,6 +288,10 @@ def _scan_steam() -> dict:
     if not base:
         return apps
     libs = [os.path.join(base, "steamapps")]
+    for extra_drive in ("D:", "E:", "F:", "G:"):
+        extra_lib = os.path.join(f"{extra_drive}\\", "SteamLibrary", "steamapps")
+        if os.path.isdir(extra_lib) and extra_lib not in libs:
+            libs.append(extra_lib)
     vdf  = os.path.join(base, "steamapps", "libraryfolders.vdf")
     try:
         if os.path.exists(vdf):
@@ -336,6 +340,39 @@ def _scan_game_dirs() -> dict:
     return apps
 
 
+def _scan_desktop() -> dict:
+    """Ярлыки на рабочем столе (.url и .lnk)."""
+    apps = {}
+    desktop_dirs = []
+    user_desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+    if os.path.isdir(user_desktop):
+        desktop_dirs.append(user_desktop)
+    pub = os.environ.get("PUBLIC", r"C:\Users\Public")
+    pub_desktop = os.path.join(pub, "Desktop")
+    if os.path.isdir(pub_desktop):
+        desktop_dirs.append(pub_desktop)
+
+    for d in desktop_dirs:
+        try:
+            for fn in os.listdir(d):
+                p_file = os.path.join(d, fn)
+                low = fn.lower()
+                clean_name = re.sub(r"\s*-\s*ярлык$", "", os.path.splitext(fn)[0], flags=re.IGNORECASE).strip().lower()
+                if low.endswith(".url"):
+                    try:
+                        ct = open(p_file, encoding="utf-8", errors="ignore").read()
+                        m = re.search(r"^URL=(.+)$", ct, re.MULTILINE)
+                        if m:
+                            apps[clean_name] = m.group(1).strip()
+                    except Exception:
+                        pass
+                elif low.endswith(".lnk"):
+                    apps[clean_name] = p_file
+        except Exception:
+            pass
+    return apps
+
+
 def scan_apps(force: bool = False) -> dict:
     """Собирает все источники. Более «играбельные» переопределяют общие, ручные — поверх всех.
     При force=False сначала пытается загрузить свежий кэш с диска (TTL ~6 часов).
@@ -349,7 +386,7 @@ def scan_apps(force: bool = False) -> dict:
             return cached
 
     apps = {}
-    for source in (_scan_start_menu, _scan_start_apps, _scan_steam, _scan_game_dirs):
+    for source in (_scan_start_menu, _scan_start_apps, _scan_steam, _scan_game_dirs, _scan_desktop):
         try:
             apps.update(source())
         except Exception as e:
@@ -444,6 +481,21 @@ def open_app(name: str) -> str:
     Честный отказ вместо fallback'a в ОС для неизвестных имён приложений.
     """
     name = name.strip()
+    low = name.lower()
+    if any(k in low for k in ("яндекс музыка", "яндекс.музыка", "yandex music", "yandex_music", "музыка", "музыку", "яндекс")):
+        from desktop.core.app_launch import AppLauncher
+        from desktop.core import yamusic_app as _ym
+        launcher = AppLauncher()
+        st = launcher.state("yandex_music")
+        if not st.get("running"):
+            res = launcher.launch("yandex_music")
+            time.sleep(1.0)
+            _ym.open_wave()
+            return "запустила Яндекс.Музыку и включила «Мою волну»"
+        else:
+            if not _ym.play_pause():
+                _ym.open_wave()
+            return "включила Яндекс.Музыку"
 
     if _is_target(name):
         return f"открыл {name}" if _launch(name) else f"app_not_found:{name}"
@@ -668,8 +720,10 @@ def take_screenshot() -> str | None:
     if not ImageGrab:
         return None
     try:
-        img = ImageGrab.grab().convert("RGB")
+        from desktop.core import screens
+        img = screens.grab(ImageGrab.grab).convert("RGB")
         view = _fit_for_vision(img)
+        screens.note_shot_size(view.width, view.height)
         buf = io.BytesIO()
         view.save(buf, format="JPEG", quality=config.SCREENSHOT_QUALITY)
         raw = buf.getvalue()
@@ -679,7 +733,12 @@ def take_screenshot() -> str | None:
         )
         return base64.b64encode(raw).decode()
     except Exception as e:
-        log.error(f"screenshot: {e}")
+        now = time.time()
+        if now - getattr(take_screenshot, "_last_err", 0) > 30.0:
+            take_screenshot._last_err = now
+            # Сбой захвата — ошибка (ERROR), но не чаще раза в 30 с: без
+            # ограничения цикл снимков заливал лог.
+            log.error(f"screenshot unavailable: {e}")
         return None
 
 
@@ -856,13 +915,64 @@ def execute_command(action: str) -> dict:
         # Подтверждение выключения уже получено на сервере (_pending_system в
         # modules/ws_handlers.py) — платформа выполняет сразу.
         delay = config.SHUTDOWN_DELAY_S
-        done = {"lock": "заблокировано", "shutdown": f"выключение через {delay} с",
-                "restart": f"перезагрузка через {delay} с", "shutdown_cancel": "выключение отменено",
+        done = {"lock": "заблокировано", "shutdown": f"выключение через {delay} с" if delay else "выключаю",
+                "restart": f"перезагрузка через {delay} с" if delay else "перезагружаю", "shutdown_cancel": "выключение отменено",
                 "sleep": "уходим в сон"}
         if arg not in done:
             return {"result": f"неизвестная системная команда: {arg}"}
         get_platform().power(arg)
         return {"result": done[arg]}
+
+    # Клипирование (Capri Clips)
+    if verb in ("clip", "clip_that"):
+        from desktop.core.features import get_clip_buffer
+        dur = int(arg) if arg and arg.isdigit() else 30
+        path = get_clip_buffer().save_clip(dur)
+        return {"result": f"клип сохранён: {path}" if path else "не удалось сохранить клип"}
+
+    # Экранные чернила (Capri Ink)
+    if verb in ("ink", "draw_ink"):
+        from desktop.core.features import get_ink_manager
+        get_ink_manager().draw(arg)
+        return {"result": "нарисовала на экране"}
+    if verb == "clear_ink":
+        from desktop.core.features import get_ink_manager
+        get_ink_manager().clear()
+        return {"result": "стёрла рисунок"}
+
+    # Дозор экрана (Capri Lookout)
+    if verb in ("lookout", "watch_for"):
+        from desktop.core.features import get_lookout_engine
+        wid = get_lookout_engine().add_watch(arg)
+        return {"result": f"слежу за экраном #{wid}: {arg}"}
+    if verb == "stop_watch":
+        from desktop.core.features import get_lookout_engine
+        get_lookout_engine().remove_watch(arg)
+        return {"result": "перестала следить за экраном"}
+
+    # Режим звонков (Capri Call Mode)
+    if verb == "call_mode":
+        from desktop.core.features import get_call_mode_manager
+        if arg in ("on", "start"):
+            get_call_mode_manager().enable()
+            return {"result": "режим звонков включен"}
+        elif arg in ("off", "stop"):
+            get_call_mode_manager().disable()
+            return {"result": "режим звонков выключен"}
+
+    # Совместный просмотр (Capri Watch Along)
+    if verb == "watch_along":
+        from desktop.core.features import get_watch_along_manager
+        if arg in ("off", "stop"):
+            get_watch_along_manager().stop()
+            return {"result": "совместный просмотр остановлен"}
+        get_watch_along_manager().start(arg)
+        return {"result": f"смотрю с тобой {arg}" if arg else "смотрю с тобой экран"}
+
+    # Статус кодинг-агента (Capri Husk / Antigravity)
+    if verb in ("husk", "husk_status", "agent_status"):
+        from desktop.core.features import get_husk_manager
+        return {"result": get_husk_manager().stats.format_progress()}
 
     return {"result": f"неизвестная команда: {action}"}
 

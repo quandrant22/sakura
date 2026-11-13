@@ -22,6 +22,7 @@ log = logging.getLogger("sakura.search")
 
 PER_QUERY = 6
 SNIPPET_MAX = 600
+_searxng_warned = False     # предупреждение о пустом SEARXNG_URL — один раз за процесс
 _TRACKING = re.compile(r"^(utm_\w+|fbclid|gclid|yclid|ref|ref_src)$", re.IGNORECASE)
 
 
@@ -123,6 +124,12 @@ def enabled() -> list[str]:
     out = [n for n in names if n in ("parallel", "searxng")]
     if "searxng" in out and not getattr(config, "SEARXNG_URL", ""):
         out.remove("searxng")
+        global _searxng_warned
+        if not _searxng_warned:
+            _searxng_warned = True
+            log.warning("[search] SearXNG включён в SEARCH_PROVIDERS, но SEARXNG_URL пуст — "
+                        "поставщик отключён, поиск идёт только через: %s",
+                        ", ".join(out) or "parallel")
     return out or ["parallel"]
 
 

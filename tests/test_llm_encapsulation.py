@@ -23,8 +23,8 @@ def _scan_generate_calls(root: str, exclude_dirs: tuple[str, ...] = ()) -> list[
                 continue
             fp = os.path.join(dirpath, fn)
             try:
-                tree = ast.parse(pathlib.Path(fp).read_text(), filename=fp)
-            except SyntaxError:
+                tree = ast.parse(pathlib.Path(fp).read_text(encoding="utf-8"), filename=fp)
+            except (SyntaxError, UnicodeDecodeError):
                 continue
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Attribute):
@@ -37,7 +37,10 @@ def _scan_generate_calls(root: str, exclude_dirs: tuple[str, ...] = ()) -> list[
 def test_generate_content_only_in_llm_module():
     """generate_content / generate_content_stream — только в sakura_core/llm.py, tests/, docs/."""
     root = str(pathlib.Path(__file__).resolve().parent.parent)
-    calls = _scan_generate_calls(root, exclude_dirs=("venv", ".git", "__pycache__"))
+    calls = _scan_generate_calls(
+        root, exclude_dirs=("venv", ".venv", ".git", "__pycache__", "node_modules"))
+    # Windows: os.walk отдаёт обратные слэши — сравниваем в POSIX-виде.
+    calls = [(fp.replace(os.sep, "/"), line, attr) for fp, line, attr in calls]
     bad = [
         (fp, line, attr)
         for fp, line, attr in calls
@@ -54,14 +57,14 @@ def test_generate_content_only_in_llm_module():
 def test_no_safety_defined_in_llm():
     """NO_SAFETY (функция _no_safety) определена в sakura_core/llm.py."""
     llm_path = pathlib.Path(__file__).resolve().parent.parent / "sakura_core" / "llm.py"
-    src = llm_path.read_text()
+    src = llm_path.read_text(encoding="utf-8")
     assert "def _no_safety" in src, "_no_safety not found in sakura_core/llm.py"
 
 
 def test_thinking_defined_in_llm():
     """_thinking определена в sakura_core/llm.py."""
     llm_path = pathlib.Path(__file__).resolve().parent.parent / "sakura_core" / "llm.py"
-    src = llm_path.read_text()
+    src = llm_path.read_text(encoding="utf-8")
     assert "def _thinking" in src, "_thinking not found in sakura_core/llm.py"
 
 

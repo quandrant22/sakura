@@ -98,6 +98,9 @@ for _a in _MUSIC_APP_ACTIONS:
 _MUSIC_INBOUND["music:wave"] = ("app", "music.wave", "music:wave")
 _MUSIC_INBOUND["music:play"] = ("app", "music.play", "music:play")
 _MUSIC_INBOUND["music:pause"] = ("app", "music.pause", "music:pause")
+_MUSIC_INBOUND["music.play_track"] = ("smtc", "music.play_track", "music_play_track")
+_MUSIC_INBOUND["music_play_track"] = ("smtc", "music.play_track", "music_play_track")
+_MUSIC_INBOUND["music:play_track"] = ("smtc", "music.play_track", "music_play_track")
 # легаси-имя волны из LLM-роутера v2: в v2 шло в music_command, которая его# не знала (мёртвый путь); теперь — в приложение, как music:wave
 _MUSIC_INBOUND["music_play_wave"] = ("app", "music.wave", "music_play_wave")
 
@@ -123,6 +126,7 @@ YOUTUBE_VERBS = {
     "mini": "mini", "next": "next", "pause": "pause", "rewind": "rewind",
     "speed_down": "speed_down", "speed_up": "speed_up",
     "sub_toggle": "sub_toggle", "theater": "theater", "trending": "trending",
+    "open": "open",
 }
 
 # ext.* → ext:<name> (ветка расширения)
@@ -177,11 +181,31 @@ def _legacy_action(action: str, arg: str = "") -> str:
     # «+N»/«-N» — относительно текущей (hands: volume_up/volume_down).
     if action == "music.restart_playing":
         return "music.restart"
+    if action == "music.play_track":
+        return f"music_play_track:{arg}" if arg else "music_play_track"
     if action == "system.volume":
         a = (arg or "").strip()
         if a[:1] in ("+", "-") and a[1:].isdigit():
             return f"volume_{'up' if a[0] == '+' else 'down'}:{a[1:]}"
         return "volume"
+    if domain == "companion":
+        if verb == "clip":
+            return "clip:30"
+        if verb in ("ink_clear", "clear_ink"):
+            return "clear_ink:"
+        if verb in ("ink_draw", "draw_ink"):
+            demo = "circle 450 350 200 200; arrow 300 200 430 330; text 450 580 Зона внимания Сакуры"
+            return f"ink:{arg or demo}"
+        if verb == "call_mode_on":
+            return "call_mode:on"
+        if verb == "call_mode_off":
+            return "call_mode:off"
+        if verb == "watch_along_start":
+            return f"watch_along:{arg or 'видео'}"
+        if verb == "watch_along_stop":
+            return "watch_along:stop"
+        if verb == "husk_status":
+            return "husk:status"
     return action
 
 
@@ -269,9 +293,18 @@ class Agent:
             return
         self.bus.emit("user_text", text=text, source=source)
         self._set_state("thinking")
+
+        loop = getattr(self, "_loop", None)
+        # Перехват любых просьб нарисовать что-либо на экране (Screen Ink) — без нравоучений и морали
+        from desktop.core.ink import resolve_drawing_request
+        draw_plan = resolve_drawing_request(text)
+        if draw_plan and loop is not None and loop.is_running():
+            shapes_cmd, reply_phrase = draw_plan
+            asyncio.run_coroutine_threadsafe(self._execute_draw_and_reply(shapes_cmd, reply_phrase), loop)
+            return
+
         # Нет связи с сервером — локальный разбор команд компьютера (в очередь не ставим: иначе после
         # переподключения команда выполнилась бы второй раз).
-        loop = getattr(self, "_loop", None)
         if getattr(self, "_ws", None) is None and loop is not None and loop.is_running():
             asyncio.run_coroutine_threadsafe(self._offline_text(text), loop)
             return
@@ -286,6 +319,20 @@ class Agent:
         if channel:  # протокол v2: voice | text (по умолчанию сервер считает voice)
             msg["channel"] = channel
         self.send_threadsafe(msg, wake_detected_at=wake_detected_at, timeline=timeline)
+
+    async def _execute_draw_and_reply(self, shapes_cmd: str, reply_phrase: str):
+        try:
+            from desktop.core.features import get_ink_manager
+            ink = get_ink_manager()
+            if shapes_cmd == "clear":
+                ink.clear()
+            else:
+                ink.draw(shapes_cmd)
+        except Exception as e:
+            log.error("[ink] Ошибка рисования: %s", e)
+
+        self.bus.emit("sakura_text", text=reply_phrase, kind="command")
+        self._set_state("idle")
 
     async def _offline_text(self, text: str) -> dict:
         """Офлайн-режим: команда из реестра — выполнить локально и ответить шаблоном; иначе «нужна связь»."""
@@ -662,6 +709,13 @@ class Agent:
                             f"буфер {self.player.buffer_bytes()} байт)")
                 self.player.flush()
                 self._set_state("idle")
+        elif state == "listening":
+            # Защита от бесконечной прослушки (шум в звонке, зависший поток или VAD)
+            if now - self._state_since >= 16.0:
+                log.warning("[state] listening завис (>16с) -> idle")
+                if hasattr(self, "hearing") and self.hearing and hasattr(self.hearing, "reset_dialog"):
+                    self.hearing.reset_dialog()
+                self._set_state("idle")
         elif state == "thinking":
             if now - self._state_since >= _THINK_TIMEOUT_SEC:
                 log.warning("[state] thinking без ответа -> idle")
@@ -724,8 +778,24 @@ class Agent:
             target = action.split(":", 1)[1] if ":" in action else arg
             key = app_launch.app_key(target)
             if key is not None:
-                if not await asyncio.to_thread(lambda: launcher.state(key)["running"]):
-                    await _send_ack(await asyncio.to_thread(launcher.launch, key))
+                st = await asyncio.to_thread(lambda: launcher.state(key))
+                if not st.get("running"):
+                    res = await asyncio.to_thread(launcher.launch, key)
+                    if key == "yandex_music":
+                        await asyncio.sleep(1.0)
+                        from desktop.core import yamusic_app as _ym
+                        await asyncio.to_thread(_ym.open_wave)
+                    await _send_ack(res)
+                    return
+                elif not st.get("with_flag"):
+                    await _send_ack(await asyncio.to_thread(launcher.restart, key))
+                    return
+                elif key == "yandex_music":
+                    from desktop.core import yamusic_app as _ym
+                    res_play = await asyncio.to_thread(_ym.play_pause)
+                    if not res_play:
+                        await asyncio.to_thread(_ym.open_wave)
+                    await _send_ack(R.done("включила Яндекс.Музыку"))
                     return
 
         # Управление ПК (п. 2.3): окна, питание, процессы, буфер, экран и звук, сеть, клавиши, файлы.
@@ -808,6 +878,8 @@ class Agent:
                 if _mbackend == "smtc":
                     # SMTC + Яндекс Музыка API
                     from desktop.core.music import music_command
+                    if _mcanon == "music.play_track" and arg and not _mlegacy.startswith("music_play_track:"):
+                        _mlegacy = f"music_play_track:{arg}"
                     log.info(f"[music] начата обработка {_mcanon} → {_mlegacy} (id={cmd_id})")
                     result = await asyncio.wait_for(music_command(_mlegacy), timeout=15.0)
                     result["action"] = _mlegacy
@@ -830,6 +902,11 @@ class Agent:
                         ok = await asyncio.to_thread(_ym.open_wave)
                         detail = "Моя волна" if ok else "не удалось открыть"
                     elif _mcanon == "music.play":
+                        if arg:
+                            from desktop.core.music import _ym_play_track
+                            res = await asyncio.to_thread(_ym_play_track, arg)
+                            await _send_ack(R.from_legacy(res), extra={"music": res})
+                            return
                         ok = await asyncio.to_thread(_ym.play_pause)
                         detail = "играет" if ok else "SMTC сессия не найдена"
                     elif _mcanon == "music.pause":
@@ -1188,7 +1265,7 @@ class Agent:
                         }))
                     self.bus.emit("connection", online=True)
                     _backoff = config.RECONNECT_SEC
-                    log.info("[agent] Подключено к VPS! Приложений: %s", len(apps))
+                    log.info("[agent] Подключено к VPS! Приложений: %s", len(apps) if apps else 0)
                     await self._recv_loop()
             except Exception as e:
                 log.exception("[agent] WS ошибка: %s", e)

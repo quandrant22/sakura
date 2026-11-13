@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 # ── Подключение к VPS ───────────────────────────────────────────────
-VPS_WS_URL   = os.getenv("VPS_WS_URL",   "ws://31.76.80.5:8765")
+VPS_WS_URL   = os.getenv("VPS_WS_URL",   "ws://48.102.162.187:8765")
 DEVICE_ID    = os.getenv("DEVICE_ID",     "laptop")
 WS_TOKEN     = os.getenv("WS_TOKEN",      "")  # только из .env, без значения по умолчанию
 # Защищённый канал (Noise, docs/security/PROTOCOL.md), core/transport.py:
@@ -56,7 +56,7 @@ BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
 APPS_FILE = os.path.join(BASE_DIR, "apps.json")
 
 # Папки с играми
-GAME_DIRS = [d.strip() for d in os.getenv("GAME_DIRS", r"C:\Games").split(";") if d.strip()]
+GAME_DIRS = [d.strip() for d in os.getenv("GAME_DIRS", r"C:\Games;D:\Games").split(";") if d.strip()]
 
 # ── Wake word (Vosk) ────────────────────────────────────────────────
 VOSK_MODEL_PATH = os.path.join(BASE_DIR, "vosk-model-small-ru-0.22")

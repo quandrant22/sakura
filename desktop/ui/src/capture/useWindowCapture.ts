@@ -40,6 +40,13 @@ export function useWindowCapture(opts: { baseFps: number; width: number; hidden:
       });
       const track = s.getVideoTracks()[0];
       track?.addEventListener("ended", () => stop("ended")); // окно-источник закрыто
+      const updateTrackSettings = () => {
+        const settings = track?.getSettings();
+        if (settings?.width && settings?.height) {
+          setSrc({ width: settings.width, height: settings.height });
+        }
+      };
+      track?.addEventListener("unmute", updateTrackSettings);
       const st = track?.getSettings();
       setSrc({ width: st?.width ?? 0, height: st?.height ?? 0 });
       setStream(s);
@@ -55,6 +62,30 @@ export function useWindowCapture(opts: { baseFps: number; width: number; hidden:
   const onResize = useCallback((v: HTMLVideoElement) => {
     if (v.videoWidth > 0 && v.videoHeight > 0) setSrc({ width: v.videoWidth, height: v.videoHeight });
   }, []);
+
+  // Если getSettings() на старте не вернул размеры, подхватываем их из видео или трека как только они появятся
+  useEffect(() => {
+    if (state !== "live" || src.width > 0) return;
+    const check = () => {
+      const v = videoRef.current;
+      if (v && v.videoWidth > 0 && v.videoHeight > 0) {
+        setSrc({ width: v.videoWidth, height: v.videoHeight });
+        return true;
+      }
+      const t = stream?.getVideoTracks()[0];
+      const st = t?.getSettings();
+      if (st?.width && st?.height) {
+        setSrc({ width: st.width, height: st.height });
+        return true;
+      }
+      return false;
+    };
+    if (check()) return;
+    const id = setInterval(() => {
+      if (check()) clearInterval(id);
+    }, 200);
+    return () => clearInterval(id);
+  }, [state, stream, src.width]);
 
   // Адаптивная частота кадров.
   const fps = adaptiveFps(opts.baseFps, opts.width, opts.hidden, opts.interacting);

@@ -41,7 +41,7 @@ def test_all_music_actions_registered():
         d.id for d in load()
         if d.id.startswith("music.") and not d.id.startswith("music_stats")
     }
-    assert len(music_ids) == 20     # + music.restart, music.restart_playing
+    assert len(music_ids) == 21     # + music.restart, music.restart_playing, music.play_track
     missing = music_ids - set(registered())
     assert not missing, f"нет хендлеров: {missing}"
 
@@ -55,7 +55,7 @@ def test_all_browser_actions_registered():
 
 def test_all_youtube_actions_registered():
     want = {d.id for d in load() if d.id.startswith("youtube.")}
-    assert len(want) == 12
+    assert len(want) == 13          # + youtube.open (этап 3 NLU)
     assert not (want - set(registered())), f"нет хендлеров: {want - set(registered())}"
 
 

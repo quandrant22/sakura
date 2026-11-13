@@ -90,9 +90,25 @@ async def _run_shutdown_steps(steps, deadline: float) -> None:
             await asyncio.wait_for(result, timeout=remaining)
 
 
+def _threadsafe_stop(loop, stop_event: asyncio.Event):
+    def _handler(signum, frame):
+        try:
+            loop.call_soon_threadsafe(stop_event.set)
+        except RuntimeError:
+            # Цикл уже закрыт — останавливать нечего, ведём себя как обычно.
+            raise KeyboardInterrupt from None
+    return _handler
+
+
 def install_shutdown_handlers(loop, stop_event: asyncio.Event) -> None:
-    loop.add_signal_handler(signal.SIGTERM, stop_event.set)
-    loop.add_signal_handler(signal.SIGINT, stop_event.set)
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(sig, stop_event.set)
+        except NotImplementedError:
+            # Windows (ProactorEventLoop) не умеет add_signal_handler: без
+            # запасного пути main() падал на старте. signal.signal зовёт
+            # обработчик в главном потоке; в цикл передаём потокобезопасно.
+            signal.signal(sig, _threadsafe_stop(loop, stop_event))
 
 
 async def _run_lifecycle(lifecycle, stop_event: asyncio.Event) -> None:

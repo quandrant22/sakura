@@ -289,6 +289,9 @@ async def ws_handler(websocket):
                     "screen_context": handle_screen_context,
                     "command_result": handle_command_result,
                     "kettle_ready": handle_kettle_ready,
+                    "game_session_start": handle_game_session_start,
+                    "game_event": handle_game_event,
+                    "game_session_end": handle_game_session_end,
                     "notification": handle_notification,
                     "tg_message": handle_tg_message,
                     "voice_command": handle_voice_command,
@@ -361,7 +364,7 @@ async def ws_handler(websocket):
                 from config import VOICE_MODEL_CHAIN
                 farewell = await ask_gemini(
                     get_farewell_prompt(), save_history=False,
-                    chain=VOICE_MODEL_CHAIN,
+                    chain=VOICE_MODEL_CHAIN, search=False,
                 )
                 if farewell:
                     await send_to_master(farewell)
@@ -403,6 +406,9 @@ from sakura_core.ws_protocol import (
     handle_apps_list,
     handle_screen_context,
     handle_kettle_ready,
+    handle_game_session_start,
+    handle_game_event,
+    handle_game_session_end,
     handle_notification,
     handle_tg_message,
     handle_command_result,
@@ -495,10 +501,12 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
     ctx_str    = f"\n\nПассивный контекст: {' | '.join(context)}" if context else ""
     ws_dev     = st.connected_devices.get(device_id)
     text_lower = text.lower()
-    # Интим-режим: детект на каждое сообщение Мастера (voice_command — только мастер-устройство)
-    _im_mark(text, "voice")
+    raw_channel = data.get("channel", "voice")
+    channel = "text" if raw_channel == "text" else "voice"
+    # Интим-режим: детект на каждое сообщение Мастера с учётом канала
+    _im_mark(text, channel)
     from modules.intimacy_mode import redact as _im_redact
-    log.info(f"[voice] получено: {_im_redact(text, 'voice')}")
+    log.info(f"[{channel}] получено: {_im_redact(text, channel)}")
 
     # ── СТОП долгой озвучки («стоп», «хватит», «достаточно») ─────────
     # Если идёт чтение полного списка и Мастер просит остановить — ставим
@@ -626,6 +634,7 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
             active_window = data.get("active_window", ""),
             gate          = voice_gate,
             received_at   = t_recv,
+            channel       = channel,
         ))
 
     prefetch_closed = False
@@ -695,6 +704,19 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
             async def _arm_ack(decision, cmd_id):
                 acks.arm(cmd_id, ws=ws_dev, device_id=device_id or "laptop",
                          action=decision.action, param=decision.param)
+            async def _v3_chat(chat_text: str):
+                # Гибрид «команда + разговор»: команды уже исполнены, prefetch
+                # снят вердиктом. Отвечаем заново — модель узнаёт о сделанном
+                # из sakura_core/action_note (блок системного промпта).
+                turn_timing.set_kind("conversation")
+                await ask_gemini_voice(
+                    user_message  = chat_text + ctx_str,
+                    websocket     = ws_dev,
+                    device_id     = device_id or "laptop",
+                    active_window = data.get("active_window", ""),
+                    received_at   = t_recv,
+                    channel       = channel,
+                )
             if await v3_fast_path(text, data=data, device_ws=ws_dev,
                                   device_id=device_id,
                                   register_command=ctx.get("_register_command"),
@@ -703,6 +725,7 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
                                   on_llm=_prefetch_voice,
                                   on_command=_on_command_verdict,
                                   on_agent_command=_arm_ack,
+                                  on_chat=_v3_chat if ws_dev is not None else None,
                                   source=device_id):
                 await _cancel_voice_prefetch()
                 return
@@ -741,13 +764,13 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
                 _lr = await ask_gemini(
                     f'Скажи Мастеру его сохранённые команды: {cmd_list}. Коротко.',
                     save_history=False, history_limit=VOICE_HISTORY_LIMIT,
-                    chain=VOICE_MODEL_CHAIN,
+                    chain=VOICE_MODEL_CHAIN, search=False,
                 )
             else:
                 _lr = await ask_gemini(
                     'Скажи Мастеру что он ещё не добавил своих команд. Можно добавить голосом: "запомни: слово = действие".',
                     save_history=False, history_limit=VOICE_HISTORY_LIMIT,
-                    chain=VOICE_MODEL_CHAIN,
+                    chain=VOICE_MODEL_CHAIN, search=False,
                 )
             if _lr:
                 _active_ws, _ad = _get_active_ws()
@@ -764,7 +787,7 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
             _tr = await ask_gemini(
                 f'Запомнила команду "{_trigger}". Подтверди коротко.',
                 save_history=False, history_limit=VOICE_HISTORY_LIMIT,
-                chain=VOICE_MODEL_CHAIN,
+                chain=VOICE_MODEL_CHAIN, search=False,
             )
             if _tr:
                 _active_ws, _ad = _get_active_ws()
@@ -785,6 +808,7 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
             _chain_reply = await ask_gemini(
                 _chain_prompt, save_history=False,
                 history_limit=VOICE_HISTORY_LIMIT, chain=VOICE_MODEL_CHAIN,
+                search=False,
             )
             if _chain_reply and ws_dev:
                 await stream_tts_to_device(_chain_reply, ws_dev, device_id or "laptop",
@@ -811,6 +835,7 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
             _trig_reply = await ask_gemini(
                 _trig_prompt, save_history=False,
                 history_limit=VOICE_HISTORY_LIMIT, chain=VOICE_MODEL_CHAIN,
+                search=False,
             )
             if _trig_reply and ws_dev:
                 await stream_tts_to_device(_trig_reply, ws_dev, device_id or "laptop",
@@ -876,6 +901,7 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
                 device_id     = device_id or "laptop",
                 active_window = active_win,
                 received_at   = t_recv,
+                channel       = channel,
             )
         # ── ПРАНКИ + РЕАКЦИИ САКУРЫ (фоновая задача) ──────
         async def _maybe_prank_and_react():

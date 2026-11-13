@@ -107,7 +107,8 @@ def validate(s: dict) -> dict:
             raise ScenarioError("bad_request", f"шаг {i + 1}: тип из {ACTION_TYPES}")
         v = a.get("value")
         if a["type"] == "action":
-            if v not in decls or get_handler(v) is None:
+            base_act = str(v).split(":", 1)[0]
+            if (v not in decls and base_act not in decls) or (get_handler(v) is None and get_handler(base_act) is None):
                 raise ScenarioError("bad_request", f"шаг {i + 1}: неизвестное действие {v!r}")
         elif a["type"] == "pause":
             try:
@@ -121,13 +122,17 @@ def validate(s: dict) -> dict:
     return {"id": s.get("id"), "name": name.strip(), "enabled": bool(s.get("enabled", True)),
             "builtin": bool(s.get("builtin", False)),
             "conditions": [{"type": c["type"], "value": str(c.get("value") or "")} for c in conds],
-            "actions": [{"type": a["type"], "value": str(a.get("value"))} for a in acts]}
+            "actions": [{"type": a["type"], "value": str(a.get("value")),
+                        **({"arg": str(a["arg"])} if "arg" in a and a["arg"] is not None else {})} for a in acts]}
 
 
 def dangerous_actions(s: dict) -> list[str]:
     decls = _declarations()
     return [a["value"] for a in s.get("actions", [])
-            if a["type"] == "action" and decls.get(a["value"]) and decls[a["value"]].confirm]
+            if a["type"] == "action" and (
+                (decls.get(a["value"]) and decls[a["value"]].confirm) or
+                (decls.get(str(a["value"]).split(":", 1)[0]) and decls[str(a["value"]).split(":", 1)[0]].confirm)
+            )]
 
 
 # ── хранилище ─────────────────────────────────────────────────────
@@ -204,6 +209,10 @@ def from_text(text: str) -> tuple[dict, list[str]]:
         if m:
             actions.append({"type": "pause", "value": str(min(int(m.group(1)), int(PAUSE_MAX_S)))})
             continue
+        m_track = re.search(r"(?:включи|поставь|сыграй)\s+(?:трек|песню)\s+(.+)", part, re.IGNORECASE)
+        if m_track:
+            actions.append({"type": "action", "value": f"music.play_track:{m_track.group(1).strip()}"})
+            continue
         hit = index.match(part, None)
         if hit is None:
             warnings.append(f"не понято: «{part}»")
@@ -230,12 +239,20 @@ async def run(s: dict, *, emit, device_ws, device_id: str, register_command,
         status, detail = "ok", a["type"]
         try:
             if a["type"] == "action":
+                val = str(a.get("value") or "")
+                arg = str(a.get("arg") or "")
+                if ":" in val and not arg:
+                    action_name, arg = val.split(":", 1)
+                else:
+                    action_name = val
                 ctx = ExecutionContext(device_ws=device_ws, device_id=device_id,
                                        register_command=register_command,
+                                       param=arg if arg else None,
                                        extra={"confirmed": confirmed, "source": device_id,
-                                              "text": f"сценарий {s['name']}"})
-                result = await ex.execute(a["value"], ctx)
-                detail = a["value"]
+                                              "text": f"сценарий {s['name']}",
+                                              "query": arg, "arg": arg})
+                result = await ex.execute(action_name, ctx, param=arg if arg else None)
+                detail = val
                 if isinstance(result, tuple) and len(result) == 2:
                     detail = str(result[0])[:200]
                     if result[1] is False:

@@ -34,7 +34,7 @@ if ENV_FILE:
     load_dotenv(ENV_FILE, override=True)
 
 # ── Подключение к VPS ───────────────────────────────────────────────
-VPS_WS_URL   = os.getenv("VPS_WS_URL",   "ws://31.76.80.5:8765")
+VPS_WS_URL   = os.getenv("VPS_WS_URL",   "ws://48.102.162.187:8765")
 # Транспорт до сервера (desktop.core.transport): ws | wss | noise; пусто — по схеме VPS_WS_URL.
 SERVER_TRANSPORT = os.getenv("SERVER_TRANSPORT", "")
 # Закрепление сертификата для wss: SHA-256 отпечаток DER (hex, двоеточия допустимы).
@@ -52,9 +52,16 @@ PING_INTERVAL = int(os.getenv("PING_INTERVAL", "25"))
 WINDOW_POLL   = int(os.getenv("WINDOW_POLL", "2"))
 RECONNECT_SEC = int(os.getenv("RECONNECT_SEC", "3"))
 
+
+# ── Discord Local RPC (Call Mode) ──────────────────────────────────
+DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID", "1517097834057306163")
+DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET", "jHAazXp6QYbfHKxz23BP-VvrllJ01k1a")
+
 # ── Аудио-выход (TTS) ───────────────────────────────────────────────
 TTS_RATE  = int(os.getenv("TTS_RATE", "24000"))
 TTS_SPEED = float(os.getenv("TTS_SPEED", "1.0"))
+VOICE_VOLUME = int(os.getenv("VOICE_VOLUME", "50"))
+CABLE_VOLUME = int(os.getenv("CABLE_VOLUME", "85"))
 # Шаг «громче/тише» для музыки без числа, %
 VOLUME_STEP = int(os.getenv("VOLUME_STEP", "10"))
 
@@ -105,10 +112,10 @@ KETTLE_KEY_FILE = os.getenv("KETTLE_KEY_FILE") or os.path.join(DATA_DIR, "kettle
 KETTLE_PAIR     = os.getenv("KETTLE_PAIR", "0") == "1"
 
 # Выключение и перезагрузка — с задержкой: успеть сказать «отмени» или нажать «Отмена».
-SHUTDOWN_DELAY_S = int(os.getenv("SHUTDOWN_DELAY_S", "30"))
+SHUTDOWN_DELAY_S = int(os.getenv("SHUTDOWN_DELAY_S", "0"))
 
 # Папки с играми
-GAME_DIRS = [d.strip() for d in os.getenv("GAME_DIRS", r"C:\Games").split(";") if d.strip()]
+GAME_DIRS = [d.strip() for d in os.getenv("GAME_DIRS", r"C:\Games;D:\Games").split(";") if d.strip()]
 
 # ── Wake word (Vosk) ────────────────────────────────────────────────
 def _find_model(name: str) -> str:
@@ -147,7 +154,7 @@ GIGAAM_ENABLED = os.getenv("GIGAAM_ENABLED", "1").strip().lower() not in ("0", "
 MIC_RATE        = 16000
 MIC_BLOCK       = 512    # кадр для Silero VAD — менять нельзя
 WAKE_BLOCK      = 1024   # блок цикла вейк-ворда: 64 мс звука вместо 32
-MAX_UTTER_SEC   = 60
+MAX_UTTER_SEC   = float(os.getenv("MAX_UTTER_SEC", "12.0"))
 FOLLOWUP_SEC    = 4.0
 VAD_THRESHOLD   = 0.45     # Снижен — ловит тихую речь в тихой комнате
 VAD_END_SILENCE = 1.0      # Возврат к 1.0 — стабильнее для разговора

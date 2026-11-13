@@ -66,8 +66,9 @@ def _clamp(value: Any, lo: int, hi: int, default: int) -> int:
 
 
 def _default_grab():
-    from PIL import ImageGrab
-    return ImageGrab.grab(all_screens=False)
+    # Выбранный «экран Сакуры» (screens.target_display), без выбора — основной монитор.
+    from desktop.core import screens
+    return screens.grab()
 
 
 def _default_foreground() -> dict:

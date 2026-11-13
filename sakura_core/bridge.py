@@ -16,9 +16,9 @@ import re
 import config
 
 from sakura_core.executor import ExecutionContext, Executor, get_handler
-from sakura_core.llm import make_llm_classify
+from sakura_core.llm import make_llm_parse
 from sakura_core.registry import load as _load_registry
-from sakura_core.router import Router
+from sakura_core.router import Decision, Router
 
 import conversation as conversation_layer
 
@@ -49,6 +49,7 @@ def _load_capabilities() -> None:
         import capabilities.vps_domains  # noqa: F401
         import capabilities.vision       # noqa: F401
         import capabilities.youtube      # noqa: F401
+        import capabilities.companion    # noqa: F401
     except Exception:
         log.exception("[v3] не удалось загрузить таблицы доменов")
 
@@ -88,7 +89,9 @@ def get_router() -> Router:
     if _router is None:
         _router = Router(
             declarations=_declarations,
-            llm_classify=make_llm_classify(timeout=5.0),
+            # Структурированный разбор намерений: план действий с параметрами.
+            # Сбой или таймаут — LlmUnavailable, роутер уходит на локальный разбор.
+            llm_parse=make_llm_parse(timeout=config.INTENT_TIMEOUT_S),
             conversation=conversation_layer.try_handle,
         )
     return _router
@@ -167,7 +170,7 @@ def target_device(text: str) -> tuple[str, str | None]:
 async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
                        ack=None, speak=None, resolve_reply=None,
                        on_llm=None, on_command=None, on_agent_command=None,
-                       source: str | None = None) -> bool:
+                       on_chat=None, source: str | None = None) -> bool:
     """Быстрый путь: реестр (без LLM) → исполнение переехавших доменов.
 
     False — решение не для v3 (разговор или id без хендлера), старый путь
@@ -187,6 +190,13 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
     (иначе шлюз открылся бы по таймауту и стрим звучал поверх).
     on_agent_command(decision, cmd_id) — async-хук: команда ушла агенту
     (результат исполнения — cmd_id); голос «вооружает» подтверждение.
+    on_chat(text) — async-хук гибридной фразы («поставь чайник, а я пока
+    расскажу…»): команды уже исполнены, вызывающий отвечает на реплику
+    разговорной моделью; что сделано, она узнаёт из sakura_core/action_note.
+    Без хука гибрид исполняется как обычный план, разговорная часть опускается.
+
+    План из нескольких действий (decision.steps) исполняется по порядку,
+    ответы собираются в один.
     """
     from modules.state import connected_devices, device_track, prompt_track
     from sakura_core.send import is_share_request
@@ -220,10 +230,22 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
     route_source = {"source": source} if source is not None else {}
     decision = _vision_intent(text, (data or {}).get("active_window"))
     if decision is None:
-        decision = await get_router().route(text, context, on_llm=on_llm,
-                                            **route_source)
+        router = get_router()
+        if _accepts_dialog(router):
+            route_source["dialog"] = _dialog_context(data, device_id)
+        decision = await router.route(text, context, on_llm=on_llm, **route_source)
     if on_command is not None and (decision.action or decision.reply is not None):
         await on_command()
+    if isinstance(decision.reply, str):
+        # Готовая фраза роутера: уточняющий вопрос, отказ от отложенной команды.
+        await _deliver(decision.reply, ack, speak)
+        return True
+    # getattr: подменные решения в тестах старого контракта не знают о плане.
+    if getattr(decision, "is_plan", False) or getattr(decision, "chat_tail", None):
+        return await _run_plan(decision, text=text, device_ws=device_ws,
+                               device_id=device_id, register_command=register_command,
+                               ack=ack, speak=speak, on_agent_command=on_agent_command,
+                               on_chat=on_chat, source=source)
     if decision.reply is not None:
         if resolve_reply is not None:
             await resolve_reply(decision.reply)
@@ -255,9 +277,12 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
     # ack (Telegram) без speak «Готово» нужен всегда: результата
     # с компьютера пользователь не видит.
     from sakura_core.registry import followup_for
+    from sakura_core.stylize import humanize_command_reply
     reply: str | None = None
     if isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], str):
         reply = result[0]
+        if result[1] is True:
+            reply = await humanize_command_reply(reply, action=decision.action)
     if reply:
         confirm_listen = None
         router = get_router()
@@ -278,6 +303,143 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
             except Exception as e:
                 log.debug(f"[v3] ответ не доставлен: {type(e).__name__}: {e}")
     elif ack is not None and (speak is None or followup_for(decision.action) == "ack"):
+        try:
+            await ack("Готово.")
+        except Exception as e:
+            log.debug(f"[v3] ответ не доставлен: {type(e).__name__}: {e}")
+    return True
+
+
+async def _deliver(text: str, ack, speak, **speak_kw) -> None:
+    """Отдать фразу первым доступным ответчиком (Telegram → голос)."""
+    for deliver in (ack, speak):
+        if deliver is None:
+            continue
+        try:
+            if deliver is speak and speak_kw:
+                try:
+                    await deliver(text, **speak_kw)
+                except TypeError:
+                    await deliver(text)
+            else:
+                await deliver(text)
+            return
+        except Exception as e:
+            log.debug(f"[v3] ответ не доставлен: {type(e).__name__}: {e}")
+
+
+def _accepts_dialog(router) -> bool:
+    """Роутер принимает контекст хода (dialog)? Подменные роутеры со старой
+    сигнатурой route() продолжают работать без него."""
+    import inspect
+    try:
+        return "dialog" in inspect.signature(router.route).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def _dialog_context(data, device_id) -> dict:
+    """Контекст хода для LLM-разбора: окно, трек, последние реплики.
+
+    Только дешёвые локальные чтения; любая ошибка — контекст просто беднее."""
+    out: dict = {}
+    try:
+        window = (data or {}).get("active_window") or ""
+        if window:
+            out["window"] = window
+        from modules.state import device_track, prompt_track
+        track = device_track(device_id) or prompt_track()
+        if track and track.get("title"):
+            out["track"] = f"{track.get('artist', '')} — {track.get('title', '')}".strip(" —")
+    except Exception as e:
+        log.debug(f"[v3] контекст разбора: {type(e).__name__}: {e}")
+    try:
+        from modules import chat_log
+        messages, _ = chat_log.history(limit=4)
+        names = {"user": "Мастер", "assistant": "Сакура"}
+        out["recent"] = [f"{names.get(m.get('role'), m.get('role'))}: {m.get('text', '')}"
+                         for m in messages if m.get("text")]
+    except Exception as e:
+        log.debug(f"[v3] контекст разбора (журнал): {type(e).__name__}: {e}")
+    return out
+
+
+async def _run_plan(decision, *, text, device_ws, device_id, register_command,
+                    ack, speak, on_agent_command, on_chat, source) -> bool:
+    """Исполнить план по шагам и ответить один раз.
+
+    Текстовые результаты (погода, расписание) склеиваются в один ответ;
+    команды агенту подтверждает одна фраза — по результату последней.
+    Шаг с вопросом подтверждения останавливает план: остальное подождёт
+    ответа Мастера. Гибрид (chat_tail + on_chat) подтверждения не озвучивает —
+    о сделанном скажет разговорный ответ.
+    """
+    from sakura_core import action_note, power_confirm
+    from sakura_core.registry import followup_for
+
+    texts: list[str] = []
+    done: list[str] = []
+    last_agent = None
+    executed_any = False
+    stopped_on_confirm = False
+    by_id = {d.id: d for d in _declarations}
+    for step in decision.plan:
+        sub = Decision(step.action, decision.source, trigger=step.trigger, param=step.param)
+        label = by_id[step.action].desc if step.action in by_id else step.action
+        try:
+            executed, result = await execute_decision(
+                sub, device_ws=device_ws, device_id=device_id,
+                register_command=register_command, text=step.text or text, source=source)
+        except Exception as e:
+            log.warning(f"[v3] шаг плана {step.action}: {type(e).__name__}: {e}")
+            texts.append(f"Не получилось: {label.lower()}.")
+            executed_any = True
+            continue
+        if not executed:
+            log.info(f"[v3] шаг плана {step.action}: нет исполнителя — пропущен")
+            continue
+        executed_any = True
+        if result is power_confirm.DELIVERED:
+            return True
+        pending = get_router().session.pending
+        if pending is not None and pending.kind == "confirm" and pending.action == step.action:
+            stopped_on_confirm = True
+            if isinstance(result, tuple) and result and isinstance(result[0], str):
+                texts.append(result[0])
+            break
+        if isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], str):
+            texts.append(result[0])
+            done.append(f"— {label}: {result[0]}")
+        elif isinstance(result, str) and result:
+            last_agent = (sub, result)
+            done.append(f"— {label}" + (f" ({step.param})" if step.param else "")
+                        + ": команда отправлена на устройство")
+        else:
+            done.append(f"— {label}")
+    if not executed_any:
+        return False
+    log.info(f"[v3] план исполнен: {', '.join(decision.actions)} ({decision.source})"
+             + (" + разговор" if decision.chat_tail else ""))
+
+    if decision.chat_tail and on_chat is not None and not stopped_on_confirm:
+        action_note.set_note("\n".join(done))
+        try:
+            await on_chat(text)
+        except Exception as e:
+            log.warning(f"[v3] разговорная часть гибрида: {type(e).__name__}: {e}")
+            await _deliver(" ".join(texts) or "Готово.", ack, speak)
+        finally:
+            action_note.clear()
+        return True
+
+    reply = " ".join(t.strip() for t in texts if t and t.strip())
+    if reply:
+        listen = config.CONFIRM_LISTEN_SEC if (stopped_on_confirm and speak is not None) else None
+        await _deliver(reply, ack, speak, **({"listen": listen} if listen else {}))
+    elif last_agent is not None and on_agent_command is not None:
+        await on_agent_command(*last_agent)
+    elif ack is not None and (speak is None or last_agent is None
+                              or followup_for(last_agent[0].action) == "ack"):
         try:
             await ack("Готово.")
         except Exception as e:

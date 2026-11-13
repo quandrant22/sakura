@@ -19,6 +19,7 @@
     "e2e": "node scripts/e2e-board.mjs"
   },
   "dependencies": {
+    "@fontsource/orbitron": "5.1.1",
     "hls.js": "^1.7.3",
     "jsqr": "^1.4.0",
     "lucide-react": "^1.55.0",

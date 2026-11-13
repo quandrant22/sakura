@@ -125,6 +125,19 @@ export class DemoClient implements CoreClient {
                  duration_s: 212, updated_age_s: 0, shuffle: false, repeat: "none", volume: 60, cover: null,
                  can_like: false, like_hint: "нужен YANDEX_MUSIC_TOKEN", can_lyrics: false } as T;
       }
+      case "games_state":
+        // Демо «Игры» (снимки экранов): идёт сессия, у двух игр свой уровень присутствия.
+        return {
+          session: this.mode === "normal"
+            ? { active: true, game: "ELDEN RING", key: "eldenring.exe", level: "coop", reason: "папка игр (steamapps)",
+                minutes: 47, stats: { kills: 0, deaths: 6, wins: 0, clips: 1 } }
+            : { active: false },
+          presence: { "eldenring.exe": "coop", "dota2.exe": "commentator" }, presence_default: "reactions",
+          games: ["minecraft.exe"], not_games: ["blender.exe"],
+          gsi: [{ game: "cs2", title: "Counter-Strike 2", found: true, installed: false },
+                { game: "dota2", title: "Dota 2", found: true, installed: true }],
+          global_fso_disabled: false,
+        } as T;
       default:
         return undefined as T;
     }

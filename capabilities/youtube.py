@@ -1,4 +1,4 @@
-"""Домен «youtube» (этап 5): 12 действий, все executor=agent.
+"""Домен «youtube» (этап 5): 13 действий, все executor=agent.
 
 На провод уходит только канонический id (youtube.*). Агент принимает
 канонические имена в дополнение к старым youtube_* (этап 5, аналогично
@@ -13,6 +13,7 @@ YOUTUBE_AGENT_ACTIONS = (
     "youtube.like",
     "youtube.mini",
     "youtube.next",
+    "youtube.open",
     "youtube.pause",
     "youtube.rewind",
     "youtube.speed_down",

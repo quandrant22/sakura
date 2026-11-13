@@ -1,6 +1,6 @@
 // Небольшие виджеты каталога: сценарии, сегодня, сервер, заметки, уведомления, фокус-таймер,
 // быстрые действия. Каждый получает свой элемент доски и может хранить настройки в нём (settings).
-import { Camera, Gamepad2, Mic, MicOff, Pause, Play, RotateCcw, Target, Volume2, Workflow } from "lucide-react";
+import { Camera, Eraser, Eye, Film, Gamepad2, Mic, MicOff, Pause, PhoneCall, Play, RotateCcw, Target, Volume2, Workflow } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { EmptyState, Loadable, modeLabel, timeHM, toneLabel } from "../../components/ui";
@@ -13,7 +13,8 @@ export interface WidgetProps {
 }
 
 const body = "flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4 pb-4 text-sm";
-const chip = "flex items-center gap-1.5 rounded-btn border border-line px-2.5 py-1.5 text-xs text-ink-dim hover:border-accent hover:text-ink";
+const chip = "flex items-center gap-2 rounded-xl border border-white/[0.08] bg-panel2/70 px-3 py-2 text-xs font-medium text-ink-dim hover:border-accent/60 hover:text-ink hover:bg-accent/10 hover:shadow-[0_0_14px_rgba(255,106,227,0.25)] transition-all duration-200 active:scale-95 backdrop-blur-md";
+const activeChip = "flex items-center gap-2 rounded-xl border border-accent bg-accent/20 px-3 py-2 text-xs font-semibold text-accent shadow-[0_0_16px_rgba(255,106,227,0.35)] transition-all duration-200 active:scale-95 backdrop-blur-md";
 
 export function ScenariosWidget() {
   const scenarios = useApp((s) => s.scenarios);
@@ -112,13 +113,34 @@ export function NotificationsWidget() {
   return (
     <div className={body}>
       {items.length === 0 ? <EmptyState text="Уведомлений пока нет" /> : (
-        <ul className="flex flex-col gap-1.5">
-          {items.map((n, i) => (
-            <li key={`${n.ts}-${i}`} className="rounded-btn bg-panel2 px-3 py-1.5">
-              <div className={n.level === "info" ? "text-ink" : "text-accent"}>{n.text}</div>
-              <div className="text-[11px] text-ink-dim">{timeHM(n.ts)}</div>
-            </li>
-          ))}
+        <ul className="flex flex-col gap-2">
+          {items.map((n, i) => {
+            const isDiscord = n.text.toLowerCase().includes("discord");
+            return (
+              <li key={`${n.ts}-${i}`} className={`rounded-xl border p-2.5 backdrop-blur-sm transition-all duration-200 shadow-soft ${
+                isDiscord
+                  ? "border-[#5865F2]/40 bg-[#5865F2]/10 hover:border-[#5865F2]/70 shadow-[0_0_12px_rgba(88,101,242,0.15)]"
+                  : n.level === "info"
+                    ? "border-white/[0.06] bg-panel2/60 hover:border-accent/40"
+                    : "border-accent/50 bg-accent/10 hover:border-accent"
+              }`}>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <div className="flex items-center gap-1.5">
+                    {isDiscord && <span className="h-1.5 w-1.5 rounded-full bg-[#5865F2] shadow-[0_0_6px_#5865F2]" />}
+                    <span className="text-[10px] font-mono text-ink-dim">{timeHM(n.ts)}</span>
+                  </div>
+                  {isDiscord && (
+                    <span className="rounded bg-[#5865F2]/20 px-1.5 py-0.5 text-[9px] font-medium text-[#7983f5]">
+                      Discord Call
+                    </span>
+                  )}
+                </div>
+                <div className={n.level === "info" ? "text-xs text-ink/90 font-normal leading-relaxed" : "text-xs text-accent font-medium leading-relaxed"}>
+                  {n.text}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
@@ -168,14 +190,18 @@ export function QuickActionsWidget() {
   const listen = useApp((s) => s.listenNow);
   return (
     <div className="flex min-h-0 flex-1 flex-wrap content-start gap-2 overflow-y-auto px-4 pb-4">
-      <button type="button" className={chip} onClick={() => void listen()}><Volume2 size={13} /> Говорить</button>
-      <button type="button" className={chip} onClick={() => void quick("screenshot")}><Camera size={13} /> Скриншот</button>
-      <button type="button" className={chip} onClick={() => void quick("focus_mode")}><Target size={13} /> Фокус</button>
-      <button type="button" className={chip} aria-pressed={!mic} onClick={() => void toggleMic()}>
-        {mic ? <Mic size={13} /> : <MicOff size={13} />} {mic ? "Микрофон вкл." : "Микрофон выкл."}
+      <button type="button" className={chip} onClick={() => void listen()}><Volume2 size={13} className="text-accent" /> Говорить</button>
+      <button type="button" className={chip} onClick={() => void quick("screenshot")}><Camera size={13} className="text-accent" /> Скриншот</button>
+      <button type="button" className={chip} onClick={() => void quick("clip_that")}><Film size={13} className="text-accent" /> Клип 30с</button>
+      <button type="button" className={chip} onClick={() => void quick("clear_ink")}><Eraser size={13} className="text-accent" /> Чернила</button>
+      <button type="button" className={chip} onClick={() => void quick("toggle_call_mode")}><PhoneCall size={13} className="text-accent" /> Звонок</button>
+      <button type="button" className={chip} onClick={() => void quick("toggle_watch_along")}><Eye size={13} className="text-accent" /> Вместе</button>
+      <button type="button" className={chip} onClick={() => void quick("focus_mode")}><Target size={13} className="text-accent" /> Фокус</button>
+      <button type="button" className={!mic ? activeChip : chip} aria-pressed={!mic} onClick={() => void toggleMic()}>
+        {mic ? <Mic size={13} /> : <MicOff size={13} className="text-accent" />} {mic ? "Микрофон вкл." : "Микрофон выкл."}
       </button>
-      <button type="button" className={chip} aria-pressed={game} onClick={() => void setGame(!game)}>
-        <Gamepad2 size={13} /> Игровой режим
+      <button type="button" className={game ? activeChip : chip} aria-pressed={game} onClick={() => void setGame(!game)}>
+        <Gamepad2 size={13} className={game ? "text-accent" : ""} /> Игровой режим
       </button>
     </div>
   );

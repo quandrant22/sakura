@@ -59,8 +59,10 @@ def test_load_returns_131_declarations(registry):
     # system.sleep слит в power.sleep (server/power): 123 → 122.
     # feat/vision: screenshot.describe → vision.ask, + vision.glance.on/off: 122 → 124;
     # browser.task и browser.stop — server/browser-step: 124 → 126.
-    # feat/schedule: schedule.today/tomorrow/week/next/refresh: 126 → 131.
-    assert len(registry) == 131
+    # feat/schedule: schedule.today/tomorrow/week/next/refresh: 126 → 131;
+    # games-overlay-widgets (7) + music.play_track (1) + companion.husk_status (1) → 140.
+    # этап 3 NLU: youtube.open («открой/включи ютуб») → 141.
+    assert len(registry) == 141
 
 
 def test_validate_passes_on_real_registry(registry):
@@ -552,9 +554,12 @@ def test_resolve_matches_latin_name_case_insensitive(index, installed_apps):
 
 
 def test_resolve_skips_non_app(index, installed_apps):
-    """«открой ютуб» — ютуба нет в списке → декларация не матчится."""
+    """«открой кофеварку» — её нет в списке приложений → app.switch_open не матчится."""
     installed_apps(_APPS, extra=_ALIASES)
-    assert index.match("открой ютуб") is None
+    assert index.match("открой кофеварку") is None
+    # «открой ютуб» — не приложение, а сайт: своё действие youtube.open.
+    trigger, decl, _, _ = index.match("открой ютуб")
+    assert decl.id == "youtube.open"
 
 
 def test_resolve_muted_without_agent_list(index, installed_apps):

@@ -422,75 +422,107 @@ def _enrich_with_ym(title: str, artist: str) -> dict:
 
 
 def _ym_play_track(query: str) -> dict:
-    """Ищет трек в YM и запускает его."""
+    """Ищет трек в Яндекс Музыке и запускает его в десктопном приложении."""
+    query = (query or "").strip()
+    if not query:
+        return {"ok": False, "result": "Укажите название трека или исполнителя"}
     try:
         client  = _get_ym_client()
         results = client.search(query, type_="track")
         if not results or not results.tracks or not results.tracks.results:
             return {"ok": False, "result": f"Трек «{query}» не найден"}
         track = results.tracks.results[0]
-        album_id = track.albums[0].id if track.albums else 0
-        if not client.play_audio(track.id, "search", album_id):
-            return {"ok": False, "result": "Яндекс Музыка не запустила трек"}
-        artist = track.artists[0].name if track.artists else "?"
-        return {"ok": True, "result": f"Играет: {artist} — {track.title}"}
+        album_id = track.albums[0].id if track.albums else None
+        artist = track.artists[0].name if track.artists else ""
+        title = track.title or query
+
+        # 1. Открываем трек в приложении Яндекс Музыки
+        try:
+            from core import yamusic_app
+        except ImportError:
+            try:
+                from desktop.core import yamusic_app
+            except ImportError:
+                yamusic_app = None
+
+        launched = False
+        if yamusic_app:
+            if album_id and track.id:
+                launched = yamusic_app.open_track(album_id, track.id)
+            if not launched:
+                launched = yamusic_app.open_search(f"{artist} {title}".strip())
+
+        # 2. Отправляем feedback в YM API
+        try:
+            client.play_audio(track.id, "search", album_id or 0)
+        except Exception:
+            pass
+
+        return {
+            "ok": True,
+            "result": f"Играет: {artist} — {title}" if artist else f"Играет: {title}",
+            "track": {
+                "id": str(track.id),
+                "title": title,
+                "artist": artist,
+                "album_id": str(album_id) if album_id else None,
+            }
+        }
     except Exception as e:
         log.error(f"[music] play_track: {e}")
         return {"ok": False, "result": str(e)}
 
 
 def _ym_play_playlist(kind: str) -> dict:
-    """Запускает плейлист по kind или названию."""
+    """Запускает плейлист по kind или названию в приложении."""
     try:
         client = _get_ym_client()
         uid    = client.me.account.uid
-        if kind.isdigit():
+        if str(kind).isdigit():
             playlist = client.users_playlists(int(kind), uid)
         else:
             playlists = client.users_playlists_list()
             playlist  = None
             for p in (playlists or []):
-                if kind.lower() in (p.title or "").lower():
+                if str(kind).lower() in (p.title or "").lower():
                     playlist = p
                     break
             if not playlist:
                 return {"ok": False, "result": f"Плейлист «{kind}» не найден"}
             playlist = client.users_playlists(playlist.kind, uid)
-        tracks = playlist.fetch_tracks()
-        if not tracks:
-            return {"ok": False, "result": "Плейлист пуст"}
-        track_ids = [str(t.id) for t in tracks if t.id]
-        if not track_ids:
-            return {"ok": False, "result": "Плейлист пуст"}
-        first = tracks[0]
-        album_id = first.albums[0].id if first.albums else 0
-        if not client.play_audio(first.id, "playlist", album_id, playlist_id=str(playlist.kind)):
-            return {"ok": False, "result": "Яндекс Музыка не запустила плейлист"}
-        return {"ok": True, "result": f"Плейлист «{playlist.title}»: {len(track_ids)} треков"}
+
+        try:
+            from core import yamusic_app
+        except ImportError:
+            try:
+                from desktop.core import yamusic_app
+            except ImportError:
+                yamusic_app = None
+
+        if yamusic_app:
+            yamusic_app.open_playlist(playlist.kind)
+
+        return {"ok": True, "result": f"Плейлист «{playlist.title}» открыт в приложении"}
     except Exception as e:
         log.error(f"[music] play_playlist: {e}")
         return {"ok": False, "result": str(e)}
 
 
 def _ym_play_wave() -> dict:
-    """Запускает «Мою волну»."""
+    """Запускает «Мою волну» в приложении."""
     try:
-        client      = _get_ym_client()
-        tracks_seq  = client.rotor_station_tracks("user:onyourwave")
-        track_ids   = []
-        for seq in (getattr(tracks_seq, 'sequence', None) or [])[:50]:
-            t = seq.track
-            if hasattr(t, 'id') and t.id:
-                track_ids.append(str(t.id))
-        if not track_ids:
-            return {"ok": False, "result": "Моя волна пуста"}
-        first = next((seq.track for seq in (tracks_seq.sequence or []) if getattr(seq, "track", None)), None)
-        if first is None:
-            return {"ok": False, "result": "Моя волна пуста"}
-        album_id = first.albums[0].id if first.albums else 0
-        if not client.play_audio(first.id, "radio", album_id):
-            return {"ok": False, "result": "Яндекс Музыка не запустила волну"}
-        return {"ok": True, "result": f"Моя волна: {len(track_ids)} треков"}
+        try:
+            from core import yamusic_app
+        except ImportError:
+            try:
+                from desktop.core import yamusic_app
+            except ImportError:
+                yamusic_app = None
+
+        if yamusic_app:
+            yamusic_app.open_wave()
+
+        return {"ok": True, "result": "«Моя волна» запущена"}
     except Exception as e:
         log.error(f"[music] play_wave: {e}")
         return {"ok": False, "result": str(e)}
@@ -575,6 +607,9 @@ async def music_command(action: str) -> dict:
     if action.startswith("music_play_track:"):
         query = action[len("music_play_track:"):]
         return await asyncio.to_thread(_ym_play_track, query)
+
+    if action == "music_play_track":
+        return await asyncio.to_thread(_ym_play_track, "")
 
     if action.startswith("music_play_playlist:"):
         kind = action[len("music_play_playlist:"):]

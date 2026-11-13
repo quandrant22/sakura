@@ -54,6 +54,7 @@ async def cmd_start_impl(message: "Message", ask_gemini):
     reply = await ask_gemini(
         "Мастер только что запустил бота. Поприветствуй коротко.",
         history_limit=VOICE_HISTORY_LIMIT,
+        search=False,
     )
     await message.answer(reply)
 
@@ -115,6 +116,7 @@ async def cmd_clear_impl(message: "Message", ask_gemini):
     reply = await ask_gemini(
         "Мастер очистил историю диалога. Отреагируй коротко.",
         history_limit=VOICE_HISTORY_LIMIT,
+        search=False,
     )
     await message.answer(reply)
 

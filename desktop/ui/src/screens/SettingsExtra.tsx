@@ -49,20 +49,58 @@ export function SoundSection() {
       (r) => { if (alive) setDevs(r); }, (e: unknown) => { if (alive) setMsg(errorText(e)); });
     return () => { alive = false; };
   }, [client]);
-  const set = (key: string, value: unknown) =>
+  const setDevice = (key: string, value: unknown) =>
     client.call("settings_set", { key, value }).then(() => setMsg("Сохранено. Применится после перезапуска ядра."),
                                                       (e: unknown) => setMsg(errorText(e)));
+  const setVol = (key: string, value: number) =>
+    client.call("settings_set", { key, value }).then(() => setMsg("Громкость обновлена."),
+                                                      (e: unknown) => setMsg(errorText(e)));
+
   const select = (key: "input_device" | "output_device", list: AudioDev[] | undefined, label: string) => (
     <select aria-label={label} className={input + " max-w-full"} value={String(s?.[key] ?? "")}
-            onChange={(e) => void set(key, e.target.value === "" ? null : Number(e.target.value))}>
+            onChange={(e) => void setDevice(key, e.target.value === "" ? null : Number(e.target.value))}>
       <option value="">По умолчанию Windows</option>
       {list?.map((d) => <option key={d.id} value={d.id}>{d.name}{d.default ? " (по умолчанию)" : ""}</option>)}
     </select>
   );
+
+  const voiceVol = typeof s?.voice_volume === "number" ? s.voice_volume : 50;
+  const cableVol = typeof s?.cable_volume === "number" ? s.cable_volume : 85;
+
   return (
     <div className="px-4 pb-2">
       <Row label="Микрофон" hint="Откуда Сакура слушает">{select("input_device", devs?.inputs, "Микрофон")}</Row>
       <Row label="Вывод голоса" hint="Устройство вывода музыки и видео — в разделе «Медиа»">{select("output_device", devs?.outputs, "Вывод голоса")}</Row>
+      <Row label="Громкость Сакуры (наушники)" hint="Громкость голосовых ответов в ваших наушниках (применяется сразу)">
+        <div className="flex items-center gap-3">
+          <input
+            type="range"
+            min="0"
+            max="100"
+            step="5"
+            value={voiceVol}
+            aria-label="Громкость Сакуры в наушниках"
+            onChange={(e) => void setVol("voice_volume", Number(e.target.value))}
+            className="h-1.5 w-48 cursor-pointer accent-accent"
+          />
+          <span className="w-10 text-xs font-semibold text-accent">{voiceVol}%</span>
+        </div>
+      </Row>
+      <Row label="Громкость в Discord (виртуальный кабель)" hint="Громкость в виртуальном кабеле (только в режиме звонка). Рекомендуется 80–90% для чистого звучания в Discord.">
+        <div className="flex items-center gap-3">
+          <input
+            type="range"
+            min="0"
+            max="100"
+            step="5"
+            value={cableVol}
+            aria-label="Громкость в Discord (виртуальный кабель)"
+            onChange={(e) => void setVol("cable_volume", Number(e.target.value))}
+            className="h-1.5 w-48 cursor-pointer accent-accent"
+          />
+          <span className="w-10 text-xs font-semibold text-accent">{cableVol}%</span>
+        </div>
+      </Row>
       {msg && <div className="py-2 text-xs text-ink-dim">{msg}</div>}
     </div>
   );

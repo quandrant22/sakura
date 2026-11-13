@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 import logging
 import random
 import re
@@ -20,6 +21,7 @@ from dataclasses import dataclass
 from typing import AsyncIterator, Optional
 
 import config
+from sakura_core.nlu import IntentParse, LlmUnavailable
 from sakura_core.tasks import spawn
 
 log = logging.getLogger("sakura.llm")
@@ -580,12 +582,131 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
 # ── Контракт LlmClassify (роутер, этап 2): (текст, каталог) → id | None ──
 
 CLASSIFY_SYSTEM = (
-    "Ты — классификатор команд ассистента. По фразе пользователя выбери одно "
-    "действие из каталога. Ответь ровно id действия одной строкой, без слов "
-    "и пояснений. Если подходящего действия в каталоге нет — ответь ровно: null"
+    "Ты — классификатор команд голосового ассистента Сакуры в стиле J.A.R.V.I.S. "
+    "Твоя задача — определить, хочет ли Мастер выполнить действие из каталога прямо сейчас, "
+    "или это просто разговор/рассуждение.\n\n"
+    "ЖЕСТКИЕ ПРАВИЛА ВЫБОРА:\n"
+    "1. Выбирай действие ТОЛЬКО тогда, когда Мастер прямо или косвенно "
+    "(в стиле Тони Старка / J.A.R.V.I.S., например: «тут слишком громко» → music.volume_down, "
+    "«что там за окном?» → weather.now, «поставь чайник» → kettle.boil) "
+    "просит ассистента выполнить действие или запросить данные ПРЯМО СЕЙЧАС.\n"
+    "2. Возвращай ровно null, если Мастер:\n"
+    "   - Просто делится мыслями, историями из прошлого или планами на будущее "
+    "(«вчера слушал музыку», «надо будет почистить буфер», «не люблю такую погоду»).\n"
+    "   - Задает философский, общий или разговорный вопрос Сакуре "
+    "(«какую музыку ты любишь?», «как думаешь, стоит идти на пары?»).\n"
+    "   - Использует отрицание («не выключай звук», «не открывай браузер», «не надо чайник»).\n"
+    "   - Просит о том, чего нет в каталоге действий.\n\n"
+    "ФОРМАТ ОТВЕТА:\n"
+    "- Если действие без параметра (или параметр не указан): ответь ровно id действия одной строкой (например: music.next).\n"
+    "- Если у действия в каталоге указан (param: ...) и в фразе Мастера есть значение этого параметра: "
+    "ответь в формате: action_id | param_value (например: music.play_track | nirvana, kettle.heat | 85, files.open | README.md). "
+    "Извлекай значение параметра в чистом нормализованном виде.\n"
+    "- Если действие не требуется: ответь ровно null.\n"
+    "- Никаких лишних слов, кавычек, markdown и пояснений. Строго одна строка."
 )
 
 _ID_RE = re.compile(r"[a-z0-9_.]+")
+
+
+class ClassifyResult(tuple):
+    """Результат классификации: (action_id, param).
+
+    Поддерживает:
+      - распаковку: action, param = res
+      - атрибуты: res.action, res.param
+      - обратную совместимость: res == "music.next" вернёт True!
+    """
+
+    def __new__(cls, action: str, param: Optional[str] = None):
+        return super().__new__(cls, (action, param))
+
+    @property
+    def action(self) -> str:
+        return self[0]
+
+    @property
+    def param(self) -> Optional[str]:
+        return self[1]
+
+    def __eq__(self, other):
+        if isinstance(other, str):
+            return self[0] == other
+        return super().__eq__(other)
+
+    def __ne__(self, other):
+        return not (self == other)
+
+    # Свой __eq__ обнуляет __hash__: без него результат нельзя положить
+    # в set/dict. Хеш — по id действия, согласован с равенством строке.
+    def __hash__(self):
+        return hash(self[0])
+
+    def __str__(self):
+        if self[1] is not None:
+            return f"{self[0]} | {self[1]}"
+        return self[0]
+
+    def __repr__(self):
+        return f"ClassifyResult(action={self[0]!r}, param={self[1]!r})"
+
+
+def _parse_classify_response(raw: str) -> tuple[Optional[str], Optional[str]]:
+    """Разобрать ответ модели: action_id | param_value, JSON или голый id; null → (None, None)."""
+    if not raw:
+        return None, None
+    text = raw.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if len(lines) >= 2 and lines[-1].strip().startswith("```"):
+            text = "\n".join(lines[1:-1]).strip()
+        else:
+            text = text.strip("`").strip()
+    text = text.strip('`"\'').strip()
+    if not text:
+        return None, None
+
+    # Попытка разобрать JSON
+    if text.startswith("{") and text.endswith("}"):
+        try:
+            import json
+            data = json.loads(text)
+            if isinstance(data, dict):
+                raw_id = str(data.get("id") or "").strip().lower()
+                raw_param = data.get("param")
+                param_str = str(raw_param).strip() if raw_param is not None else None
+                if param_str and param_str.lower() in ("null", "none"):
+                    param_str = None
+                if not raw_id or raw_id in ("null", "none", "-"):
+                    return None, None
+                if _ID_RE.fullmatch(raw_id):
+                    return raw_id, param_str
+                return None, None
+        except Exception:
+            pass
+
+    # Разбор первой строки
+    first_line = text.splitlines()[0].strip()
+    # Формат action_id | param_value
+    if "|" in first_line:
+        parts = first_line.split("|", 1)
+        raw_id = parts[0].strip().strip('`"\'').lower().rstrip(".,;:")
+        raw_param = parts[1].strip().strip('`"\'')
+        if raw_param.lower() in ("null", "none", ""):
+            raw_param = None
+        if not raw_id or raw_id in ("null", "none", "-"):
+            return None, None
+        if _ID_RE.fullmatch(raw_id):
+            return raw_id, raw_param
+        return None, None
+
+    # Одиночный action_id
+    first = first_line.strip().strip('`"\'').rstrip(".,;:").lower()
+    if not first or first in ("null", "none", "-"):
+        return None, None
+    if _ID_RE.fullmatch(first):
+        return first, None
+    return None, None
 
 
 async def generate_raw(model: str, contents, *, api_key: str | None = None,
@@ -790,10 +911,10 @@ async def generate_agent(contents, *, chain, system: str = "", tools=None,
 
 async def classify_action(text: str, catalog: str, *, model: Optional[str] = None,
                           timeout: float = DEFAULT_TIMEOUT_S,
-                          api_key: Optional[str] = None) -> Optional[str]:
-    """Клей между generate() (сырой текст) и LlmClassify (id действия).
+                          api_key: Optional[str] = None) -> Optional[ClassifyResult]:
+    """Клей между generate() (сырой текст) и LlmClassify (id действия и параметр).
 
-    Промпт-классификатор: каталог из реестра → ответ-идентификатор; «null»,
+    Промпт-классификатор: каталог из реестра → ответ-идентификатор с параметром; «null»,
     проза и пустой ответ → None. Проверку «id известен реестру» НЕ делает —
     это ответственность роутера (sakura_core/router.py): неизвестный id
     считается разговором.
@@ -803,15 +924,143 @@ async def classify_action(text: str, catalog: str, *, model: Optional[str] = Non
     raw = await generate(
         text,
         system=f"{CLASSIFY_SYSTEM}\n\nКаталог действий:\n{catalog}",
-        model=model, max_tokens=24, temperature=0.0, timeout=timeout,
+        model=model, max_tokens=48, temperature=0.0, timeout=timeout,
         api_key=api_key,
     )
-    answer = (raw or "").strip().strip('`"\'').strip()
-    first = answer.splitlines()[0].strip().rstrip(".,;:") if answer else ""
-    first = first.lower()
-    if not first or first in ("null", "none", "-"):
+    action_id, param_val = _parse_classify_response(raw)
+    if not action_id:
         return None
-    return first if _ID_RE.fullmatch(first) else None
+    return ClassifyResult(action_id, param_val)
+
+
+# ── Структурированный разбор намерений (роутер, этап 3) ──────────────────
+
+INTENT_SYSTEM = (
+    "Ты — разбор намерений голосового ассистента Сакуры (стиль J.A.R.V.I.S.). "
+    "По фразе Мастера и контексту определи, какие действия из каталога нужно "
+    "выполнить ПРЯМО СЕЙЧАС и есть ли во фразе разговорная часть.\n\n"
+    "ПРАВИЛА:\n"
+    "1. Действие выбирай, только если Мастер прямо или косвенно просит его сейчас "
+    "(«тут слишком громко» → music.volume_down, «что там за окном?» → weather.now, "
+    "«что-то прохладно» при разговоре о чае → kettle.boil).\n"
+    "2. Несколько просьб в одной фразе — несколько действий в порядке произнесения "
+    "(«включи музыку и сделай погромче» → два действия).\n"
+    "3. Действий НЕТ, если Мастер рассказывает о прошлом или планах, жалуется, "
+    "рассуждает, задаёт вопрос самой Сакуре, цитирует чужие слова или использует "
+    "отрицание («не выключай», «не надо чайник»).\n"
+    "4. Отложенное время («через час», «в 23:00») для выключения, перезагрузки и сна "
+    "— НЕ действие: верни пустой список и chat=true.\n"
+    "5. chat=true, если кроме команд есть реплика, на которую нужно ответить словами "
+    "(рассказ, вопрос, просьба поговорить), или команд нет вовсе.\n"
+    "6. Параметр бери из фразы в нормализованном виде (число, название, город и день "
+    "для погоды: «Санкт-Петербург завтра»). Нет параметра — null.\n"
+    "7. Учитывай контекст: что играет, какое окно активно, о чём шла речь.\n\n"
+    "ФОРМАТ ОТВЕТА — строго одна строка JSON без пояснений и markdown:\n"
+    '{"actions":[{"id":"music.volume_down","param":null}],"chat":false}\n'
+    "Команд нет: {\"actions\":[],\"chat\":true}"
+)
+
+
+def _intent_context_block(context: Optional[dict]) -> str:
+    """Контекст хода → строки для промпта разбора (только непустое)."""
+    if not context:
+        return ""
+    lines = []
+    ctx = context.get("context")
+    if ctx:
+        lines.append(f"- состояние: {ctx}")
+    if context.get("window"):
+        lines.append(f"- активное окно: {str(context['window'])[:80]}")
+    if context.get("track"):
+        lines.append(f"- сейчас играет: {str(context['track'])[:80]}")
+    if context.get("pending"):
+        lines.append(f"- Сакура ждёт ответа на вопрос: {str(context['pending'])[:120]}")
+    for item in (context.get("recent") or [])[-4:]:
+        lines.append(f"- {str(item)[:160]}")
+    return ("\n\nКонтекст:\n" + "\n".join(lines)) if lines else ""
+
+
+def _parse_intent_response(raw) -> IntentParse:
+    """Ответ модели → IntentParse.
+
+    Принимает JSON-план, а также прежние формы классификатора («id | param»,
+    голый id, «null») — старые модели и заглушки отвечают ими. Пустой или
+    нестроковый ответ — LlmUnavailable: это сбой, а не вердикт «разговор».
+    """
+    if not isinstance(raw, str) or not raw.strip():
+        raise LlmUnavailable("пустой ответ модели")
+    text = raw.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z]*\s*|\s*```$", "", text).strip()
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end > start:
+        try:
+            data = json.loads(text[start:end + 1])
+        except ValueError:
+            data = None
+        if isinstance(data, dict):
+            if "actions" not in data and data.get("id"):
+                data = {"actions": [data], "chat": False}      # прежний JSON {"id","param"}
+            actions = []
+            for item in data.get("actions") or []:
+                if isinstance(item, str):
+                    item = {"id": item}
+                if not isinstance(item, dict):
+                    continue
+                action_id = str(item.get("id") or "").strip().lower()
+                if not _ID_RE.fullmatch(action_id) or action_id in ("null", "none"):
+                    continue
+                param = item.get("param")
+                param = None if param is None else str(param).strip()
+                if param is not None and param.lower() in ("", "null", "none"):
+                    param = None
+                actions.append((action_id, param))
+            chat = bool(data.get("chat")) or not actions
+            return IntentParse(actions=tuple(actions[:4]), chat=chat)
+    action_id, param = _parse_classify_response(text)
+    if action_id:
+        return IntentParse(actions=((action_id, param),), chat=False)
+    return IntentParse(actions=(), chat=True)
+
+
+async def parse_intent(text: str, catalog: str, *, context: Optional[dict] = None,
+                       model: Optional[str] = None, timeout: float = 3.0,
+                       api_key: Optional[str] = None) -> IntentParse:
+    """Структурированный разбор намерений: план действий + флаг разговора.
+
+    Любой сбой (сеть, ключи, таймаут, пустой ответ) — LlmUnavailable.
+    Проверку id и параметров по реестру делает роутер.
+    """
+    try:
+        raw = await asyncio.wait_for(
+            generate(
+                text,
+                system=(f"{INTENT_SYSTEM}\n\nКаталог действий:\n{catalog}"
+                        f"{_intent_context_block(context)}"),
+                model=model, max_tokens=160, temperature=0.0, timeout=timeout,
+                api_key=api_key,
+            ),
+            timeout=timeout + 0.5,
+        )
+    except LlmUnavailable:
+        raise
+    except Exception as e:
+        raise LlmUnavailable(f"{type(e).__name__}: {e}") from e
+    return _parse_intent_response(raw)
+
+
+def make_llm_parse(*, model: Optional[str] = None, timeout: float = 3.0,
+                   api_key: Optional[str] = None):
+    """Замыкание-разбор для Router(llm_parse=...): (текст, каталог, контекст).
+
+    В отличие от make_llm_classify ошибки НЕ глотаются: роутер по
+    LlmUnavailable переходит на локальный разбор, а не считает фразу болтовнёй.
+    """
+    async def parse(text: str, catalog: str, context: Optional[dict] = None) -> IntentParse:
+        return await parse_intent(text, catalog, context=context, model=model,
+                                  timeout=timeout, api_key=api_key)
+
+    return parse
 
 
 def make_llm_classify(*, model: Optional[str] = None,
@@ -822,7 +1071,7 @@ def make_llm_classify(*, model: Optional[str] = None,
     Ошибки (сеть, ключи) не поднимаются: классификация — последний шаг
     перед разговором, провал означает «это разговор».
     """
-    async def classify(text: str, catalog: str) -> Optional[str]:
+    async def classify(text: str, catalog: str) -> Optional[ClassifyResult]:
         try:
             return await classify_action(text, catalog, model=model,
                                          timeout=timeout, api_key=api_key)
@@ -976,7 +1225,24 @@ async def ask_gemini(
 
     search_facts = None
     search_sources = []
-    from modules.web_search import needs_search, facts_prompt, format_sources
+    from modules.web_search import (
+        needs_search, facts_prompt, format_sources,
+        wants_sources, is_pure_sources_request,
+        get_latest_sources, set_latest_sources,
+    )
+
+    if is_pure_sources_request(user_message):
+        recent_sources = get_latest_sources()
+        if recent_sources:
+            reply = "Вот источники:\n" + "\n".join(f"• {u}" for u in recent_sources[:3])
+        else:
+            reply = "Мастер, я отвечала по памяти, без поиска в интернете, поэтому ссылок нет."
+        if save_history:
+            from memory.memory import add_to_history
+            add_to_history("user", user_message)
+            add_to_history("model", reply)
+        return reply
+
     # Продолжение разговора после вопроса по экрану: поиск с темой экрана.
     vf_query, vf_context = _vision_followup(user_message) if search is not False else (None, "")
     if vf_context:
@@ -988,6 +1254,7 @@ async def ask_gemini(
         if ev.ok:
             search_facts = ev.facts
             search_sources = ev.sources
+            set_latest_sources(search_sources)
         else:
             full_system += SEARCH_NOT_FOUND
 
@@ -1018,7 +1285,7 @@ async def ask_gemini(
         log.error(f"[ask_gemini] {e}")
         reply = ""
 
-    if search_sources and reply:
+    if search_sources and reply and wants_sources(user_message):
         reply += format_sources(search_sources, limit=3)
     _t_total = _t_mono() - _t0
     _llm_s    = (_t_total - _t_prep) if _t_llm is None else (_t_llm - _t_prep)
@@ -1033,42 +1300,52 @@ async def ask_gemini(
         reply = "Мастер, что-то мешает мне ответить. Попробуй ещё раз."
 
     if save_history:
-        from memory.memory import add_to_history
-        add_to_history("user", user_message)
-        add_to_history("model", reply)
-        # Ленивый импорт: extract_and_remember → ask_gemini (цикл через функции)
-        from sakura_core.memory_tasks import extract_and_remember
-        spawn(extract_and_remember(user_message, reply), name="remember-from-chat")
-        from memory.memory import should_summarize
-        from sakura_core.memory_tasks import summarize_session
-        if should_summarize():
-            spawn(summarize_session(), name="summarize-session")
-        from modules.context import get_full_context
-        ctx_snap = get_full_context()
-        from modules.timeline import extract_and_save_from_dialogue
-        spawn(asyncio.to_thread(
-            extract_and_save_from_dialogue, user_message, reply, ctx_snap
-        ), name="save-dialogue-timeline")
-        from modules.mood_vector import mark_interaction, auto_detect_mood_from_reply
-        mark_interaction()
-        spawn(asyncio.to_thread(
-            auto_detect_mood_from_reply, reply, user_message
-        ), name="update-mood-from-reply")
-        try:
-            from modules.self_correction import process_conversation
+        from modules.intimacy_mode import is_active as _im_active, is_intimate_content
+        is_intimate = (
+            _im_active()
+            or (channel and _im_active(channel))
+            or is_intimate_content(user_message)
+            or is_intimate_content(reply)
+        )
+        if not is_intimate:
+            from memory.memory import add_to_history
+            add_to_history("user", user_message)
+            add_to_history("model", reply)
+            # Ленивый импорт: extract_and_remember → ask_gemini (цикл через функции)
+            from sakura_core.memory_tasks import extract_and_remember
+            spawn(extract_and_remember(user_message, reply), name="remember-from-chat")
+            from memory.memory import should_summarize
+            from sakura_core.memory_tasks import summarize_session
+            if should_summarize():
+                spawn(summarize_session(), name="summarize-session")
+            from modules.context import get_full_context
+            ctx_snap = get_full_context()
+            from modules.timeline import extract_and_save_from_dialogue
             spawn(asyncio.to_thread(
-                process_conversation, user_message, reply
-            ), name="self-correction")
-        except Exception as e:
-            log.debug(f"[llm] ask_gemini: {type(e).__name__}: {e}")
-        try:
-            from modules.secret_diary import write_entry as diary_write
-            spawn(diary_write(
-                f"Мастер: {user_message[:200]}\nСакура: {reply[:200] if reply else ''}",
-                "neutral"
-            ), name="write-diary-entry")
-        except Exception as e:
-            log.debug(f"[llm] ask_gemini: {type(e).__name__}: {e}")
+                extract_and_save_from_dialogue, user_message, reply, ctx_snap
+            ), name="save-dialogue-timeline")
+            from modules.mood_vector import mark_interaction, auto_detect_mood_from_reply
+            mark_interaction()
+            spawn(asyncio.to_thread(
+                auto_detect_mood_from_reply, reply, user_message
+            ), name="update-mood-from-reply")
+            try:
+                from modules.self_correction import process_conversation
+                spawn(asyncio.to_thread(
+                    process_conversation, user_message, reply
+                ), name="self-correction")
+            except Exception as e:
+                log.debug(f"[llm] ask_gemini: {type(e).__name__}: {e}")
+            try:
+                from modules.secret_diary import write_entry as diary_write
+                spawn(diary_write(
+                    f"Мастер: {user_message[:200]}\nСакура: {reply[:200] if reply else ''}",
+                    "neutral"
+                ), name="write-diary-entry")
+            except Exception as e:
+                log.debug(f"[llm] ask_gemini: {type(e).__name__}: {e}")
+        else:
+            log.info("[llm] memory skipped for intimate conversation turn")
 
     return reply
 
@@ -1088,6 +1365,7 @@ async def ask_gemini_voice(
     length       : str = "short",
     gate         = None,
     received_at  : float | None = None,
+    channel      : str = "voice",
 ) -> tuple[str, str]:
     """Голосовой ответ с истинным стримингом LLM→TTS.
 
@@ -1115,7 +1393,7 @@ async def ask_gemini_voice(
     _t_build = __import__("time").monotonic()
     full_system = await _build_system(query=user_message,
                                       profile=config.VOICE_PROMPT_PROFILE,
-                                      channel="voice")
+                                      channel=channel)
     len_hint = _LEN_HINT.get(length, "")
     if len_hint:
         full_system = f"{full_system}\n\n{len_hint}"
@@ -1143,6 +1421,9 @@ async def ask_gemini_voice(
     if search_needed:
         ev = await _web_search(user_message, "voice", hint=vf_query or "")
         search_facts = ev.facts if ev.ok else None
+        if ev.ok and ev.sources:
+            from modules.web_search import set_latest_sources
+            set_latest_sources(ev.sources)
 
     # С фактами из поиска промпт длиннее: потолок ответа 14 с вместо 8 (ход
     # целиком всё равно под сторожем TURN_TIMEOUT_S), факты для голоса — короче.
@@ -1226,10 +1507,19 @@ async def ask_gemini_voice(
         from sakura_core.chat_hooks import note_spoken
         note_spoken(clean_text)
 
-    add_to_history("user",  user_message)
-    add_to_history("model", clean_text)
-    from modules.intimacy_mode import redact as _im_redact
-    log.info(f"[голос] ответ: {_im_redact(clean_text, 'voice')}")
+    from modules.intimacy_mode import is_active as _im_active, is_intimate_content, redact as _im_redact
+    is_intimate = (
+        _im_active()
+        or (channel and _im_active(channel))
+        or is_intimate_content(user_message)
+        or is_intimate_content(clean_text)
+    )
+    if not is_intimate:
+        add_to_history("user",  user_message)
+        add_to_history("model", clean_text)
+    else:
+        log.info("[voice] history skipped for intimate turn")
+    log.info(f"[{channel}] ответ: {_im_redact(clean_text, channel)}")
 
     try:
         from modules.mood_broadcast import broadcast_mood_after_reply

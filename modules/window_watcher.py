@@ -174,9 +174,13 @@ def update(device_id: str, active_window: str, system_info: dict = None):
         data["quiet_until"] = str(quiet_until)
         log.info(f"[watcher] Созвон: тишина до {quiet_until.strftime('%H:%M')}")
     elif wtype == "game" and fullscreen:
-        # В полноэкранной игре — не мешать
-        quiet_until = now + timedelta(minutes=30)
-        data["quiet_until"] = str(quiet_until)
+        # Полноэкранная игра: молчим, только если Мастер выбрал для неё «Молчит» (или ПК не прислал уровень —
+        # старый агент). Иначе Сакура рядом по уровню присутствия (modules/game_sessions.py).
+        from modules.game_sessions import presence_level
+        level = presence_level(device_id)
+        if level is None or level == "silent":
+            quiet_until = now + timedelta(minutes=30)
+            data["quiet_until"] = str(quiet_until)
 
     _save(data)
 

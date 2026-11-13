@@ -12,7 +12,7 @@ afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 test("верхняя панель: логотип и три кнопки окна", () => {
   render(<App client={new DemoClient("normal")} />);
-  expect(screen.getByText("SAKURA")).toBeTruthy();
+  expect(screen.getByRole("banner").textContent).toContain("SAKURA");
   for (const label of ["Свернуть", "Развернуть", "Закрыть"]) expect(screen.getByLabelText(label)).toBeTruthy();
 });
 

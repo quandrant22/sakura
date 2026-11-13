@@ -522,6 +522,25 @@ async def steam_recent():
     return "Недавно играл(а):\n" + "\n".join(lines), True
 
 
+STEAM_NOT_CONFIGURED = "Steam не настроен: на сервере не заданы STEAM_KEY и STEAM_ID."
+
+
+def _steam_configured() -> bool:
+    import config
+    return bool(getattr(config, "STEAM_KEY", "") and getattr(config, "STEAM_ID", ""))
+
+
+async def briefing_now() -> tuple[str, bool]:
+    """Сводка по запросу: факты из источников (погода, календарь, пары,
+    задачи, годовщины). Подачу голосом делает стилизация ответа команды."""
+    from modules.briefing import build_briefing_facts
+    facts = (await build_briefing_facts()).strip()
+    if "\n" not in facts:
+        # Только строка времени — источники пусты или недоступны.
+        return f"{facts} Событий, пар и задач на сегодня не вижу.", True
+    return facts, True
+
+
 # ── Единая точка входа ────────────────────────────────────────────────
 
 def _vps_status_text() -> str:
@@ -658,21 +677,46 @@ async def tasks_done(arg: str):
 
 # ── Погода ────────────────────────────────────────────────────────────
 
-async def weather_now():
-    """Какая погода сейчас. → (текст, ok).
+async def weather_now(arg: str = "", text: str = ""):
+    """Погода: сейчас или прогноз на день, дома или в названном городе.
+    → (текст, ok).
+
+    Город и день берутся из фразы («какая погода завтра в Питере») и из
+    параметра LLM-разбора. Без них — как раньше: сейчас, по координатам Мастера.
     Факты собираем из словаря get_weather() (temp/desc/wind/daily);
     get_weather_context() — промптовый подтекст и на «ясно» пустой,
     для ответа Мастеру не годится."""
-    from modules.weather import get_weather
-    w = await get_weather()
+    from modules.weather import (DAY_LABELS, describe, geocode, get_weather,
+                                 parse_weather_query)
+    city, day = parse_weather_query(text, arg)
+    place = ""
+    coords = {}
+    if city:
+        found = await geocode(city)
+        if not found:
+            return f"Не нашла город «{city}» — прогноз для него дать не могу.", False
+        coords = {"lat": found[0], "lon": found[1]}
+        place = f" — {found[2]}"
+    w = await get_weather(**coords)
     if not w:
         return ("Сервис погоды не ответил. Это не «данных нет» — "
                 "он просто недоступен, попробуй позже."), False
-    parts = [f"Сейчас {w.get('temp', '?')}°C, {w.get('desc') or w.get('category', '')}"]
+    daily = w.get("daily") or []
+    if day > 0:
+        if len(daily) <= day:
+            return "Прогноза на этот день у сервиса погоды нет.", False
+        d = daily[day]
+        parts = [f"{DAY_LABELS[day]}{place}: от {d.get('t_min')} до {d.get('t_max')}°C, "
+                 f"{describe(d.get('weather', 'cloudy'))}"]
+        pop = d.get("pop")
+        if pop:
+            parts.append(f"вероятность осадков {pop}%")
+        return ". ".join(parts) + ".", True
+    head = f"Сейчас{place}:" if place else "Сейчас"
+    parts = [f"{head} {w.get('temp', '?')}°C, {w.get('desc') or w.get('category', '')}"]
     wind = w.get("wind")
     if wind is not None:
         parts.append(f"ветер {wind} м/с")
-    daily = w.get("daily") or []
     if len(daily) >= 1:
         d0 = daily[0]
         try:
@@ -804,7 +848,12 @@ async def handle(action: str, arg: str = "", text: str = ""):
     """Диспетчер информационных команд. Возвращает (текст, ok)."""
     action = action or ""
     arg = arg or ""
+    if action.startswith("steam:") and not _steam_configured():
+        # Без ключей Steam API молчит, и «не вижу игры» звучало бы как факт.
+        return STEAM_NOT_CONFIGURED, False
     try:
+        if action == "briefing:now":
+            return await briefing_now()
         if action == "steam:achievements":
             return await steam_achievements(arg)
         if (action == "steam:achievements:game"
@@ -846,7 +895,7 @@ async def handle(action: str, arg: str = "", text: str = ""):
         if action == "task:done":
             return await tasks_done(arg)
         if action == "weather:now":
-            return await weather_now()
+            return await weather_now(arg, text)
         if action == "music_stats:recent":
             return await music_recent(arg)
         if action == "music_stats:top":

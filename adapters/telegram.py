@@ -72,6 +72,8 @@ log = logging.getLogger("sakura.telegram")
 
 _START = time.monotonic()
 
+if not TELEGRAM_TOKEN:
+    raise RuntimeError("TELEGRAM_TOKEN не задан в .env — Telegram-адаптер запустить нельзя.")
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
@@ -352,10 +354,19 @@ async def handle_message(message: Message):
     try:
         from sakura_core.bridge import v3_fast_path
         _laptop_ws, _laptop_dev = _get_active_ws()
+        async def _v3_chat(chat_text: str):
+            # Гибрид «команда + разговор»: команды исполнены, отвечаем на реплику;
+            # о сделанном модель узнаёт из sakura_core/action_note.
+            from config import CHAT_HISTORY_LIMIT
+            _hybrid = await ask_gemini(chat_text, history_limit=CHAT_HISTORY_LIMIT,
+                                       channel="tg_private")
+            await send_as_conversation(message.chat.id, _hybrid)
+
         if await v3_fast_path(text, data={"active_window": ""},
                               device_ws=_laptop_ws, device_id=_laptop_dev,
                               register_command=None, ack=message.answer,
-                              resolve_reply=_tg_resolve_reply, source="telegram"):
+                              resolve_reply=_tg_resolve_reply, on_chat=_v3_chat,
+                              source="telegram"):
             return
     except Exception as _v3_err:
         log.debug(f"[v3] быстрый путь: {type(_v3_err).__name__}: {_v3_err}")

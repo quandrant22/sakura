@@ -19,7 +19,7 @@ export function TitleBar({ center }: { center?: ReactNode }) {
     <header className="drag flex h-[84px] shrink-0 items-center gap-gap bg-bar px-edge">
       <div className="flex h-[45px] w-[300px] shrink-0 items-center gap-3 rounded-btn bg-panel px-4">
         <SakuraLogo size={30} />
-        <span className="text-sm font-semibold tracking-logo text-ink">SAKURA</span>
+        <span className="font-display text-sm font-bold tracking-logo text-ink">SAKURA</span>
       </div>
 
       {/* Центр: страницы доски (кнопки — no-drag); всё пустое — перетаскивание окна. */}

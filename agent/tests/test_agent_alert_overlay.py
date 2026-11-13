@@ -48,9 +48,24 @@ def test_empty_token_alert_reaches_overlay(monkeypatch):
     o = Overlay()
     bridge.agentAlert.connect(o.add_system_message)
 
+    # После предупреждения агент ждёт спаривания (transport.wait_for_keys) —
+    # без ключей это ожидание бесконечно. Тесту важен сам факт ожидания.
+    class _WaitingForKeys(Exception):
+        pass
+
+    async def _wait_for_keys():
+        raise _WaitingForKeys
+
+    monkeypatch.setattr(agent_module.transport, "wait_for_keys", _wait_for_keys)
+    monkeypatch.setattr(agent_module.Agent, "_has_keys", lambda self: False)
+
     a = agent_module.Agent.__new__(agent_module.Agent)
     a.bus = bus
-    asyncio.run(a.run())           # возвращается, приложение живёт дальше
+    try:
+        asyncio.run(asyncio.wait_for(a.run(), timeout=10))
+        raise AssertionError("без токена и ключей агент обязан ждать спаривания")
+    except _WaitingForKeys:
+        pass                       # приложение живёт дальше, ждёт ключей
 
     assert any(ALERT in m for m in o._messages)
     assert ALERT in o.last_msg.text()          # всплывающая реплика

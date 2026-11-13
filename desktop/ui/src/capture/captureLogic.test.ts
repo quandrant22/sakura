@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
-  adaptiveFps, captureRect, captureSize, filterSources, fitWidgetRows, isBlackFrame,
+  adaptiveFps, captureRect, captureSize, filterSources, fitWidgetRows, groupSources, isBlackFrame, matchSource,
 } from "./captureLogic";
 
 describe("окно приложения — размеры", () => {
@@ -66,4 +66,26 @@ test("подогнать виджет под пропорции окна", () =>
   const rows = fitWidgetRows(690, 1280 / 800, 9.35, 20, 88);
   const px = rows * 9.35 + (rows - 1) * 20 - 88;
   expect(Math.abs(px - 690 / 1.6)).toBeLessThan(30);
+});
+
+test("мониторы не режутся чёрным списком, окна Сакуры и менеджеры паролей — режутся", () => {
+  const list = [
+    { id: "window:1:0", name: "KeePassXC", kind: "window" as const },
+    { id: "window:2:0", name: "Elden Ring", kind: "window" as const },
+    { id: "screen:1:0", name: "Монитор 1 · 2560×1440 · основной", kind: "screen" as const },
+    { id: "window:3:0", name: "Sakura", kind: "window" as const },
+  ];
+  expect(filterSources(list).map((s) => s.id)).toEqual(["window:2:0", "screen:1:0"]);
+});
+
+test("группы: окна по алфавиту, мониторы отдельно; поиск по части имени", () => {
+  const { windows, screens } = groupSources([
+    { id: "screen:0:0", name: "Монитор 1", kind: "screen" },
+    { id: "window:2:0", name: "Steam" },
+    { id: "window:1:0", name: "Dota 2" },
+  ]);
+  expect(windows.map((s) => s.name)).toEqual(["Dota 2", "Steam"]);
+  expect(screens).toHaveLength(1);
+  expect(matchSource({ id: "w", name: "Яндекс Музыка" }, "музык")).toBe(true);
+  expect(matchSource({ id: "w", name: "Dota 2" }, "музык")).toBe(false);
 });

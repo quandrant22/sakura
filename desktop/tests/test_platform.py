@@ -61,7 +61,7 @@ def test_windows_shutdown_restart_delayed_30s(action, flag):
         windows.WindowsPlatform().power(action)
     args = popen.call_args[0][0]
     assert args[:2] == ["shutdown", flag]
-    assert args[args.index("/t") + 1] == "30"  # успеть отменить
+    assert args[args.index("/t") + 1] == "0"  # без задержки после подтверждения
 
 
 def test_windows_shutdown_cancel():
@@ -87,7 +87,7 @@ def test_windows_power_unknown_raises():
 def test_hands_system_restart_now_supported():
     from desktop.core import hands
     with patch.object(windows.subprocess, "Popen") as popen:
-        assert hands.execute_command("system:restart") == {"result": "перезагрузка через 30 с"}
+        assert hands.execute_command("system:restart") == {"result": "перезагружаю"}
     assert "/r" in popen.call_args[0][0]
 
 

@@ -295,6 +295,16 @@ def open_album(aid):
 def open_artist(artid):
     return _deep(f"{_YANDEX_DEEP}artist/{artid}")
 
+def open_track(aid, tid):
+    """Открыть трек альбома в десктопном приложении."""
+    return _deep(f"{_YANDEX_DEEP}album/{aid}/track/{tid}")
+
+def open_search(query: str):
+    """Поиск в десктопном приложении."""
+    import urllib.parse
+    q = urllib.parse.quote(query)
+    return _deep(f"{_YANDEX_DEEP}search?text={q}")
+
 
 # ── 2.3 — Хоткеи с возвратом фокуса ────────────────────────────────────
 

@@ -7,6 +7,7 @@ hands и ServerLink. Всё живёт в одном asyncio-цикле с аг�
 import asyncio
 import logging
 import os
+import time
 import uuid
 
 from desktop.core import config
@@ -20,15 +21,35 @@ DEFAULT_SETTINGS = {
     "quick_prompts": ["Что у меня сегодня?", "Погода", "Включи музыку"],
     "language": "ru",
     "theme": "sakura-night",
+    "voice_volume": 50,
+    "cable_volume": 85,
+    "stt_model": "v2_ctc",
     # Зрение (docs/VISION.md): поглядывать без просьбы — только с разрешения.
     "vision_glance_allowed": False,
     "vision_private": [],
+    # Экран Сакуры (desktop/core/screens.py): монитор для зрения, рисования и оверлея; None — основной.
+    "target_display": None,
+    # Присутствие в играх (desktop/core/game_presence.py): уровень по умолчанию и по играм.
+    "game_presence_default": "reactions",
+    "game_presence": {},
+    # Оверлей поверх игр и экрана (окно «сцена» в Electron).
+    "stage_enabled": True,
+    "stage_subtitles_always": False,
+    # Игры: «это игра» / «это не игра» (exe), автоклипы, приглушать игру, пока Сакура говорит.
+    "game_processes": [],
+    "game_not_processes": [],
+    "game_autoclip": True,
+    "game_duck": True,
 }
 # Ключи настроек, которые интерфейс может менять (остальное — через .env).
 SETTINGS_KEYS = frozenset(DEFAULT_SETTINGS) | {"autostart", "game_processes", "wake_sensitivity",
                                                "stt_model", "hotkey_talk", "input_device",
                                                "output_device", "music_accessibility", "stt_replacements",
-                                               "vision_glance_allowed", "vision_private"}
+                                               "vision_glance_allowed", "vision_private",
+                                               "voice_volume", "cable_volume", "target_display",
+                                               "game_presence_default", "game_presence", "stage_enabled",
+                                               "stage_subtitles_always", "game_not_processes", "game_autoclip",
+                                               "game_duck"}
 # Встроенный сценарий «Фокус» на сервере.
 FOCUS_SCENARIO_ID = "focus"
 
@@ -136,7 +157,7 @@ class CoreService:
         # Сервер v2 сам шлёт chat_message с репликами — их не дублируем; строки команд
         # и заглушка «звук без текста» — только от клиента, их показываем всегда.
         msg = event.get("message") or {}
-        if self.link.proto == 2 and msg.get("kind") not in ("command", "voice_only") and msg.get("role") != "system":
+        if self.link.proto == 2 and msg.get("kind") not in ("command", "voice_only", "ink", "template") and msg.get("role") != "system":
             return
         self._emit(event)
 
@@ -173,8 +194,9 @@ class CoreService:
             what = "Перезагружаю" if data.get("action") == "restart" else "Выключаю"
             seconds = int(data.get("seconds") or 0)
             self._emit({"type": "power_pending", "action": data.get("action"), "seconds": seconds})
-            self.chat.reply(f"{what} компьютер через {seconds} секунд. Скажи «отмени», чтобы остановить.",
-                            kind="proactive")
+            msg = f"{what} компьютер через {seconds} секунд. Скажи «отмени», чтобы остановить." if seconds > 0 else f"{what} компьютер."
+            self.chat.reply(msg, kind="proactive")
+
         elif event == "power_cancelled":
             self._emit({"type": "power_cancelled"})
         elif event == "transport_state":
@@ -236,6 +258,12 @@ class CoreService:
         c("list_audio_devices", self.cmd_list_audio_devices)
         c("settings_set", self.cmd_settings_set)
         c("game_mode", self.cmd_game_mode)
+        c("games_state", self.cmd_games_state)
+        c("game_presence_set", self.cmd_game_presence_set)
+        c("game_mark", self.cmd_game_mark)
+        c("gsi_install", self.cmd_gsi_install)
+        c("fullscreen_fix", self.cmd_fullscreen_fix)
+        c("ink_test", self.cmd_ink_test)
         c("apps_state", self.cmd_apps_state)
         c("music_ui_ack", self.cmd_music_ui_ack)
         c("ym_token_check", self.cmd_ym_token_check)
@@ -262,6 +290,7 @@ class CoreService:
         c("extension_set", self.cmd_extension_set)
         c("browser_resume", self.cmd_browser_resume)
         c("core_restart", self.cmd_core_restart)
+        c("companion_status", self.cmd_companion_status)
         if os.getenv("SAKURA_LIVECHECK") == "1":
             c("run_action", self.cmd_run_action)
         if self.media is not None:
@@ -363,6 +392,15 @@ class CoreService:
                                     self._restrict)
         except envfile.SecretError as e:
             raise ApiError("bad_request", str(e)) from None
+        key = str(msg.get("key") or "")
+        if key == "YANDEX_MUSIC_TOKEN":
+            # Токен Яндекс.Музыки применяется сразу: клиенты API пересоздадутся с новым значением.
+            from desktop.core import music
+            music.apply_ym_token(str(msg.get("value") or ""))
+            remote = getattr(self.media, "_ym_remote", None) if getattr(self, "media", None) else None
+            if remote is not None:
+                remote._likes = None
+            return {"keys": envfile.status(path), "restart_suggested": False}
         return {"keys": envfile.status(path), "restart_suggested": True}
 
     # ── Настройки → «Расширение браузера» ──
@@ -433,6 +471,24 @@ class CoreService:
         return {"db": round(noise.db, 1) if noise is not None else None,
                 "mic_enabled": bool(getattr(hearing, "mic_enabled", False))}
 
+    async def cmd_companion_status(self, msg: dict):
+        from desktop.core.features import get_call_mode_manager, get_watch_along_manager, get_husk_agent_bridge
+        cm = get_call_mode_manager()
+        wa = get_watch_along_manager()
+        husk = get_husk_agent_bridge()
+        from desktop.core.discord_rpc import get_discord_rpc_manager
+        drpc = get_discord_rpc_manager()
+        active_sp = drpc.get_active_speaker()[0]
+        return {
+            "call_mode": bool(cm.active),
+            "caller_name": active_sp or (getattr(cm, "caller_name", "") if cm.active else ""),
+            "watch_along": bool(wa.active),
+            "husk_port": getattr(husk, "port", 19482),
+            "discord_connected": drpc.connected,
+            "discord_channel": drpc.current_channel_name,
+            "discord_participants": [p.display_name for p in drpc.participants.values()],
+        }
+
     async def cmd_core_restart(self, msg: dict):
         """Перезапуск ядра (новые значения .env): окно (CoreSupervisor) запустит ядро заново."""
         log.info("[core] перезапуск по запросу интерфейса")
@@ -464,6 +520,51 @@ class CoreService:
             if not arg:
                 raise ApiError("bad_request", "не указан сценарий")
             return await self.link.request({"type": "scenario_run", "id": str(arg)})
+        if kind == "clip_that":
+            from desktop.core.features import get_clip_buffer
+            path = await asyncio.to_thread(get_clip_buffer().save_clip, 30)
+            if path:
+                self._emit({"type": "clip_saved", "path": str(path)})
+                if self._agent and getattr(self._agent, "_state", "") not in ("speaking", "thinking"):
+                    self._agent.submit_user_text("[Геймплей]: Скажи коротко: «Момент заклипан, Мастер! Видео сохранено в папку Clips.»", source="clip")
+                return {"text": f"Клип сохранён: {path.name}", "path": str(path)}
+            return {"text": "Не удалось сохранить клип"}
+        if kind == "clear_ink":
+            from desktop.core.features import get_ink_manager
+            get_ink_manager().clear()
+            self._emit({"type": "ink_clear"})
+            return {"text": "Чернила стёрты"}
+        if kind == "draw_demo_ink":
+            from desktop.core.features import get_ink_manager
+            get_ink_manager().draw("circle 400 300 200 200; arrow 250 150 380 280; text 400 520 Интерактивная зона Сакуры")
+            return {"text": "Нарисовала подсказку на экране"}
+        if kind == "toggle_game_mode":
+            from desktop.core.features import get_gamesense_runner, get_clip_buffer
+            gs = get_gamesense_runner()
+            new_active = not gs.active
+            if new_active:
+                gs.start()
+                get_clip_buffer().start()
+            else:
+                gs.stop()
+            self.bus.emit("game_mode", on=new_active)
+            return {"active": new_active}
+        if kind == "toggle_call_mode":
+            from desktop.core.features import get_call_mode_manager
+            cm = get_call_mode_manager()
+            if cm.active:
+                cm.disable()
+            else:
+                cm.enable()
+            return {"active": cm.active}
+        if kind == "toggle_watch_along":
+            from desktop.core.features import get_watch_along_manager
+            wa = get_watch_along_manager()
+            if wa.active:
+                wa.stop()
+            else:
+                wa.start("видео")
+            return {"active": wa.active}
         raise ApiError("bad_request", f"неизвестное быстрое действие: {kind}")
 
     async def cmd_list_apps(self, msg: dict):
@@ -489,6 +590,9 @@ class CoreService:
             raise ApiError("bad_request", f"нельзя менять настройку: {key}")
         self.settings.set(key, msg.get("value"))
         self._apply_voice_settings()
+        if key == "target_display":
+            from desktop.core import screens
+            screens.set_target(msg.get("value"))
         if key == "music_accessibility":
             from desktop.core import app_launch
             app_launch.PREFS["yandex_music"] = bool(msg.get("value"))
@@ -507,6 +611,20 @@ class CoreService:
     def _apply_voice_settings(self):
         """Голос: чувствительность «Сакура» — в слух, таблица замен — в агента."""
         items = self.settings.items()
+        if "voice_volume" in items:
+            try:
+                config.VOICE_VOLUME = int(items["voice_volume"])
+            except Exception:
+                pass
+        if "cable_volume" in items:
+            try:
+                config.CABLE_VOLUME = int(items["cable_volume"])
+            except Exception:
+                pass
+        if "stt_model" in items:
+            m = str(items["stt_model"] or "").strip().lower()
+            if m:
+                config.GIGAAM_MODEL = m
         agent = getattr(self, "_agent", None)
         hearing = getattr(agent, "hearing", None)
         if hearing is not None:
@@ -520,6 +638,83 @@ class CoreService:
         on = bool(msg.get("on"))
         self.bus.emit("game_mode", on=on)
         return {"on": on}
+
+    # ── Игры (desktop/core/game_director.py) ──
+    def _director(self):
+        d = getattr(self, "_games", None)
+        if d is None:
+            raise ApiError("unsupported", "игровой модуль ещё запускается")
+        return d
+
+    async def cmd_games_state(self, msg: dict):
+        from desktop.core import fullscreen
+        from desktop.core import game_integrations as gi
+        from desktop.core.game_presence import LEVEL_NAMES, LEVELS
+        d = getattr(self, "_games", None)
+        gsi = await asyncio.to_thread(lambda: [gi.gsi_status(g) for g in gi.GSI_GAMES])
+        return {
+            "session": d.snapshot() if d else {"active": False},
+            "levels": [{"id": lv, "name": LEVEL_NAMES[lv]} for lv in LEVELS],
+            "presence": self.settings.get("game_presence", {}) or {},
+            "presence_default": self.settings.get("game_presence_default", "reactions"),
+            "games": self.settings.get("game_processes", []) or [],
+            "not_games": self.settings.get("game_not_processes", []) or [],
+            "gsi": gsi,
+            "global_fso_disabled": await asyncio.to_thread(fullscreen.global_fso_disabled),
+        }
+
+    async def cmd_game_presence_set(self, msg: dict):
+        key = str(msg.get("key") or "").strip().lower()
+        if not key:
+            raise ApiError("bad_request", "нет key (exe игры)")
+        level = self._director().set_level(key, str(msg.get("level") or ""))
+        self._emit({"type": "settings", "settings": self.settings_snapshot()})
+        return {"key": key, "level": level}
+
+    async def cmd_game_mark(self, msg: dict):
+        """«Это игра» / «это не игра» для exe: списки game_processes / game_not_processes."""
+        exe = str(msg.get("exe") or "").strip().lower()
+        if not exe.endswith(".exe") or len(exe) > 120:
+            raise ApiError("bad_request", "нужно имя exe, например game.exe")
+        is_game = bool(msg.get("is_game", True))
+        games = [g for g in (self.settings.get("game_processes", []) or []) if g != exe]
+        not_games = [g for g in (self.settings.get("game_not_processes", []) or []) if g != exe]
+        (games if is_game else not_games).append(exe)
+        self.settings.set("game_processes", games)
+        self.settings.set("game_not_processes", not_games)
+        self._emit({"type": "settings", "settings": self.settings_snapshot()})
+        return {"games": games, "not_games": not_games}
+
+    async def cmd_gsi_install(self, msg: dict):
+        from desktop.core import game_integrations as gi
+        game = str(msg.get("game") or "")
+        if game not in gi.GSI_GAMES:
+            raise ApiError("bad_request", "игра: cs2 или dota2")
+        return await asyncio.to_thread(gi.install_gsi, game, self._director().gsi_token)
+
+    async def cmd_ink_test(self, msg: dict):
+        """«Проверить сцену»: обвести центр «экрана Сакуры» на 4 с — видно, тот ли монитор выбран."""
+        from desktop.core import screens
+        from desktop.core.features import get_ink_manager
+        b = screens.target()
+        w, h = (b.width, b.height) if b else (1920, 1080)
+        screens.note_shot_size(w, h)
+        cx, cy, r = w // 2, h // 2, min(w, h) // 8
+        shapes = (f"circle {cx - r} {cy - r} {cx + r} {cy + r};"
+                  f" arrow {cx - 3 * r} {cy - 2 * r} {cx - r} {cy - r // 2};"
+                  f" text {cx - r} {cy + r + 40} Я здесь ✿")
+        get_ink_manager().draw(shapes, duration=4)
+        return {"display": screens.describe()}
+
+    async def cmd_fullscreen_fix(self, msg: dict):
+        """Только по явному действию Мастера: снять «Отключить оптимизацию во весь экран»."""
+        from desktop.core import fullscreen
+        if msg.get("scope") == "global":
+            return await asyncio.to_thread(fullscreen.enable_global_fso)
+        path = str(msg.get("path") or "")
+        if not path.lower().endswith(".exe"):
+            raise ApiError("bad_request", "нужен путь к exe игры")
+        return await asyncio.to_thread(fullscreen.enable_fso_for, path)
 
     async def cmd_server(self, msg: dict):
         inner = msg.get("message")
@@ -782,6 +977,152 @@ class CoreService:
         except Exception as e:  # noqa: BLE001
             log.warning("[music] наблюдатель SMTC не запущен: %s", type(e).__name__)
 
+    def _start_companion_features(self):
+        """Автозапуск подсистем Capri Companion Suite при старте ядра."""
+        try:
+            from desktop.core.features import (
+                get_husk_manager, get_ink_manager, get_clip_buffer,
+                get_care_manager, get_lookout_engine
+            )
+            # 1. Husk manager (тело для AI-агентов)
+            husk = get_husk_manager()
+            husk.on_notify = lambda title, text: self._emit({"type": "notify", "text": f"{title}: {text}", "level": "info"})
+            def _husk_say(text: str):
+                self._emit({"type": "notify", "text": text, "level": "info"})
+                if self._agent and getattr(self._agent, "_state", "") not in ("speaking", "thinking"):
+                    prompt = f'[Оповещение]: Скажи голосом для Мастера: "{text}"'
+                    self._agent.submit_user_text(prompt, source="husk")
+            husk.on_say = _husk_say
+            husk.start()
+
+            # 2. Ink manager -> отправка событий рисования в UI
+            ink = get_ink_manager()
+            from desktop.core import screens
+            ink.on_render = lambda shapes: self._emit({
+                "type": "ink_render", "shapes": shapes, "space": screens.ink_space(),
+                "duration": getattr(ink.current_drawing, "duration", 10.0)})
+
+            # 3. Clip buffer -> фоновый буфер последних 30-60 секунд
+            clips = get_clip_buffer()
+            clips.start()
+
+            # 4. Care manager -> периодические напоминания
+            care = get_care_manager()
+            care.on_care_nudge = lambda k, msg: self._emit({"type": "notify", "text": f"Сакура: {msg}", "level": "info"})
+
+            # 5. Lookout engine
+            lookout = get_lookout_engine()
+            lookout.on_alert = lambda msg: self._emit({"type": "notify", "text": msg, "level": "info"})
+            # Текст экрана — встроенный OCR Windows по выбранному монитору (без сети).
+            from desktop.core import ocr
+            lookout.capture_func = ocr.screen_text
+
+            # 5b. Игры: определение по процессу, GameSense, игровые API, клипы, тильт, приглушение.
+            from desktop.core.game_director import GameDirector
+
+            def _send_game(msg: dict):
+                if self._agent is not None:
+                    self._agent.send_threadsafe({**msg, "device_id": config.DEVICE_ID, "token": config.WS_TOKEN.strip()})
+
+            self._games = GameDirector(self.settings, emit=self._emit, send_server=_send_game, bus=self.bus,
+                                       clips=clips)
+            self._games.start()
+
+            # 6. GameSense Runner (мгновенные игровые реакции: урон, вспышка, смерть)
+            from desktop.core.features import get_gamesense_runner
+            gs = get_gamesense_runner()
+
+            def _on_gamesense_reaction(ev, phrase):
+                self._emit({
+                    "type": "gamesense_event",
+                    "kind": ev.kind,
+                    "strength": ev.strength,
+                    "message": phrase,
+                })
+                if self._agent and getattr(self._agent, "_state", "") not in ("speaking", "thinking"):
+                    prompt = f'[Событие в игре ({ev.kind})]: Скажи эмоционально и коротко: "{phrase}"'
+                    self._agent.submit_user_text(prompt, source="game")
+
+            gs.on_reaction = _on_gamesense_reaction
+            gs.on_event = lambda ev: self._emit({
+                "type": "gamesense_event",
+                "kind": ev.kind,
+                "strength": ev.strength,
+                "message": ev.message,
+            })
+
+            def _on_bus_game_mode(data):
+                on = bool(data.get("on", False)) if isinstance(data, dict) else bool(data)
+                if on:
+                    gs.start()
+                    clips.start()
+                else:
+                    gs.stop()
+            self.bus.on("game_mode", _on_bus_game_mode)
+
+            # 6. Call Mode & Watch Along loopback speech listener (захват речи друга из Discord/видео)
+            from desktop.core.features import (
+                get_call_mode_manager, get_watch_along_manager, get_loopback_speech_listener
+            )
+            cm = get_call_mode_manager()
+            cm.on_say_in_call = lambda text: self._emit({"type": "notify", "text": f"Сакура (в звонок): {text}", "level": "info"})
+            cm.on_notify = lambda title, text: self._emit({"type": "notify", "text": f"{title}: {text}", "level": "info"})
+
+            wa = get_watch_along_manager()
+            wa.on_comment = lambda text: self._emit({"type": "notify", "text": f"Сакура: {text}", "level": "info"})
+
+            def _is_loopback_active():
+                return cm.active or wa.active
+
+            def _is_tts_playing():
+                if self._agent and getattr(self._agent, "player", None):
+                    return self._agent.player.is_playing()
+                return False
+
+            _last_caller_reply = 0.0
+            from desktop.core.discord_rpc import get_discord_rpc_manager
+            drpc = get_discord_rpc_manager()
+            drpc.start()
+
+            def _on_caller_speech(text: str):
+                nonlocal _last_caller_reply
+                clean = text.lower().strip()
+                import re
+                clean = re.sub(r'\bс[аоеи][кг]ур[а-я]*\b', 'сакура', clean)
+
+                # Имя и статус говорящего участника из Discord
+                speaker_name, speaker_id, is_master = drpc.get_active_speaker(include_self=False)
+                speaker_label = speaker_name or "Друг"
+
+                # 1. Уведомление в UI с конкретным именем участника
+                resp = cm.process_caller_speech(text, speaker_name=speaker_label)
+                now = time.monotonic()
+                has_sakura = bool(re.search(r'\bсакур[а-я]*\b', clean))
+
+                # 2. Если собеседник обратился к Сакуре («Сакура, ...»)
+                if has_sakura and not cm.held_request:
+                    if (now - _last_caller_reply) > 5.0:
+                        if self._agent and getattr(self._agent, "_state", "") not in ("thinking", "speaking"):
+                            _last_caller_reply = now
+                            if is_master:
+                                prompt = f"[В звонке Discord говорит Мастер]: \"{text}\". Ответь Мастеру."
+                            else:
+                                prompt = f"[В звонке Discord говорит {speaker_label}]: \"{text}\". Ответь {speaker_label} едко, с сарказмом и в характере Сакуры, коротко в 1 предложение, обратившись к нему по имени."
+                            self._agent.submit_user_text(prompt, source="call")
+
+            loopback = get_loopback_speech_listener()
+            loopback.is_active_fn = _is_loopback_active
+            loopback.is_muted_fn = _is_tts_playing
+            loopback.on_caller_speech = _on_caller_speech
+            loopback.on_watch_speech = lambda text: (wa.feed_speech(text), wa.maybe_comment())
+            if self._agent and getattr(self._agent, "hearing", None):
+                loopback.recognizer = getattr(self._agent.hearing, "recognizer", None)
+            loopback.start()
+
+            log.info("[companion] Все подсистемы Capri Suite (Husk, Ink, Clips, Care, Lookout, LoopbackSpeech) успешно запущены")
+        except Exception as e:
+            log.warning("[companion] Ошибка инициализации подсистем: %s", e)
+
     async def run(self, api_port: int = 0):
         await self.api.start(api_port)
         from desktop.core import support
@@ -797,6 +1138,9 @@ class CoreService:
             self._agent = await asyncio.to_thread(factory, self.bus, server_link=self.link)
             self._agent.media = self.media
             self._attach_vision()
+            from desktop.core import screens
+            screens.set_target(self.settings.get("target_display"))
+            self._start_companion_features()
             self._apply_voice_settings()
             self._emit({"type": "settings", "settings": self.settings_snapshot()})
         await self._agent.run()

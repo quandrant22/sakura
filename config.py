@@ -10,7 +10,7 @@ load_dotenv()
 log = logging.getLogger(__name__)
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-MASTER_ID      = int(os.getenv("MASTER_ID"))
+MASTER_ID      = int(os.getenv("MASTER_ID", "0"))
 HIMARI_ID      = int(os.getenv("HIMARI_ID", "0")) or None
 GROUP_CHAT_ID  = int(os.getenv("GROUP_CHAT_ID", "0")) or None
 UNSPLASH_KEY  = os.getenv("UNSPLASH_KEY", "")
@@ -47,7 +47,13 @@ MOOD_BROADCAST = os.getenv("MOOD_BROADCAST", "off").strip().lower() in ("1", "tr
 CONFIRM_LISTEN_SEC = float(os.getenv("CONFIRM_LISTEN_SEC", "10"))
 # Шлюз «классификатор ∥ голосовой стрим»: без вердикта дольше этого —
 # считаем «не команда» (adapters/voice.py VoiceGate).
-VOICE_GATE_WAIT_S = float(os.getenv("VOICE_GATE_WAIT_S", "4.0"))
+VOICE_GATE_WAIT_S = float(os.getenv("VOICE_GATE_WAIT_S", "3.0"))
+# LLM-разбор намерений (sakura_core/llm.py parse_intent): дольше не ждём —
+# роутер переходит на локальный разбор. Держать меньше VOICE_GATE_WAIT_S.
+INTENT_TIMEOUT_S = float(os.getenv("INTENT_TIMEOUT_S", "2.5"))
+# Стилизация справочного ответа команды (sakura_core/stylize.py): не успела —
+# звучит исходный текст.
+STYLIZE_TIMEOUT_S = float(os.getenv("STYLIZE_TIMEOUT_S", "0.8"))
 # Голосовые подтверждения команд агента (modules/acks.py): включены,
 # доля «сухих» реплик, через сколько без command_result сказать «Выполняю.».
 # computer.do / computer_step (агент сам управляет компьютером по шагам):
@@ -62,7 +68,7 @@ SECURE_CHANNEL = os.getenv("SECURE_CHANNEL", "off").strip().lower()
 SECURE_DIR = os.getenv("SECURE_DIR", "memory/secure")
 SECURE_BACKEND = os.getenv("SECURE_BACKEND", "lib").strip().lower()   # lib | edu
 # Адрес сервера для QR спаривания (клиент подключается к нему).
-SECURE_PUBLIC_URL = os.getenv("SECURE_PUBLIC_URL", "ws://31.76.80.5:8765")
+SECURE_PUBLIC_URL = os.getenv("SECURE_PUBLIC_URL", "wss://sub.kizune-ryoiki.ru/ws-f35dd3bb670e9cc3")
 # Журнал чата (modules/chat_log.py): SQLite вне git, права 600.
 CHAT_DB_PATH = os.getenv("CHAT_DB_PATH", "memory/chat.db")
 # 1 — запись журнала на паузе (как после команды «не записывай»).
@@ -90,7 +96,7 @@ TURN_TIMEOUT_MAX_S = 120.0
 WORK_LAPTOP_DEVICE = os.getenv("WORK_LAPTOP_DEVICE", "mostech").strip()
 ACKS_ENABLED = os.getenv("ACKS_ENABLED", "1").strip().lower() not in ("0", "false", "no", "")
 ACK_WIT_PROB = float(os.getenv("ACK_WIT_PROB", "0.1"))
-ACK_PENDING_S = float(os.getenv("ACK_PENDING_S", "2.0"))
+ACK_PENDING_S = float(os.getenv("ACK_PENDING_S", "1.2"))
 # Кэш озвученных фраз (modules/tts_cache.py), вне git.
 TTS_CACHE_DIR = os.getenv("TTS_CACHE_DIR", "memory/tts_cache")
 

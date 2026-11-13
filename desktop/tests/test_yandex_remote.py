@@ -156,7 +156,7 @@ def test_like_without_token_disabled():
     for op in ("like", "dislike", "lyrics"):
         out = run(remote(token="").control(op))
         assert out == {"ok": False, "status": "unsupported", "detail": TOKEN_HINT, "help": "token"}
-    assert "YANDEX_MUSIC_TOKEN" in TOKEN_HINT and r"C:\sakura-git\agent\.env" in TOKEN_HINT
+    assert "YANDEX_MUSIC_TOKEN" in TOKEN_HINT and "Секреты" in TOKEN_HINT
 
 
 def test_no_player_is_noop_and_open_app():

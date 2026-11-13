@@ -119,9 +119,9 @@ def test_shutdown_announces_pending_and_cancel(monkeypatch):
     events = []
     a = _agent()
     a.bus = SimpleNamespace(emit=lambda ev, **k: events.append((ev, k)))
-    monkeypatch.setattr(agent_mod, "execute_command", lambda full: {"result": "выключение через 30 с"})
+    monkeypatch.setattr(agent_mod, "execute_command", lambda full: {"result": "выключаю"})
     _run(a, "system.shutdown")
-    assert ("power_pending", {"action": "shutdown", "seconds": 30}) in events
+    assert ("power_pending", {"action": "shutdown", "seconds": 0}) in events
     a2 = _agent()
     a2.bus = a.bus
     monkeypatch.setattr(agent_mod, "execute_command", lambda full: {"result": "выключение отменено"})

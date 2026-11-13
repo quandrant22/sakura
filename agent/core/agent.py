@@ -98,6 +98,9 @@ for _a in _MUSIC_APP_ACTIONS:
 _MUSIC_INBOUND["music:wave"] = ("app", "music.wave", "music:wave")
 _MUSIC_INBOUND["music:play"] = ("app", "music.play", "music:play")
 _MUSIC_INBOUND["music:pause"] = ("app", "music.pause", "music:pause")
+_MUSIC_INBOUND["music.play_track"] = ("smtc", "music.play_track", "music_play_track")
+_MUSIC_INBOUND["music_play_track"] = ("smtc", "music.play_track", "music_play_track")
+_MUSIC_INBOUND["music:play_track"] = ("smtc", "music.play_track", "music_play_track")
 # легаси-имя волны из LLM-роутера v2: в v2 шло в music_command, которая его# не знала (мёртвый путь); теперь — в приложение, как music:wave
 _MUSIC_INBOUND["music_play_wave"] = ("app", "music.wave", "music_play_wave")
 
@@ -165,6 +168,8 @@ def _legacy_action(action: str, arg: str = "") -> str:
     # спрашивает сервер (executor, confirm: true) — агент выключает сразу.
     if domain == "system" and verb in ("shutdown", "restart", "sleep", "lock"):
         return f"system:{verb}"
+    if action == "music.play_track":
+        return f"music_play_track:{arg}" if arg else "music_play_track"
     return action
 
 
@@ -669,6 +674,8 @@ class Agent:
                 if _mbackend == "smtc":
                     # SMTC + Яндекс Музыка API
                     from core.music import music_command
+                    if _mcanon == "music.play_track" and arg and not _mlegacy.startswith("music_play_track:"):
+                        _mlegacy = f"music_play_track:{arg}"
                     log.info(f"[music] начата обработка {_mcanon} → {_mlegacy} (id={cmd_id})")
                     result = await asyncio.wait_for(music_command(_mlegacy), timeout=15.0)
                     result["action"] = _mlegacy
@@ -698,6 +705,11 @@ class Agent:
                         ok = await asyncio.to_thread(_ym.open_wave)
                         detail = "Моя волна" if ok else "не удалось открыть"
                     elif _mcanon == "music.play":
+                        if arg:
+                            from core.music import _ym_play_track
+                            res = await asyncio.to_thread(_ym_play_track, arg)
+                            await _send_ack(res.get("ok", False), res.get("result", ""), extra={"music": res})
+                            return
                         ok = await asyncio.to_thread(_ym.play_pause)
                         detail = "играет" if ok else "SMTC сессия не найдена"
                     elif _mcanon == "music.pause":

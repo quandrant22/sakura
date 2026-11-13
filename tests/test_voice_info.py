@@ -687,6 +687,19 @@ class TestYamusicApp(unittest.TestCase):
     graceful fallback + мокированный Windows-путь.
     """
 
+    def setUp(self):
+        # На Windows модуль видит настоящие SMTC, окна и os.startfile: без
+        # заглушек тесты открывали Яндекс Музыку и слали ей лайк/дизлайк.
+        # Запасной режим задаём явно; тесты Windows-пути подменяют нужное сами.
+        from agent.core import yamusic_app as ym
+        for target, name, value in ((ym, "_SMTC_OK", False), (ym, "_HAS_WIN32", False)):
+            patcher = patch.object(target, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        patcher = patch.object(os, "startfile", side_effect=OSError("нет"), create=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_now_playing_no_smtc_returns_empty(self):
         """На Linux без winsdk now_playing() → пустой dict, без исключений."""
         from agent.core import yamusic_app as ym

@@ -13,6 +13,9 @@ BLOCK = FRAMES * 2           # байт на вызов
 
 def make_player(monkeypatch, preroll_ms=0):
     monkeypatch.setattr(voice.config, "PLAYER_PREROLL_MS", preroll_ms, raising=False)
+    # Микшер громкости (VOICE_VOLUME, по умолчанию 50%) округлял бы тестовый
+    # сигнал амплитудой 1 до тишины — здесь проверяется буфер, а не громкость.
+    monkeypatch.setattr(voice.config, "VOICE_VOLUME", 100, raising=False)
     monkeypatch.setattr(voice.Player, "_open_stream", lambda self: None)
     monkeypatch.setattr(voice.threading, "Thread",
                         lambda *a, **k: type("T", (), {"start": lambda s: None})())

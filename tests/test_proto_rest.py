@@ -104,7 +104,8 @@ def test_profile_file_is_600_and_reapplied(tmp_path):
     import os
     import stat
     proto_profile.set_profile({"tone": "serious"})
-    assert stat.S_IMODE(os.stat(config.PROFILE_PATH).st_mode) == 0o600
+    if os.name != "nt":
+        assert stat.S_IMODE(os.stat(config.PROFILE_PATH).st_mode) == 0o600
     tts.TTS_TONE = "нейтрально"
     proto_profile.apply_saved()
     assert tts.TTS_TONE == "серьёзно"

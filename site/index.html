@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sakura AI — История создания и архитектура голосового ИИ-ассистента</title>
+  <meta name="description" content="Девлог и витрина проекта Sakura AI: от первого коммита до 165 000 строк кода, 140 возможностей реестра, сквозного шифрования Noise IK и 3297+ тестов.">
+  <link rel="icon" type="image/png" href="media/images/avatars/sakura-logo.png">
+  <link rel="stylesheet" href="styles/main.css">
+</head>
+<body>
+  <!-- Floating Sakura Petals Canvas -->
+  <canvas id="petals-canvas"></canvas>
+
+  <div class="content-wrapper">
+    <!-- NAVIGATION BAR -->
+    <header class="navbar">
+      <div class="container nav-container">
+        <a href="#hero" class="brand">
+          <img src="media/images/avatars/sakura-logo.png" alt="Sakura Logo" class="brand-icon">
+          <div class="brand-text">
+            <h1>SAKURA AI</h1>
+            <span>DEVLOG & ARCHITECTURE</span>
+          </div>
+        </a>
+
+        <ul class="nav-menu">
+          <li><a href="#hero" class="nav-link active">Главная</a></li>
+          <li><a href="#timeline" class="nav-link">Хроника Git</a></li>
+          <li><a href="#architecture" class="nav-link">Архитектура</a></li>
+          <li><a href="#simulator" class="nav-link">Симулятор Ядра</a></li>
+          <li><a href="#videos" class="nav-link">Медиатека</a></li>
+          <li><a href="#gallery" class="nav-link">Аватары</a></li>
+          <li><a href="#nginx" class="nav-link">Nginx Deploy</a></li>
+        </ul>
+
+        <div class="nav-status-badge">
+          <span class="status-dot"></span>
+          <span>Noise_IK Active • 3297 Tests Green</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- HERO SECTION -->
+    <section id="hero" class="hero">
+      <div class="container">
+        <div class="hero-grid">
+          <div class="hero-text">
+            <div class="hero-badge-pill">
+              <span>🌸 СИСТЕМА v3.8.4</span>
+              <span>•</span>
+              <span>ZERO-TRUST ГОЛОСОВОЙ АССИСТЕНТ</span>
+            </div>
+
+            <h1 class="hero-title">
+              История создания и архитектура <span class="text-gradient-sakura">Sakura AI</span>
+            </h1>
+
+            <p class="hero-desc">
+              Глубокая инженерная хроника создания персонального голосового компаньона: от первого коммита в июле 2026 года до 165 000 строк кода, 140 модулей управления Windows и VPS, криптографического протокола <strong>Noise_IK</strong> с формальной верификацией в <strong>ProVerif</strong> и рекордных <strong>3 297+</strong> автоматических тестов без единой регрессии.
+            </p>
+
+            <div class="hero-actions">
+              <a href="#timeline" class="btn btn-primary">
+                <span>📖 Читать летопись Git</span>
+                <span>→</span>
+              </a>
+              <a href="#architecture" class="btn btn-secondary">
+                <span>⚙️ Изучить архитектуру</span>
+              </a>
+            </div>
+          </div>
+
+          <!-- Hero Video Showcase Player -->
+          <div class="hero-player-box">
+            <div class="player-header">
+              <div class="player-title">
+                <span style="color: var(--accent-pink);">▶</span>
+                <span id="player-current-title">Голосовой HUD и аудио-волна (GigaAM + Silero VAD)</span>
+              </div>
+              <div class="video-tabs">
+                <button class="v-tab-btn active" data-video="hud">HUD Голос</button>
+                <button class="v-tab-btn" data-video="noise">Noise IK</button>
+                <button class="v-tab-btn" data-video="tests">3297 Тестов</button>
+              </div>
+            </div>
+
+            <div class="video-container">
+              <video id="hero-main-video" controls autoplay muted loop playsinline poster="media/images/avatars/speaking.png">
+                <source src="media/videos/sakura-hud-voice-core.mp4" type="video/mp4">
+                <source src="media/videos/sakura-hud-voice-core.webm" type="video/webm">
+                Ваш браузер не поддерживает видео HTML5.
+              </video>
+            </div>
+
+            <div class="video-meta-bar">
+              <span id="player-current-meta">1080p Full HD • H.264 / VP8 • 12 Мбит/с</span>
+              <span style="color: var(--accent-green);">● HTTP 206 Streaming Ready</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- LIVE PROJECT METRICS -->
+    <section class="metrics-section">
+      <div class="container">
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-value" data-target="165768">0</div>
+            <div class="metric-label">Строк исходного кода</div>
+            <div class="metric-sub">Python, React TSX, ProVerif</div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-value" data-target="140">0</div>
+            <div class="metric-label">Модулей и возможностей</div>
+            <div class="metric-sub">Реестр capabilities.yaml</div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-value" data-target="3297" data-suffix="+">0</div>
+            <div class="metric-label">Проходящих автотестов</div>
+            <div class="metric-sub">100% Green, 0 регрессий</div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-value" data-target="320" data-suffix=" мс">0</div>
+            <div class="metric-label">Сквозной отклик TTS</div>
+            <div class="metric-sub">Time to First Chunk</div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-value">Noise_IK</div>
+            <div class="metric-label">Сквозное шифрование</div>
+            <div class="metric-sub">ProVerif Proofs True</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SAKURA CORE SIMULATOR WIDGET -->
+    <section id="simulator" class="simulator-section">
+      <div class="container">
+        <div class="sim-box">
+          <div class="sim-visual">
+            <canvas id="core-canvas"></canvas>
+            <div class="sim-state-badge">
+              <span class="status-dot"></span>
+              <span id="sim-state-text" class="sim-state-text">Онлайн (待機中)</span>
+              <span id="sim-state-kana" class="sim-state-kana">待機中</span>
+            </div>
+          </div>
+
+          <div class="sim-controls">
+            <div class="section-tag">Интерактивный виджет</div>
+            <h3>Симулятор ядра Сакуры (SakuraCore)</h3>
+            <p>
+              Живой рендер графического ядра Сакуры, в точности воспроизводящий математическую модель 
+              <code>coreFrame.ts</code> и оверлей рабочего стола. Переключайте эмоциональные состояния и управляйте уровнем звука:
+            </p>
+
+            <div class="state-buttons-grid">
+              <button class="state-btn active" data-state="idle">
+                <span>🌸 Ожидание (待機中)</span>
+                <span style="color: var(--accent-pink);">#FF6AE3</span>
+              </button>
+              <button class="state-btn" data-state="listening">
+                <span>🎙️ Слушаю (聴取中)</span>
+                <span style="color: var(--accent-cyan);">#4FD8FF</span>
+              </button>
+              <button class="state-btn" data-state="thinking">
+                <span>🧠 Думаю (思考中)</span>
+                <span style="color: var(--accent-gold);">#FFCF6B</span>
+              </button>
+              <button class="state-btn" data-state="speaking">
+                <span>💬 Говорю (発話中)</span>
+                <span style="color: #FF7EB9;">#FF7EB9</span>
+              </button>
+              <button class="state-btn" data-state="offline" style="grid-column: span 2;">
+                <span>🔌 Нет связи (切断)</span>
+                <span style="color: #6B6475;">#6B6475</span>
+              </button>
+            </div>
+
+            <div class="audio-slider-group">
+              <div class="slider-label">
+                <span>Амплитуда звукового сигнала (Level):</span>
+                <span id="slider-val-text" style="color: var(--accent-pink);">20%</span>
+              </div>
+              <input type="range" id="audio-level-slider" class="slider-input" min="0" max="1" step="0.01" value="0.2">
+              <div style="margin-top: 14px; text-align: right;">
+                <button id="toggle-mic-btn" class="btn btn-secondary" style="padding: 6px 14px; font-size: 0.85rem;">
+                  Включить симуляцию речи
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- GIT TIMELINE & CHRONICLES -->
+    <section id="timeline" class="timeline-section">
+      <div class="container">
+        <div class="section-header">
+          <div class="section-tag">Летопись разработки</div>
+          <h2 class="section-title">Хроника Git: от первого коммита до рекордов</h2>
+          <p class="section-desc">
+            Реальная история 678 коммитов: инженерные развилки, архитектурные кризисы, побеждённые баги и эволюция Сакуры через 5 ключевых исторических эпох.
+          </p>
+        </div>
+
+        <div style="margin-bottom: 40px; text-align: center;">
+          <img src="media/images/charts/git-commits-timeline.png" alt="График роста коммитов Git" style="max-width: 100%; border-radius: var(--radius-md); box-shadow: var(--shadow-card); border: 1px solid var(--border-subtle);">
+        </div>
+
+        <!-- Timeline Epoch Filter Buttons -->
+        <div class="timeline-filters">
+          <button class="filter-btn active" data-epoch="all">Все эпохи (678 коммитов)</button>
+          <button class="filter-btn" data-epoch="epoch-1">Эпоха 1: Рождение ядра (Июль 2026)</button>
+          <button class="filter-btn" data-epoch="epoch-2">Эпоха 2: Голос и Личность (Август 2026)</button>
+          <button class="filter-btn" data-epoch="epoch-3">Эпоха 3: NLU & Fast-Path (Сентябрь 2026)</button>
+          <button class="filter-btn" data-epoch="epoch-4">Эпоха 4: Крипта & Desktop (Октябрь 2026)</button>
+          <button class="filter-btn" data-epoch="epoch-5">Эпоха 5: Capri Suite & Рекорд (Ноябрь 2026)</button>
+        </div>
+
+        <!-- Vertical Timeline Items -->
+        <div class="timeline">
+          <!-- Commit 1 -->
+          <div class="timeline-item left" data-epoch="epoch-1">
+            <div class="timeline-dot"></div>
+            <div class="timeline-card">
+              <span class="timeline-epoch-badge epoch-1">ЭПОХА 1 • ЗАРОЖДЕНИЕ ЯДРА</span>
+              <div class="timeline-date">3 июля 2026, 10:43 MSK</div>
+              <h3 class="timeline-title">Первый коммит: рождение агента Sakura AI</h3>
+              <div class="timeline-commit-pill">commit: fe7d70d</div>
+              <p class="timeline-desc">
+                Закладка фундамента проекта. Создание первоначального асинхронного каркаса на Python, базовой интеграции с Vosk STT, простейшего синтеза речи и ядра <code>state_arbiter</code>. Сакура впервые заговорила на локальном ПК, откликаясь на своё имя.
+              </p>
+              <div class="timeline-tech-details">
+                <strong>Инженерная проблема:</strong> Диспетчеризация команд конфликтовала с потоком распознавания Vosk; высокая задержка эхо-ответа.<br>
+                <strong>Решение:</strong> Разделение циклов захвата звука и исполнения команд, внедрение базового диспетчера.
+              </div>
+            </div>
+          </div>
+
+          <!-- Commit 2 -->
+          <div class="timeline-item right" data-epoch="epoch-1">
+            <div class="timeline-dot"></div>
+            <div class="timeline-card">
+              <span class="timeline-epoch-badge epoch-1">ЭПОХА 1 • ЗАРОЖДЕНИЕ ЯДРА</span>
+              <div class="timeline-date">18 июля 2026, 14:20 MSK</div>
+              <h3 class="timeline-title">Task Planner и единый блок «СОСТОЯНИЕ»</h3>
+              <div class="timeline-commit-pill">commit: 27664bd • 01098c1</div>
+              <p class="timeline-desc">
+                Внедрение <code>state_arbiter</code> для системного промпта. Сакура перестала быть абстрактным чат-ботом: она научилась осознавать, какие окна открыты у пользователя, какое аудио воспроизводится и чем занят процессор. Появление механизма автообучения синонимам и планировщика задач.
+              </p>
+              <div class="timeline-tech-details">
+                <strong>Инженерная проблема:</strong> Утечки памяти при частых опросах Win32 API и ложные срабатывания триггеров.<br>
+                <strong>Решение:</strong> Кэширование списка приложений на диске, фильтрация неактивных процессов и нормализация кириллицы.
+              </div>
+            </div>
+          </div>
+
+          <!-- Commit 3 -->
+          <div class="timeline-item left" data-epoch="epoch-2">
+            <div class="timeline-dot"></div>
+            <div class="timeline-card">
+              <span class="timeline-epoch-badge epoch-2">ЭПОХА 2 • ГОЛОС И ЛИЧНОСТЬ</span>
+              <div class="timeline-date">12 августа 2026, 19:40 MSK</div>
+              <h3 class="timeline-title">Революция TTS: стриминговый конвейер и интонации [ТОН:]</h3>
+              <div class="timeline-commit-pill">commit: 3cc8260 • e508bf1 • d0c2c97</div>
+              <p class="timeline-desc">
+                Переход от монолитной генерации аудио к непрерывному конвейеру Producer-Consumer на <code>asyncio.Queue</code>. Задержка до первого произнесённого слога рухнула с 3.5 секунд до сотен миллисекунд. Внедрение эмоциональных интонационных ремарок <code>[ТОН:]</code> (ирония, строгость, нежность), которые автоматически вырезаются из озвучки.
+              </p>
+              <div class="timeline-tech-details">
+                <strong>Инженерная проблема:</strong> Крупные текстовые буферы вызывали паузы («заикания») в речи при длинных ответах.<br>
+                <strong>Решение:</strong> Агрессивный чанкинг по границам предложений (порог 80–150 символов) и удержание единой Live-сессии.
+              </div>
+            </div>
+          </div>
+
+          <!-- Commit 4 -->
+          <div class="timeline-item right" data-epoch="epoch-2">
+            <div class="timeline-dot"></div>
+            <div class="timeline-card">
+              <span class="timeline-epoch-badge epoch-2">ЭПОХА 2 • ГОЛОС И ЛИЧНОСТЬ</span>
+              <div class="timeline-date">24 августа 2026, 21:15 MSK</div>
+              <h3 class="timeline-title">Переход на db.py и изоляция режима 18+</h3>
+              <div class="timeline-commit-pill">commit: 3e01f98 • 0dc2b6b • ad98295</div>
+              <p class="timeline-desc">
+                Масштабный рефакторинг памяти: разделение на оперативный слой (working) и долговременную базу (long_term). Внедрение Steam API с трекингом ачивок и игровых сессий. Реализация строгого барьера интимного режима (Intimacy Mode): приватные разговоры изолированы от долговременной памяти и никогда не загрязняют рабочий контекст.
+              </p>
+              <div class="timeline-tech-details">
+                <strong>Инженерная проблема:</strong> Ночной цикл рефлексии подтягивал в рабочую память личные шутки и интимные ремарки.<br>
+                <strong>Решение:</strong> Архитектурный Write Gate: флаг изоляции блокирует запись в персистентную базу на уровне БД-адаптера.
+              </div>
+            </div>
+          </div>
+
+          <!-- Commit 5 -->
+          <div class="timeline-item left" data-epoch="epoch-3">
+            <div class="timeline-dot"></div>
+            <div class="timeline-card">
+              <span class="timeline-epoch-badge epoch-3">ЭПОХА 3 • NLU & FAST-PATH</span>
+              <div class="timeline-date">17 сентября 2026, 08:27 MSK</div>
+              <h3 class="timeline-title">v3 Fast-Path роутер и Яндекс Музыка</h3>
+              <div class="timeline-commit-pill">commit: ceee791 • 440431f • 2ffe47d</div>
+              <p class="timeline-desc">
+                Создание сверхбыстрого маршрутизатора <code>v3_fast_path</code>. 90% стандартных команд (музыка, приложения, громкость, окна) исполняются за 1.8 мс без обращения к нейросети! Реверс-инжиниринг управления Яндекс Музыкой через WinRT SMTC и локальные хуки. Интеграция расписания пар университета (МУИВ/ЭИОС).
+              </p>
+              <div class="timeline-tech-details">
+                <strong>Инженерная проблема:</strong> Ожидание ответа LLM в 1.5–2 секунды для банальной команды «громче» раздражало.<br>
+                <strong>Решение:</strong> Регулярные выражения со стеммингом и прекомпилированными таблицами синонимов перед вызовом LLM.
+              </div>
+            </div>
+          </div>
+
+          <!-- Commit 6 -->
+          <div class="timeline-item right" data-epoch="epoch-4">
+            <div class="timeline-dot"></div>
+            <div class="timeline-card">
+              <span class="timeline-epoch-badge epoch-4">ЭПОХА 4 • КРИПТА & DESKTOP</span>
+              <div class="timeline-date">12 октября 2026, 13:22 MSK</div>
+              <h3 class="timeline-title">Великая унификация: отказ от PyQt и переход на Electron Desktop</h3>
+              <div class="timeline-commit-pill">commit: 9255ada • 064429a • 2d7a444</div>
+              <p class="timeline-desc">
+                Старый клиент <code>agent/</code> на PyQt6 полностью заменён на единый ультрасовременный десктопный клиент <code>desktop/</code> на стеке Electron + Vite + React + Tailwind CSS. Решение проблемы «двух ядер» через файловый мьютекс <code>core.lock</code> с PID владельца. Полноэкранный оверлей, виджеты и интеграция расширения Chrome.
+              </p>
+              <div class="timeline-tech-details">
+                <strong>Инженерная проблема:</strong> Фоновые процессы-сироты блокировали порты; Vite dev-сервер слушал IPv6 ::1, а wait-on ждал 127.0.0.1.<br>
+                <strong>Решение:</strong> Чёткая фиксация IPv4 на 127.0.0.1, кросс-платформенный лаунчер с PID-стражем и корректный teardown.
+              </div>
+            </div>
+          </div>
+
+          <!-- Commit 7 -->
+          <div class="timeline-item left" data-epoch="epoch-4">
+            <div class="timeline-dot"></div>
+            <div class="timeline-card">
+              <span class="timeline-epoch-badge epoch-4">ЭПОХА 4 • КРИПТА & DESKTOP</span>
+              <div class="timeline-date">20 октября 2026, 19:15 MSK</div>
+              <h3 class="timeline-title">Криптографическая броня: протокол Noise_IK и верификация в ProVerif</h3>
+              <div class="timeline-commit-pill">commit: bef6346 • a552bfc • a35ceb1</div>
+              <p class="timeline-desc">
+                Полный отказ от небезопасных Bearer-токенов в пользу криптографического протокола <code>securechannel/1</code> на базе <code>Noise_IK_25519_ChaChaPoly_BLAKE2s</code>. Ключ устройства защищён аппаратным Windows DPAPI. Спаривание по 8-словной мнемонике (BIP-39) или QR <code>sakura-pair://1</code>. Формальное математическое доказательство стойкости протокола в анализаторе <strong>ProVerif</strong> с интеграцией в CI GitHub Actions.
+              </p>
+              <div class="timeline-tech-details">
+                <strong>Инженерная проблема:</strong> Опасность перехвата трафика и replay-атак при взломе TLS-прокси.<br>
+                <strong>Решение:</strong> Сквозное шифрование ChaCha20-Poly1305, скользящее окно anti-replay на 64 кадра и строгий запрет отката (код 4412).
+              </div>
+            </div>
+          </div>
+
+          <!-- Commit 8 -->
+          <div class="timeline-item right" data-epoch="epoch-5">
+            <div class="timeline-dot"></div>
+            <div class="timeline-card">
+              <span class="timeline-epoch-badge epoch-5">ЭПОХА 5 • CAPRI SUITE & РЕКОРД</span>
+              <div class="timeline-date">6 ноября 2026, 18:30 MSK</div>
+              <h3 class="timeline-title">Capri Companion Suite: Screen Ink, GameSense и звонки Discord</h3>
+              <div class="timeline-commit-pill">commit: 0f4811a • 4cd90a3 • 73ebe37 • 43a53e7</div>
+              <p class="timeline-desc">
+                Интеграция игрового набора Capri: оверлей Screen Ink с 35+ векторными фигурами и процедурными голограммами, GameSense HUD с автоматической адаптацией под 23 игры (Dota 2, CS2, Cyberpunk 2077, Remnant, Elden Ring), циклический буфер записи последних 30 секунд геймплея. Режим Call Mode с распознаванием голосов друзей через локальный Discord RPC.
+              </p>
+              <div class="timeline-tech-details">
+                <strong>Инженерная проблема:</strong> Двойной захват звука создавал бесконечную петлю прослушивания собственного голоса Сакуры в звонке.<br>
+                <strong>Решение:</strong> Исключение собственного Discord User ID из цикла слушателя и фильтрация loopback-потока.
+              </div>
+            </div>
+          </div>
+
+          <!-- Commit 9 -->
+          <div class="timeline-item left" data-epoch="epoch-5">
+            <div class="timeline-dot"></div>
+            <div class="timeline-card">
+              <span class="timeline-epoch-badge epoch-5">ЭПОХА 5 • CAPRI SUITE & РЕКОРД</span>
+              <div class="timeline-date">11 ноября 2026, 23:40 MSK</div>
+              <h3 class="timeline-title">Переход на GigaAM v2_ctc и взятие планки 3297+ тестов</h3>
+              <div class="timeline-commit-pill">commit: 831c82e • 332a27d • 23338c0</div>
+              <p class="timeline-desc">
+                Замена распознавания речи на нейросетевую модель <strong>GigaAM v2_ctc</strong> с нормализацией ASR и анти-алиасинговым ресемплингом torchaudio. Полное устранение искажений и клиппинга. Выход на рекордные <strong>3 297+</strong> непрерывно проходящих автоматических тестов в CI: покрытие ядра, десктопа, агента и формальных криптографических теорем.
+              </p>
+              <div class="timeline-tech-details">
+                <strong>Инженерная проблема:</strong> Редкие речевые огрехи распознавателя приводили к случайному вызову рисования нот на экране.<br>
+                <strong>Решение:</strong> Введение строгого маркера намерения (explicit drawing intent) и ретестирование всей матрицы команд.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ARCHITECTURE DEEP DIVE -->
+    <section id="architecture" class="arch-section">
+      <div class="container">
+        <div class="section-header">
+          <div class="section-tag">Инженерная архитектура</div>
+          <h2 class="section-title">Анатомия Сакуры: модули и подсистемы</h2>
+          <p class="section-desc">
+            Изучите внутреннее устройство ключевых подсистем голосового ассистента через интерактивные вкладки, схематические диаграммы и технические спецификации.
+          </p>
+        </div>
+
+        <!-- Arch Tab Buttons -->
+        <div class="arch-tabs">
+          <button class="arch-tab-btn active" data-panel="panel-voice">
+            <span>🎙️</span>
+            <span>Голосовой конвейер</span>
+          </button>
+          <button class="arch-tab-btn" data-panel="panel-crypto">
+            <span>🛡️</span>
+            <span>Криптография Noise IK</span>
+          </button>
+          <button class="arch-tab-btn" data-panel="panel-hands">
+            <span>🖥️</span>
+            <span>Desktop & Windows Hands</span>
+          </button>
+          <button class="arch-tab-btn" data-panel="panel-memory">
+            <span>🧠</span>
+            <span>Память & Граф знаний</span>
+          </button>
+          <button class="arch-tab-btn" data-panel="panel-capri">
+            <span>🎮</span>
+            <span>Capri Companion Suite</span>
+          </button>
+        </div>
+
+        <!-- Panel 1: Voice Core -->
+        <div id="panel-voice" class="arch-panel active">
+          <div class="arch-grid">
+            <div class="arch-content">
+              <h3>Голосовой конвейер реального времени</h3>
+              <p>
+                Архитектура построена на принципе ультранизкой задержки: сквозное время от окончания реплики пользователя до первого произнесенного звука ответа составляет рекордные <strong>320–480 мс</strong>.
+              </p>
+
+              <ul class="feature-list">
+                <li class="feature-item">
+                  <span class="feature-icon">✨</span>
+                  <div><strong>GigaAM v2_ctc ASR:</strong> Нейросетевое распознавание русской речи без облачных задержек с нормализацией числительных и имён.</div>
+                </li>
+                <li class="feature-item">
+                  <span class="feature-icon">⚡</span>
+                  <div><strong>Silero VAD v6.2:</strong> Мгновенная детекция пауз и начала речи с динамическим расчётом порога шума (RMS dB).</div>
+                </li>
+                <li class="feature-item">
+                  <span class="feature-icon">🛑</span>
+                  <div><strong>Barge-in (перебивание):</strong> Любая команда «стоп» или «хватит» за 15 мс обнуляет очередь воспроизведения и глушит звук.</div>
+                </li>
+                <li class="feature-item">
+                  <span class="feature-icon">🌊</span>
+                  <div><strong>Live TTS Streaming:</strong> Конвейер Producer-Consumer на <code>asyncio.Queue</code> с порциями по 80 символов исключает паузы в речи.</div>
+                </li>
+              </ul>
+
+              <div style="font-family: var(--font-mono); font-size: 0.85rem; color: var(--accent-cyan); background: var(--bg-tertiary); padding: 12px 18px; border-radius: var(--radius-sm); border-left: 3px solid var(--accent-cyan);">
+                Пайплайн: WASAPI Loopback ➔ Silero VAD ➔ GigaAM ➔ Fast-Path ➔ Live TTS ➔ Speakers / VB-CABLE
+              </div>
+            </div>
+
+            <div class="arch-media-box">
+              <img src="media/images/diagrams/voice-pipeline.png" alt="Диаграмма голосового конвейера">
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel 2: Cryptography & Noise IK -->
+        <div id="panel-crypto" class="arch-panel">
+          <div class="arch-grid">
+            <div class="arch-content">
+              <h3>Криптографическая защита: Noise_IK</h3>
+              <p>
+                Вместо уязвимых Bearer-токенов в Sakura AI реализован сквозной криптографический протокол <code>securechannel/1</code> на базе фреймворка Noise Protocol (используется в WireGuard и Signal).
+              </p>
+
+              <ul class="feature-list">
+                <li class="feature-item">
+                  <span class="feature-icon">🔑</span>
+                  <div><strong>Примитивы:</strong> Кривая Curve25519 (ECDH), шифр ChaCha20-Poly1305 (AEAD) и хеширование BLAKE2s.</div>
+                </li>
+                <li class="feature-item">
+                  <span class="feature-icon">🔒</span>
+                  <div><strong>Хранение ключей:</strong> Приватный ключ ПК зашифрован через Windows DPAPI и никогда не покидает память в открытом виде.</div>
+                </li>
+                <li class="feature-item">
+                  <span class="feature-icon">🛡️</span>
+                  <div><strong>Anti-Replay Window:</strong> Скользящее окно на 64 кадра блокирует атаки воспроизведения и подмены сообщений.</div>
+                </li>
+                <li class="feature-item">
+                  <span class="feature-icon">✅</span>
+                  <div><strong>Верификация в ProVerif:</strong> Модели <code>ik.pv</code> и <code>xxpsk3.pv</code> математически доказали абсолютную тайну ключей и взаимную подлинность.</div>
+                </li>
+              </ul>
+
+              <div style="font-family: var(--font-mono); font-size: 0.85rem; color: var(--accent-green); background: rgba(16, 185, 129, 0.12); padding: 12px 18px; border-radius: var(--radius-sm); border: 1px solid var(--accent-green);">
+                Спаривание: 8-словный одноразовый секрет (BIP-39) или QR sakura-pair://1. Токены устранены навсегда.
+              </div>
+            </div>
+
+            <div class="arch-media-box">
+              <img src="media/images/diagrams/noise-handshake.png" alt="Схема криптографического рукопожатия Noise IK">
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel 3: Desktop & Hands -->
+        <div id="panel-hands" class="arch-panel">
+          <div class="arch-grid">
+            <div class="arch-content">
+              <h3>Desktop ядро и управление Windows</h3>
+              <p>
+                Единый современный десктопный клиент <code>desktop/</code> объединяет движок Electron, UI на React + Tailwind CSS и модуль Windows Hands, предоставляющий 140 возможностей прямого управления ОС.
+              </p>
+
+              <ul class="feature-list">
+                <li class="feature-item">
+                  <span class="feature-icon">🎛️</span>
+                  <div><strong>Реестр capabilities.yaml:</strong> 140 документированных действий (окна, файлы, громкость, мониторы, питание, процессы).</div>
+                </li>
+                <li class="feature-item">
+                  <span class="feature-icon">🔒</span>
+                  <div><strong>Защита от гонки:</strong> Файловый мьютекс <code>core.lock</code> с PID исключает запуск дублирующих процессов ядра.</div>
+                </li>
+                <li class="feature-item">
+                  <span class="feature-icon">🎵</span>
+                  <div><strong>Яндекс Музыка SMTC:</strong> Нативное управление плеером Windows через System Media Transport Controls и WinRT.</div>
+                </li>
+                <li class="feature-item">
+                  <span class="feature-icon">🤖</span>
+                  <div><strong>Автономный агент Gemma 4:</strong> Заполнение форм, прохождение онлайн-тестов и навигация в веб-браузере.</div>
+                </li>
+              </ul>
+            </div>
+
+            <div class="arch-media-box">
+              <img src="media/images/charts/loc-breakdown.png" alt="Диаграмма кодовой базы и структуры автотестов">
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel 4: Memory & Knowledge Graph -->
+        <div id="panel-memory" class="arch-panel">
+          <div class="arch-grid">
+            <div class="arch-content">
+              <h3>Двухуровневая память и Граф знаний</h3>
+              <p>
+                Сакура помнит важные детали о пользователе, расписание занятий, любимые треки и историю задач благодаря векторному графу на базе расширения <code>sqlite-vec</code>.
+              </p>
+
+              <ul class="feature-list">
+                <li class="feature-item">
+                  <span class="feature-icon">💭</span>
+                  <div><strong>Working Memory:</strong> Оперативный контекст разговора, активное окно, игра и недавние фразы (антиповтор).</div>
+                </li>
+                <li class="feature-item">
+                  <span class="feature-icon">📚</span>
+                  <div><strong>Long-Term Vector Graph:</strong> Семантический векторный поиск по фактам, заметкам и предпочтениям без задержек.</div>
+                </li>
+                <li class="feature-item">
+                  <span class="feature-icon">🌙</span>
+                  <div><strong>Night Reflection Loop:</strong> Фоновый ночной цикл консолидации памяти, объединяющий разрозненные события в устойчивые факты.</div>
+                </li>
+                <li class="feature-item">
+                  <span class="feature-icon">🛡️</span>
+                  <div><strong>Изоляция режима 18+:</strong> Абсолютная граница приватности: интимные сценарии физически не попадают в базу фактов.</div>
+                </li>
+              </ul>
+            </div>
+
+            <div class="arch-media-box">
+              <img src="media/images/diagrams/companion-and-memory.png" alt="Схема памяти и Capri Companion">
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel 5: Capri Companion Suite -->
+        <div id="panel-capri" class="arch-panel">
+          <div class="arch-grid">
+            <div class="arch-content">
+              <h3>Capri Companion Suite: Гейминг и Звонки</h3>
+              <p>
+                Комплекс интерактивных оверлеев и игровых инструментов превращает Сакуру в полноценного напарника в играх и голосовых каналах Discord.
+              </p>
+
+              <ul class="feature-list">
+                <li class="feature-item">
+                  <span class="feature-icon">🎮</span>
+                  <div><strong>GameSense HUD:</strong> Оптимизирован под 23 игры (Dota 2, CS2, Cyberpunk 2077, Remnant, Elden Ring, Terraria).</div>
+                </li>
+                <li class="feature-item">
+                  <span class="feature-icon">✍️</span>
+                  <div><strong>Screen Ink (35+ фигур):</strong> Рисование векторов и голограмм поверх любого экрана по голосовой просьбе без цензурных лекций.</div>
+                </li>
+                <li class="feature-item">
+                  <span class="feature-icon">📹</span>
+                  <div><strong>Rolling 30s Clips:</strong> Кольцевой аппаратный буфер последних 30 секунд: команда «сохрани клип» мгновенно сохраняет хайлайт.</div>
+                </li>
+                <li class="feature-item">
+                  <span class="feature-icon">🎧</span>
+                  <div><strong>Call Mode & Discord RPC:</strong> Подключение к звонку через VB-CABLE и определение, кто именно из друзей говорит в данный момент.</div>
+                </li>
+              </ul>
+            </div>
+
+            <div class="arch-media-box">
+              <img src="media/images/diagrams/companion-and-memory.png" alt="Архитектура Capri Companion Suite">
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- AVATAR & MOOD GALLERY -->
+    <section id="gallery" class="avatars-section">
+      <div class="container">
+        <div class="section-header">
+          <div class="section-tag">Визуальный образ</div>
+          <h2 class="section-title">Галерея эмоциональных состояний</h2>
+          <p class="section-desc">
+            Оригинальные графические ассеты рендерера Сакуры, используемые в экранном HUD и системном трее.
+          </p>
+        </div>
+
+        <div class="avatars-grid">
+          <div class="avatar-card">
+            <div class="avatar-img-wrap">
+              <img src="media/images/avatars/idle.png" alt="Idle state">
+            </div>
+            <h4 class="avatar-title">Ожидание</h4>
+            <div class="avatar-kana">待機中 • IDLE</div>
+            <p class="avatar-desc">Спокойное дыхание ядра. Готовность мгновенно уловить ключевое слово «Сакура» через Silero VAD.</p>
+          </div>
+
+          <div class="avatar-card">
+            <div class="avatar-img-wrap" style="border-color: var(--accent-cyan);">
+              <img src="media/images/avatars/listening.png" alt="Listening state">
+            </div>
+            <h4 class="avatar-title">Слушаю</h4>
+            <div class="avatar-kana" style="color: var(--accent-cyan);">聴取中 • LISTENING</div>
+            <p class="avatar-desc">Активный захват аудио через WASAPI Loopback и распознавание фразы нейросетью GigaAM v2_ctc.</p>
+          </div>
+
+          <div class="avatar-card">
+            <div class="avatar-img-wrap" style="border-color: var(--accent-gold);">
+              <img src="media/images/avatars/thinking.png" alt="Thinking state">
+            </div>
+            <h4 class="avatar-title">Думаю</h4>
+            <div class="avatar-kana" style="color: var(--accent-gold);">思考中 • THINKING</div>
+            <p class="avatar-desc">Маршрутизация в Fast-Path или обращение к LLM-классификатору для планирования ответа.</p>
+          </div>
+
+          <div class="avatar-card">
+            <div class="avatar-img-wrap" style="border-color: #FF7EB9;">
+              <img src="media/images/avatars/speaking.png" alt="Speaking state">
+            </div>
+            <h4 class="avatar-title">Говорю</h4>
+            <div class="avatar-kana" style="color: #FF7EB9;">発話中 • SPEAKING</div>
+            <p class="avatar-desc">Потоковый синтез речи чанками через Live-сессию с выводом в динамики или канал Discord.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIDEO SHOWCASE GALLERY -->
+    <section id="videos" class="videos-section">
+      <div class="container">
+        <div class="section-header">
+          <div class="section-tag">Медиатека видео</div>
+          <h2 class="section-title">Демонстрационные видеоролики в Full HD</h2>
+          <p class="section-desc">
+            Все видео сгенерированы в битрейте 10–14 Мбит/с и поддерживают потоковую перемотку по стандарту HTTP 206 Partial Content.
+          </p>
+        </div>
+
+        <div class="videos-grid">
+          <!-- Video 1 -->
+          <div class="video-card">
+            <div class="video-preview">
+              <video controls preload="metadata" playsinline poster="media/images/avatars/speaking_mood.png">
+                <source src="media/videos/sakura-hud-voice-core.mp4" type="video/mp4">
+                <source src="media/videos/sakura-hud-voice-core.webm" type="video/webm">
+              </video>
+            </div>
+            <div class="video-info">
+              <h4>Голосовой HUD и аудио-спектр</h4>
+              <p>Анимированное свечение капли Сакуры, смена 4 состояний в реальном времени, 48-полосный эквалайзер и лепестки сакуры.</p>
+              <div class="video-tag-row">
+                <span class="v-tag">1080p 30fps</span>
+                <span class="v-tag">12.7 МБ</span>
+                <span class="v-tag">MP4 + WebM</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Video 2 -->
+          <div class="video-card">
+            <div class="video-preview">
+              <video controls preload="metadata" playsinline poster="media/images/diagrams/noise-handshake.png">
+                <source src="media/videos/sakura-noise-handshake.mp4" type="video/mp4">
+                <source src="media/videos/sakura-noise-handshake.webm" type="video/webm">
+              </video>
+            </div>
+            <div class="video-info">
+              <h4>Криптоканал Noise IK Handshake</h4>
+              <p>Пошаговый обмен эфемерными ключами X25519, шифрование кадров ChaCha20-Poly1305 и вердикты безопасности ProVerif.</p>
+              <div class="video-tag-row">
+                <span class="v-tag">1080p 30fps</span>
+                <span class="v-tag">3.7 МБ</span>
+                <span class="v-tag">Zero-Trust</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Video 3 -->
+          <div class="video-card">
+            <div class="video-preview">
+              <video controls preload="metadata" playsinline poster="media/images/charts/loc-breakdown.png">
+                <source src="media/videos/sakura-test-suite-3297.mp4" type="video/mp4">
+                <source src="media/videos/sakura-test-suite-3297.webm" type="video/webm">
+              </video>
+            </div>
+            <div class="video-info">
+              <h4>Прогон матрицы 3 297+ тестов</h4>
+              <p>Терминальная демонстрация непрерывного параллельного выполнения полного тестового набора pytest со 100% успехом.</p>
+              <div class="video-tag-row">
+                <span class="v-tag">1080p 30fps</span>
+                <span class="v-tag">11.4 МБ</span>
+                <span class="v-tag">100% Green</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Add Your Own Video Note -->
+        <div style="margin-top: 40px; background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px;">
+          <div>
+            <h4 style="font-size: 1.1rem; color: #fff; margin-bottom: 6px;">📹 Хотите добавить собственную запись экрана?</h4>
+            <p style="color: var(--text-muted); font-size: 0.92rem;">
+              Скопируйте ваш <code>.mp4</code> или <code>.webm</code> файл прямо в каталог <code>site/media/videos/</code>. См. подробный мануал в <code>README_VIDEOS.md</code>.
+            </p>
+          </div>
+          <a href="media/videos/README_VIDEOS.md" class="btn btn-secondary" style="font-size: 0.88rem; padding: 10px 20px;">
+            Инструкция по загрузке
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- NGINX DEPLOYMENT RUNBOOK -->
+    <section id="nginx" class="nginx-section">
+      <div class="container">
+        <div class="section-header">
+          <div class="section-tag">Развертывание</div>
+          <h2 class="section-title">Готовность к публикации в Nginx</h2>
+          <p class="section-desc">
+            Все ссылки на стили, скрипты, картинки и видео являются относительными. Подключите готовый конфиг в Nginx для мгновенной публикации сайта на вашем основном домене с поддержкой перемотки видео.
+          </p>
+        </div>
+
+        <div class="code-box">
+          <div class="code-header">
+            <span class="code-filename">/etc/nginx/sites-available/sakura-site.conf</span>
+            <button class="copy-btn" data-copy-target="nginx-snippet">Скопировать конфиг</button>
+          </div>
+          <pre><code id="nginx-snippet">server {
+    listen 80;
+    server_name sakura.yourdomain.com; # Укажите ваш основной домен
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name sakura.yourdomain.com;
+
+    # SSL сертификаты (Let's Encrypt / Certbot)
+    # ssl_certificate /etc/letsencrypt/live/sakura.yourdomain.com/fullchain.pem;
+    # ssl_certificate_key /etc/letsencrypt/live/sakura.yourdomain.com/privkey.pem;
+
+    root /opt/sakura/site;
+    index index.html;
+
+    # Оптимизация ядра Linux (Zero-Copy)
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+
+    # Сжатие текстовых ресурсов
+    gzip on;
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml;
+
+    # ПОТОКОВОЕ ВИДЕО (.mp4 / .webm) — ПОДДЕРЖКА RANGE 206
+    # Обеспечивает мгновенную перемотку видео без скачивания всего файла
+    location ~* \.(mp4|webm)$ {
+        max_ranges 512;
+        aio threads;
+        directio 4m;
+        expires 30d;
+        add_header Cache-Control "public, no-transform";
+        add_header Accept-Ranges bytes;
+        try_files $uri =404;
+    }
+
+    # Кэширование графики и диаграмм
+    location ~* \.(png|jpg|jpeg|gif|ico|svg|webp)$ {
+        expires 14d;
+        add_header Cache-Control "public, no-transform";
+        try_files $uri =404;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer class="footer">
+      <div class="container">
+        <div class="footer-grid">
+          <div class="footer-brand">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <img src="media/images/avatars/sakura-logo.png" alt="Sakura Logo" style="width: 32px; height: 32px; border-radius: 50%;">
+              <span style="font-size: 1.2rem; font-weight: 800; color: #fff;">Sakura AI</span>
+            </div>
+            <p>
+              Персональный голосовой ИИ-ассистент с глубоким управлением Windows, криптографической защитой Noise IK и непрерывным контролем качества.
+            </p>
+          </div>
+
+          <div class="footer-col">
+            <h5>Навигация</h5>
+            <ul>
+              <li><a href="#hero">Главная</a></li>
+              <li><a href="#timeline">Хроника Git</a></li>
+              <li><a href="#architecture">Архитектура</a></li>
+              <li><a href="#simulator">Симулятор Ядра</a></li>
+              <li><a href="#videos">Видео-витрина</a></li>
+            </ul>
+          </div>
+
+          <div class="footer-col">
+            <h5>Ресурсы проекта</h5>
+            <ul>
+              <li><a href="media/videos/README_VIDEOS.md">Медиатека видео</a></li>
+              <li><a href="nginx/sakura-site.conf">Nginx Config</a></li>
+              <li><a href="media/images/diagrams/voice-pipeline.svg">SVG: Voice Pipeline</a></li>
+              <li><a href="media/images/diagrams/noise-handshake.svg">SVG: Noise IK</a></li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="footer-bottom">
+          <div>© 2026 Sakura AI Project • Все права защищены</div>
+          <div style="color: var(--accent-pink);">HEAD: 23338c0 • 678 Commits • 3297+ Tests Passing</div>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <script src="scripts/petals.js"></script>
+  <script src="scripts/app.js"></script>
+</body>
+</html>

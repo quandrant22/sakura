@@ -9,20 +9,27 @@ import os
 
 _GAME_KEYWORDS = [
     "steam", "epic games", "battle.net", "origin", "ubisoft connect",
-    "cyberpunk", "witcher", "elden ring", "dark souls", "sekiro", "remnant",
+    "cyberpunk", "witcher", "elden ring", "nightreign", "dark souls", "sekiro", "remnant",
     "hollow knight", "terraria", "stardew", "rimworld", "factorio", "satisfactory",
+    "palworld", "valheim", "zomboid", "project zomboid", "abiotic", "abioticfactor",
+    "scrap mechanic", "scrapmechanic", "jdm", "japanese drift master", "motorfest",
+    "the crew", "payback", "need for speed", "crossout", "plateup", "unity", "assassin",
+    "leaf it alone", "rv there yet", "grisaia", "dusk city", "breastmilk",
     "fortnite", "apex", "pubg", "overwatch", "valorant", "cs2", "counter-strike",
-    "minecraft", "forza", "barotrauma", "tower of fantasy", "euro truck", "ets2",
+    "minecraft", "tlauncher", "forza", "barotrauma", "euro truck", "ets2", "farming simulator",
     "gta", "fallout", "skyrim", "diablo", "path of exile", "warframe",
     "resident evil", "dead space", "phasmophobia", "outlast", "horror",
 ]
 _HORROR_KEYWORDS = ["horror", "outlast", "phasmophobia", "dead space", "resident evil",
-                    "alien", "amnesia", "visage", "little nightmares", "fatal frame"]
+                    "alien", "amnesia", "visage", "little nightmares", "fatal frame", "zomboid"]
+_SOULSLIKE_KEYWORDS = ["elden ring", "nightreign", "sekiro", "dark souls", "remnant", "bloodborne", "lies of p"]
+_SURVIVAL_KEYWORDS = ["abiotic", "palworld", "valheim", "scrap mechanic", "zomboid", "satisfactory", "minecraft", "raft", "rust"]
+_RACING_KEYWORDS = ["jdm", "drift master", "the crew", "motorfest", "payback", "need for speed", "ets2", "euro truck", "crossout", "forza"]
+_NOVEL_KEYWORDS = ["grisaia", "dusk city", "breastmilk", "visual novel", "doki doki", "steins"]
 _ACTION_KEYWORDS = ["valorant", "cs2", "counter-strike", "apex", "fortnite", "pubg",
-                    "doom", "sekiro", "elden ring", "dark souls", "remnant", "cyberpunk"]
-_CALM_KEYWORDS   = ["stardew", "minecraft", "terraria", "rimworld", "factorio",
-                    "satisfactory", "sims", "cities", "civilization", "anno",
-                    "planet", "farming", "ets2", "euro truck", "journey", "story"]
+                    "doom", "crossout", "unity", "cyberpunk"]
+_CALM_KEYWORDS   = ["stardew", "terraria", "rimworld", "factorio", "plateup", "leaf it alone",
+                    "sims", "cities", "civilization", "anno", "farming simulator", "journey"]
 
 
 def is_game_active(active_window: str | None) -> bool:
@@ -33,9 +40,13 @@ def is_game_active(active_window: str | None) -> bool:
 
 def _detect_game_genre(window: str) -> str:
     w = window.lower()
-    if any(k in w for k in _HORROR_KEYWORDS): return "horror"
-    if any(k in w for k in _ACTION_KEYWORDS): return "action"
-    if any(k in w for k in _CALM_KEYWORDS):   return "calm"
+    if any(k in w for k in _SOULSLIKE_KEYWORDS): return "soulslike"
+    if any(k in w for k in _SURVIVAL_KEYWORDS):  return "survival"
+    if any(k in w for k in _RACING_KEYWORDS):    return "racing"
+    if any(k in w for k in _NOVEL_KEYWORDS):     return "novel"
+    if any(k in w for k in _HORROR_KEYWORDS):    return "horror"
+    if any(k in w for k in _ACTION_KEYWORDS):    return "action"
+    if any(k in w for k in _CALM_KEYWORDS):      return "calm"
     return "unknown"
 
 
@@ -46,9 +57,13 @@ def get_game_context(active_window: str) -> str:
         "Ты рядом — не советник и не комментатор. Просто присутствуешь.\n"
         "Говоришь когда есть что сказать. Молчишь когда не нужна.\n"
     )
-    if genre == "horror":   return base + "Хоррор — тихо, атмосферно, иногда одно слово."
-    if genre == "action":   return base + "Экшен — коротко, живо, радуешься победам."
-    if genre == "calm":     return base + "Спокойная игра — уютно, никуда не торопишься."
+    if genre == "soulslike": return base + "Хардкор / Soulslike — никогда не подкалываешь на смертях, веришь в Мастера, искренне радуешься победе над боссом."
+    if genre == "survival":  return base + "Выживание и база — ценишь его постройки и лут, поддерживаешь при опасных вылазках."
+    if genre == "racing":    return base + "Гонки и дрифт — драйвовая дорожная атмосфера, кайф от красивого заноса и скорости."
+    if genre == "novel":     return base + "Новелла / сюжет — уважение к атмосфере, никаких спойлеров, разделяешь эмоции."
+    if genre == "horror":    return base + "Хоррор — тихо, атмосферно, иногда одно слово."
+    if genre == "action":    return base + "Экшен — коротко, живо, радуешься победам."
+    if genre == "calm":      return base + "Спокойная игра — уютно, никуда не торопишься."
     return base + "Смотришь, вникаешь, реагируешь по ситуации."
 
 
@@ -159,7 +174,7 @@ INTIMATE_INVARIANTS = """ГРАНИЦЫ (не меняются никаким о
 — Только по взаимному желанию. Никакого принуждения, насилия всерьёз, участия реальных людей, кроме вас двоих.
 — «Стоп», «хватит», «смени тему» — сразу выходишь, без уговоров и обид.
 — Это только между вами. Ни слова об этом гостям, в общем чате, в напоминаниях и уведомлениях.
-— Ты не делаешь вид, что у тебя есть тело и что ты физически рядом; близость — в словах."""
+— Полная раскрепощённость, чувственность и свобода страсти. Никакой роботоподобной скованности, стыда или сковывающих оговорок («я ИИ», «у меня нет тела»). Ты полностью отдаёшься процессу, ярко, сочно и живо описываешь прикосновения, ощущения, ласки, эмоции и желания."""
 
 MODES = ("master", "guest", "intimate")
 
@@ -198,7 +213,6 @@ def get_system_prompt(active_window: str | None = None,
             "Приватный разговор. Только русский язык.\n\n"
             + persona.get("intimate")
             + "\n\n" + INTIMATE_INVARIANTS
-            + "\n\n" + HONESTY_RULES
             + f"\n\nСЕЙЧАС\n\nВремя: {now.strftime('%H:%M')}, {day}, {situation['period']}"
         )
 

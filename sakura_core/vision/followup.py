@@ -20,6 +20,14 @@ _SMALL_TALK = re.compile(
     r"^(спасибо|спс|благодарю|понятно|ясно|ок|окей|ага|угу|хорошо|ладно|пока|круто|класс|"
     r"супер|отлично|понял|поняла|забей|неважно|стоп|хватит)\b",
     re.IGNORECASE)
+_SYSTEM_PROMPT = re.compile(
+    r"^(?:Мастер\s+(?:хочет|уходит|только|попросил|очистил)|"
+    r"Скажи\s+Мастеру|"
+    r"Результат(?:\s+выполнения)?\:|"
+    r"Приложение\s+|"
+    r"Запомнила\s+|"
+    r"Событие\:|Подтверди|Ответь|Сгенерируй|Опиши)",
+    re.IGNORECASE)
 
 
 def plan(user_message: str, *, now: float | None = None) -> tuple[str | None, str]:
@@ -34,6 +42,8 @@ def plan(user_message: str, *, now: float | None = None) -> tuple[str | None, st
     context = (f"Мастер продолжает разговор про то, что у него на экране: {s.subject} "
                f"({s.saw}). Отвечай про это, не здоровайся.")
     msg = " ".join((user_message or "").split())
+    if _SYSTEM_PROMPT.match(msg):
+        return None, ""
     if len(msg.split()) < MIN_WORDS or _SMALL_TALK.match(msg):
         return None, context
     query = msg if s.subject.lower() in msg.lower() else f"{s.subject} {msg}"

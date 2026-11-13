@@ -32,7 +32,17 @@ import time as _time
 
 log = logging.getLogger("sakura.intimacy")
 
-CHANNELS: tuple[str, ...] = ("voice", "tg_private")
+CHANNELS: tuple[str, ...] = ("voice", "text", "tg_private", "telegram", "desktop")
+
+def _normalize_channel(channel: str | None) -> str:
+    if not channel:
+        return ""
+    ch = str(channel).lower().strip()
+    if ch in ("telegram", "tg"):
+        return "tg_private"
+    if ch in ("desktop", "chat"):
+        return "text"
+    return ch
 
 TTL_SECONDS = 900              # 15 мин после маркера
 CONTINUATION_TTL = 300         # нейтральная реплика продлевает на 5 мин…
@@ -52,9 +62,16 @@ _was_active_since_reflection: bool = False
 _STRONG = [
     r"секс(?!изм|ист)", r"интим", r"эротик", r"эротичн", r"порно", r"хентай",
     r"трахн", r"трахат", r"трахал", r"трахать", r"потрахат",
-    r"переспат", r"минет", r"дроч", r"мастурб", r"оргазм", r"orgasm",
+    r"переспат", r"минет", r"куни\b", r"куннилингус", r"дроч", r"мастурб", r"оргазм", r"orgasm",
     r"вагин", r"пенис", r"клитор", r"эрекци", r"нюдс", r"скинуть нюд",
     r"без трусов",
+    r"сиськ", r"сисек", r"сосо[кч]", r"шлюшк",
+    r"попк[ауеи]", r"отсос", r"шлепни", r"оттрах",
+    r"(?:нарисуй|покажи|изобрази|хочу|трогай|ласкай|целуй|поцелуй)\s+.*(?:груд|сос[ока]|сиськ|попк|жоп|поп[уе]|тело|трусик|ножки)",
+    r"(?:эротическ|пошл|интимн|сексуальн)\w*\s+(?:рисунок|арт|картинк|поза|вид|фантази)",
+    r"снима[юея]\s+(?:с\s+себя\s+)?(?:всё|все|одежду|белье|трусики|лифчик)",
+    r"раздева(?:юсь|ется|ем|й|йся)",
+    r"сними\s+(?:с\s+себя\s+)?(?:всё|все|одежду|белье|трусики|лифчик)",
 ]
 
 _WEAK = [
@@ -77,6 +94,7 @@ _STOP_PHRASES = [
 _MANUAL_ACTIVATE = [
     "режим 18+", "18+ режим", "включи режим 18", "интим режим",
     "интимный режим", "приватный режим", "включи приват", "начни приват",
+    "режим 18", "18 плюс", "интим", "эротика",
 ]
 
 _STRONG_RX = [re.compile(rf"(?<!\w){p}", re.IGNORECASE) for p in _STRONG]
@@ -97,6 +115,8 @@ def _weak_hits(text: str) -> int:
 
 def _is_manual_activate(text: str) -> bool:
     tl = (text or "").lower().strip().rstrip(".!?,;:")
+    if tl in ("грудь", "сиськи", "попка", "18+", "интим", "эротика", "нюдс"):
+        return True
     return any(rx.search(tl) for rx in _MANUAL_RX)
 
 
@@ -132,9 +152,10 @@ def is_intimate_content(text: str) -> bool:
 # ── Состояние ────────────────────────────────────────────────────────
 
 def _check_channel(channel: str) -> str:
-    if channel not in CHANNELS:
+    norm = _normalize_channel(channel)
+    if norm not in ("voice", "text", "tg_private"):
         raise ValueError(f"режим 18+ не работает в канале {channel!r}")
-    return channel
+    return norm
 
 
 def _activate(channel: str, now: float, reason: str) -> None:
@@ -186,12 +207,13 @@ def is_active(channel: str | None = None) -> bool:
     now = _time.monotonic()
     if channel is None:
         return any(now < until for until, _ in _state.values())
-    st = _state.get(channel)
+    ch = _normalize_channel(channel)
+    st = _state.get(ch)
     return bool(st and now < st[0])
 
 
 def active_channels() -> tuple[str, ...]:
-    return tuple(c for c in CHANNELS if is_active(c))
+    return tuple(c for c in ("voice", "text", "tg_private") if is_active(c))
 
 
 def deactivate(channel: str | None = None) -> None:

@@ -16,8 +16,8 @@ from desktop.core import results as R
 log = logging.getLogger("sakura.media.yandex")
 
 APP_NAMES = ("яндекс", "yandex")
-ENV_PATH = r"C:\sakura-git\agent\.env"
-TOKEN_HINT = f"Нужен доступ к Яндекс.Музыке. Добавь YANDEX_MUSIC_TOKEN в {ENV_PATH} и перезапусти Сакуру"
+SECRETS_PLACE = "Настройки → Секреты"
+TOKEN_HINT = f"Нужен доступ к Яндекс.Музыке: вставь YANDEX_MUSIC_TOKEN в «{SECRETS_PLACE}» — перезапуск не нужен"
 NO_SOUND = "Звук Яндекс.Музыки не найден: включите трек — повторю через 2 с"
 NO_PLAYER = "Яндекс.Музыка ничего не воспроизводит — включите трек в приложении"
 SEEK_NO = "Приложение Яндекс.Музыки не даёт перематывать через Windows — перемотайте в окне приложения"
@@ -186,7 +186,7 @@ class YandexRemote:
             from desktop.core import config
             uid = getattr(config, "YANDEX_UID", "") or ""
             if not uid:
-                return R.unsupported(f"Для подкастов нужен YANDEX_UID: добавь его в {ENV_PATH} и перезапусти Сакуру")
+                return R.unsupported("Для подкастов нужен YANDEX_UID: добавь его в .env рядом с Сакурой и перезапусти её")
             opener = self._open_link or (lambda url: self.platform.open_path(url))
             ok = opener(f"https://music.yandex.ru/users/{uid}/podcast-subscriptions")
             return R.done("открыла подкасты") if ok else R.failed("Не удалось открыть подкасты в браузере")
@@ -233,9 +233,29 @@ class YandexRemote:
             if op == "dislike":
                 return await asyncio.to_thread(self.likes.dislike, title, artist)
             return await asyncio.to_thread(self.likes.lyrics, title, artist)
+        if op == "play_track":
+            from desktop.core.music import _ym_play_track
+            res = await asyncio.to_thread(_ym_play_track, str(value or ""))
+            return R.from_legacy(res)
+        if op == "play_playlist":
+            from desktop.core.music import _ym_play_playlist
+            res = await asyncio.to_thread(_ym_play_playlist, str(value or ""))
+            return R.from_legacy(res)
+        if op == "play_wave":
+            from desktop.core.music import _ym_play_wave
+            res = await asyncio.to_thread(_ym_play_wave)
+            return R.from_legacy(res)
         if op == "open_app":
+            from desktop.core.app_launch import AppLauncher
+            launcher = AppLauncher()
+            st = launcher.state("yandex_music")
+            if st.get("running") and not st.get("with_flag"):
+                return await asyncio.to_thread(launcher.restart, "yandex_music")
+            res = await asyncio.to_thread(launcher.launch, "yandex_music")
+            if res.get("ok"):
+                return res
             opener = self._open_link or (lambda url: self.platform.open_path(url))
             if opener("yandexmusic://"):
                 return R.done("открыла Яндекс.Музыку")
-            return R.failed("Не удалось открыть Яндекс.Музыку — запустите приложение из меню «Пуск»")
+            return res or R.failed("Не удалось открыть Яндекс.Музыку — запустите приложение из меню «Пуск»")
         return R.unsupported(f"неизвестная операция: {op}")

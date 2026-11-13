@@ -1,0 +1,3 @@
+@echo off
+echo Запуск установки VB-CABLE от имени администратора...
+powershell -Command "Start-Process '%~dp0..\..\.temp_vbcable\VBCABLE_Setup_x64.exe' -Verb RunAs"

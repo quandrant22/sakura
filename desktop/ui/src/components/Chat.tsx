@@ -88,12 +88,23 @@ function Bubble({ m, onDelete }: { m: Message; onDelete?(id: string): void }) {
       </div>
     );
   }
+  // Служебные сообщения («Телефон подключился») — тихой плашкой по центру, не репликой Сакуры.
+  if (m.role === "system") {
+    return (
+      <div className="group stage-in flex justify-center" aria-label="Системное сообщение">
+        <div className="max-w-[90%] rounded-full bg-white/[0.04] px-3 py-1 text-center text-[11px] text-ink-dim">
+          <span className="text-ink/80">{m.text}</span> · {timeHM(m.ts)}
+          <DeleteControl m={m} onDelete={onDelete} />
+        </div>
+      </div>
+    );
+  }
   return (
-    <div className="group flex items-end gap-2">
+    <div className="group stage-in flex items-end gap-2">
       <SakuraLogo size={26} className="mb-1 shrink-0" />
-      <div className="max-w-[85%] rounded-card rounded-bl-md border border-line px-4 py-2.5 text-sm text-ink">
+      <div className="max-w-[85%] rounded-card rounded-bl-md border border-white/[0.06] bg-gradient-to-br from-accent/[0.07] to-transparent px-4 py-2.5 text-sm text-ink">
         <div className="mb-0.5 flex items-center gap-1.5 text-xs font-semibold text-accent">
-          {m.role === "system" ? "Система" : "Sakura"} <Chip m={m} />
+          Sakura <Chip m={m} />
         </div>
         {m.kind === "voice_only" ? (
           <p className="flex items-center gap-1.5 italic text-ink-dim"><Volume2 size={14} /> {m.text}</p>

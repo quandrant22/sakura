@@ -1,0 +1,140 @@
+[[commands]]
+id = "clip_that"
+type = "action"
+action = "clip"
+args = "30"
+priority = 25
+description = "Save last 30-60s clip of gameplay or screen to MP4"
+
+phrases.ru = [
+    "заклипай это",
+    "заклипай",
+    "сохрани клип",
+    "сделай клип",
+    "сохрани откат",
+    "откат",
+]
+phrases.en = [
+    "clip that",
+    "save clip",
+]
+
+[[commands]]
+id = "draw_ink"
+type = "action"
+action = "ink"
+args = "circle 450 350 200 200; arrow 300 200 430 330; text 450 580 Зона внимания Сакуры"
+priority = 25
+description = "Draw neon ink pointer on screen"
+
+phrases.ru = [
+    "нарисуй на экране",
+    "покажи на экране",
+    "отметь на экране",
+    "включи чернила",
+    "покажи чернила",
+    "нарисуй указку",
+    "покажи указку",
+    "тестовый рисунок",
+]
+phrases.en = [
+    "draw on screen",
+    "point on screen",
+    "show ink",
+    "test ink",
+]
+
+[[commands]]
+id = "clear_ink"
+type = "action"
+action = "clear_ink"
+args = ""
+priority = 25
+description = "Clear annotations and drawings on screen"
+
+phrases.ru = [
+    "сотри с экрана",
+    "сотри рисунок",
+    "убери рисунок",
+    "очисти экран",
+    "сотри чернила",
+]
+phrases.en = [
+    "clear ink",
+    "clear drawing",
+    "erase drawing",
+]
+
+[[commands]]
+id = "call_mode_on"
+type = "action"
+action = "call_mode"
+args = "on"
+priority = 20
+description = "Enable call mode for Discord, Telegram, Zoom"
+
+phrases.ru = [
+    "включи режим звонка",
+    "зайди в звонок",
+    "режим звонков",
+    "включи колл мод",
+]
+phrases.en = [
+    "enable call mode",
+    "join call",
+]
+
+[[commands]]
+id = "call_mode_off"
+type = "action"
+action = "call_mode"
+args = "off"
+priority = 20
+description = "Disable call mode"
+
+phrases.ru = [
+    "выключи режим звонка",
+    "выйди из звонка",
+    "отключи режим звонков",
+]
+phrases.en = [
+    "disable call mode",
+    "leave call",
+]
+
+[[commands]]
+id = "watch_along_start"
+type = "action"
+action = "watch_along"
+args = "видео"
+priority = 20
+description = "Start watching video or stream with Sakura"
+
+phrases.ru = [
+    "посмотри со мной",
+    "смотри со мной",
+    "давай смотреть вместе",
+    "посмотрим вместе",
+]
+phrases.en = [
+    "watch with me",
+    "watch this with me",
+]
+
+[[commands]]
+id = "watch_along_stop"
+type = "action"
+action = "watch_along"
+args = "stop"
+priority = 20
+description = "Stop watching video with Sakura"
+
+phrases.ru = [
+    "хватит смотреть",
+    "перестань смотреть",
+    "не смотри со мной",
+    "закончили смотреть",
+]
+phrases.en = [
+    "stop watching",
+]

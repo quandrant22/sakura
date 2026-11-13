@@ -86,7 +86,7 @@ class KeyStore:
     # ── сервер ──
     def server(self) -> dict | None:
         try:
-            d = json.load(open(self._server_path, encoding="utf-8"))
+            d = json.load(open(self._server_path, encoding="utf-8-sig"))
             d["pub_bytes"] = unb64u(d["pub"])
             return d
         except (OSError, ValueError, KeyError):

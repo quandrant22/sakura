@@ -104,6 +104,7 @@ async def handle_register(websocket, data, ctx) -> None:
     if is_master_device(device_id) and should_greet_device(device_id):
         greeting = await ask_gemini(
             get_greeting_prompt(), save_history=False, chain=VOICE_MODEL_CHAIN,
+            search=False,
         )
         if greeting:
             await bot.send_message(MASTER_ID, greeting)
@@ -212,6 +213,7 @@ async def handle_ping(websocket, data, ctx) -> None:
             prompt = make_music_comment_prompt(track, mem[:200])
             reply = await ask_gemini(
                 prompt, save_history=False, chain=VOICE_MODEL_CHAIN,
+                search=False,
             )
             if reply:
                 await bot.send_message(MASTER_ID, reply)
@@ -226,6 +228,7 @@ async def handle_ping(websocket, data, ctx) -> None:
         if alert:
             reply_pc = await ask_gemini(
                 alert["prompt"], save_history=False, chain=VOICE_MODEL_CHAIN,
+                search=False,
             )
             if reply_pc:
                 await bot.send_message(MASTER_ID, reply_pc)
@@ -270,7 +273,7 @@ async def handle_kettle_ready(websocket, data, ctx) -> None:
     ws_k = st.connected_devices.get(dev)
     prompt = f"Чайник закипел и выключился, температура {temp}°C. Скажи Мастеру одной короткой фразой — чай готов. Без банальщины."
     reply_k = await ask_gemini(
-        prompt, save_history=False, chain=VOICE_MODEL_CHAIN,
+        prompt, save_history=False, chain=VOICE_MODEL_CHAIN, search=False,
     )
     if reply_k:
         if ws_k:
@@ -299,13 +302,90 @@ async def handle_notification(websocket, data, ctx) -> None:
                     "Скажи Мастеру одной короткой фразой обратить внимание. Без банальщины."
                 )
                 _reply = await ask_gemini(
-                    prompt, save_history=False, chain=VOICE_MODEL_CHAIN,
+                    prompt, save_history=False, chain=VOICE_MODEL_CHAIN, search=False,
                 )
                 if _reply:
                     await stream_tts_to_device(_reply, _active_ws, _ad or "laptop", literal=True,
                                                reply_kind="proactive")
     except Exception as e:
         log.error(f"[notification] {e}")
+
+
+# ── игры с ПК (desktop/core/game_director.py) ─────────────────────────
+
+async def _say_game(prompt: str, dev: str, ctx) -> None:
+    from config import BACKGROUND_MODEL_CHAIN
+    ws_dev = st.connected_devices.get(dev)
+    if ws_dev is None:
+        return
+    try:
+        reply = await ctx["ask_gemini"](prompt, save_history=False, chain=VOICE_MODEL_CHAIN or BACKGROUND_MODEL_CHAIN,
+                                        search=False)
+    except Exception as e:
+        log.debug(f"[game] реплика: {type(e).__name__}: {e}")
+        return
+    reply = (reply or "").strip()
+    if reply:
+        await stream_tts_to_device(reply, ws_dev, dev, literal=True, reply_kind="proactive")
+
+
+async def handle_game_session_start(websocket, data, ctx) -> None:
+    from modules import game_hub
+    from modules import game_sessions as gs
+    dev = data.get("device_id") or "laptop"
+    game = str(data.get("game") or "игра")[:80]
+    level = str(data.get("level") or "reactions")
+    gs.set_level(dev, level)
+    game_hub.set_game_active(game)
+    if level == "silent":
+        return
+    prompt = gs.start_prompt(game, gs.last_session(str(data.get("game_key") or game)))
+    if prompt:
+        spawn(_say_game(prompt, dev, ctx), name="game_start_say")
+
+
+async def handle_game_event(websocket, data, ctx) -> None:
+    from modules import game_hub
+    from modules import game_sessions as gs
+    dev = data.get("device_id") or "laptop"
+    level = str(data.get("level") or "reactions")
+    event = str(data.get("event") or "")
+    gs.set_level(dev, level)
+    if event == "fullscreen_blocked":
+        # Совет ПК («включи оконный без рамки…») — дословно, без модели.
+        say = str(data.get("say") or "").strip()[:300]
+        ws_dev = st.connected_devices.get(dev)
+        if say and ws_dev is not None and level != "silent":
+            await stream_tts_to_device(say, ws_dev, dev, literal=True, reply_kind="proactive")
+        return
+    detail = str(data.get("detail") or "")[:80]
+    text = str(data.get("event_text") or event)[:60]
+    if event in ("multikill", "ace", "victory", "achievement"):
+        game_hub.add_highlight(f"{text} {detail}".strip())
+    if level == "silent" or not gs.may_speak(dev, level, event):
+        return
+    prompt = gs.event_prompt(str(data.get("game") or "игра")[:80], level, text, detail,
+                             int(data.get("minutes") or 0), data.get("stats") or {})
+    spawn(_say_game(prompt, dev, ctx), name="game_event_say")
+
+
+async def handle_game_session_end(websocket, data, ctx) -> None:
+    from modules import game_hub
+    from modules import game_sessions as gs
+    dev = data.get("device_id") or "laptop"
+    game = str(data.get("game") or "игра")[:80]
+    key = str(data.get("game_key") or game)
+    minutes = int(data.get("minutes") or 0)
+    stats = data.get("stats") or {}
+    highlights = data.get("highlights") or []
+    gs.clear_level(dev)
+    game_hub.set_game_idle()
+    try:
+        gs.record_session(key, game, minutes, stats, highlights)
+    except OSError as e:
+        log.warning(f"[game] запись сессии: {e}")
+    if data.get("speak") and minutes >= 10:
+        spawn(_say_game(gs.end_prompt(game, minutes, stats, highlights), dev, ctx), name="game_end_say")
 
 
 # ── tg_message ─────────────────────────────────────────────────────────
@@ -339,7 +419,8 @@ async def _answer_read_result(action, ok, detail, dev_name, ask_gemini, bot) -> 
         if detail:
             try:
                 text = await ask_gemini(_READ_PROMPT.format(desc=desc, detail=detail),
-                                        save_history=False, chain=VOICE_MODEL_CHAIN)
+                                        save_history=False, chain=VOICE_MODEL_CHAIN,
+                                        search=False)
             except Exception as e:
                 log.debug(f"[pc] пересказ {action}: {type(e).__name__}: {e}")
         text = (text or detail or "Пусто.").strip()
@@ -445,7 +526,7 @@ async def _handle_command_result(websocket, data, ctx) -> None:
                 _page_reply = await ask_gemini(
                     _page_prompt, save_history=False,
                     history_limit=VOICE_HISTORY_LIMIT,
-                    chain=VOICE_MODEL_CHAIN,
+                    chain=VOICE_MODEL_CHAIN, search=False,
                 )
                 if _page_reply and ext_ws:
                     log.info(f"[голос] ответ: {_page_reply!r}")
@@ -546,7 +627,7 @@ async def _handle_command_result(websocket, data, ctx) -> None:
         from config import VOICE_HISTORY_LIMIT
         music_reply = await ask_gemini(
             prompt, save_history=False, history_limit=VOICE_HISTORY_LIMIT,
-            chain=VOICE_MODEL_CHAIN,
+            chain=VOICE_MODEL_CHAIN, search=False,
         )
         if music_reply:
             log.info(f"[голос] ответ: {music_reply!r}")
@@ -585,7 +666,7 @@ async def _handle_command_result(websocket, data, ctx) -> None:
                 if event:
                     ev_reply = await ask_gemini(
                         make_event_prompt(event), save_history=False,
-                        chain=VOICE_MODEL_CHAIN,
+                        chain=VOICE_MODEL_CHAIN, search=False,
                     )
                     if ev_reply:
                         ws_ev = st.connected_devices.get(dev_name)
@@ -610,7 +691,7 @@ async def _handle_command_result(websocket, data, ctx) -> None:
             f"'запомни {app_name} = C:\\путь\\к\\файлу.exe'",
             save_history=False,
             history_limit=VOICE_HISTORY_LIMIT,
-            chain=VOICE_MODEL_CHAIN)
+            chain=VOICE_MODEL_CHAIN, search=False)
         await bot.send_message(MASTER_ID, reply)
     elif result:
         err_triggers = ("ошибка", "не нашла", "не найдено", "app_not_found", "оффлайн")

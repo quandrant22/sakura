@@ -150,8 +150,9 @@ def test_env_changes_gate_wait():
     assert _wait_in_subprocess("2.5") == "2.5 2.5"
 
 
-def test_gate_wait_default_is_4s():
-    assert _wait_in_subprocess(None) == "4.0 4.0"
+def test_gate_wait_default_is_3s():
+    # Этап 3: шлюз сокращён с 4 до 3 с (LLM-разбор теперь ограничен 2.5 с).
+    assert _wait_in_subprocess(None) == "3.0 3.0"
 
 
 def test_reply_cancels_prefetch_before_long_speak(monkeypatch):

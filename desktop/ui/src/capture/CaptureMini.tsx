@@ -13,7 +13,10 @@ export function CaptureMini({ sourceId }: { sourceId: string }) {
     void bridge().capture.miniSelect().then(() => start(sourceId));
   }, [sourceId, start]);
   useEffect(() => {
-    if (videoRef.current) videoRef.current.srcObject = stream;
+    if (videoRef.current) {
+      if (videoRef.current.srcObject !== stream) videoRef.current.srcObject = stream;
+      if (stream) void videoRef.current.play?.().catch(() => {});
+    }
   }, [stream, videoRef]);
   useEffect(() => {
     if (cap.state === "ended") window.close();
@@ -21,7 +24,10 @@ export function CaptureMini({ sourceId }: { sourceId: string }) {
 
   return (
     <div className="drag h-full w-full overflow-hidden border-2 border-accent bg-black" aria-label="Показ окна поверх всех">
-      <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-contain" />
+      <video ref={videoRef} autoPlay muted playsInline
+             onLoadedMetadata={(e) => cap.onResize(e.currentTarget)}
+             onPlay={(e) => cap.onResize(e.currentTarget)}
+             className="h-full w-full object-contain" />
       {cap.state === "black" && (
         <div className="absolute inset-0 grid place-items-center text-sm text-ink-dim">Окно свёрнуто или защищено</div>
       )}

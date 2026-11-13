@@ -100,8 +100,14 @@ def test_no_data(monkeypatch, tmp_path):
     import capabilities.schedule as cap
     monkeypatch.setattr(config, "SCHEDULE_PATH", str(tmp_path / "none.json"))
     monkeypatch.setattr(store_mod, "_store", None)
+    # Без автоисточника — подсказка про закладку (независимо от локального .env).
+    monkeypatch.setattr(config, "SCHEDULE_SOURCES", ("push",))
     text, ok = call(cap, "schedule.today")
     assert ok and text.startswith("Расписания у меня пока нет") and "закладку" in text
+    # С автоисточником — обещание загрузить, без противоречащей просьбы о закладке.
+    monkeypatch.setattr(config, "SCHEDULE_SOURCES", ("direct",))
+    text, ok = call(cap, "schedule.today")
+    assert ok and "сейчас загружу" in text and "закладку" not in text
 
 
 def test_refresh_push_only_gives_hint(loaded, monkeypatch):

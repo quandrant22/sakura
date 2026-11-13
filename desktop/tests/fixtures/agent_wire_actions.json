@@ -380,6 +380,46 @@
   "computer.do": [
    "computer.do",
    "открой блокнот"
+  ],
+  "music.play_track": [
+   "music.play_track",
+   ""
+  ],
+  "companion.clip": [
+   "clip:30",
+   ""
+  ],
+  "companion.ink_clear": [
+   "clear_ink:",
+   ""
+  ],
+  "companion.ink_draw": [
+   "draw_ink:",
+   ""
+  ],
+  "companion.call_mode_on": [
+   "call_mode:on",
+   ""
+  ],
+  "companion.call_mode_off": [
+   "call_mode:off",
+   ""
+  ],
+  "companion.watch_along_start": [
+   "watch_along:видео",
+   ""
+  ],
+  "companion.watch_along_stop": [
+   "watch_along:stop",
+   ""
+  ],
+  "companion.husk_status": [
+   "husk:status",
+   ""
+  ],
+  "youtube.open": [
+   "youtube.open",
+   ""
   ]
  }
 }

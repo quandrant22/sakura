@@ -322,7 +322,7 @@ def test_clarify_response_resolves_to_action():
 
 def test_llm_classification_does_not_block_event_loop():
     async def classify(text, catalog):
-        await asyncio.sleep(0.02)
+        await asyncio.sleep(0.05)
         return None
 
     async def probe():
@@ -335,3 +335,87 @@ def test_llm_classification_does_not_block_event_loop():
         assert decision.source == "conversation"
 
     _run(probe())
+
+
+# ── эвристика Шага 3 (fuzzy vs LLM) ────────────────────────────────────────
+
+
+def test_fuzzy_skipped_for_long_conversational_phrase(make_router):
+    """'он мне вчера сказал открой браузер и посмотри' (> 6 слов + маркеры) → пропуск Шага 3 → LLM."""
+    router, calls = make_router(llm=lambda text, catalog: None)
+    d = _run(router.route("он мне вчера сказал открой браузер и посмотри"))
+    # Шаг 3 пропущен, дошло до LLM (разговор)
+    assert calls == ["он мне вчера сказал открой браузер и посмотри"]
+    assert d.source == "conversation"
+    assert d.action is None
+
+
+def test_fuzzy_skipped_for_narrative_marker(make_router):
+    """'я забыл про расписание на сегодня' (маркер 'я ') → пропуск Шага 3 → LLM."""
+    router, calls = make_router(llm=lambda text, catalog: None)
+    d = _run(router.route("я забыл про расписание на сегодня"))
+    assert calls == ["я забыл про расписание на сегодня"]
+    assert d.source == "conversation"
+    assert d.action is None
+
+
+def test_fuzzy_skipped_for_negation(make_router):
+    """'не выключи компьютер' (маркер 'не ') → пропуск Шага 3 → LLM."""
+    router, calls = make_router(llm=lambda text, catalog: None)
+    d = _run(router.route("не выключи компьютер"))
+    assert calls == ["не выключи компьютер"]
+    assert d.source == "conversation"
+    assert d.action is None
+
+
+def test_fuzzy_not_skipped_for_command_at_start(make_router):
+    """'открой браузер и посмотри что там нового на хабре' (триггер в начале) → Шаг 3 срабатывает."""
+    router, calls = make_router()
+    d = _run(router.route("закрой браузер и посмотри что там"))
+    assert d.action == "close_window.браузер"
+    assert d.source == "registry_fuzzy"
+    assert calls == []  # LLM не вызывался
+
+
+def test_fuzzy_not_skipped_for_polite_short_command(make_router):
+    """'пожалуйста закрой браузер' (<= 6 слов, без маркеров рассказа) → Шаг 3 срабатывает."""
+    router, calls = make_router()
+    d = _run(router.route("пожалуйста закрой браузер"))
+    assert d.action == "close_window.браузер"
+    assert d.source == "registry_fuzzy"
+    assert calls == []
+
+
+# ── Шаг 5: извлечение параметров через LLM и clarify ──────────────────────
+
+
+def test_llm_step_with_param_tuple(make_router):
+    """LLM вернул (action_id, param) → Decision(action, 'llm', param=param)."""
+    router, calls = make_router(llm=lambda text, catalog: ("music.play_track", "nirvana"))
+    d = _run(router.route("поставь мне фоном трек нирваны"))
+    assert d.action == "music.play_track"
+    assert d.source == "llm"
+    assert d.param == "nirvana"
+
+
+def test_llm_step_with_pipe_string(make_router):
+    """LLM вернул 'action_id | param' строкой → парсится и подставляется в Decision."""
+    router, calls = make_router(llm=lambda text, catalog: "kettle.heat | 85")
+    d = _run(router.route("сделай воду градусов 85"))
+    assert d.action == "kettle.heat"
+    assert d.source == "llm"
+    assert d.param == "85"
+
+
+def test_llm_step_ask_param_missing_triggers_clarify(make_router):
+    """LLM классифицировал команду с required='ask', но param пустой → clarify!"""
+    router, calls = make_router(llm=lambda text, catalog: ("kettle.heat", None))
+    d = _run(router.route("сделай воду погорячее"))
+    assert d.action is None
+    assert d.source == "registry_clarify"
+    assert d.pending_kind == "clarify"
+    assert d.reply == "До какой температуры нагреть?"
+    assert router.session.pending is not None
+    assert router.session.pending.kind == "clarify"
+    assert router.session.pending.action == "kettle.heat"
+

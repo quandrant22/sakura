@@ -7,6 +7,11 @@ import pytest
 
 
 AGENT_ROOT = Path(__file__).resolve().parents[1]
+# Корень репозитория — серверный пакет securechannel/ (тесты входа по ключу).
+# В конец пути: агентские core/ и config.py должны находиться раньше серверных.
+_repo_root_str = str(AGENT_ROOT.parent)
+if _repo_root_str not in sys.path:
+    sys.path.append(_repo_root_str)
 _agent_root_str = str(AGENT_ROOT)
 _added_agent_root = _agent_root_str not in sys.path
 if _added_agent_root:

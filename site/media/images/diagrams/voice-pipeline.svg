@@ -1,0 +1,156 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 700" width="100%" height="100%" style="background:#0D091A; font-family:'Segoe UI', sans-serif;">
+  <defs>
+    <linearGradient id="gradPink" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF6AE3"/>
+      <stop offset="100%" stop-color="#B829A0"/>
+    </linearGradient>
+    <linearGradient id="gradCyan" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4FD8FF"/>
+      <stop offset="100%" stop-color="#1B75BB"/>
+    </linearGradient>
+    <linearGradient id="gradGreen" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10B981"/>
+      <stop offset="100%" stop-color="#047857"/>
+    </linearGradient>
+    <linearGradient id="gradAmber" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFCF6B"/>
+      <stop offset="100%" stop-color="#D97706"/>
+    </linearGradient>
+    <filter id="glowPink" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+
+  <!-- Header -->
+  <text x="50" y="55" fill="#FFFFFF" font-size="28" font-weight="bold">ГОЛОСОВОЙ КОНВЕЙЕР SAKURA AI (GigaAM v2_ctc + Fast-Path + Live TTS)</text>
+  <text x="50" y="85" fill="#FF6AE3" font-size="16">Полная сквозная задержка (Time to First Audio Chunk) сокращена с 1800 мс до 320–480 мс</text>
+
+  <!-- Stage 1 -->
+  <g transform="translate(50, 130)">
+    <rect width="330" height="480" rx="16" fill="#150F26" stroke="#4FD8FF" stroke-width="2"/>
+    <rect width="330" height="45" rx="16" fill="#1C1433"/>
+    <text x="20" y="30" fill="#4FD8FF" font-size="18" font-weight="bold">1. ЗАХВАТ И STT</text>
+    
+    <!-- Item 1 -->
+    <rect x="20" y="70" width="290" height="110" rx="12" fill="#20173D" stroke="#4FD8FF" stroke-opacity="0.4"/>
+    <text x="35" y="100" fill="#4FD8FF" font-size="16" font-weight="bold">WASAPI Audio Ingest</text>
+    <text x="35" y="125" fill="#D1D5DB" font-size="13">Захват микрофона + loopback</text>
+    <text x="35" y="145" fill="#9CA3AF" font-size="12">Resampling 48kHz -> 16kHz</text>
+    <text x="35" y="165" fill="#10B981" font-size="12">PortAudio drain (0 задержки)</text>
+
+    <!-- Item 2 -->
+    <rect x="20" y="200" width="290" height="110" rx="12" fill="#20173D" stroke="#4FD8FF" stroke-opacity="0.4"/>
+    <text x="35" y="230" fill="#FFCF6B" font-size="16" font-weight="bold">Silero VAD v6.2</text>
+    <text x="35" y="255" fill="#D1D5DB" font-size="13">Детекция речи в потоке</text>
+    <text x="35" y="275" fill="#9CA3AF" font-size="12">Адаптивный порог RMS dB</text>
+    <text x="35" y="295" fill="#10B981" font-size="12">Отсечка тишины за 40 мс</text>
+
+    <!-- Item 3 -->
+    <rect x="20" y="330" width="290" height="120" rx="12" fill="#20173D" stroke="#FF6AE3" stroke-opacity="0.6"/>
+    <text x="35" y="360" fill="#FF6AE3" font-size="16" font-weight="bold">GigaAM v2_ctc</text>
+    <text x="35" y="385" fill="#D1D5DB" font-size="13">Русская нейро-ASR модель</text>
+    <text x="35" y="405" fill="#9CA3AF" font-size="12">Снятие перегрузок клиппинга</text>
+    <text x="35" y="425" fill="#10B981" font-size="12">Нормализация имён и числительных</text>
+  </g>
+
+  <!-- Arrow 1 -> 2 -->
+  <path d="M 400 370 L 440 370" stroke="#FF6AE3" stroke-width="4" stroke-dasharray="6,4"/>
+  <polygon points="440,364 452,370 440,376" fill="#FF6AE3"/>
+
+  <!-- Stage 2 -->
+  <g transform="translate(460, 130)">
+    <rect width="330" height="480" rx="16" fill="#150F26" stroke="#10B981" stroke-width="2"/>
+    <rect width="330" height="45" rx="16" fill="#1C1433"/>
+    <text x="20" y="30" fill="#10B981" font-size="18" font-weight="bold">2. NLU И РОУТЕР</text>
+
+    <!-- Item 1 -->
+    <rect x="20" y="70" width="290" height="110" rx="12" fill="#20173D" stroke="#10B981" stroke-opacity="0.4"/>
+    <text x="35" y="100" fill="#EF4444" font-size="16" font-weight="bold">Early Gate (Barge-in)</text>
+    <text x="35" y="125" fill="#D1D5DB" font-size="13">Мгновенный перехват «стоп»</text>
+    <text x="35" y="145" fill="#9CA3AF" font-size="12">Сброс TTS очереди на лету</text>
+    <text x="35" y="165" fill="#10B981" font-size="12">Прерывание речи за 15 мс</text>
+
+    <!-- Item 2 -->
+    <rect x="20" y="200" width="290" height="110" rx="12" fill="#20173D" stroke="#10B981" stroke-opacity="0.8"/>
+    <text x="35" y="230" fill="#10B981" font-size="16" font-weight="bold">v3 Fast-Path Router</text>
+    <text x="35" y="255" fill="#D1D5DB" font-size="13">140 возможностей реестра</text>
+    <text x="35" y="275" fill="#9CA3AF" font-size="12">Regex + нормализация форм</text>
+    <text x="35" y="295" fill="#10B981" font-size="12">Исполнение за 1.8 мс без LLM!</text>
+
+    <!-- Item 3 -->
+    <rect x="20" y="330" width="290" height="120" rx="12" fill="#20173D" stroke="#FFCF6B" stroke-opacity="0.4"/>
+    <text x="35" y="360" fill="#FFCF6B" font-size="16" font-weight="bold">State Arbiter</text>
+    <text x="35" y="385" fill="#D1D5DB" font-size="13">Единый блок «СОСТОЯНИЕ»</text>
+    <text x="35" y="405" fill="#9CA3AF" font-size="12">Игры, окна, медиа, статус ПК</text>
+    <text x="35" y="425" fill="#10B981" font-size="12">Zero-Hallucination фильтр</text>
+  </g>
+
+  <!-- Arrow 2 -> 3 -->
+  <path d="M 810 370 L 850 370" stroke="#FF6AE3" stroke-width="4" stroke-dasharray="6,4"/>
+  <polygon points="850,364 862,370 850,376" fill="#FF6AE3"/>
+
+  <!-- Stage 3 -->
+  <g transform="translate(870, 130)">
+    <rect width="330" height="480" rx="16" fill="#150F26" stroke="#FF6AE3" stroke-width="2"/>
+    <rect width="330" height="45" rx="16" fill="#1C1433"/>
+    <text x="20" y="30" fill="#FF6AE3" font-size="18" font-weight="bold">3. НЕЙРОСЕТЕВОЙ МОЗГ</text>
+
+    <!-- Item 1 -->
+    <rect x="20" y="70" width="290" height="110" rx="12" fill="#20173D" stroke="#FF6AE3" stroke-opacity="0.4"/>
+    <text x="35" y="100" fill="#4FD8FF" font-size="16" font-weight="bold">LLM Classifier Fallback</text>
+    <text x="35" y="125" fill="#D1D5DB" font-size="13">Для нестандартных фраз</text>
+    <text x="35" y="145" fill="#9CA3AF" font-size="12">Пул fallback-моделей</text>
+    <text x="35" y="165" fill="#10B981" font-size="12">Переключение за 250 мс</text>
+
+    <!-- Item 2 -->
+    <rect x="20" y="200" width="290" height="110" rx="12" fill="#20173D" stroke="#FF6AE3" stroke-opacity="0.8"/>
+    <text x="35" y="230" fill="#FF6AE3" font-size="16" font-weight="bold">Gemini Live / Gemma 4</text>
+    <text x="35" y="255" fill="#D1D5DB" font-size="13">Стриминг токенов по WS</text>
+    <text x="35" y="275" fill="#9CA3AF" font-size="12">Token-bucket rate limiter</text>
+    <text x="35" y="295" fill="#10B981" font-size="12">Лимиты RPM / RPD в безопасности</text>
+
+    <!-- Item 3 -->
+    <rect x="20" y="330" width="290" height="120" rx="12" fill="#20173D" stroke="#FFCF6B" stroke-opacity="0.4"/>
+    <text x="35" y="360" fill="#FFCF6B" font-size="16" font-weight="bold">Emotional Core [ТОН:]</text>
+    <text x="35" y="385" fill="#D1D5DB" font-size="13">Интонации: сарказм, нежность</text>
+    <text x="35" y="405" fill="#9CA3AF" font-size="12">Ремарки вырезаются из звука</text>
+    <text x="35" y="425" fill="#10B981" font-size="12">Изоляция интим-режима</text>
+  </g>
+
+  <!-- Arrow 3 -> 4 -->
+  <path d="M 1220 370 L 1260 370" stroke="#FF6AE3" stroke-width="4" stroke-dasharray="6,4"/>
+  <polygon points="1260,364 1272,370 1260,376" fill="#FF6AE3"/>
+
+  <!-- Stage 4 -->
+  <g transform="translate(1280, 130)">
+    <rect width="280" height="480" rx="16" fill="#150F26" stroke="#4FD8FF" stroke-width="2"/>
+    <rect width="280" height="45" rx="16" fill="#1C1433"/>
+    <text x="20" y="30" fill="#4FD8FF" font-size="18" font-weight="bold">4. TTS СИНТЕЗ</text>
+
+    <!-- Item 1 -->
+    <rect x="20" y="70" width="240" height="110" rx="12" fill="#20173D" stroke="#4FD8FF" stroke-opacity="0.4"/>
+    <text x="35" y="100" fill="#10B981" font-size="16" font-weight="bold">Live TTS Session</text>
+    <text x="35" y="125" fill="#D1D5DB" font-size="13">Producer-consumer конвейер</text>
+    <text x="35" y="145" fill="#9CA3AF" font-size="12">Единая сессия на ответ</text>
+    <text x="35" y="165" fill="#10B981" font-size="12">Мелкие чанки (80 симв)</text>
+
+    <!-- Item 2 -->
+    <rect x="20" y="200" width="240" height="110" rx="12" fill="#20173D" stroke="#4FD8FF" stroke-opacity="0.4"/>
+    <text x="35" y="230" fill="#FF6AE3" font-size="16" font-weight="bold">asyncio.Queue</text>
+    <text x="35" y="255" fill="#D1D5DB" font-size="13">Потоковое воспроизведение</text>
+    <text x="35" y="275" fill="#9CA3AF" font-size="12">Защита от underrun</text>
+    <text x="35" y="295" fill="#10B981" font-size="12">Плавная бесшовная склейка</text>
+
+    <!-- Item 3 -->
+    <rect x="20" y="330" width="240" height="120" rx="12" fill="#20173D" stroke="#4FD8FF" stroke-opacity="0.4"/>
+    <text x="35" y="360" fill="#4FD8FF" font-size="16" font-weight="bold">Вывод звука & HUD</text>
+    <text x="35" y="385" fill="#D1D5DB" font-size="13">Динамики / VB-CABLE</text>
+    <text x="35" y="405" fill="#9CA3AF" font-size="12">Анимация капли Сакуры</text>
+    <text x="35" y="425" fill="#10B981" font-size="12">Катакана «発話中»</text>
+  </g>
+
+  <!-- Bottom status bar -->
+  <rect x="50" y="635" width="1510" height="45" rx="10" fill="#1C1433" stroke="#FF6AE3" stroke-opacity="0.3"/>
+  <text x="75" y="663" fill="#FFFFFF" font-size="14" font-weight="bold">SAKURA PIPELINE: 100% асинхронный цикл на asyncio, нулевая блокировка интерфейса, мгновенный отклик на прерывание «стоп».</text>
+</svg>

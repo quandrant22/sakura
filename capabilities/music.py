@@ -7,18 +7,24 @@
 
 from sakura_core.executor import AgentCommand, register_table
 
-# 19 музыкальных действий реестра (music.*, без music_stats.*)
+# 20 музыкальных действий реестра (music.*, без music_stats.*)
 MUSIC_AGENT_ACTIONS = (
     "music.next", "music.prev", "music.restart", "music.play_pause", "music.like",
     "music.dislike", "music.now_playing", "music.history",
     "music.liked_tracks", "music.playlists", "music.shuffle", "music.repeat",
     "music.seek_forward", "music.seek_back", "music.podcasts", "music.mute",
-    "music.volume_up", "music.volume_down", "music.wave",
+    "music.volume_up", "music.volume_down", "music.wave", "music.play_track",
 )
 
 # Явная таблица: канонический id → команда агенту.
 MUSIC_COMMANDS = {aid: AgentCommand(aid) for aid in MUSIC_AGENT_ACTIONS}
 # Алиасы реестра (другой context) — тот же id на проводе.
 MUSIC_COMMANDS["music.restart_playing"] = AgentCommand("music.restart")
+
+def _play_track_handler(ctx):
+    query = ctx.param or (ctx.extra or {}).get("query") or (ctx.extra or {}).get("arg") or ""
+    return AgentCommand("music.play_track", str(query).strip())
+
+MUSIC_COMMANDS["music.play_track"] = _play_track_handler
 
 register_table(MUSIC_COMMANDS)

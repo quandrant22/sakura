@@ -328,9 +328,10 @@ def test_secret_files_are_600_and_dir_700(tmp_path):
     ks = ServerKeys.load_or_create(str(d))
     reg = DeviceRegistry.open(str(d))
     reg.add(generate_keypair()[1], name="x")
-    for f in ("server_keys.json", "devices.json"):
-        assert stat.S_IMODE(os.stat(d / f).st_mode) == 0o600
-    assert stat.S_IMODE(os.stat(d).st_mode) == 0o700
+    if os.name != "nt":
+        for f in ("server_keys.json", "devices.json"):
+            assert stat.S_IMODE(os.stat(d / f).st_mode) == 0o600
+        assert stat.S_IMODE(os.stat(d).st_mode) == 0o700
     again = ServerKeys.load_or_create(str(d))
     assert again.current == ks.current, "ключ переживает перезапуск"
     assert not [p for p in os.listdir(d) if p.startswith(".tmp-")]

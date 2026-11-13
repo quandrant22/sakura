@@ -426,6 +426,19 @@
   followup: llm
   triggers: ['включи волну', 'включи мою волну', 'волну включи', 'мою волну', 'моя волна']
 
+- id: music.play_track
+  legacy: [music:play_track, music_play_track]
+  desc: 'Включить трек в Яндекс Музыке'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: llm
+  triggers: ['включи трек', 'включи песню', 'поставь трек', 'поставь песню', 'найди трек', 'вруби трек', 'вруби песню']
+  param:
+    name: query
+    pattern: '(?:включи|поставь|найди|сыграй|вруби)\\s+(?:трек|песню)?\\s*(.+)'
+    required: ask
+
 - id: music_stats.recent
   legacy: [music_stats:recent]
   desc: 'Что я слушал сегодня/вчера/за неделю'
@@ -649,7 +662,7 @@
   reversible: true
   confirm: false
   followup: ack
-  triggers: ['какая погода', 'погода', 'что с погодой', 'погода сейчас', 'на улице холодно']
+  triggers: ['какая погода', 'погода', 'что с погодой', 'погода сейчас', 'на улице холодно', 'что там на улице', 'что на улице', 'как там на улице', 'что за окном', 'что там за окном', 'прогноз погоды']
 
 - id: youtube.forward
   legacy: [youtube_forward]
@@ -764,6 +777,14 @@
   followup: ack
   triggers: ['популярное на ютубе', 'что в тренде', 'тренды ютуба', 'популярные видео']
 
+- id: youtube.open
+  desc: 'Открыть YouTube (главную страницу)'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['открой ютуб', 'включи ютуб', 'запусти ютуб', 'зайди на ютуб', 'открой youtube', 'включи youtube', 'открой ютьюб', 'включи ютьюб']
+
 - id: kettle.boil
   legacy: [kettle:boil]
   desc: 'Вскипятить чайник'
@@ -798,11 +819,12 @@
   reversible: false
   confirm: false
   followup: ack
-  triggers: ['нагрей воду', 'нагрей до', 'чайник на', 'подогрей воду', 'нагрей воду до']
+  triggers: ['нагрей воду', 'нагрей до', 'чайник на', 'подогрей воду', 'нагрей воду до', 'поставь чайник на', 'включи чайник на', 'поставь чайник до', 'включи чайник до']
   param:
     name: temp
     pattern: '(?:до|на)\s+(\d+)'
     required: ask
+    cue: 'градус|температур'
 
 - id: kettle.boil_heat
   legacy: [kettle:boil_heat]
@@ -1326,3 +1348,67 @@
   confirm: false
   followup: ack
   triggers: ['стоп задача', 'останови задачу', 'отмени задачу', 'стоп браузер', 'хватит в браузере', 'останови браузер']
+
+- id: companion.clip
+  desc: 'Сохранить откат (клип последних 30 секунд)'
+  executor: agent
+  reversible: false
+  confirm: false
+  followup: ack
+  triggers: ['заклипай это', 'заклипай', 'сохрани клип', 'сохрани откат', 'сделай откат']
+
+- id: companion.ink_clear
+  desc: 'Стереть экранные чернила и пометки'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['сотри с экрана', 'сотри рисунок', 'убери рисунок с экрана', 'сотри чернила']
+
+- id: companion.ink_draw
+  desc: 'Нарисовать неоновую указку или подсказку на экране'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['нарисуй на экране', 'покажи на экране', 'отметь на экране', 'включи чернила', 'покажи чернила', 'нарисуй указку', 'тестовый рисунок', 'покажи указку']
+
+- id: companion.call_mode_on
+  desc: 'Включить режим звонка (Discord/Telegram)'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['включи режим звонка', 'зайди в звонок', 'включи колл мод']
+
+- id: companion.call_mode_off
+  desc: 'Выключить режим звонка'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['выключи режим звонка', 'выйди из звонка', 'отключи режим звонков']
+
+- id: companion.watch_along_start
+  desc: 'Начать совместный просмотр видео'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['посмотри со мной', 'смотри со мной', 'давай смотреть вместе']
+
+- id: companion.watch_along_stop
+  desc: 'Остановить совместный просмотр видео'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['хватит смотреть', 'перестань смотреть', 'не смотри со мной']
+
+- id: companion.husk_status
+  desc: 'Узнать прогресс и статус кодинг-агента (Антигравити)'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['как там задача', 'что делает агент', 'что делает антигравити', 'какой прогресс задачи', 'статус задачи', 'прогресс задачи', 'как дела с задачей', 'прогресс антигравити']

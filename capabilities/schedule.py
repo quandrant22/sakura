@@ -13,7 +13,7 @@ from sakura_core.schedule import query
 
 log = logging.getLogger("sakura.schedule")
 
-PUSH_HINT = "Открой страницу расписания вуза и нажми закладку «Сакура: расписание» — обновлю."
+PUSH_HINT = "Откройте страницу расписания вуза и нажмите закладку «Сакура: расписание» — обновлю."
 
 
 def _now() -> datetime:
@@ -28,7 +28,7 @@ def _voice(ctx: ExecutionContext) -> bool:
 def _no_data() -> str:
     from sakura_core.schedule.sync import auto_source
     if auto_source() is not None:
-        return "Расписания у меня пока нет — сейчас загружу. Спроси через минуту или скажи «обнови расписание»."
+        return "Расписания у меня пока нет — сейчас загружу. Спросите через минуту или скажите «обнови расписание»."
     return "Расписания у меня пока нет. " + PUSH_HINT
 
 

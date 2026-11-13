@@ -190,3 +190,112 @@ def get_weather_context(weather: dict) -> str:
         "просто будь чуть более [задумчивой если дождь / спокойной если туман / "
         "оживлённой если гроза]."
     )
+
+
+# ── Город и день из фразы («какая погода завтра в Питере») ────────────
+
+import re as _re
+from urllib.parse import quote as _quote
+
+DAY_WORDS = {"сегодня": 0, "сейчас": 0, "завтра": 1, "послезавтра": 2}
+DAY_LABELS = {0: "Сегодня", 1: "Завтра", 2: "Послезавтра"}
+
+# Разговорные имена → название для геокодера.
+CITY_ALIASES = {
+    "питер": "Санкт-Петербург", "питере": "Санкт-Петербург", "спб": "Санкт-Петербург",
+    "петербург": "Санкт-Петербург", "петербурге": "Санкт-Петербург",
+    "санкт-петербург": "Санкт-Петербург", "санкт-петербурге": "Санкт-Петербург",
+    "мск": "Москва", "москва": "Москва", "москве": "Москва",
+    "екб": "Екатеринбург", "екатеринбурге": "Екатеринбург",
+    "нижнем": "Нижний Новгород", "нижнем новгороде": "Нижний Новгород",
+    "ростове": "Ростов-на-Дону", "ростове-на-дону": "Ростов-на-Дону",
+}
+
+# «в …», после которого идёт не город, а время или обстоятельство.
+_NOT_CITY = frozenset("""
+понедельник вторник среду четверг пятницу субботу воскресенье выходные будни
+обед полдень полночь ночь ночи утро вечер течение ближайшие ближайшее эти это
+последнее целом общем принципе городе городу мире стране регионе области
+доме квартире комнате офисе
+""".split())
+
+_CITY_RE = _re.compile(
+    r"(?<!\w)(?:в|во)\s+([a-zа-яё][a-zа-яё\-]+(?:\s+(?:новгороде|челнах|тагиле|осколе))?)",
+    _re.IGNORECASE)
+
+_geo_cache: dict[str, Optional[tuple[float, float, str]]] = {}
+
+
+def parse_weather_query(text: str, param: str = "") -> tuple[Optional[str], int]:
+    """Фраза (и параметр от LLM-разбора) → (город как назван | None, день 0..2)."""
+    low = f"{text or ''} {param or ''}".lower()
+    day = 0
+    for word, offset in sorted(DAY_WORDS.items(), key=lambda kv: -len(kv[0])):
+        if _re.search(rf"(?<!\w){word}(?!\w)", low):
+            day = offset
+            break
+    city = None
+    for m in _CITY_RE.finditer((text or "").lower()):
+        cand = m.group(1).strip()
+        if cand.split()[0] in _NOT_CITY or cand in DAY_WORDS:
+            continue
+        city = cand
+        break
+    if city is None and param:
+        # Параметр LLM-разбора: «Санкт-Петербург завтра» → город без слов дня.
+        rest = " ".join(w for w in param.replace(";", " ").replace(",", " ").split()
+                        if w.lower() not in DAY_WORDS and w.lower() not in ("в", "во"))
+        city = rest.strip().lower() or None
+    return city, day
+
+
+def _city_candidates(city: str) -> list[str]:
+    """Название в том виде, как произнесли (часто предложный падеж),
+    → варианты именительного для геокодера, самые вероятные первыми."""
+    c = city.strip().lower()
+    if c in CITY_ALIASES:
+        return [CITY_ALIASES[c]]
+    out = []
+    if c.endswith("е"):
+        out += [c[:-1], c[:-1] + "а", c[:-1] + "о"]       # Минске, Москве, Орле
+    elif c.endswith("и"):
+        out += [c[:-1] + "ь", c[:-1] + "а", c]            # Казани, Сочи
+    elif c.endswith("ах"):
+        out += [c[:-2] + "ы", c]                          # Чебоксарах
+    out.append(c)
+    seen, uniq = set(), []
+    for v in out:
+        if v and v not in seen:
+            seen.add(v)
+            uniq.append(v)
+    return uniq
+
+
+async def geocode(city: str) -> Optional[tuple[float, float, str]]:
+    """Город → (широта, долгота, название). None — не найден или сервис молчит."""
+    key = (city or "").strip().lower()
+    if not key:
+        return None
+    if key in _geo_cache:
+        return _geo_cache[key]
+    for name in _city_candidates(key):
+        url = ("https://geocoding-api.open-meteo.com/v1/search"
+               f"?name={_quote(name)}&count=1&language=ru&format=json")
+        try:
+            data = await asyncio.to_thread(_fetch_json, url)
+        except Exception as e:
+            log.info(f"[weather] геокодер: {type(e).__name__} на «{name}»")
+            return None                      # сервис недоступен — не кэшируем
+        results = (data or {}).get("results") or []
+        if results:
+            r = results[0]
+            found = (float(r["latitude"]), float(r["longitude"]), r.get("name") or name)
+            _geo_cache[key] = found
+            log.info(f"[weather] город «{city}» → {found[2]} ({found[0]}, {found[1]})")
+            return found
+    _geo_cache[key] = None
+    return None
+
+
+def describe(category: str) -> str:
+    return _WEATHER_MOOD.get(category, _WEATHER_MOOD["cloudy"])["desc"]

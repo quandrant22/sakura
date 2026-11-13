@@ -57,15 +57,23 @@ export function isBlackFrame(rgba: Uint8ClampedArray, threshold = 8): boolean {
   return n > 0 && sum / n < threshold;
 }
 
-export interface WindowSource { id: string; name: string }
+export interface WindowSource {
+  id: string;
+  name: string;
+  /** window — окно приложения, screen — монитор целиком. */
+  kind?: "window" | "screen";
+  thumb?: string | null;
+  icon?: string | null;
+}
 
 /** Менеджеры паролей, банки и т.п. (WINDOW_BLOCKLIST) и окна самой Сакуры в выбор не попадают. */
 export const DEFAULT_BLOCKLIST = ["keepass", "1password", "bitwarden", "lastpass", "dashlane", "enpass",
   "сбербанк", "сбербанк онлайн", "тинькофф", "т-банк", "альфа-банк", "втб онлайн", "credential", "пароль"];
 
-export function filterSources(list: WindowSource[], blocklist: string[] = DEFAULT_BLOCKLIST): WindowSource[] {
+export function filterSources<T extends WindowSource>(list: T[], blocklist: string[] = DEFAULT_BLOCKLIST): T[] {
   const block = blocklist.map((b) => b.trim().toLowerCase()).filter(Boolean);
   return list.filter((s) => {
+    if (s.kind === "screen") return true; // монитор целиком — подпись монитора, не имя окна
     const n = s.name.toLowerCase();
     if (!n || n === "sakura" || n.startsWith("sakura ·")) return false;
     return !block.some((b) => n.includes(b));
@@ -79,4 +87,17 @@ export function fitWidgetRows(widgetWidthPx: number, aspect: number, rowHeight: 
   const wantPx = widgetWidthPx / aspect + chromePx; // тело + заголовок и панель
   // h строк занимают h*rowHeight + (h-1)*marginY пикселей
   return Math.max(minRows, Math.round((wantPx + marginY) / (rowHeight + marginY)));
+}
+
+/** Список выбора: окна (по имени) и отдельно мониторы. */
+export function groupSources<T extends WindowSource>(list: T[]): { windows: T[]; screens: T[] } {
+  const windows = list.filter((s) => s.kind !== "screen").sort((a, b) => a.name.localeCompare(b.name, "ru"));
+  const screens = list.filter((s) => s.kind === "screen");
+  return { windows, screens };
+}
+
+/** Поиск по списку окон: без учёта регистра, по любой части названия. */
+export function matchSource(s: WindowSource, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  return !q || s.name.toLowerCase().includes(q);
 }

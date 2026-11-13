@@ -21,6 +21,14 @@ class EventBus:
         with self._lock:
             self._subscribers.append(callback)
 
+    def on(self, event_name: str, callback):
+        """Регистрация обработчика конкретного события."""
+        def _wrapper(ev: str, data: dict):
+            if ev == event_name:
+                callback(data)
+        self.subscribe(_wrapper)
+        return _wrapper
+
     def emit(self, event: str, **data):
         with self._lock:
             subscribers = list(self._subscribers)

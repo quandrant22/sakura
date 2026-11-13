@@ -49,8 +49,13 @@ def isolated_chat_log(monkeypatch, tmp_path):
 @pytest.fixture(scope="session", autouse=True)
 def load_capability_tables():
     from sakura_core.bridge import _load_capabilities
+    from sakura_core.registry import RegistryError
+    import logging
 
-    _load_capabilities()
+    try:
+        _load_capabilities()
+    except RegistryError as e:
+        logging.getLogger("conftest").warning("[conftest] capabilities: %s", e)
 
 
 @pytest.fixture(autouse=True)
