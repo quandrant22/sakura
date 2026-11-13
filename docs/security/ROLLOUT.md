@@ -1,5 +1,11 @@
 # Выкат защищённого канала (SECURE_CHANNEL off → optional → required)
 
+> **Статус 2026-11-10:** шаг 3 выполнен — `SECURE_CHANNEL=required`. Внешний транспорт —
+> `wss://` (TLS 1.3) через nginx на :443, сервер слушает только `127.0.0.1:8765`
+> (`WS_HOST`), адрес для клиентов — `SECURE_PUBLIC_URL` в `.env`. Спаривание XXpsk3 в
+> `required` работает (`tests/test_securechannel_ws.py::test_required_still_allows_pairing_a_new_device`).
+> Откат: `SECURE_CHANNEL=optional` и рестарт. Шаг 4 (вывод `WS_SECRET`) — через неделю без откатов.
+
 Выполняет владелец на VPS. Ключи и реестр — [KEYS.md](KEYS.md), протокол —
 [PROTOCOL.md](PROTOCOL.md). Секреты (`.env`, `memory/secure/`) в чат, лог и
 git не попадают.

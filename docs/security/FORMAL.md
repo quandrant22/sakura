@@ -40,7 +40,7 @@
 | ik Q4 | согласие о ключах: ServerDone ⇒ ClientDone (G3) | ik.pv | `inj ServerDone ⇒ inj ClientDone` | true | true (совпало) |
 | ik Q5 | ClientDone ⇒ ServerAccepted, инъективно (G4) | ik.pv | `inj ClientDone(C,S) ⇒ inj ServerAccepted(C,S)` | true | true (совпало) |
 | ik Q6 | сообщение 1 подлинно без компрометации | ik.pv | `ServerAccepted(C,S) ⇒ ClientStarted(C,S)` | true | true (совпало) |
-| ik Q7 | **повтор IK_INIT** (ожидаемая атака) | ik.pv | `inj ServerAccepted(C,S) ⇒ inj ClientStarted(C,S)` | **false** | false (совпало) |
+| ik Q7 | **повтор IK_INIT** (ожидаемая атака в модели; в реализации закрыто 2026-11-10 — FINDINGS.md F2) | ik.pv | `inj ServerAccepted(C,S) ⇒ inj ClientStarted(C,S)` | **false** | false (совпало) |
 | ik Q8 | **KCI на сообщение 1** (ожидаемая атака) | ik.pv | `ServerAccepted(C,K) ⇒ ClientStarted(C,K)` | **false** | не завершено → FINDINGS.md F1 |
 | ik Q9 | KCI не идёт дальше сообщения 1 | ik.pv | `ServerDone(C,K) ⇒ ClientStarted(C,K)` | true | не завершено → FINDINGS.md F1 |
 | ik Q10 | достижимость полного сеанса | ik.pv | `event(ServerDone(C,S))` | false (достижимо) | false (совпало) |

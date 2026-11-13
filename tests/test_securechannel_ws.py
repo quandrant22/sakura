@@ -126,6 +126,21 @@ def test_required_accepts_noise(env):
     assert run(sc)["proto"] == 2
 
 
+def test_required_still_allows_pairing_a_new_device(env):
+    """В required текстовый вход закрыт (4412), но спаривание XXpsk3 — бинарные кадры —
+    работает: новое устройство регистрируется и сразу открывает сеанс IK."""
+    env.setattr(config, "SECURE_CHANNEL", "required")
+
+    async def sc(uri):
+        priv, info = await paired_device(uri, hint="phone")      # XX_1..XX_3 под required
+        async with websockets.connect(uri, max_size=None) as ws:
+            c = await connect_session(ws, priv, info["server_pub_bytes"], device_id=info["device_id"])
+            await c.send(json.dumps({"type": "register", "proto": 2}))
+            return info["device_id"], await until(c, lambda m: m.get("type") == "registered")
+    device_id, reg = run(sc)
+    assert device_id and reg["proto"] == 2
+
+
 def test_off_rejects_noise_with_4400(env):
     env.setattr(config, "SECURE_CHANNEL", "off")
 

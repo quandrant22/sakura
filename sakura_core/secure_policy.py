@@ -92,7 +92,27 @@ def _local_addresses() -> frozenset[str]:
     return _local_cache[1]
 
 
+EDGE_HEADER = "X-Sakura-Edge"  # ставит nginx на публичном wss://…:443 (proxy_set_header перезаписывает)
+
+
+def via_edge(websocket) -> bool:
+    """Соединение пришло через публичный nginx (wss:// на :443), а не напрямую на 127.0.0.1:8765.
+
+    За обратным прокси адрес сокета всегда loopback, поэтому без этой метки любой
+    удалённый клиент выглядел бы «локальным» (secure=true без Noise). Метка только
+    понижает доверие: клиент не может её снять — nginx задаёт её сам.
+    """
+    req = getattr(websocket, "request", None)
+    headers = getattr(req, "headers", None) or getattr(websocket, "request_headers", None)
+    try:
+        return bool(headers is not None and headers.get(EDGE_HEADER))
+    except (AttributeError, TypeError):
+        return False
+
+
 def peer_ip(websocket) -> str | None:
+    if via_edge(websocket):
+        return None  # удалённый клиент за прокси: реальный адрес неизвестен → не локальный
     addr = getattr(websocket, "remote_address", None)
     if isinstance(addr, tuple) and addr:
         return str(addr[0])

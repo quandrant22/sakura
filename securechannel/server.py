@@ -21,7 +21,12 @@ import secrets
 import time
 from dataclasses import dataclass, field
 
-from securechannel.channel import REKEY_MESSAGES, REKEY_SECONDS, SecureChannel, parse_close
+from securechannel.channel import (
+    REKEY_MESSAGES,
+    REKEY_SECONDS,
+    SecureChannel,
+    parse_close,
+)
 from securechannel.frames import (
     FrameError,
     FrameType,
@@ -35,6 +40,7 @@ from securechannel.keys import ServerKeys, b64url, fingerprint
 from securechannel.limits import HandshakeLimiter
 from securechannel.pairing import PairingManager
 from securechannel.registry import DeviceRegistry
+from securechannel.replay import TS_WINDOW_S, ReplayCache, ephemeral_of, ts_is_fresh
 
 log = logging.getLogger("sakura.securechannel")
 
@@ -69,6 +75,10 @@ class SecureContext:
     rekey_seconds: float = REKEY_SECONDS
     on_paired: object = None            # async callback(device: dict)
     clock: object = time.monotonic
+    # Анти-повтор IK_INIT (securechannel/replay.py): кэш `e` и окно свежести ts.
+    replay: ReplayCache = field(default_factory=ReplayCache)
+    ts_window: float = TS_WINDOW_S      # 0 — проверка ts выключена (только кэш)
+    wall_clock: object = time.time
 
 
 def _peer_ip(websocket) -> str:
@@ -150,6 +160,17 @@ async def _accept_ik(websocket, body, ctx: SecureContext, deadline, ip):
         ident = json.loads(payload or b"{}")
     except ValueError:
         ident = {}
+    # Анти-повтор (закрытие ProVerif ik Q7): отказ неотличим от прочих — молчание, 4408.
+    ts = ident.get("ts") if isinstance(ident, dict) else None
+    if not ts_is_fresh(ts, now=ctx.wall_clock(), window=ctx.ts_window):
+        await _silent_fail(websocket, deadline, clock,
+                           f"IK_INIT вне окна свежести ts (device={device['id']})", ip)
+        return None
+    e = ephemeral_of(body)
+    if e is None or not ctx.replay.check_and_add(e):
+        await _silent_fail(websocket, deadline, clock,
+                           f"повтор IK_INIT: эфемерный ключ уже был (device={device['id']})", ip)
+        return None
     session = secrets.token_hex(8)
     resp = json.dumps({"v": 1, "session": session, "rekey_messages": ctx.rekey_messages,
                        "rekey_seconds": ctx.rekey_seconds, "server_time": time.time()}).encode()
