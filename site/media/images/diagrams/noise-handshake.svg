@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 750" width="100%" height="100%" style="background:#0D091A; font-family:'Segoe UI', sans-serif;">
+  <defs>
+    <linearGradient id="nPink" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF6AE3"/>
+      <stop offset="100%" stop-color="#B829A0"/>
+    </linearGradient>
+    <linearGradient id="nCyan" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4FD8FF"/>
+      <stop offset="100%" stop-color="#1B75BB"/>
+    </linearGradient>
+  </defs>
+
+  <text x="50" y="55" fill="#FFFFFF" font-size="28" font-weight="bold">ПРОТОКОЛ БЕЗОПАСНОСТИ: Noise_IK_25519_ChaChaPoly_BLAKE2s</text>
+  <text x="50" y="85" fill="#4FD8FF" font-size="16">Формально верифицированный сквозной криптоканал между Desktop-клиентом и сервером (ProVerif ik.pv &amp; xxpsk3.pv)</text>
+
+  <!-- Client Box -->
+  <rect x="50" y="120" width="380" height="580" rx="16" fill="#150F26" stroke="#FF6AE3" stroke-width="2"/>
+  <rect x="50" y="120" width="380" height="50" rx="16" fill="#20173D"/>
+  <text x="70" y="152" fill="#FF6AE3" font-size="18" font-weight="bold">DESKTOP CLIENT (ПК Мастера)</text>
+  <text x="70" y="200" fill="#FFCF6B" font-size="15" font-weight="bold">Статический ключ s_client (X25519):</text>
+  <text x="70" y="225" fill="#D1D5DB" font-size="13">Хранится в Windows DPAPI шифровании</text>
+  <text x="70" y="245" fill="#9CA3AF" font-size="12">Никогда не передаётся в открытом виде</text>
+
+  <text x="70" y="295" fill="#4FD8FF" font-size="15" font-weight="bold">Эфемерный ключ e_client:</text>
+  <text x="70" y="320" fill="#D1D5DB" font-size="13">Генерируется заново на каждую сессию</text>
+  <text x="70" y="340" fill="#10B981" font-size="12">Обеспечивает Perfect Forward Secrecy</text>
+
+  <rect x="70" y="380" width="340" height="150" rx="12" fill="#1A1230" stroke="#FF6AE3" stroke-opacity="0.4"/>
+  <text x="85" y="410" fill="#FF6AE3" font-size="15" font-weight="bold">Защитные барьеры:</text>
+  <text x="85" y="435" fill="#D1D5DB" font-size="13">• Запрет отката на bearer-токены (4412)</text>
+  <text x="85" y="460" fill="#D1D5DB" font-size="13">• Окно защиты от повторов (Anti-Replay 64)</text>
+  <text x="85" y="485" fill="#D1D5DB" font-size="13">• Контроль порядка и целостности кадров</text>
+  <text x="85" y="510" fill="#10B981" font-size="13">• Логи очищены от секретов и ключей</text>
+
+  <!-- Server Box -->
+  <rect x="1170" y="120" width="380" height="580" rx="16" fill="#150F26" stroke="#4FD8FF" stroke-width="2"/>
+  <rect x="1170" y="120" width="380" height="50" rx="16" fill="#20173D"/>
+  <text x="1190" y="152" fill="#4FD8FF" font-size="18" font-weight="bold">VPS CORE SERVER (Облако)</text>
+  <text x="1190" y="200" fill="#FFCF6B" font-size="15" font-weight="bold">Статический ключ s_server (X25519):</text>
+  <text x="1190" y="225" fill="#D1D5DB" font-size="13">Публичный ключ встроен в клиент</text>
+  <text x="1190" y="245" fill="#9CA3AF" font-size="12">Приватный ключ изолирован в root</text>
+
+  <text x="1190" y="295" fill="#4FD8FF" font-size="15" font-weight="bold">Реестр доверенных устройств:</text>
+  <text x="1190" y="320" fill="#D1D5DB" font-size="13">Белый список SHA-256 отпечатков</text>
+  <text x="1190" y="340" fill="#10B981" font-size="12">Мгновенный отзыв через /revoke</text>
+
+  <rect x="1190" y="380" width="340" height="150" rx="12" fill="#1A1230" stroke="#4FD8FF" stroke-opacity="0.4"/>
+  <text x="1205" y="410" fill="#4FD8FF" font-size="15" font-weight="bold">Механизмы ядра:</text>
+  <text x="1205" y="435" fill="#D1D5DB" font-size="13">• 0-RTT аутентификация по известному ключу</text>
+  <text x="1205" y="460" fill="#D1D5DB" font-size="13">• Автоматический Rekey после 10k кадров</text>
+  <text x="1205" y="485" fill="#D1D5DB" font-size="13">• Фрагментация сообщений до 2 МиБ</text>
+  <text x="1205" y="510" fill="#10B981" font-size="13">• Защита от зондирования чужих ключей</text>
+
+  <!-- Flow Center -->
+  <rect x="460" y="120" width="680" height="430" rx="16" fill="#120D22" stroke="#604585" stroke-width="1"/>
+  <text x="490" y="160" fill="#FFFFFF" font-size="18" font-weight="bold">1-RTT РУКОПОЖАТИЕ NOISE IK</text>
+
+  <!-- Step 1 Arrow -->
+  <g transform="translate(480, 190)">
+    <rect width="640" height="100" rx="10" fill="#1B1333" stroke="#FF6AE3" stroke-opacity="0.7"/>
+    <text x="20" y="30" fill="#FF6AE3" font-size="15" font-weight="bold">1. Инициализация (Client -> Server): -> e, es, s, ss</text>
+    <text x="20" y="55" fill="#D1D5DB" font-size="13">• DH(e, s_server) шифрует статический ключ клиента s_client</text>
+    <text x="20" y="75" fill="#D1D5DB" font-size="13">• DH(s_client, s_server) обеспечивает аутентификацию отправителя</text>
+    <path d="M 580 50 L 620 50" stroke="#FF6AE3" stroke-width="3"/>
+    <polygon points="620,45 630,50 620,55" fill="#FF6AE3"/>
+  </g>
+
+  <!-- Step 2 Arrow -->
+  <g transform="translate(480, 310)">
+    <rect width="640" height="100" rx="10" fill="#1B1333" stroke="#4FD8FF" stroke-opacity="0.7"/>
+    <text x="20" y="30" fill="#4FD8FF" font-size="15" font-weight="bold">2. Ответ (Server -> Client): <- e, ee, se</text>
+    <text x="20" y="55" fill="#D1D5DB" font-size="13">• DH(e_server, e_client) + DH(s_client, e_server)</text>
+    <text x="20" y="75" fill="#D1D5DB" font-size="13">• Вывод двух симметричных ключей: k_client_to_server, k_server_to_client</text>
+    <path d="M 60 50 L 20 50" stroke="#4FD8FF" stroke-width="3"/>
+    <polygon points="20,45 10,50 20,55" fill="#4FD8FF"/>
+  </g>
+
+  <!-- Step 3 Transport -->
+  <g transform="translate(480, 430)">
+    <rect width="640" height="100" rx="10" fill="#1B1333" stroke="#10B981" stroke-opacity="0.8"/>
+    <text x="20" y="30" fill="#10B981" font-size="15" font-weight="bold">3. Транспортные кадры «SK» (ChaCha20-Poly1305 + BLAKE2s)</text>
+    <text x="20" y="55" fill="#D1D5DB" font-size="13">• Полнодуплексный шифрованный канал команд и звука</text>
+    <text x="20" y="75" fill="#10B981" font-size="13">• Полная невозможность подделки и перехвата даже при взломе TLS</text>
+  </g>
+
+  <!-- Formal Verification Card -->
+  <rect x="460" y="570" width="680" height="130" rx="16" fill="#0A2818" stroke="#10B981" stroke-width="2"/>
+  <text x="490" y="605" fill="#FFCF6B" font-size="16" font-weight="bold">РЕЗУЛЬТАТЫ ФОРМАЛЬНОГО ДОКАЗАТЕЛЬСТВА В PROVERIF:</text>
+  <text x="490" y="635" fill="#10B981" font-size="14" font-weight="bold">RESULT not attacker(secret_client[]) is TRUE (Тайна сессии клиента доказана)</text>
+  <text x="490" y="660" fill="#10B981" font-size="14" font-weight="bold">RESULT not attacker(secret_server[]) is TRUE (Тайна сессии сервера доказана)</text>
+  <text x="490" y="685" fill="#10B981" font-size="14" font-weight="bold">RESULT inj-event(ServerAuth) ==> inj-event(ClientInit) is TRUE (Аутентичность)</text>
+</svg>
