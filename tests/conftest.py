@@ -26,6 +26,17 @@ os.environ["PERSONA_DIR"] = os.path.join(_tmpdir, "persona")
 
 
 @pytest.fixture(autouse=True)
+def isolated_secure_channel(monkeypatch):
+    """Режим защищённого канала не берём из серверного .env (там SECURE_CHANNEL=required).
+
+    config.py читает .env при импорте, поэтому на сервере все WS-тесты получали отказ 4412.
+    По умолчанию — "off"; тесты режимов optional/required ставят своё значение сами."""
+    import config
+
+    monkeypatch.setattr(config, "SECURE_CHANNEL", "off")
+
+
+@pytest.fixture(autouse=True)
 def isolated_chat_log(monkeypatch, tmp_path):
     """Журнал чата — своя пустая база на каждый тест, не memory/chat.db."""
     import config

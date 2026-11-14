@@ -329,7 +329,27 @@ def test_prompt_phrases(monkeypatch):
     assert d({"state": "pcs_off", "since": ts, "reason": "shutdown"}) == "Все компьютеры выключены с 23:10"
 
 
-def test_playing_not_detected_when_away(monkeypatch):
+# Промпт зависит от часа: с 02:00 до 07:00 _location_by_clock даёт «спит, глубокая ночь»
+# и блок ПРИСУТСТВИЕ становится «Молчи…» — дневные фразы проверяем на фиксированном дне.
+_DAYTIME = datetime(2026, 11, 14, 15, 30)   # суббота: «дома, выходной», без работы/пар
+
+
+class _DaytimeClock(datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return cls(_DAYTIME.year, _DAYTIME.month, _DAYTIME.day, _DAYTIME.hour, _DAYTIME.minute,
+                   tzinfo=tz)
+
+
+@pytest.fixture
+def daytime(monkeypatch):
+    monkeypatch.setattr(context, "datetime", _DaytimeClock)
+    # реальное расписание вуза из memory/ не должно влиять на промпт
+    monkeypatch.setattr(context, "lesson_context", lambda now: None)
+    return _DaytimeClock.now()
+
+
+def test_playing_not_detected_when_away(monkeypatch, daytime):
     fake_presence(monkeypatch)
     assert "играет" in context.build_context_block()            # за ПК — игра в окне
     fake_presence(monkeypatch, state="away_from_pc", idle_s=1500.0)
@@ -341,9 +361,9 @@ def test_playing_not_detected_when_away(monkeypatch):
     assert ctx["master"]["is_gaming"] is False and ctx["master"]["activity"] == "unknown"
 
 
-def test_pcs_off_prompt_uses_schedule_only_as_fallback(monkeypatch):
+def test_pcs_off_prompt_uses_schedule_only_as_fallback(monkeypatch, daytime):
     fake_presence(monkeypatch, state="pcs_off", device=None, idle_s=None,
-                  since=datetime.now().timestamp() - 60)
+                  since=daytime.timestamp() - 60)
     block = context.build_context_block()
     assert "Все компьютеры выключены с" in block and "по расписанию" in block
     assert "Он не у компьютера" in block and "играет" not in block

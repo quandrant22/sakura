@@ -146,6 +146,10 @@ def test_cache_second_call_without_synthesis(synth_calls, monkeypatch):
 
 
 def test_cache_key_changes_with_model_or_voice(synth_calls, monkeypatch):
+    # Исходные модель и голос — свои, не из .env (на сервере TTS_VOICE=Kore, и «смена» на Kore
+    # не меняла ключ кэша).
+    monkeypatch.setattr(tts, "TTS_MODEL", "test-tts-model-a")
+    monkeypatch.setattr(tts, "TTS_VOICE", "Aoede")
     asyncio.run(tts_cache.get_pcm("Есть."))
     monkeypatch.setattr(tts, "TTS_MODEL", "gemini-3.1-flash-live-preview")
     asyncio.run(tts_cache.get_pcm("Есть."))
