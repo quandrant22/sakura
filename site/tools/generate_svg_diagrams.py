@@ -1,269 +1,156 @@
+"""Векторные свитки (SVG) для сайта.
+
+  media/images/diagrams/five-scrolls-path.svg — Путь Пяти Печатей: эпохи, даты и хэши коммитов
+  media/images/diagrams/armor-handshake.svg   — Незримый Доспех: две вести рукопожатия Noise IK
+
+Надписи в SVG рисует браузер, поэтому в font-family перечислены шрифты
+с кириллицей и кандзи для всех систем.
+
+Запуск из корня репозитория: python site/tools/generate_svg_diagrams.py
 """
-Generates clean, scalable SVG vector diagrams for the website.
-"""
 
-import os
+from __future__ import annotations
 
-OUT_DIAGRAMS = "site/media/images/diagrams"
+from xml.sax.saxutils import escape
 
-def make_voice_pipeline_svg():
-    svg = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 700" width="100%" height="100%" style="background:#0D091A; font-family:'Segoe UI', sans-serif;">
-  <defs>
-    <linearGradient id="gradPink" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#FF6AE3"/>
-      <stop offset="100%" stop-color="#B829A0"/>
-    </linearGradient>
-    <linearGradient id="gradCyan" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#4FD8FF"/>
-      <stop offset="100%" stop-color="#1B75BB"/>
-    </linearGradient>
-    <linearGradient id="gradGreen" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#10B981"/>
-      <stop offset="100%" stop-color="#047857"/>
-    </linearGradient>
-    <linearGradient id="gradAmber" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#FFCF6B"/>
-      <stop offset="100%" stop-color="#D97706"/>
-    </linearGradient>
-    <filter id="glowPink" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="8" result="blur" />
-      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
-    </filter>
-  </defs>
+import legend_common as L
 
-  <!-- Header -->
-  <text x="50" y="55" fill="#FFFFFF" font-size="28" font-weight="bold">ГОЛОСОВОЙ КОНВЕЙЕР SAKURA AI (GigaAM v2_ctc + Fast-Path + Live TTS)</text>
-  <text x="50" y="85" fill="#FF6AE3" font-size="16">Полная сквозная задержка (Time to First Audio Chunk) сокращена с 1800 мс до 320–480 мс</text>
+FONT = "'Noto Serif CJK JP','Noto Serif JP','Source Han Serif JP','Yu Mincho','Hiragino Mincho ProN',serif"
+PAPER = "#F2E9D8"
+INK = "#1E181E"
+INK_SOFT = "#4E4248"
+RED = "#C43A32"
+GOLD = "#D6B26C"
+SAKURA = "#F6B0C7"
 
-  <!-- Stage 1 -->
-  <g transform="translate(50, 130)">
-    <rect width="330" height="480" rx="16" fill="#150F26" stroke="#4FD8FF" stroke-width="2"/>
-    <rect width="330" height="45" rx="16" fill="#1C1433"/>
-    <text x="20" y="30" fill="#4FD8FF" font-size="18" font-weight="bold">1. ЗАХВАТ И STT</text>
-    
-    <!-- Item 1 -->
-    <rect x="20" y="70" width="290" height="110" rx="12" fill="#20173D" stroke="#4FD8FF" stroke-opacity="0.4"/>
-    <text x="35" y="100" fill="#4FD8FF" font-size="16" font-weight="bold">WASAPI Audio Ingest</text>
-    <text x="35" y="125" fill="#D1D5DB" font-size="13">Захват микрофона + loopback</text>
-    <text x="35" y="145" fill="#9CA3AF" font-size="12">Resampling 48kHz -> 16kHz</text>
-    <text x="35" y="165" fill="#10B981" font-size="12">PortAudio drain (0 задержки)</text>
 
-    <!-- Item 2 -->
-    <rect x="20" y="200" width="290" height="110" rx="12" fill="#20173D" stroke="#4FD8FF" stroke-opacity="0.4"/>
-    <text x="35" y="230" fill="#FFCF6B" font-size="16" font-weight="bold">Silero VAD v6.2</text>
-    <text x="35" y="255" fill="#D1D5DB" font-size="13">Детекция речи в потоке</text>
-    <text x="35" y="275" fill="#9CA3AF" font-size="12">Адаптивный порог RMS dB</text>
-    <text x="35" y="295" fill="#10B981" font-size="12">Отсечка тишины за 40 мс</text>
+def rgb(c):
+    return "#%02X%02X%02X" % tuple(c)
 
-    <!-- Item 3 -->
-    <rect x="20" y="330" width="290" height="120" rx="12" fill="#20173D" stroke="#FF6AE3" stroke-opacity="0.6"/>
-    <text x="35" y="360" fill="#FF6AE3" font-size="16" font-weight="bold">GigaAM v2_ctc</text>
-    <text x="35" y="385" fill="#D1D5DB" font-size="13">Русская нейро-ASR модель</text>
-    <text x="35" y="405" fill="#9CA3AF" font-size="12">Снятие перегрузок клиппинга</text>
-    <text x="35" y="425" fill="#10B981" font-size="12">Нормализация имён и числительных</text>
-  </g>
 
-  <!-- Arrow 1 -> 2 -->
-  <path d="M 400 370 L 440 370" stroke="#FF6AE3" stroke-width="4" stroke-dasharray="6,4"/>
-  <polygon points="440,364 452,370 440,376" fill="#FF6AE3"/>
+def t(x, y, s, size, fill=INK, weight=400, anchor="middle", extra=""):
+    return (f'<text x="{x}" y="{y}" font-size="{size}" font-weight="{weight}" fill="{fill}" '
+            f'text-anchor="{anchor}" {extra}>{escape(s)}</text>')
 
-  <!-- Stage 2 -->
-  <g transform="translate(460, 130)">
-    <rect width="330" height="480" rx="16" fill="#150F26" stroke="#10B981" stroke-width="2"/>
-    <rect width="330" height="45" rx="16" fill="#1C1433"/>
-    <text x="20" y="30" fill="#10B981" font-size="18" font-weight="bold">2. NLU И РОУТЕР</text>
 
-    <!-- Item 1 -->
-    <rect x="20" y="70" width="290" height="110" rx="12" fill="#20173D" stroke="#10B981" stroke-opacity="0.4"/>
-    <text x="35" y="100" fill="#EF4444" font-size="16" font-weight="bold">Early Gate (Barge-in)</text>
-    <text x="35" y="125" fill="#D1D5DB" font-size="13">Мгновенный перехват «стоп»</text>
-    <text x="35" y="145" fill="#9CA3AF" font-size="12">Сброс TTS очереди на лету</text>
-    <text x="35" y="165" fill="#10B981" font-size="12">Прерывание речи за 15 мс</text>
+def blossom(x, y, r, fill=SAKURA):
+    petals = "".join(
+        f'<ellipse cx="{x}" cy="{y - r * 0.55}" rx="{r * 0.42}" ry="{r * 0.6}" fill="{fill}" '
+        f'transform="rotate({k * 72} {x} {y})"/>' for k in range(5))
+    return petals + f'<circle cx="{x}" cy="{y}" r="{r * 0.2}" fill="#DE6291"/>'
 
-    <!-- Item 2 -->
-    <rect x="20" y="200" width="290" height="110" rx="12" fill="#20173D" stroke="#10B981" stroke-opacity="0.8"/>
-    <text x="35" y="230" fill="#10B981" font-size="16" font-weight="bold">v3 Fast-Path Router</text>
-    <text x="35" y="255" fill="#D1D5DB" font-size="13">140 возможностей реестра</text>
-    <text x="35" y="275" fill="#9CA3AF" font-size="12">Regex + нормализация форм</text>
-    <text x="35" y="295" fill="#10B981" font-size="12">Исполнение за 1.8 мс без LLM!</text>
 
-    <!-- Item 3 -->
-    <rect x="20" y="330" width="290" height="120" rx="12" fill="#20173D" stroke="#FFCF6B" stroke-opacity="0.4"/>
-    <text x="35" y="360" fill="#FFCF6B" font-size="16" font-weight="bold">State Arbiter</text>
-    <text x="35" y="385" fill="#D1D5DB" font-size="13">Единый блок «СОСТОЯНИЕ»</text>
-    <text x="35" y="405" fill="#9CA3AF" font-size="12">Игры, окна, медиа, статус ПК</text>
-    <text x="35" y="425" fill="#10B981" font-size="12">Zero-Hallucination фильтр</text>
-  </g>
+def five_scrolls_path() -> str:
+    w, h = 1600, 480
+    xs = [180, 490, 800, 1110, 1420]
+    parts = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" font-family="{FONT}" role="img" '
+        f'aria-labelledby="t d">',
+        '<title id="t">Путь Пяти Печатей</title>',
+        '<desc id="d">Пять эпох истории Сакуры с июля по ноябрь 2026 года и Печати Времени — хэши коммитов</desc>',
+        f'<rect x="0" y="0" width="{w}" height="{h}" rx="22" fill="{PAPER}"/>',
+        f'<rect x="14" y="14" width="{w - 28}" height="{h - 28}" rx="14" fill="none" stroke="{INK_SOFT}" stroke-width="1.5"/>',
+        t(60, 70, "Путь Пяти Печатей · 五つの巻", 34, INK, 700, "start"),
+        t(60, 108, "Каждая печать — настоящий коммит, с которого началась эпоха", 20, INK_SOFT, 400, "start"),
+        # река-путь
+        f'<path d="M 60 250 C 300 190, 380 310, 640 240 S 1000 190, 1240 250 S 1460 300, 1540 240" '
+        f'fill="none" stroke="{INK}" stroke-width="7" stroke-linecap="round" opacity="0.88"/>',
+        f'<path d="M 60 262 C 300 202, 380 322, 640 252 S 1000 202, 1240 262 S 1460 312, 1540 252" '
+        f'fill="none" stroke="{GOLD}" stroke-width="2" stroke-dasharray="2 10" stroke-linecap="round"/>',
+    ]
+    for x, s in zip(xs, L.SCROLLS):
+        parts += [
+            f'<g>',
+            f'<circle cx="{x}" cy="248" r="62" fill="{rgb(s["color"])}" opacity="0.18"/>',
+            f'<rect x="{x - 44}" y="204" width="88" height="88" rx="8" fill="{RED}"/>',
+            f'<rect x="{x - 37}" y="211" width="74" height="74" rx="5" fill="none" stroke="{PAPER}" stroke-width="2.5"/>',
+            t(x, 266, s["num"], 50, PAPER, 700),
+            t(x, 172, s["period"], 19, RED, 700),
+            t(x, 334, s["kan"] + " · " + s["seal"], 20, INK, 700),
+            t(x, 362, s["date"], 18, INK_SOFT),
+        ]
+        words = s["title"].split()
+        lines, cur = [], ""
+        for word in words:  # перенос названия по ~22 символа
+            if len(cur) + len(word) + 1 > 22 and cur:
+                lines.append(cur)
+                cur = word
+            else:
+                cur = (cur + " " + word).strip()
+        lines.append(cur)
+        for i, line in enumerate(lines[:3]):
+            parts.append(t(x, 392 + i * 22, line, 17, INK_SOFT, 400, "middle", 'font-style="italic"'))
+        parts.append("</g>")
+    parts += [blossom(1500, 78, 16), blossom(1534, 104, 11), blossom(1468, 112, 9), "</svg>"]
+    return "\n".join(parts)
 
-  <!-- Arrow 2 -> 3 -->
-  <path d="M 810 370 L 850 370" stroke="#FF6AE3" stroke-width="4" stroke-dasharray="6,4"/>
-  <polygon points="850,364 862,370 850,376" fill="#FF6AE3"/>
 
-  <!-- Stage 3 -->
-  <g transform="translate(870, 130)">
-    <rect width="330" height="480" rx="16" fill="#150F26" stroke="#FF6AE3" stroke-width="2"/>
-    <rect width="330" height="45" rx="16" fill="#1C1433"/>
-    <text x="20" y="30" fill="#FF6AE3" font-size="18" font-weight="bold">3. НЕЙРОСЕТЕВОЙ МОЗГ</text>
+def armor_handshake() -> str:
+    w, h = 1600, 846
+    parts = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" font-family="{FONT}" role="img" '
+        f'aria-labelledby="t d">',
+        '<title id="t">Незримый Доспех</title>',
+        '<desc id="d">Две вести рукопожатия Noise IK между Мастером и Святилищем Kizune-Ryoiki и доспех над ними</desc>',
+        '<defs><pattern id="hex" width="54" height="31.2" patternUnits="userSpaceOnUse">'
+        f'<path d="M 0 15.6 L 9 0 L 27 0 L 36 15.6 L 27 31.2 L 9 31.2 Z" fill="none" stroke="{GOLD}" '
+        'stroke-width="1.4" opacity="0.55"/></pattern>'
+        '<clipPath id="dome"><path d="M 110 600 A 690 380 0 0 1 1490 600 Z"/></clipPath>'
+        f'<marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="9" markerHeight="9" orient="auto">'
+        f'<path d="M 0 0 L 10 5 L 0 10 Z" fill="context-stroke"/></marker></defs>',
+        f'<rect x="0" y="0" width="{w}" height="{h}" rx="22" fill="{PAPER}"/>',
+        f'<rect x="14" y="14" width="{w - 28}" height="{h - 28}" rx="14" fill="none" stroke="{INK_SOFT}" stroke-width="1.5"/>',
+        t(60, 72, "Незримый Доспех · 見えざる鎧", 36, INK, 700, "start"),
+        t(60, 110, "Свиток IV · Печать bef6346 · 16 октября 2026", 20, INK_SOFT, 400, "start"),
+        '<rect x="0" y="0" width="1600" height="600" fill="url(#hex)" clip-path="url(#dome)"/>',
+        f'<path d="M 110 600 A 690 380 0 0 1 1490 600" fill="none" stroke="{GOLD}" stroke-width="4"/>',
+        # дом мастера
+        f'<g fill="{INK}"><rect x="150" y="520" width="160" height="80"/>'
+        '<path d="M 110 526 L 230 450 L 350 526 L 310 514 L 230 468 L 150 514 Z"/></g>',
+        f'<rect x="185" y="540" width="30" height="34" fill="{GOLD}"/><rect x="245" y="540" width="30" height="34" fill="{GOLD}"/>',
+        t(230, 640, "主 · Мастер", 26, INK, 700),
+        # святилище
+        f'<g fill="{INK}"><rect x="1312" y="530" width="116" height="70"/><path d="M 1246 542 L 1303 508 L 1437 508 L 1494 542 Z"/>'
+        '<rect x="1324" y="440" width="92" height="60"/><path d="M 1266 452 L 1317 418 L 1423 418 L 1474 452 Z"/>'
+        '<rect x="1336" y="366" width="68" height="54"/><path d="M 1286 378 L 1331 344 L 1409 344 L 1454 378 Z"/>'
+        '<rect x="1367" y="292" width="6" height="52"/></g>',
+        t(1330, 640, "社 · Святилище Kizune-Ryoiki", 26, INK, 700),
+        # первая весть
+        f'<path d="M 320 450 Q 800 210 1280 350" fill="none" stroke="{RED}" stroke-width="4" marker-end="url(#ah)"/>',
+        t(800, 196, "Первая весть: мимолётный ключ и сокрытое имя Мастера", 22, RED, 700),
+    ]
+    for (x, y), lab in zip(((540, 351), (700, 314), (860, 305), (1020, 318)), ("e", "es", "s", "ss")):
+        parts += [f'<rect x="{x - 26}" y="{y - 17}" width="52" height="34" rx="17" fill="{PAPER}" stroke="{RED}" stroke-width="2"/>',
+                  t(x, y + 7, lab, 20, RED, 700)]
+    parts += [
+        f'<path d="M 1280 460 Q 800 360 320 490" fill="none" stroke="{INK}" stroke-width="4" marker-end="url(#ah)"/>',
+        t(800, 482, "Ответ Святилища: ключи сплетаются в общую тайну", 22, INK, 700),
+    ]
+    for (x, y), lab in zip(((1040, 423), (800, 410), (560, 435)), ("e", "ee", "se")):
+        parts += [f'<rect x="{x - 26}" y="{y - 17}" width="52" height="34" rx="17" fill="{PAPER}" stroke="{INK}" stroke-width="2"/>',
+                  t(x, y + 7, lab, 20, INK, 700)]
+    for i in range(5):
+        x = 560 + i * 120
+        parts += [f'<rect x="{x - 17}" y="538" width="34" height="34" rx="5" fill="{RED}"/>', t(x, 561, "SK", 14, PAPER, 700)]
+    facts = [("鍵", "Ключ устройства хранится в защищённом хранилище ПК"),
+             ("八", "Спаривание: восемь слов или QR (Noise XXpsk3)"),
+             ("拒", "Повтор, перестановка и подмена вести отвергаются"),
+             ("証", "Тайна и подлинность доказаны в ProVerif")]
+    for i, (k, txt) in enumerate(facts):
+        x, y = 90 + (i % 2) * 740, 700 + (i // 2) * 58
+        parts += [f'<circle cx="{x}" cy="{y}" r="22" fill="{RED}"/>', t(x, y + 8, k, 22, PAPER, 700),
+                  t(x + 36, y + 7, txt, 20, INK, 400, "start")]
+    parts += [t(1540, 812, "Noise IK · Curve25519 · ChaChaPoly · BLAKE2s", 18, INK_SOFT, 400, "end"), "</svg>"]
+    return "\n".join(parts)
 
-    <!-- Item 1 -->
-    <rect x="20" y="70" width="290" height="110" rx="12" fill="#20173D" stroke="#FF6AE3" stroke-opacity="0.4"/>
-    <text x="35" y="100" fill="#4FD8FF" font-size="16" font-weight="bold">LLM Classifier Fallback</text>
-    <text x="35" y="125" fill="#D1D5DB" font-size="13">Для нестандартных фраз</text>
-    <text x="35" y="145" fill="#9CA3AF" font-size="12">Пул fallback-моделей</text>
-    <text x="35" y="165" fill="#10B981" font-size="12">Переключение за 250 мс</text>
 
-    <!-- Item 2 -->
-    <rect x="20" y="200" width="290" height="110" rx="12" fill="#20173D" stroke="#FF6AE3" stroke-opacity="0.8"/>
-    <text x="35" y="230" fill="#FF6AE3" font-size="16" font-weight="bold">Gemini Live / Gemma 4</text>
-    <text x="35" y="255" fill="#D1D5DB" font-size="13">Стриминг токенов по WS</text>
-    <text x="35" y="275" fill="#9CA3AF" font-size="12">Token-bucket rate limiter</text>
-    <text x="35" y="295" fill="#10B981" font-size="12">Лимиты RPM / RPD в безопасности</text>
+def main():
+    L.DIAGRAMS_DIR.mkdir(parents=True, exist_ok=True)
+    for name, svg in (("five-scrolls-path.svg", five_scrolls_path()), ("armor-handshake.svg", armor_handshake())):
+        path = L.DIAGRAMS_DIR / name
+        path.write_text(svg + "\n", encoding="utf-8")
+        print(f"  [ok] {path.relative_to(L.ROOT)} — {path.stat().st_size / 1e3:.1f} КБ")
 
-    <!-- Item 3 -->
-    <rect x="20" y="330" width="290" height="120" rx="12" fill="#20173D" stroke="#FFCF6B" stroke-opacity="0.4"/>
-    <text x="35" y="360" fill="#FFCF6B" font-size="16" font-weight="bold">Emotional Core [ТОН:]</text>
-    <text x="35" y="385" fill="#D1D5DB" font-size="13">Интонации: сарказм, нежность</text>
-    <text x="35" y="405" fill="#9CA3AF" font-size="12">Ремарки вырезаются из звука</text>
-    <text x="35" y="425" fill="#10B981" font-size="12">Изоляция интим-режима</text>
-  </g>
-
-  <!-- Arrow 3 -> 4 -->
-  <path d="M 1220 370 L 1260 370" stroke="#FF6AE3" stroke-width="4" stroke-dasharray="6,4"/>
-  <polygon points="1260,364 1272,370 1260,376" fill="#FF6AE3"/>
-
-  <!-- Stage 4 -->
-  <g transform="translate(1280, 130)">
-    <rect width="280" height="480" rx="16" fill="#150F26" stroke="#4FD8FF" stroke-width="2"/>
-    <rect width="280" height="45" rx="16" fill="#1C1433"/>
-    <text x="20" y="30" fill="#4FD8FF" font-size="18" font-weight="bold">4. TTS СИНТЕЗ</text>
-
-    <!-- Item 1 -->
-    <rect x="20" y="70" width="240" height="110" rx="12" fill="#20173D" stroke="#4FD8FF" stroke-opacity="0.4"/>
-    <text x="35" y="100" fill="#10B981" font-size="16" font-weight="bold">Live TTS Session</text>
-    <text x="35" y="125" fill="#D1D5DB" font-size="13">Producer-consumer конвейер</text>
-    <text x="35" y="145" fill="#9CA3AF" font-size="12">Единая сессия на ответ</text>
-    <text x="35" y="165" fill="#10B981" font-size="12">Мелкие чанки (80 симв)</text>
-
-    <!-- Item 2 -->
-    <rect x="20" y="200" width="240" height="110" rx="12" fill="#20173D" stroke="#4FD8FF" stroke-opacity="0.4"/>
-    <text x="35" y="230" fill="#FF6AE3" font-size="16" font-weight="bold">asyncio.Queue</text>
-    <text x="35" y="255" fill="#D1D5DB" font-size="13">Потоковое воспроизведение</text>
-    <text x="35" y="275" fill="#9CA3AF" font-size="12">Защита от underrun</text>
-    <text x="35" y="295" fill="#10B981" font-size="12">Плавная бесшовная склейка</text>
-
-    <!-- Item 3 -->
-    <rect x="20" y="330" width="240" height="120" rx="12" fill="#20173D" stroke="#4FD8FF" stroke-opacity="0.4"/>
-    <text x="35" y="360" fill="#4FD8FF" font-size="16" font-weight="bold">Вывод звука & HUD</text>
-    <text x="35" y="385" fill="#D1D5DB" font-size="13">Динамики / VB-CABLE</text>
-    <text x="35" y="405" fill="#9CA3AF" font-size="12">Анимация капли Сакуры</text>
-    <text x="35" y="425" fill="#10B981" font-size="12">Катакана «発話中»</text>
-  </g>
-
-  <!-- Bottom status bar -->
-  <rect x="50" y="635" width="1510" height="45" rx="10" fill="#1C1433" stroke="#FF6AE3" stroke-opacity="0.3"/>
-  <text x="75" y="663" fill="#FFFFFF" font-size="14" font-weight="bold">SAKURA PIPELINE: 100% асинхронный цикл на asyncio, нулевая блокировка интерфейса, мгновенный отклик на прерывание «стоп».</text>
-</svg>'''
-    with open(os.path.join(OUT_DIAGRAMS, "voice-pipeline.svg"), "w", encoding="utf-8") as f:
-        f.write(svg)
-    print("Saved voice-pipeline.svg")
-
-def make_noise_handshake_svg():
-    svg = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 750" width="100%" height="100%" style="background:#0D091A; font-family:'Segoe UI', sans-serif;">
-  <defs>
-    <linearGradient id="nPink" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#FF6AE3"/>
-      <stop offset="100%" stop-color="#B829A0"/>
-    </linearGradient>
-    <linearGradient id="nCyan" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#4FD8FF"/>
-      <stop offset="100%" stop-color="#1B75BB"/>
-    </linearGradient>
-  </defs>
-
-  <text x="50" y="55" fill="#FFFFFF" font-size="28" font-weight="bold">ПРОТОКОЛ БЕЗОПАСНОСТИ: Noise_IK_25519_ChaChaPoly_BLAKE2s</text>
-  <text x="50" y="85" fill="#4FD8FF" font-size="16">Формально верифицированный сквозной криптоканал между Desktop-клиентом и сервером (ProVerif ik.pv &amp; xxpsk3.pv)</text>
-
-  <!-- Client Box -->
-  <rect x="50" y="120" width="380" height="580" rx="16" fill="#150F26" stroke="#FF6AE3" stroke-width="2"/>
-  <rect x="50" y="120" width="380" height="50" rx="16" fill="#20173D"/>
-  <text x="70" y="152" fill="#FF6AE3" font-size="18" font-weight="bold">DESKTOP CLIENT (ПК Мастера)</text>
-  <text x="70" y="200" fill="#FFCF6B" font-size="15" font-weight="bold">Статический ключ s_client (X25519):</text>
-  <text x="70" y="225" fill="#D1D5DB" font-size="13">Хранится в Windows DPAPI шифровании</text>
-  <text x="70" y="245" fill="#9CA3AF" font-size="12">Никогда не передаётся в открытом виде</text>
-
-  <text x="70" y="295" fill="#4FD8FF" font-size="15" font-weight="bold">Эфемерный ключ e_client:</text>
-  <text x="70" y="320" fill="#D1D5DB" font-size="13">Генерируется заново на каждую сессию</text>
-  <text x="70" y="340" fill="#10B981" font-size="12">Обеспечивает Perfect Forward Secrecy</text>
-
-  <rect x="70" y="380" width="340" height="150" rx="12" fill="#1A1230" stroke="#FF6AE3" stroke-opacity="0.4"/>
-  <text x="85" y="410" fill="#FF6AE3" font-size="15" font-weight="bold">Защитные барьеры:</text>
-  <text x="85" y="435" fill="#D1D5DB" font-size="13">• Запрет отката на bearer-токены (4412)</text>
-  <text x="85" y="460" fill="#D1D5DB" font-size="13">• Окно защиты от повторов (Anti-Replay 64)</text>
-  <text x="85" y="485" fill="#D1D5DB" font-size="13">• Контроль порядка и целостности кадров</text>
-  <text x="85" y="510" fill="#10B981" font-size="13">• Логи очищены от секретов и ключей</text>
-
-  <!-- Server Box -->
-  <rect x="1170" y="120" width="380" height="580" rx="16" fill="#150F26" stroke="#4FD8FF" stroke-width="2"/>
-  <rect x="1170" y="120" width="380" height="50" rx="16" fill="#20173D"/>
-  <text x="1190" y="152" fill="#4FD8FF" font-size="18" font-weight="bold">VPS CORE SERVER (Облако)</text>
-  <text x="1190" y="200" fill="#FFCF6B" font-size="15" font-weight="bold">Статический ключ s_server (X25519):</text>
-  <text x="1190" y="225" fill="#D1D5DB" font-size="13">Публичный ключ встроен в клиент</text>
-  <text x="1190" y="245" fill="#9CA3AF" font-size="12">Приватный ключ изолирован в root</text>
-
-  <text x="1190" y="295" fill="#4FD8FF" font-size="15" font-weight="bold">Реестр доверенных устройств:</text>
-  <text x="1190" y="320" fill="#D1D5DB" font-size="13">Белый список SHA-256 отпечатков</text>
-  <text x="1190" y="340" fill="#10B981" font-size="12">Мгновенный отзыв через /revoke</text>
-
-  <rect x="1190" y="380" width="340" height="150" rx="12" fill="#1A1230" stroke="#4FD8FF" stroke-opacity="0.4"/>
-  <text x="1205" y="410" fill="#4FD8FF" font-size="15" font-weight="bold">Механизмы ядра:</text>
-  <text x="1205" y="435" fill="#D1D5DB" font-size="13">• 0-RTT аутентификация по известному ключу</text>
-  <text x="1205" y="460" fill="#D1D5DB" font-size="13">• Автоматический Rekey после 10k кадров</text>
-  <text x="1205" y="485" fill="#D1D5DB" font-size="13">• Фрагментация сообщений до 2 МиБ</text>
-  <text x="1205" y="510" fill="#10B981" font-size="13">• Защита от зондирования чужих ключей</text>
-
-  <!-- Flow Center -->
-  <rect x="460" y="120" width="680" height="430" rx="16" fill="#120D22" stroke="#604585" stroke-width="1"/>
-  <text x="490" y="160" fill="#FFFFFF" font-size="18" font-weight="bold">1-RTT РУКОПОЖАТИЕ NOISE IK</text>
-
-  <!-- Step 1 Arrow -->
-  <g transform="translate(480, 190)">
-    <rect width="640" height="100" rx="10" fill="#1B1333" stroke="#FF6AE3" stroke-opacity="0.7"/>
-    <text x="20" y="30" fill="#FF6AE3" font-size="15" font-weight="bold">1. Инициализация (Client -> Server): -> e, es, s, ss</text>
-    <text x="20" y="55" fill="#D1D5DB" font-size="13">• DH(e, s_server) шифрует статический ключ клиента s_client</text>
-    <text x="20" y="75" fill="#D1D5DB" font-size="13">• DH(s_client, s_server) обеспечивает аутентификацию отправителя</text>
-    <path d="M 580 50 L 620 50" stroke="#FF6AE3" stroke-width="3"/>
-    <polygon points="620,45 630,50 620,55" fill="#FF6AE3"/>
-  </g>
-
-  <!-- Step 2 Arrow -->
-  <g transform="translate(480, 310)">
-    <rect width="640" height="100" rx="10" fill="#1B1333" stroke="#4FD8FF" stroke-opacity="0.7"/>
-    <text x="20" y="30" fill="#4FD8FF" font-size="15" font-weight="bold">2. Ответ (Server -> Client): <- e, ee, se</text>
-    <text x="20" y="55" fill="#D1D5DB" font-size="13">• DH(e_server, e_client) + DH(s_client, e_server)</text>
-    <text x="20" y="75" fill="#D1D5DB" font-size="13">• Вывод двух симметричных ключей: k_client_to_server, k_server_to_client</text>
-    <path d="M 60 50 L 20 50" stroke="#4FD8FF" stroke-width="3"/>
-    <polygon points="20,45 10,50 20,55" fill="#4FD8FF"/>
-  </g>
-
-  <!-- Step 3 Transport -->
-  <g transform="translate(480, 430)">
-    <rect width="640" height="100" rx="10" fill="#1B1333" stroke="#10B981" stroke-opacity="0.8"/>
-    <text x="20" y="30" fill="#10B981" font-size="15" font-weight="bold">3. Транспортные кадры «SK» (ChaCha20-Poly1305 + BLAKE2s)</text>
-    <text x="20" y="55" fill="#D1D5DB" font-size="13">• Полнодуплексный шифрованный канал команд и звука</text>
-    <text x="20" y="75" fill="#10B981" font-size="13">• Полная невозможность подделки и перехвата даже при взломе TLS</text>
-  </g>
-
-  <!-- Formal Verification Card -->
-  <rect x="460" y="570" width="680" height="130" rx="16" fill="#0A2818" stroke="#10B981" stroke-width="2"/>
-  <text x="490" y="605" fill="#FFCF6B" font-size="16" font-weight="bold">РЕЗУЛЬТАТЫ ФОРМАЛЬНОГО ДОКАЗАТЕЛЬСТВА В PROVERIF:</text>
-  <text x="490" y="635" fill="#10B981" font-size="14" font-weight="bold">RESULT not attacker(secret_client[]) is TRUE (Тайна сессии клиента доказана)</text>
-  <text x="490" y="660" fill="#10B981" font-size="14" font-weight="bold">RESULT not attacker(secret_server[]) is TRUE (Тайна сессии сервера доказана)</text>
-  <text x="490" y="685" fill="#10B981" font-size="14" font-weight="bold">RESULT inj-event(ServerAuth) ==> inj-event(ClientInit) is TRUE (Аутентичность)</text>
-</svg>'''
-    with open(os.path.join(OUT_DIAGRAMS, "noise-handshake.svg"), "w", encoding="utf-8") as f:
-        f.write(svg)
-    print("Saved noise-handshake.svg")
 
 if __name__ == "__main__":
-    make_voice_pipeline_svg()
-    make_noise_handshake_svg()
+    main()

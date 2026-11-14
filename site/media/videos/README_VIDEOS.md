@@ -1,30 +1,24 @@
-# 🎬 Медиатека видеороликов Sakura AI (`site/media/videos/`)
+# Видения «Сказания о Духе Цветущей Сакуры»
 
-В эту папку помещаются демонстрационные видеоролики, сквозные записи экрана и видео-презентации работы голосового ассистента **Sakura AI**.
+Три ролика 1080p, каждый в двух форматах: MP4 (H.264, `+faststart`) и WebM (VP9).
+Постеры лежат в `../images/posters/`.
 
-## 📌 Встроенные демонстрационные видеоролики
-Сайт автоматически подключен к следующим предустановленным видео высокого разрешения (1080p Full HD):
-1. `sakura-hud-voice-core.mp4` / `sakura-hud-voice-core.webm` — Реактивный HUD Сакуры, нейро-ядро, свечение состояний (`LISTENING`, `THINKING`, `SPEAKING`, `IDLE`), звуковая волна и лепестки сакуры.
-2. `sakura-noise-handshake.mp4` / `sakura-noise-handshake.webm` — Криптографическое рукопожатие `Noise_IK_25519_ChaChaPoly_BLAKE2s`, передача кадров «SK», защита от replay-атак и вердикт ProVerif.
-3. `sakura-test-suite-3297.mp4` / `sakura-test-suite-3297.webm` — Демонстрация непрерывного прогона 3297+ тестов без регрессий в терминале.
+| Файл | Длительность | О чём |
+| --- | --- | --- |
+| `sakura-legend-five-scrolls` | 29 с | Пролог 桜の伝説, пять свитков с Печатями Времени, эпилог |
+| `sakura-legend-invisible-armor` | 21 с | Две вести рукопожатия Noise IK, шестигранный купол, отвергнутый ворон |
+| `sakura-legend-3383-trials` | 20 с | 3 383 бутона-испытания, пять вех пути и печать 合格 |
 
----
+Ролики рисует `site/tools/generate_all_videos.py` — он же проверяет каждый
+файл: ffprobe и полное декодирование без ошибок.
 
-## 🚀 Как добавить свои записи экрана
-Чтобы добавить свои реальные скринкасты работы Сакуры:
-1. Запишите экран (например, через OBS Studio, GeForce Experience или Windows Game Bar `Win + G`).
-2. Сохраните файл в формате `.mp4` (кодек H.264 или H.265) или `.webm` (кодек VP9/AV1).
-3. Скопируйте видеофайл прямо в эту директорию (`site/media/videos/`).
+## Свой ролик
 
-### Рекомендуемые имена файлов для витрины:
-- `user-demo-voice.mp4` — Голосовое управление музыкой и ПК.
-- `user-demo-gamesense.mp4` — Работа оверлея GameSense и Screen Ink в играх (Dota 2, CS2, Cyberpunk).
-- `user-demo-browser.mp4` — Автономный агент форм на базе Gemma 4.
-- `user-demo-discord.mp4` — Работа в голосовом канале Discord (Call Mode + распознавание друзей).
+Положите файл в эту папку и закодируйте его так, чтобы браузер начал
+показ сразу и мог перематывать (nginx отдаёт `206 Partial Content`):
 
-### Рекомендуемые параметры кодирования для веб-видео:
 ```bash
-# Оптимальный битрейт для быстрого старта в веб-плеере (с поддержкой Range 206 в Nginx):
-ffmpeg -i your_raw_recording.mp4 -c:v libx264 -preset fast -crf 20 -movflags +faststart -c:a aac -b:a 192k site/media/videos/user-demo-voice.mp4
+ffmpeg -i запись.mp4 -c:v libx264 -preset slow -crf 20 -pix_fmt yuv420p -movflags +faststart \
+       -c:a aac -b:a 160k site/media/videos/имя.mp4
+ffmpeg -i запись.mp4 -c:v libvpx-vp9 -b:v 0 -crf 32 -row-mt 1 -c:a libopus site/media/videos/имя.webm
 ```
-Флаг `-movflags +faststart` перемещает метаданные `moov atom` в начало файла, что позволяет браузеру начать мгновенное воспроизведение без ожидания полной загрузки файла!

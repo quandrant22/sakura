@@ -1,6 +1,6 @@
 /**
- * Floating Sakura Petals Canvas Particle System
- * Elegant, subtle, reactive to wind and cursor movement.
+ * Лепестки сакуры над страницей: падают, кружатся и расступаются перед курсором.
+ * При prefers-reduced-motion не запускаются.
  */
 
 (function () {
@@ -14,7 +14,7 @@
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (reducedMotion) return;
 
-  const PETAL_COUNT = 38;
+  const PETAL_COUNT = window.innerWidth < 720 ? 18 : 34;
   const petals = [];
 
   class Petal {
@@ -81,8 +81,8 @@
       );
 
       const grad = ctx.createLinearGradient(-this.size / 2, 0, this.size / 2, this.size);
-      grad.addColorStop(0, `rgba(255, 182, 193, ${this.opacity})`);
-      grad.addColorStop(1, `rgba(255, 106, 227, ${this.opacity * 0.7})`);
+      grad.addColorStop(0, `rgba(255, 222, 232, ${this.opacity})`);
+      grad.addColorStop(1, `rgba(222, 98, 145, ${this.opacity * 0.75})`);
 
       ctx.fillStyle = grad;
       ctx.fill();

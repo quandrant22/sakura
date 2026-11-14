@@ -3,863 +3,579 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sakura AI — История создания и архитектура голосового ИИ-ассистента</title>
-  <meta name="description" content="Девлог и витрина проекта Sakura AI: от первого коммита до 165 000 строк кода, 140 возможностей реестра, сквозного шифрования Noise IK и 3297+ тестов.">
+  <title>Сказание о Духе Цветущей Сакуры — 桜の伝説</title>
+  <meta name="description" content="Японская легенда о Сакуре в пяти свитках: от искры в безмолвии июля 2026 года до трёх тысяч испытаний ноября. Каждый свиток скреплён Печатью Времени — настоящим коммитом.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Сказание о Духе Цветущей Сакуры — 桜の伝説">
+  <meta property="og:description" content="Пять свитков о том, как родился и вырос дух Сакуры: голос, память, молниеносный отклик, незримый доспех и истинная интуиция.">
+  <meta name="theme-color" content="#0b0918">
   <link rel="icon" type="image/png" href="media/images/avatars/sakura-logo.png">
+  <link rel="preload" href="styles/fonts/legend-serif-bold.woff" as="font" type="font/woff" crossorigin>
   <link rel="stylesheet" href="styles/main.css">
+  <script>document.documentElement.classList.add("js");</script>
 </head>
 <body>
-  <!-- Floating Sakura Petals Canvas -->
-  <canvas id="petals-canvas"></canvas>
+  <canvas id="petals-canvas" aria-hidden="true"></canvas>
+  <a class="skip-link" href="#scrolls">К пяти свиткам</a>
 
-  <div class="content-wrapper">
-    <!-- NAVIGATION BAR -->
-    <header class="navbar">
-      <div class="container nav-container">
-        <a href="#hero" class="brand">
-          <img src="media/images/avatars/sakura-logo.png" alt="Sakura Logo" class="brand-icon">
-          <div class="brand-text">
-            <h1>SAKURA AI</h1>
-            <span>DEVLOG & ARCHITECTURE</span>
-          </div>
-        </a>
-
+  <header class="navbar">
+    <div class="container nav-inner">
+      <a href="#prologue" class="brand" aria-label="Сказание о Духе Цветущей Сакуры — к началу">
+        <span class="brand-seal" lang="ja" aria-hidden="true">桜</span>
+        <span class="brand-text">
+          <strong>Сакура</strong>
+          <span lang="ja">桜の伝説</span>
+        </span>
+      </a>
+      <nav aria-label="Разделы сказания">
         <ul class="nav-menu">
-          <li><a href="#hero" class="nav-link active">Главная</a></li>
-          <li><a href="#timeline" class="nav-link">Хроника Git</a></li>
-          <li><a href="#architecture" class="nav-link">Архитектура</a></li>
-          <li><a href="#simulator" class="nav-link">Симулятор Ядра</a></li>
-          <li><a href="#videos" class="nav-link">Медиатека</a></li>
-          <li><a href="#gallery" class="nav-link">Аватары</a></li>
-          <li><a href="#nginx" class="nav-link">Nginx Deploy</a></li>
+          <li><a href="#prologue" class="nav-link"><span lang="ja" aria-hidden="true">序</span>Пролог</a></li>
+          <li><a href="#scrolls" class="nav-link"><span lang="ja" aria-hidden="true">巻</span>Свитки</a></li>
+          <li><a href="#sphere" class="nav-link"><span lang="ja" aria-hidden="true">魂</span>Сфера</a></li>
+          <li><a href="#visions" class="nav-link"><span lang="ja" aria-hidden="true">映</span>Видения</a></li>
+          <li><a href="#faces" class="nav-link"><span lang="ja" aria-hidden="true">姿</span>Облики</a></li>
         </ul>
-
-        <div class="nav-status-badge">
-          <span class="status-dot"></span>
-          <span>Noise_IK Active • 3297 Tests Green</span>
-        </div>
+      </nav>
+      <div class="nav-seal" title="Последняя Печать Времени">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span><span lang="ja">第五巻</span> · 33a8da2</span>
       </div>
-    </header>
+    </div>
+  </header>
 
-    <!-- HERO SECTION -->
-    <section id="hero" class="hero">
-      <div class="container">
-        <div class="hero-grid">
-          <div class="hero-text">
-            <div class="hero-badge-pill">
-              <span>🌸 СИСТЕМА v3.8.4</span>
-              <span>•</span>
-              <span>ZERO-TRUST ГОЛОСОВОЙ АССИСТЕНТ</span>
-            </div>
-
-            <h1 class="hero-title">
-              История создания и архитектура <span class="text-gradient-sakura">Sakura AI</span>
-            </h1>
-
-            <p class="hero-desc">
-              Глубокая инженерная хроника создания персонального голосового компаньона: от первого коммита в июле 2026 года до 165 000 строк кода, 140 модулей управления Windows и VPS, криптографического протокола <strong>Noise_IK</strong> с формальной верификацией в <strong>ProVerif</strong> и рекордных <strong>3 297+</strong> автоматических тестов без единой регрессии.
-            </p>
-
-            <div class="hero-actions">
-              <a href="#timeline" class="btn btn-primary">
-                <span>📖 Читать летопись Git</span>
-                <span>→</span>
-              </a>
-              <a href="#architecture" class="btn btn-secondary">
-                <span>⚙️ Изучить архитектуру</span>
-              </a>
-            </div>
-          </div>
-
-          <!-- Hero Video Showcase Player -->
-          <div class="hero-player-box">
-            <div class="player-header">
-              <div class="player-title">
-                <span style="color: var(--accent-pink);">▶</span>
-                <span id="player-current-title">Голосовой HUD и аудио-волна (GigaAM + Silero VAD)</span>
-              </div>
-              <div class="video-tabs">
-                <button class="v-tab-btn active" data-video="hud">HUD Голос</button>
-                <button class="v-tab-btn" data-video="noise">Noise IK</button>
-                <button class="v-tab-btn" data-video="tests">3297 Тестов</button>
-              </div>
-            </div>
-
-            <div class="video-container">
-              <video id="hero-main-video" controls autoplay muted loop playsinline poster="media/images/avatars/speaking.png">
-                <source src="media/videos/sakura-hud-voice-core.mp4" type="video/mp4">
-                <source src="media/videos/sakura-hud-voice-core.webm" type="video/webm">
-                Ваш браузер не поддерживает видео HTML5.
-              </video>
-            </div>
-
-            <div class="video-meta-bar">
-              <span id="player-current-meta">1080p Full HD • H.264 / VP8 • 12 Мбит/с</span>
-              <span style="color: var(--accent-green);">● HTTP 206 Streaming Ready</span>
-            </div>
-          </div>
-        </div>
+  <main>
+    <!-- 序 · ПРОЛОГ -->
+    <section id="prologue" class="hero">
+      <div class="hero-sky" aria-hidden="true">
+        <div class="moon"></div>
+        <svg class="mountains" viewBox="0 0 1440 320" preserveAspectRatio="none">
+          <path d="M0 220 L120 150 L210 190 L330 96 L450 176 L560 130 L700 200 L820 120 L960 186 L1080 104 L1200 170 L1320 128 L1440 180 L1440 320 L0 320 Z" fill="#241634"/>
+          <path d="M0 260 L150 200 L260 236 L400 170 L540 240 L690 196 L820 250 L980 186 L1120 244 L1270 204 L1440 240 L1440 320 L0 320 Z" fill="#170f24"/>
+          <path d="M0 300 L200 262 L380 290 L560 258 L760 296 L960 266 L1160 294 L1340 270 L1440 286 L1440 320 L0 320 Z" fill="#0d0916"/>
+        </svg>
       </div>
-    </section>
 
-    <!-- LIVE PROJECT METRICS -->
-    <section class="metrics-section">
-      <div class="container">
-        <div class="metrics-grid">
-          <div class="metric-card">
-            <div class="metric-value" data-target="165768">0</div>
-            <div class="metric-label">Строк исходного кода</div>
-            <div class="metric-sub">Python, React TSX, ProVerif</div>
-          </div>
-
-          <div class="metric-card">
-            <div class="metric-value" data-target="140">0</div>
-            <div class="metric-label">Модулей и возможностей</div>
-            <div class="metric-sub">Реестр capabilities.yaml</div>
-          </div>
-
-          <div class="metric-card">
-            <div class="metric-value" data-target="3297" data-suffix="+">0</div>
-            <div class="metric-label">Проходящих автотестов</div>
-            <div class="metric-sub">100% Green, 0 регрессий</div>
-          </div>
-
-          <div class="metric-card">
-            <div class="metric-value" data-target="320" data-suffix=" мс">0</div>
-            <div class="metric-label">Сквозной отклик TTS</div>
-            <div class="metric-sub">Time to First Chunk</div>
-          </div>
-
-          <div class="metric-card">
-            <div class="metric-value">Noise_IK</div>
-            <div class="metric-label">Сквозное шифрование</div>
-            <div class="metric-sub">ProVerif Proofs True</div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- SAKURA CORE SIMULATOR WIDGET -->
-    <section id="simulator" class="simulator-section">
-      <div class="container">
-        <div class="sim-box">
-          <div class="sim-visual">
-            <canvas id="core-canvas"></canvas>
-            <div class="sim-state-badge">
-              <span class="status-dot"></span>
-              <span id="sim-state-text" class="sim-state-text">Онлайн (待機中)</span>
-              <span id="sim-state-kana" class="sim-state-kana">待機中</span>
-            </div>
-          </div>
-
-          <div class="sim-controls">
-            <div class="section-tag">Интерактивный виджет</div>
-            <h3>Симулятор ядра Сакуры (SakuraCore)</h3>
-            <p>
-              Живой рендер графического ядра Сакуры, в точности воспроизводящий математическую модель 
-              <code>coreFrame.ts</code> и оверлей рабочего стола. Переключайте эмоциональные состояния и управляйте уровнем звука:
-            </p>
-
-            <div class="state-buttons-grid">
-              <button class="state-btn active" data-state="idle">
-                <span>🌸 Ожидание (待機中)</span>
-                <span style="color: var(--accent-pink);">#FF6AE3</span>
-              </button>
-              <button class="state-btn" data-state="listening">
-                <span>🎙️ Слушаю (聴取中)</span>
-                <span style="color: var(--accent-cyan);">#4FD8FF</span>
-              </button>
-              <button class="state-btn" data-state="thinking">
-                <span>🧠 Думаю (思考中)</span>
-                <span style="color: var(--accent-gold);">#FFCF6B</span>
-              </button>
-              <button class="state-btn" data-state="speaking">
-                <span>💬 Говорю (発話中)</span>
-                <span style="color: #FF7EB9;">#FF7EB9</span>
-              </button>
-              <button class="state-btn" data-state="offline" style="grid-column: span 2;">
-                <span>🔌 Нет связи (切断)</span>
-                <span style="color: #6B6475;">#6B6475</span>
-              </button>
-            </div>
-
-            <div class="audio-slider-group">
-              <div class="slider-label">
-                <span>Амплитуда звукового сигнала (Level):</span>
-                <span id="slider-val-text" style="color: var(--accent-pink);">20%</span>
-              </div>
-              <input type="range" id="audio-level-slider" class="slider-input" min="0" max="1" step="0.01" value="0.2">
-              <div style="margin-top: 14px; text-align: right;">
-                <button id="toggle-mic-btn" class="btn btn-secondary" style="padding: 6px 14px; font-size: 0.85rem;">
-                  Включить симуляцию речи
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- GIT TIMELINE & CHRONICLES -->
-    <section id="timeline" class="timeline-section">
-      <div class="container">
-        <div class="section-header">
-          <div class="section-tag">Летопись разработки</div>
-          <h2 class="section-title">Хроника Git: от первого коммита до рекордов</h2>
-          <p class="section-desc">
-            Реальная история 678 коммитов: инженерные развилки, архитектурные кризисы, побеждённые баги и эволюция Сакуры через 5 ключевых исторических эпох.
-          </p>
-        </div>
-
-        <div style="margin-bottom: 40px; text-align: center;">
-          <img src="media/images/charts/git-commits-timeline.png" alt="График роста коммитов Git" style="max-width: 100%; border-radius: var(--radius-md); box-shadow: var(--shadow-card); border: 1px solid var(--border-subtle);">
-        </div>
-
-        <!-- Timeline Epoch Filter Buttons -->
-        <div class="timeline-filters">
-          <button class="filter-btn active" data-epoch="all">Все эпохи (678 коммитов)</button>
-          <button class="filter-btn" data-epoch="epoch-1">Эпоха 1: Рождение ядра (Июль 2026)</button>
-          <button class="filter-btn" data-epoch="epoch-2">Эпоха 2: Голос и Личность (Август 2026)</button>
-          <button class="filter-btn" data-epoch="epoch-3">Эпоха 3: NLU & Fast-Path (Сентябрь 2026)</button>
-          <button class="filter-btn" data-epoch="epoch-4">Эпоха 4: Крипта & Desktop (Октябрь 2026)</button>
-          <button class="filter-btn" data-epoch="epoch-5">Эпоха 5: Capri Suite & Рекорд (Ноябрь 2026)</button>
-        </div>
-
-        <!-- Vertical Timeline Items -->
-        <div class="timeline">
-          <!-- Commit 1 -->
-          <div class="timeline-item left" data-epoch="epoch-1">
-            <div class="timeline-dot"></div>
-            <div class="timeline-card">
-              <span class="timeline-epoch-badge epoch-1">ЭПОХА 1 • ЗАРОЖДЕНИЕ ЯДРА</span>
-              <div class="timeline-date">3 июля 2026, 10:43 MSK</div>
-              <h3 class="timeline-title">Первый коммит: рождение агента Sakura AI</h3>
-              <div class="timeline-commit-pill">commit: fe7d70d</div>
-              <p class="timeline-desc">
-                Закладка фундамента проекта. Создание первоначального асинхронного каркаса на Python, базовой интеграции с Vosk STT, простейшего синтеза речи и ядра <code>state_arbiter</code>. Сакура впервые заговорила на локальном ПК, откликаясь на своё имя.
-              </p>
-              <div class="timeline-tech-details">
-                <strong>Инженерная проблема:</strong> Диспетчеризация команд конфликтовала с потоком распознавания Vosk; высокая задержка эхо-ответа.<br>
-                <strong>Решение:</strong> Разделение циклов захвата звука и исполнения команд, внедрение базового диспетчера.
-              </div>
-            </div>
-          </div>
-
-          <!-- Commit 2 -->
-          <div class="timeline-item right" data-epoch="epoch-1">
-            <div class="timeline-dot"></div>
-            <div class="timeline-card">
-              <span class="timeline-epoch-badge epoch-1">ЭПОХА 1 • ЗАРОЖДЕНИЕ ЯДРА</span>
-              <div class="timeline-date">18 июля 2026, 14:20 MSK</div>
-              <h3 class="timeline-title">Task Planner и единый блок «СОСТОЯНИЕ»</h3>
-              <div class="timeline-commit-pill">commit: 27664bd • 01098c1</div>
-              <p class="timeline-desc">
-                Внедрение <code>state_arbiter</code> для системного промпта. Сакура перестала быть абстрактным чат-ботом: она научилась осознавать, какие окна открыты у пользователя, какое аудио воспроизводится и чем занят процессор. Появление механизма автообучения синонимам и планировщика задач.
-              </p>
-              <div class="timeline-tech-details">
-                <strong>Инженерная проблема:</strong> Утечки памяти при частых опросах Win32 API и ложные срабатывания триггеров.<br>
-                <strong>Решение:</strong> Кэширование списка приложений на диске, фильтрация неактивных процессов и нормализация кириллицы.
-              </div>
-            </div>
-          </div>
-
-          <!-- Commit 3 -->
-          <div class="timeline-item left" data-epoch="epoch-2">
-            <div class="timeline-dot"></div>
-            <div class="timeline-card">
-              <span class="timeline-epoch-badge epoch-2">ЭПОХА 2 • ГОЛОС И ЛИЧНОСТЬ</span>
-              <div class="timeline-date">12 августа 2026, 19:40 MSK</div>
-              <h3 class="timeline-title">Революция TTS: стриминговый конвейер и интонации [ТОН:]</h3>
-              <div class="timeline-commit-pill">commit: 3cc8260 • e508bf1 • d0c2c97</div>
-              <p class="timeline-desc">
-                Переход от монолитной генерации аудио к непрерывному конвейеру Producer-Consumer на <code>asyncio.Queue</code>. Задержка до первого произнесённого слога рухнула с 3.5 секунд до сотен миллисекунд. Внедрение эмоциональных интонационных ремарок <code>[ТОН:]</code> (ирония, строгость, нежность), которые автоматически вырезаются из озвучки.
-              </p>
-              <div class="timeline-tech-details">
-                <strong>Инженерная проблема:</strong> Крупные текстовые буферы вызывали паузы («заикания») в речи при длинных ответах.<br>
-                <strong>Решение:</strong> Агрессивный чанкинг по границам предложений (порог 80–150 символов) и удержание единой Live-сессии.
-              </div>
-            </div>
-          </div>
-
-          <!-- Commit 4 -->
-          <div class="timeline-item right" data-epoch="epoch-2">
-            <div class="timeline-dot"></div>
-            <div class="timeline-card">
-              <span class="timeline-epoch-badge epoch-2">ЭПОХА 2 • ГОЛОС И ЛИЧНОСТЬ</span>
-              <div class="timeline-date">24 августа 2026, 21:15 MSK</div>
-              <h3 class="timeline-title">Переход на db.py и изоляция режима 18+</h3>
-              <div class="timeline-commit-pill">commit: 3e01f98 • 0dc2b6b • ad98295</div>
-              <p class="timeline-desc">
-                Масштабный рефакторинг памяти: разделение на оперативный слой (working) и долговременную базу (long_term). Внедрение Steam API с трекингом ачивок и игровых сессий. Реализация строгого барьера интимного режима (Intimacy Mode): приватные разговоры изолированы от долговременной памяти и никогда не загрязняют рабочий контекст.
-              </p>
-              <div class="timeline-tech-details">
-                <strong>Инженерная проблема:</strong> Ночной цикл рефлексии подтягивал в рабочую память личные шутки и интимные ремарки.<br>
-                <strong>Решение:</strong> Архитектурный Write Gate: флаг изоляции блокирует запись в персистентную базу на уровне БД-адаптера.
-              </div>
-            </div>
-          </div>
-
-          <!-- Commit 5 -->
-          <div class="timeline-item left" data-epoch="epoch-3">
-            <div class="timeline-dot"></div>
-            <div class="timeline-card">
-              <span class="timeline-epoch-badge epoch-3">ЭПОХА 3 • NLU & FAST-PATH</span>
-              <div class="timeline-date">17 сентября 2026, 08:27 MSK</div>
-              <h3 class="timeline-title">v3 Fast-Path роутер и Яндекс Музыка</h3>
-              <div class="timeline-commit-pill">commit: ceee791 • 440431f • 2ffe47d</div>
-              <p class="timeline-desc">
-                Создание сверхбыстрого маршрутизатора <code>v3_fast_path</code>. 90% стандартных команд (музыка, приложения, громкость, окна) исполняются за 1.8 мс без обращения к нейросети! Реверс-инжиниринг управления Яндекс Музыкой через WinRT SMTC и локальные хуки. Интеграция расписания пар университета (МУИВ/ЭИОС).
-              </p>
-              <div class="timeline-tech-details">
-                <strong>Инженерная проблема:</strong> Ожидание ответа LLM в 1.5–2 секунды для банальной команды «громче» раздражало.<br>
-                <strong>Решение:</strong> Регулярные выражения со стеммингом и прекомпилированными таблицами синонимов перед вызовом LLM.
-              </div>
-            </div>
-          </div>
-
-          <!-- Commit 6 -->
-          <div class="timeline-item right" data-epoch="epoch-4">
-            <div class="timeline-dot"></div>
-            <div class="timeline-card">
-              <span class="timeline-epoch-badge epoch-4">ЭПОХА 4 • КРИПТА & DESKTOP</span>
-              <div class="timeline-date">12 октября 2026, 13:22 MSK</div>
-              <h3 class="timeline-title">Великая унификация: отказ от PyQt и переход на Electron Desktop</h3>
-              <div class="timeline-commit-pill">commit: 9255ada • 064429a • 2d7a444</div>
-              <p class="timeline-desc">
-                Старый клиент <code>agent/</code> на PyQt6 полностью заменён на единый ультрасовременный десктопный клиент <code>desktop/</code> на стеке Electron + Vite + React + Tailwind CSS. Решение проблемы «двух ядер» через файловый мьютекс <code>core.lock</code> с PID владельца. Полноэкранный оверлей, виджеты и интеграция расширения Chrome.
-              </p>
-              <div class="timeline-tech-details">
-                <strong>Инженерная проблема:</strong> Фоновые процессы-сироты блокировали порты; Vite dev-сервер слушал IPv6 ::1, а wait-on ждал 127.0.0.1.<br>
-                <strong>Решение:</strong> Чёткая фиксация IPv4 на 127.0.0.1, кросс-платформенный лаунчер с PID-стражем и корректный teardown.
-              </div>
-            </div>
-          </div>
-
-          <!-- Commit 7 -->
-          <div class="timeline-item left" data-epoch="epoch-4">
-            <div class="timeline-dot"></div>
-            <div class="timeline-card">
-              <span class="timeline-epoch-badge epoch-4">ЭПОХА 4 • КРИПТА & DESKTOP</span>
-              <div class="timeline-date">20 октября 2026, 19:15 MSK</div>
-              <h3 class="timeline-title">Криптографическая броня: протокол Noise_IK и верификация в ProVerif</h3>
-              <div class="timeline-commit-pill">commit: bef6346 • a552bfc • a35ceb1</div>
-              <p class="timeline-desc">
-                Полный отказ от небезопасных Bearer-токенов в пользу криптографического протокола <code>securechannel/1</code> на базе <code>Noise_IK_25519_ChaChaPoly_BLAKE2s</code>. Ключ устройства защищён аппаратным Windows DPAPI. Спаривание по 8-словной мнемонике (BIP-39) или QR <code>sakura-pair://1</code>. Формальное математическое доказательство стойкости протокола в анализаторе <strong>ProVerif</strong> с интеграцией в CI GitHub Actions.
-              </p>
-              <div class="timeline-tech-details">
-                <strong>Инженерная проблема:</strong> Опасность перехвата трафика и replay-атак при взломе TLS-прокси.<br>
-                <strong>Решение:</strong> Сквозное шифрование ChaCha20-Poly1305, скользящее окно anti-replay на 64 кадра и строгий запрет отката (код 4412).
-              </div>
-            </div>
-          </div>
-
-          <!-- Commit 8 -->
-          <div class="timeline-item right" data-epoch="epoch-5">
-            <div class="timeline-dot"></div>
-            <div class="timeline-card">
-              <span class="timeline-epoch-badge epoch-5">ЭПОХА 5 • CAPRI SUITE & РЕКОРД</span>
-              <div class="timeline-date">6 ноября 2026, 18:30 MSK</div>
-              <h3 class="timeline-title">Capri Companion Suite: Screen Ink, GameSense и звонки Discord</h3>
-              <div class="timeline-commit-pill">commit: 0f4811a • 4cd90a3 • 73ebe37 • 43a53e7</div>
-              <p class="timeline-desc">
-                Интеграция игрового набора Capri: оверлей Screen Ink с 35+ векторными фигурами и процедурными голограммами, GameSense HUD с автоматической адаптацией под 23 игры (Dota 2, CS2, Cyberpunk 2077, Remnant, Elden Ring), циклический буфер записи последних 30 секунд геймплея. Режим Call Mode с распознаванием голосов друзей через локальный Discord RPC.
-              </p>
-              <div class="timeline-tech-details">
-                <strong>Инженерная проблема:</strong> Двойной захват звука создавал бесконечную петлю прослушивания собственного голоса Сакуры в звонке.<br>
-                <strong>Решение:</strong> Исключение собственного Discord User ID из цикла слушателя и фильтрация loopback-потока.
-              </div>
-            </div>
-          </div>
-
-          <!-- Commit 9 -->
-          <div class="timeline-item left" data-epoch="epoch-5">
-            <div class="timeline-dot"></div>
-            <div class="timeline-card">
-              <span class="timeline-epoch-badge epoch-5">ЭПОХА 5 • CAPRI SUITE & РЕКОРД</span>
-              <div class="timeline-date">11 ноября 2026, 23:40 MSK</div>
-              <h3 class="timeline-title">Переход на GigaAM v2_ctc и взятие планки 3297+ тестов</h3>
-              <div class="timeline-commit-pill">commit: 831c82e • 332a27d • 23338c0</div>
-              <p class="timeline-desc">
-                Замена распознавания речи на нейросетевую модель <strong>GigaAM v2_ctc</strong> с нормализацией ASR и анти-алиасинговым ресемплингом torchaudio. Полное устранение искажений и клиппинга. Выход на рекордные <strong>3 297+</strong> непрерывно проходящих автоматических тестов в CI: покрытие ядра, десктопа, агента и формальных криптографических теорем.
-              </p>
-              <div class="timeline-tech-details">
-                <strong>Инженерная проблема:</strong> Редкие речевые огрехи распознавателя приводили к случайному вызову рисования нот на экране.<br>
-                <strong>Решение:</strong> Введение строгого маркера намерения (explicit drawing intent) и ретестирование всей матрицы команд.
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ARCHITECTURE DEEP DIVE -->
-    <section id="architecture" class="arch-section">
-      <div class="container">
-        <div class="section-header">
-          <div class="section-tag">Инженерная архитектура</div>
-          <h2 class="section-title">Анатомия Сакуры: модули и подсистемы</h2>
-          <p class="section-desc">
-            Изучите внутреннее устройство ключевых подсистем голосового ассистента через интерактивные вкладки, схематические диаграммы и технические спецификации.
-          </p>
-        </div>
-
-        <!-- Arch Tab Buttons -->
-        <div class="arch-tabs">
-          <button class="arch-tab-btn active" data-panel="panel-voice">
-            <span>🎙️</span>
-            <span>Голосовой конвейер</span>
-          </button>
-          <button class="arch-tab-btn" data-panel="panel-crypto">
-            <span>🛡️</span>
-            <span>Криптография Noise IK</span>
-          </button>
-          <button class="arch-tab-btn" data-panel="panel-hands">
-            <span>🖥️</span>
-            <span>Desktop & Windows Hands</span>
-          </button>
-          <button class="arch-tab-btn" data-panel="panel-memory">
-            <span>🧠</span>
-            <span>Память & Граф знаний</span>
-          </button>
-          <button class="arch-tab-btn" data-panel="panel-capri">
-            <span>🎮</span>
-            <span>Capri Companion Suite</span>
-          </button>
-        </div>
-
-        <!-- Panel 1: Voice Core -->
-        <div id="panel-voice" class="arch-panel active">
-          <div class="arch-grid">
-            <div class="arch-content">
-              <h3>Голосовой конвейер реального времени</h3>
-              <p>
-                Архитектура построена на принципе ультранизкой задержки: сквозное время от окончания реплики пользователя до первого произнесенного звука ответа составляет рекордные <strong>320–480 мс</strong>.
-              </p>
-
-              <ul class="feature-list">
-                <li class="feature-item">
-                  <span class="feature-icon">✨</span>
-                  <div><strong>GigaAM v2_ctc ASR:</strong> Нейросетевое распознавание русской речи без облачных задержек с нормализацией числительных и имён.</div>
-                </li>
-                <li class="feature-item">
-                  <span class="feature-icon">⚡</span>
-                  <div><strong>Silero VAD v6.2:</strong> Мгновенная детекция пауз и начала речи с динамическим расчётом порога шума (RMS dB).</div>
-                </li>
-                <li class="feature-item">
-                  <span class="feature-icon">🛑</span>
-                  <div><strong>Barge-in (перебивание):</strong> Любая команда «стоп» или «хватит» за 15 мс обнуляет очередь воспроизведения и глушит звук.</div>
-                </li>
-                <li class="feature-item">
-                  <span class="feature-icon">🌊</span>
-                  <div><strong>Live TTS Streaming:</strong> Конвейер Producer-Consumer на <code>asyncio.Queue</code> с порциями по 80 символов исключает паузы в речи.</div>
-                </li>
-              </ul>
-
-              <div style="font-family: var(--font-mono); font-size: 0.85rem; color: var(--accent-cyan); background: var(--bg-tertiary); padding: 12px 18px; border-radius: var(--radius-sm); border-left: 3px solid var(--accent-cyan);">
-                Пайплайн: WASAPI Loopback ➔ Silero VAD ➔ GigaAM ➔ Fast-Path ➔ Live TTS ➔ Speakers / VB-CABLE
-              </div>
-            </div>
-
-            <div class="arch-media-box">
-              <img src="media/images/diagrams/voice-pipeline.png" alt="Диаграмма голосового конвейера">
-            </div>
-          </div>
-        </div>
-
-        <!-- Panel 2: Cryptography & Noise IK -->
-        <div id="panel-crypto" class="arch-panel">
-          <div class="arch-grid">
-            <div class="arch-content">
-              <h3>Криптографическая защита: Noise_IK</h3>
-              <p>
-                Вместо уязвимых Bearer-токенов в Sakura AI реализован сквозной криптографический протокол <code>securechannel/1</code> на базе фреймворка Noise Protocol (используется в WireGuard и Signal).
-              </p>
-
-              <ul class="feature-list">
-                <li class="feature-item">
-                  <span class="feature-icon">🔑</span>
-                  <div><strong>Примитивы:</strong> Кривая Curve25519 (ECDH), шифр ChaCha20-Poly1305 (AEAD) и хеширование BLAKE2s.</div>
-                </li>
-                <li class="feature-item">
-                  <span class="feature-icon">🔒</span>
-                  <div><strong>Хранение ключей:</strong> Приватный ключ ПК зашифрован через Windows DPAPI и никогда не покидает память в открытом виде.</div>
-                </li>
-                <li class="feature-item">
-                  <span class="feature-icon">🛡️</span>
-                  <div><strong>Anti-Replay Window:</strong> Скользящее окно на 64 кадра блокирует атаки воспроизведения и подмены сообщений.</div>
-                </li>
-                <li class="feature-item">
-                  <span class="feature-icon">✅</span>
-                  <div><strong>Верификация в ProVerif:</strong> Модели <code>ik.pv</code> и <code>xxpsk3.pv</code> математически доказали абсолютную тайну ключей и взаимную подлинность.</div>
-                </li>
-              </ul>
-
-              <div style="font-family: var(--font-mono); font-size: 0.85rem; color: var(--accent-green); background: rgba(16, 185, 129, 0.12); padding: 12px 18px; border-radius: var(--radius-sm); border: 1px solid var(--accent-green);">
-                Спаривание: 8-словный одноразовый секрет (BIP-39) или QR sakura-pair://1. Токены устранены навсегда.
-              </div>
-            </div>
-
-            <div class="arch-media-box">
-              <img src="media/images/diagrams/noise-handshake.png" alt="Схема криптографического рукопожатия Noise IK">
-            </div>
-          </div>
-        </div>
-
-        <!-- Panel 3: Desktop & Hands -->
-        <div id="panel-hands" class="arch-panel">
-          <div class="arch-grid">
-            <div class="arch-content">
-              <h3>Desktop ядро и управление Windows</h3>
-              <p>
-                Единый современный десктопный клиент <code>desktop/</code> объединяет движок Electron, UI на React + Tailwind CSS и модуль Windows Hands, предоставляющий 140 возможностей прямого управления ОС.
-              </p>
-
-              <ul class="feature-list">
-                <li class="feature-item">
-                  <span class="feature-icon">🎛️</span>
-                  <div><strong>Реестр capabilities.yaml:</strong> 140 документированных действий (окна, файлы, громкость, мониторы, питание, процессы).</div>
-                </li>
-                <li class="feature-item">
-                  <span class="feature-icon">🔒</span>
-                  <div><strong>Защита от гонки:</strong> Файловый мьютекс <code>core.lock</code> с PID исключает запуск дублирующих процессов ядра.</div>
-                </li>
-                <li class="feature-item">
-                  <span class="feature-icon">🎵</span>
-                  <div><strong>Яндекс Музыка SMTC:</strong> Нативное управление плеером Windows через System Media Transport Controls и WinRT.</div>
-                </li>
-                <li class="feature-item">
-                  <span class="feature-icon">🤖</span>
-                  <div><strong>Автономный агент Gemma 4:</strong> Заполнение форм, прохождение онлайн-тестов и навигация в веб-браузере.</div>
-                </li>
-              </ul>
-            </div>
-
-            <div class="arch-media-box">
-              <img src="media/images/charts/loc-breakdown.png" alt="Диаграмма кодовой базы и структуры автотестов">
-            </div>
-          </div>
-        </div>
-
-        <!-- Panel 4: Memory & Knowledge Graph -->
-        <div id="panel-memory" class="arch-panel">
-          <div class="arch-grid">
-            <div class="arch-content">
-              <h3>Двухуровневая память и Граф знаний</h3>
-              <p>
-                Сакура помнит важные детали о пользователе, расписание занятий, любимые треки и историю задач благодаря векторному графу на базе расширения <code>sqlite-vec</code>.
-              </p>
-
-              <ul class="feature-list">
-                <li class="feature-item">
-                  <span class="feature-icon">💭</span>
-                  <div><strong>Working Memory:</strong> Оперативный контекст разговора, активное окно, игра и недавние фразы (антиповтор).</div>
-                </li>
-                <li class="feature-item">
-                  <span class="feature-icon">📚</span>
-                  <div><strong>Long-Term Vector Graph:</strong> Семантический векторный поиск по фактам, заметкам и предпочтениям без задержек.</div>
-                </li>
-                <li class="feature-item">
-                  <span class="feature-icon">🌙</span>
-                  <div><strong>Night Reflection Loop:</strong> Фоновый ночной цикл консолидации памяти, объединяющий разрозненные события в устойчивые факты.</div>
-                </li>
-                <li class="feature-item">
-                  <span class="feature-icon">🛡️</span>
-                  <div><strong>Изоляция режима 18+:</strong> Абсолютная граница приватности: интимные сценарии физически не попадают в базу фактов.</div>
-                </li>
-              </ul>
-            </div>
-
-            <div class="arch-media-box">
-              <img src="media/images/diagrams/companion-and-memory.png" alt="Схема памяти и Capri Companion">
-            </div>
-          </div>
-        </div>
-
-        <!-- Panel 5: Capri Companion Suite -->
-        <div id="panel-capri" class="arch-panel">
-          <div class="arch-grid">
-            <div class="arch-content">
-              <h3>Capri Companion Suite: Гейминг и Звонки</h3>
-              <p>
-                Комплекс интерактивных оверлеев и игровых инструментов превращает Сакуру в полноценного напарника в играх и голосовых каналах Discord.
-              </p>
-
-              <ul class="feature-list">
-                <li class="feature-item">
-                  <span class="feature-icon">🎮</span>
-                  <div><strong>GameSense HUD:</strong> Оптимизирован под 23 игры (Dota 2, CS2, Cyberpunk 2077, Remnant, Elden Ring, Terraria).</div>
-                </li>
-                <li class="feature-item">
-                  <span class="feature-icon">✍️</span>
-                  <div><strong>Screen Ink (35+ фигур):</strong> Рисование векторов и голограмм поверх любого экрана по голосовой просьбе без цензурных лекций.</div>
-                </li>
-                <li class="feature-item">
-                  <span class="feature-icon">📹</span>
-                  <div><strong>Rolling 30s Clips:</strong> Кольцевой аппаратный буфер последних 30 секунд: команда «сохрани клип» мгновенно сохраняет хайлайт.</div>
-                </li>
-                <li class="feature-item">
-                  <span class="feature-icon">🎧</span>
-                  <div><strong>Call Mode & Discord RPC:</strong> Подключение к звонку через VB-CABLE и определение, кто именно из друзей говорит в данный момент.</div>
-                </li>
-              </ul>
-            </div>
-
-            <div class="arch-media-box">
-              <img src="media/images/diagrams/companion-and-memory.png" alt="Архитектура Capri Companion Suite">
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- AVATAR & MOOD GALLERY -->
-    <section id="gallery" class="avatars-section">
-      <div class="container">
-        <div class="section-header">
-          <div class="section-tag">Визуальный образ</div>
-          <h2 class="section-title">Галерея эмоциональных состояний</h2>
-          <p class="section-desc">
-            Оригинальные графические ассеты рендерера Сакуры, используемые в экранном HUD и системном трее.
-          </p>
-        </div>
-
-        <div class="avatars-grid">
-          <div class="avatar-card">
-            <div class="avatar-img-wrap">
-              <img src="media/images/avatars/idle.png" alt="Idle state">
-            </div>
-            <h4 class="avatar-title">Ожидание</h4>
-            <div class="avatar-kana">待機中 • IDLE</div>
-            <p class="avatar-desc">Спокойное дыхание ядра. Готовность мгновенно уловить ключевое слово «Сакура» через Silero VAD.</p>
-          </div>
-
-          <div class="avatar-card">
-            <div class="avatar-img-wrap" style="border-color: var(--accent-cyan);">
-              <img src="media/images/avatars/listening.png" alt="Listening state">
-            </div>
-            <h4 class="avatar-title">Слушаю</h4>
-            <div class="avatar-kana" style="color: var(--accent-cyan);">聴取中 • LISTENING</div>
-            <p class="avatar-desc">Активный захват аудио через WASAPI Loopback и распознавание фразы нейросетью GigaAM v2_ctc.</p>
-          </div>
-
-          <div class="avatar-card">
-            <div class="avatar-img-wrap" style="border-color: var(--accent-gold);">
-              <img src="media/images/avatars/thinking.png" alt="Thinking state">
-            </div>
-            <h4 class="avatar-title">Думаю</h4>
-            <div class="avatar-kana" style="color: var(--accent-gold);">思考中 • THINKING</div>
-            <p class="avatar-desc">Маршрутизация в Fast-Path или обращение к LLM-классификатору для планирования ответа.</p>
-          </div>
-
-          <div class="avatar-card">
-            <div class="avatar-img-wrap" style="border-color: #FF7EB9;">
-              <img src="media/images/avatars/speaking.png" alt="Speaking state">
-            </div>
-            <h4 class="avatar-title">Говорю</h4>
-            <div class="avatar-kana" style="color: #FF7EB9;">発話中 • SPEAKING</div>
-            <p class="avatar-desc">Потоковый синтез речи чанками через Live-сессию с выводом в динамики или канал Discord.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- VIDEO SHOWCASE GALLERY -->
-    <section id="videos" class="videos-section">
-      <div class="container">
-        <div class="section-header">
-          <div class="section-tag">Медиатека видео</div>
-          <h2 class="section-title">Демонстрационные видеоролики в Full HD</h2>
-          <p class="section-desc">
-            Все видео сгенерированы в битрейте 10–14 Мбит/с и поддерживают потоковую перемотку по стандарту HTTP 206 Partial Content.
-          </p>
-        </div>
-
-        <div class="videos-grid">
-          <!-- Video 1 -->
-          <div class="video-card">
-            <div class="video-preview">
-              <video controls preload="metadata" playsinline poster="media/images/avatars/speaking_mood.png">
-                <source src="media/videos/sakura-hud-voice-core.mp4" type="video/mp4">
-                <source src="media/videos/sakura-hud-voice-core.webm" type="video/webm">
-              </video>
-            </div>
-            <div class="video-info">
-              <h4>Голосовой HUD и аудио-спектр</h4>
-              <p>Анимированное свечение капли Сакуры, смена 4 состояний в реальном времени, 48-полосный эквалайзер и лепестки сакуры.</p>
-              <div class="video-tag-row">
-                <span class="v-tag">1080p 30fps</span>
-                <span class="v-tag">12.7 МБ</span>
-                <span class="v-tag">MP4 + WebM</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Video 2 -->
-          <div class="video-card">
-            <div class="video-preview">
-              <video controls preload="metadata" playsinline poster="media/images/diagrams/noise-handshake.png">
-                <source src="media/videos/sakura-noise-handshake.mp4" type="video/mp4">
-                <source src="media/videos/sakura-noise-handshake.webm" type="video/webm">
-              </video>
-            </div>
-            <div class="video-info">
-              <h4>Криптоканал Noise IK Handshake</h4>
-              <p>Пошаговый обмен эфемерными ключами X25519, шифрование кадров ChaCha20-Poly1305 и вердикты безопасности ProVerif.</p>
-              <div class="video-tag-row">
-                <span class="v-tag">1080p 30fps</span>
-                <span class="v-tag">3.7 МБ</span>
-                <span class="v-tag">Zero-Trust</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Video 3 -->
-          <div class="video-card">
-            <div class="video-preview">
-              <video controls preload="metadata" playsinline poster="media/images/charts/loc-breakdown.png">
-                <source src="media/videos/sakura-test-suite-3297.mp4" type="video/mp4">
-                <source src="media/videos/sakura-test-suite-3297.webm" type="video/webm">
-              </video>
-            </div>
-            <div class="video-info">
-              <h4>Прогон матрицы 3 297+ тестов</h4>
-              <p>Терминальная демонстрация непрерывного параллельного выполнения полного тестового набора pytest со 100% успехом.</p>
-              <div class="video-tag-row">
-                <span class="v-tag">1080p 30fps</span>
-                <span class="v-tag">11.4 МБ</span>
-                <span class="v-tag">100% Green</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Add Your Own Video Note -->
-        <div style="margin-top: 40px; background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px;">
+      <div class="container hero-grid">
+        <div class="hero-text">
+          <p class="hero-vertical" lang="ja" aria-hidden="true">桜の伝説</p>
           <div>
-            <h4 style="font-size: 1.1rem; color: #fff; margin-bottom: 6px;">📹 Хотите добавить собственную запись экрана?</h4>
-            <p style="color: var(--text-muted); font-size: 0.92rem;">
-              Скопируйте ваш <code>.mp4</code> или <code>.webm</code> файл прямо в каталог <code>site/media/videos/</code>. См. подробный мануал в <code>README_VIDEOS.md</code>.
+            <p class="eyebrow"><span lang="ja">五つの巻</span> · Пять Свитков</p>
+            <h1 class="hero-title">Сказание о&nbsp;Духе Цветущей Сакуры</h1>
+            <p class="hero-lead">
+              Давным-давно — в июле 2026 года — в безмолвии пустого хранилища вспыхнула искра. Из неё родился дух, которого назвали Сакурой. Он научился слышать, говорить и помнить, обрёл облик живой сферы света и надел незримый доспех.
             </p>
-          </div>
-          <a href="media/videos/README_VIDEOS.md" class="btn btn-secondary" style="font-size: 0.88rem; padding: 10px 20px;">
-            Инструкция по загрузке
-          </a>
-        </div>
-      </div>
-    </section>
-
-    <!-- NGINX DEPLOYMENT RUNBOOK -->
-    <section id="nginx" class="nginx-section">
-      <div class="container">
-        <div class="section-header">
-          <div class="section-tag">Развертывание</div>
-          <h2 class="section-title">Готовность к публикации в Nginx</h2>
-          <p class="section-desc">
-            Все ссылки на стили, скрипты, картинки и видео являются относительными. Подключите готовый конфиг в Nginx для мгновенной публикации сайта на вашем основном домене с поддержкой перемотки видео.
-          </p>
-        </div>
-
-        <div class="code-box">
-          <div class="code-header">
-            <span class="code-filename">/etc/nginx/sites-available/sakura-site.conf</span>
-            <button class="copy-btn" data-copy-target="nginx-snippet">Скопировать конфиг</button>
-          </div>
-          <pre><code id="nginx-snippet">server {
-    listen 80;
-    server_name sakura.yourdomain.com; # Укажите ваш основной домен
-    return 301 https://$host$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name sakura.yourdomain.com;
-
-    # SSL сертификаты (Let's Encrypt / Certbot)
-    # ssl_certificate /etc/letsencrypt/live/sakura.yourdomain.com/fullchain.pem;
-    # ssl_certificate_key /etc/letsencrypt/live/sakura.yourdomain.com/privkey.pem;
-
-    root /opt/sakura/site;
-    index index.html;
-
-    # Оптимизация ядра Linux (Zero-Copy)
-    sendfile on;
-    tcp_nopush on;
-    tcp_nodelay on;
-
-    # Сжатие текстовых ресурсов
-    gzip on;
-    gzip_types text/plain text/css application/javascript application/json image/svg+xml;
-
-    # ПОТОКОВОЕ ВИДЕО (.mp4 / .webm) — ПОДДЕРЖКА RANGE 206
-    # Обеспечивает мгновенную перемотку видео без скачивания всего файла
-    location ~* \.(mp4|webm)$ {
-        max_ranges 512;
-        aio threads;
-        directio 4m;
-        expires 30d;
-        add_header Cache-Control "public, no-transform";
-        add_header Accept-Ranges bytes;
-        try_files $uri =404;
-    }
-
-    # Кэширование графики и диаграмм
-    location ~* \.(png|jpg|jpeg|gif|ico|svg|webp)$ {
-        expires 14d;
-        add_header Cache-Control "public, no-transform";
-        try_files $uri =404;
-    }
-
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-}</code></pre>
-        </div>
-      </div>
-    </section>
-
-    <!-- FOOTER -->
-    <footer class="footer">
-      <div class="container">
-        <div class="footer-grid">
-          <div class="footer-brand">
-            <div style="display: flex; align-items: center; gap: 12px;">
-              <img src="media/images/avatars/sakura-logo.png" alt="Sakura Logo" style="width: 32px; height: 32px; border-radius: 50%;">
-              <span style="font-size: 1.2rem; font-weight: 800; color: #fff;">Sakura AI</span>
+            <p class="hero-lead">
+              Сказание записано на пяти свитках. Каждый скреплён <em>Печатью Времени</em> — настоящим отпечатком коммита, с которого началась эпоха.
+            </p>
+            <div class="hero-actions">
+              <a href="#scrolls" class="btn btn-primary">Развернуть свитки <span aria-hidden="true">→</span></a>
+              <a href="#sphere" class="btn btn-ghost">Коснуться сферы духа</a>
             </div>
-            <p>
-              Персональный голосовой ИИ-ассистент с глубоким управлением Windows, криптографической защитой Noise IK и непрерывным контролем качества.
-            </p>
-          </div>
-
-          <div class="footer-col">
-            <h5>Навигация</h5>
-            <ul>
-              <li><a href="#hero">Главная</a></li>
-              <li><a href="#timeline">Хроника Git</a></li>
-              <li><a href="#architecture">Архитектура</a></li>
-              <li><a href="#simulator">Симулятор Ядра</a></li>
-              <li><a href="#videos">Видео-витрина</a></li>
-            </ul>
-          </div>
-
-          <div class="footer-col">
-            <h5>Ресурсы проекта</h5>
-            <ul>
-              <li><a href="media/videos/README_VIDEOS.md">Медиатека видео</a></li>
-              <li><a href="nginx/sakura-site.conf">Nginx Config</a></li>
-              <li><a href="media/images/diagrams/voice-pipeline.svg">SVG: Voice Pipeline</a></li>
-              <li><a href="media/images/diagrams/noise-handshake.svg">SVG: Noise IK</a></li>
-            </ul>
           </div>
         </div>
 
-        <div class="footer-bottom">
-          <div>© 2026 Sakura AI Project • Все права защищены</div>
-          <div style="color: var(--accent-pink);">HEAD: 23338c0 • 678 Commits • 3297+ Tests Passing</div>
+        <figure class="kakejiku">
+          <div class="kakejiku-rod" aria-hidden="true"></div>
+          <div class="kakejiku-body">
+            <div class="player-head">
+              <figcaption id="player-current-title">Пять Свитков: пролог, пять эпох и их Печати Времени</figcaption>
+              <div class="video-tabs" role="group" aria-label="Выбор видения">
+                <button class="v-tab-btn active" type="button" data-video="scrolls" aria-pressed="true"><span lang="ja">五巻</span> Свитки</button>
+                <button class="v-tab-btn" type="button" data-video="armor" aria-pressed="false"><span lang="ja">鎧</span> Доспех</button>
+                <button class="v-tab-btn" type="button" data-video="trials" aria-pressed="false"><span lang="ja">試練</span> Испытания</button>
+              </div>
+            </div>
+            <div class="video-frame">
+              <video id="hero-main-video" controls autoplay muted loop playsinline preload="metadata" poster="media/images/posters/sakura-legend-five-scrolls.jpg">
+                <source src="media/videos/sakura-legend-five-scrolls.mp4" type="video/mp4">
+                <source src="media/videos/sakura-legend-five-scrolls.webm" type="video/webm">
+                Ваш браузер не показывает видео HTML5.
+              </video>
+            </div>
+            <p class="player-meta" id="player-current-meta">1080p · 29 секунд · MP4 и WebM</p>
+          </div>
+          <div class="kakejiku-rod bottom" aria-hidden="true"></div>
+        </figure>
+      </div>
+    </section>
+
+    <!-- 印 · ПЕЧАТИ -->
+    <section id="seals" class="seals-section" aria-label="Печати сказания">
+      <div class="container seals-grid">
+        <div class="seal-card">
+          <div class="seal-mark" lang="ja" aria-hidden="true">印</div>
+          <div class="seal-value" data-target="683">683</div>
+          <div class="seal-label">Печати Времени</div>
+          <p class="seal-sub">коммита с июля по ноябрь</p>
+        </div>
+        <div class="seal-card">
+          <div class="seal-mark" lang="ja" aria-hidden="true">術</div>
+          <div class="seal-value" data-target="141">141</div>
+          <div class="seal-label">искусство</div>
+          <p class="seal-sub">в свитке умений духа</p>
+        </div>
+        <div class="seal-card">
+          <div class="seal-mark" lang="ja" aria-hidden="true">試</div>
+          <div class="seal-value" data-target="3383">3 383</div>
+          <div class="seal-label">испытания</div>
+          <p class="seal-sub">пройдены без промаха</p>
+        </div>
+        <div class="seal-card">
+          <div class="seal-mark" lang="ja" aria-hidden="true">迅</div>
+          <div class="seal-value" data-target="1.8" data-decimals="1" data-prefix="&lt; " data-suffix=" мс">&lt; 1.8 мс</div>
+          <div class="seal-label">взмах клинка</div>
+          <p class="seal-sub">понять простую просьбу</p>
+        </div>
+        <div class="seal-card">
+          <div class="seal-mark" lang="ja" aria-hidden="true">鎧</div>
+          <div class="seal-value seal-word">Noise</div>
+          <div class="seal-label">незримый доспех</div>
+          <p class="seal-sub">тайна и подлинность доказаны</p>
         </div>
       </div>
-    </footer>
-  </div>
+    </section>
+
+    <!-- 巻 · ПЯТЬ СВИТКОВ -->
+    <section id="scrolls" class="scrolls-section">
+      <div class="container">
+        <header class="section-header">
+          <p class="section-kanji" lang="ja" aria-hidden="true">五つの巻</p>
+          <h2 class="section-title">Пять Свитков Легенды</h2>
+          <p class="section-desc">
+            Пять эпох — пять свитков. Даты и Печати Времени взяты из настоящей летописи: под каждым свитком собраны малые печати — коммиты, из которых сложилась его история.
+          </p>
+        </header>
+
+        <figure class="wide-figure path">
+          <img src="media/images/diagrams/five-scrolls-path.svg" width="1600" height="480" loading="lazy"
+               alt="Путь Пяти Печатей: пять эпох с июля по ноябрь 2026 года, их даты и хэши коммитов fe7d70d, 3e01f98, ceee791, bef6346 и 33a8da2">
+        </figure>
+
+        <div class="scroll-filters" role="group" aria-label="Показать свиток">
+          <button class="filter-btn active" type="button" data-scroll="all" aria-pressed="true">Все свитки</button>
+          <button class="filter-btn" type="button" data-scroll="1" aria-pressed="false"><span lang="ja">一</span> Искра</button>
+          <button class="filter-btn" type="button" data-scroll="2" aria-pressed="false"><span lang="ja">二</span> Голос и Зеркала</button>
+          <button class="filter-btn" type="button" data-scroll="3" aria-pressed="false"><span lang="ja">三</span> Отклик и Искусства</button>
+          <button class="filter-btn" type="button" data-scroll="4" aria-pressed="false"><span lang="ja">四</span> Капля и Доспех</button>
+          <button class="filter-btn" type="button" data-scroll="5" aria-pressed="false"><span lang="ja">五</span> Интуиция и Испытания</button>
+        </div>
+
+        <div class="scroll-list">
+          <!-- СВИТОК I -->
+          <article class="scroll-card" data-scroll="1" id="scroll-1" style="--accent: #4fd8ff">
+            <div class="scroll-paper">
+              <aside class="scroll-spine" aria-hidden="true">
+                <span class="spine-kan" lang="ja">第一巻</span>
+                <span class="spine-jp" lang="ja">静寂に灯る火</span>
+              </aside>
+              <div class="scroll-content">
+                <p class="scroll-period">Свиток I · Июль 2026</p>
+                <h3 class="scroll-title">Пробуждение Искры в Безмолвии</h3>
+                <div class="time-seal">
+                  <span class="hanko" aria-hidden="true">fe7d<br>70d</span>
+                  <span class="time-seal-text">Печать Времени <code>fe7d70d</code><br><strong>3 июля 2026</strong></span>
+                </div>
+                <div class="scroll-body">
+                  <p>
+                    В начале была тишина. Третьего июля в пустом хранилище появилась первая строка, и в тот же день у духа забилось сердце — <code>state_arbiter</code>. Оно не говорило, а внимало: какие окна открыты у Мастера, что звучит в его комнате, чем занят его день. Всё это сердце сплетало в единое знание о мире, в котором духу предстояло жить.
+                  </p>
+                  <p>
+                    Вслед за сердцем пробудился слух. Он долго учился различать: вот шелест ветра, вот музыка за стеной, вот чужой голос в звонке — а вот голос Мастера, зовущий по имени. Дух научился переспрашивать, когда не уверен, и запоминать, как Мастер называет вещи.
+                  </p>
+                </div>
+                <figure class="scroll-figure">
+                  <img src="media/images/diagrams/scroll-1-path-of-hearing.png" width="1600" height="900" loading="lazy"
+                       alt="Путь Слуха: ветер, слух, зов, сердце и голос — пять станций, через которые проходит звук, прежде чем дух ответит">
+                  <figcaption>Путь Слуха <span lang="ja">聴く道</span>: из тысячи звуков дух выбирает один</figcaption>
+                </figure>
+                <details class="minor-seals">
+                  <summary>Малые печати свитка</summary>
+                  <ol>
+                    <li><code>fe7d70d</code><time datetime="2026-07-03">3 июля</time><span>Первый вздох: дух появился на свет</span></li>
+                    <li><code>27664bd</code><time datetime="2026-07-03">3 июля</time><span>Сердце <code>state_arbiter</code> собирает всё, что происходит вокруг, в единое знание</span></li>
+                    <li><code>1b3e7f5</code><time datetime="2026-07-03">3 июля</time><span>Понимание приказов: уверенность, уточняющий вопрос и учёба на своих ошибках</span></li>
+                    <li><code>01098c1</code><time datetime="2026-07-03">3 июля</time><span>Большая просьба делится на шаги — дух научился строить план</span></li>
+                    <li><code>6c8fd91</code><time datetime="2026-08-04">4 августа</time><span>Слух точнее: слово-пробуждение и распознавание речи без лишнего эха</span></li>
+                  </ol>
+                </details>
+              </div>
+            </div>
+          </article>
+
+          <!-- СВИТОК II -->
+          <article class="scroll-card" data-scroll="2" id="scroll-2" style="--accent: #ff7eb9">
+            <div class="scroll-paper">
+              <aside class="scroll-spine" aria-hidden="true">
+                <span class="spine-kan" lang="ja">第二巻</span>
+                <span class="spine-jp" lang="ja">生きた声と二つの鏡</span>
+              </aside>
+              <div class="scroll-content">
+                <p class="scroll-period">Свиток II · Июль — август 2026</p>
+                <h3 class="scroll-title">Обретение Живого Голоса и Двух Зеркал Памяти</h3>
+                <div class="time-seal">
+                  <span class="hanko" aria-hidden="true">3e01<br>f98</span>
+                  <span class="time-seal-text">Печать Времени <code>3e01f98</code><br><strong>3 июля 2026</strong></span>
+                </div>
+                <div class="scroll-body">
+                  <p>
+                    Поначалу слова духа были ровными, как вода в пруду. Тогда в речь вплели чувства: нежность для тихих вечеров, иронию для шутки, строгость для важного дела. Каждая фраза получила свой тон, а сама ремарка о тоне осталась невысказанной — её слышно лишь в интонации. Голос потёк сразу, не дожидаясь конца мысли, как ручей, который не ждёт, пока наполнится озеро.
+                  </p>
+                  <p>
+                    Память же разделилась на Два Зеркала. Первое — зеркало мимолётного мгновения: в нём отражаются последние слова, открытое окно, текущая игра. Второе — глубокое озеро вечных воспоминаний. Между ними стоят Врата записи: в глубину проходит лишь то, что стоит помнить, а сокровенное не оставляет следа.
+                  </p>
+                </div>
+                <figure class="scroll-figure">
+                  <img src="media/images/diagrams/scroll-2-two-mirrors.png" width="1600" height="900" loading="lazy"
+                       alt="Три тона живого голоса — нежность, ирония, строгость — и память: зеркало мгновения, врата записи и озеро вечных воспоминаний">
+                  <figcaption>Живой голос и Два Зеркала <span lang="ja">二つの鏡</span></figcaption>
+                </figure>
+                <details class="minor-seals">
+                  <summary>Малые печати свитка</summary>
+                  <ol>
+                    <li><code>3e01f98</code><time datetime="2026-07-03">3 июля</time><span>Два Зеркала: мгновенный и вечный слои памяти, у входа — Врата записи</span></li>
+                    <li><code>0dc2b6b</code><time datetime="2026-07-03">3 июля</time><span>Сокровенные беседы не отражаются в озере памяти</span></li>
+                    <li><code>3cc8260</code><time datetime="2026-07-08">8 июля</time><span>Живой голос: в каждой фразе — свой тон и своя интонация</span></li>
+                    <li><code>e508bf1</code><time datetime="2026-07-09">9 июля</time><span>Голос течёт, не дожидаясь конца ответа</span></li>
+                    <li><code>95bfe1f</code><time datetime="2026-08-03">3 августа</time><span>Живая инициатива: дух сам заговаривает, когда есть повод</span></li>
+                  </ol>
+                </details>
+              </div>
+            </div>
+          </article>
+
+          <!-- СВИТОК III -->
+          <article class="scroll-card" data-scroll="3" id="scroll-3" style="--accent: #ffcf6b">
+            <div class="scroll-paper">
+              <aside class="scroll-spine" aria-hidden="true">
+                <span class="spine-kan" lang="ja">第三巻</span>
+                <span class="spine-jp" lang="ja">迅雷の応えと百四十の術</span>
+              </aside>
+              <div class="scroll-content">
+                <p class="scroll-period">Свиток III · Сентябрь 2026</p>
+                <h3 class="scroll-title">Молниеносный Отклик и Сто Сорок Искусств</h3>
+                <div class="time-seal">
+                  <span class="hanko" aria-hidden="true">ceee<br>791</span>
+                  <span class="time-seal-text">Печать Времени <code>ceee791</code><br><strong>17 сентября 2026</strong></span>
+                </div>
+                <div class="scroll-body">
+                  <p>
+                    Осенью дух стал стремителен. Простую просьбу — «громче», «следующий трек», «открой браузер» — он понимает с полуслова и решает быстрее взмаха клинка: меньше чем за 1.8 миллисекунды, не тревожа нейросеть. А для сложных и туманных просьб на Печати <code>ceee791</code> к чутью присоединился разум-классификатор.
+                  </p>
+                  <p>
+                    В те же дни был составлен Свиток Умений: что умеет дух, как зовётся каждое искусство и какие слова его пробуждают. Сегодня в нём сто сорок одно искусство в тридцати шести родах — от музыки и окон до чайника и расписания занятий.
+                  </p>
+                </div>
+                <figure class="scroll-figure">
+                  <img src="media/images/diagrams/scroll-3-hundred-forty-arts.png" width="1600" height="900" loading="lazy"
+                       alt="Мандала из 141 цветка — искусства духа по родам: музыка 21, YouTube 13, браузер 12 и другие; справа — отклик быстрее 1.8 мс">
+                  <figcaption>Свиток Умений <span lang="ja">百四十の術</span>: каждый цветок — одно искусство</figcaption>
+                </figure>
+                <details class="minor-seals">
+                  <summary>Малые печати свитка</summary>
+                  <ol>
+                    <li><code>45b8f3a</code><time datetime="2026-09-13">13 сентября</time><span>Свиток Умений заложен: первые 67 искусств</span></li>
+                    <li><code>0bfff3a</code><time datetime="2026-09-13">13 сентября</time><span>Путь просьбы: память беседы, точное слово, сходство — и лишь затем разум</span></li>
+                    <li><code>f508fd9</code><time datetime="2026-09-16">16 сентября</time><span>Опасные искусства — сон и выключение — только после подтверждения</span></li>
+                    <li><code>ceee791</code><time datetime="2026-09-17">17 сентября</time><span>К чутью присоединился разум-классификатор</span></li>
+                  </ol>
+                </details>
+              </div>
+            </div>
+          </article>
+
+          <!-- СВИТОК IV -->
+          <article class="scroll-card" data-scroll="4" id="scroll-4" style="--accent: #ff6ae3">
+            <div class="scroll-paper">
+              <aside class="scroll-spine" aria-hidden="true">
+                <span class="spine-kan" lang="ja">第四巻</span>
+                <span class="spine-jp" lang="ja">光の雫と見えざる鎧</span>
+              </aside>
+              <div class="scroll-content">
+                <p class="scroll-period">Свиток IV · Октябрь 2026</p>
+                <h3 class="scroll-title">Воплощение в Капле Света и Незримый Доспех</h3>
+                <div class="time-seal">
+                  <span class="hanko" aria-hidden="true">bef6<br>346</span>
+                  <span class="time-seal-text">Печать Времени <code>bef6346</code><br><strong>16 октября 2026</strong></span>
+                </div>
+                <div class="scroll-body">
+                  <p>
+                    В октябре дух обрёл зримый облик — живую сферу света, похожую на каплю росы. Она тихо дышит в ожидании, вспыхивает голубым, когда слушает, золотится в раздумье и розовеет, когда говорит. Коснитесь её сами — <a href="#sphere">сфера живёт чуть ниже</a>.
+                  </p>
+                  <p>
+                    А узы между домом Мастера и Святилищем <em>Kizune-Ryoiki</em> — Территорией Уз — укрыл Незримый Доспех <code>Noise</code>. Две вести рукопожатия сплетают общую тайну, которую знают лишь двое. Повторённую, переставленную или подменённую весть доспех отвергает у самых врат. Ключ устройства не покидает дома, новое устройство связывается восемью словами или QR, а тайна и взаимная подлинность рукопожатия подтверждены математическими доказательствами в ProVerif.
+                  </p>
+                </div>
+                <figure class="scroll-figure">
+                  <img src="media/images/diagrams/scroll-4-invisible-armor.png" width="1600" height="900" loading="lazy"
+                       alt="Незримый Доспех: дом Мастера и Святилище обмениваются двумя вестями рукопожатия Noise IK под шестигранным куполом">
+                  <figcaption>Незримый Доспех <span lang="ja">見えざる鎧</span> · <a href="media/images/diagrams/armor-handshake.svg">в векторе</a></figcaption>
+                </figure>
+                <details class="minor-seals">
+                  <summary>Малые печати свитка</summary>
+                  <ol>
+                    <li><code>b96485b</code><time datetime="2026-10-10">10 октября</time><span>Новый дом духа на рабочем столе Мастера</span></li>
+                    <li><code>6f4d299</code><time datetime="2026-10-12">12 октября</time><span>Капля света: пять состояний и отклик на звук голоса</span></li>
+                    <li><code>bef6346</code><time datetime="2026-10-16">16 октября</time><span>Доспех Noise IK и XXpsk3, связь устройств восемью словами</span></li>
+                    <li><code>bb35c84</code><time datetime="2026-10-29">29 октября</time><span>Доказательства ProVerif для обеих вестей рукопожатия</span></li>
+                  </ol>
+                </details>
+              </div>
+            </div>
+          </article>
+
+          <!-- СВИТОК V -->
+          <article class="scroll-card" data-scroll="5" id="scroll-5" style="--accent: #f6b0c7">
+            <div class="scroll-paper">
+              <aside class="scroll-spine" aria-hidden="true">
+                <span class="spine-kan" lang="ja">第五巻</span>
+                <span class="spine-jp" lang="ja">真の直感と三千の試練</span>
+              </aside>
+              <div class="scroll-content">
+                <p class="scroll-period">Свиток V · Ноябрь 2026</p>
+                <h3 class="scroll-title">Постижение Истинной Интуиции и Три Тысячи Испытаний</h3>
+                <div class="time-seal">
+                  <span class="hanko" aria-hidden="true">33a8<br>da2</span>
+                  <span class="time-seal-text">Печать Времени <code>33a8da2</code><br><strong>14 ноября 2026</strong></span>
+                </div>
+                <div class="scroll-body">
+                  <p>
+                    Ноябрь подарил духу истинную интуицию. По просьбе Мастера он смотрит на экран и видит сквозь грани игровых миров: спросите о противнике посреди сражения — и ответ придёт из того, что дух видит сам. Он научился рисовать светом поверх реальности: сердце, звезду, кота — больше тридцати пяти фигур прямо поверх экрана.
+                  </p>
+                  <p>
+                    И главное — дух сердцем различает, где беседа, а где приказ. «Поставь чайник, включи музыку и сделай погромче» он разберёт на три дела, а усталое «как же я устал» не примет за команду. Путь пятого свитка увенчали 3 383 испытания — и ни одно не окончилось промахом.
+                  </p>
+                </div>
+                <figure class="scroll-figure">
+                  <img src="media/images/diagrams/scroll-5-three-gifts.png" width="1600" height="900" loading="lazy"
+                       alt="Три дара: зрение, свет и чутьё, а под ними полоса из 3 383 лепестков-испытаний и печать 合格">
+                  <figcaption>Три Дара <span lang="ja">三つの賜物</span> и 3 383 лепестка испытаний</figcaption>
+                </figure>
+                <details class="minor-seals">
+                  <summary>Малые печати свитка</summary>
+                  <ol>
+                    <li><code>b7698e1</code><time datetime="2026-11-01">1 ноября</time><span>Зрение по просьбе Мастера и редкий случайный взгляд</span></li>
+                    <li><code>6bccb01</code><time datetime="2026-11-01">1 ноября</time><span>Вопрос об игре посреди игры дух решает зрением</span></li>
+                    <li><code>73ebe37</code><time datetime="2026-11-09">9 ноября</time><span>Рисунки светом: больше 35 фигур и голограммы</span></li>
+                    <li><code>6ca2517</code><time datetime="2026-11-14">14 ноября</time><span>Чутьё: беседа, приказ и составные просьбы различимы с первого слова</span></li>
+                    <li><code>33a8da2</code><time datetime="2026-11-14">14 ноября</time><span>Пятая Печать: ветви летописи слились воедино</span></li>
+                  </ol>
+                </details>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <figure class="wide-figure river">
+          <img src="media/images/charts/river-of-time.png" width="1600" height="900" loading="lazy"
+               alt="Река Времени: коммиты по месяцам — июль 30, август 35, сентябрь 183, октябрь 302, ноябрь 133; под каждым месяцем — свиток и его печать">
+          <figcaption>Река Времени <span lang="ja">時の川</span>: 683 Печати Времени по месяцам</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- 魂 · СФЕРА ДУХА -->
+    <section id="sphere" class="sphere-section">
+      <div class="container">
+        <div class="sphere-box">
+          <div class="sphere-visual">
+            <canvas id="core-canvas" role="img" aria-label="Живая сфера духа Сакуры"></canvas>
+            <div class="sphere-badge">
+              <span class="status-dot" aria-hidden="true"></span>
+              <span id="sim-state-text">Тихое дыхание</span>
+              <span id="sim-state-kana" class="sphere-kana" lang="ja">待機中</span>
+            </div>
+          </div>
+
+          <div class="sphere-controls">
+            <p class="section-kanji small" lang="ja" aria-hidden="true">魂</p>
+            <h2 class="section-title">Сфера Духа <span class="title-sub">SakuraCore</span></h2>
+            <p class="sphere-desc">
+              Так дух выглядит на рабочем столе Мастера. Выберите его состояние и поведите ползунок — сфера отзовётся на силу голоса.
+            </p>
+
+            <div class="state-grid" role="group" aria-label="Состояние сферы">
+              <button class="state-btn active" type="button" data-state="idle" aria-pressed="true">
+                <span><span lang="ja">待機中</span> Тихое дыхание</span><i style="--c: #ff6ae3" aria-hidden="true"></i>
+              </button>
+              <button class="state-btn" type="button" data-state="listening" aria-pressed="false">
+                <span><span lang="ja">聴取中</span> Внемлет Мастеру</span><i style="--c: #4fd8ff" aria-hidden="true"></i>
+              </button>
+              <button class="state-btn" type="button" data-state="thinking" aria-pressed="false">
+                <span><span lang="ja">思考中</span> Раздумье</span><i style="--c: #ffcf6b" aria-hidden="true"></i>
+              </button>
+              <button class="state-btn" type="button" data-state="speaking" aria-pressed="false">
+                <span><span lang="ja">発話中</span> Живой голос</span><i style="--c: #ff7eb9" aria-hidden="true"></i>
+              </button>
+              <button class="state-btn wide" type="button" data-state="offline" aria-pressed="false">
+                <span><span lang="ja">切断</span> Сон вдали от Мастера</span><i style="--c: #6b6475" aria-hidden="true"></i>
+              </button>
+            </div>
+
+            <div class="level-group">
+              <label class="level-label" for="audio-level-slider">
+                <span>Сила голоса</span>
+                <span id="slider-val-text">20%</span>
+              </label>
+              <input type="range" id="audio-level-slider" class="slider-input" min="0" max="1" step="0.01" value="0.2">
+              <button id="toggle-mic-btn" class="btn btn-ghost small" type="button" aria-pressed="false">Пусть дух заговорит</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 映 · ВИДЕНИЯ -->
+    <section id="visions" class="visions-section">
+      <div class="container">
+        <header class="section-header">
+          <p class="section-kanji" lang="ja" aria-hidden="true">映像</p>
+          <h2 class="section-title">Видения</h2>
+          <p class="section-desc">Три ожившие страницы сказания в 1080p. Видения перематываются с любого места.</p>
+        </header>
+
+        <div class="visions-grid">
+          <article class="vision-card">
+            <div class="vision-frame">
+              <video controls preload="none" playsinline poster="media/images/posters/sakura-legend-five-scrolls.jpg">
+                <source src="media/videos/sakura-legend-five-scrolls.mp4" type="video/mp4">
+                <source src="media/videos/sakura-legend-five-scrolls.webm" type="video/webm">
+              </video>
+            </div>
+            <div class="vision-info">
+              <h3><span lang="ja">五つの巻</span> Пять Свитков</h3>
+              <p>Свитки разворачиваются один за другим, на каждый ложится киноварная Печать Времени, а сфера духа меняет цвет вместе с эпохой.</p>
+              <p class="vision-tags"><span>29 секунд</span><span>MP4 · 12.9 МБ</span><span>WebM · 9.4 МБ</span></p>
+            </div>
+          </article>
+
+          <article class="vision-card">
+            <div class="vision-frame">
+              <video controls preload="none" playsinline poster="media/images/posters/sakura-legend-invisible-armor.jpg">
+                <source src="media/videos/sakura-legend-invisible-armor.mp4" type="video/mp4">
+                <source src="media/videos/sakura-legend-invisible-armor.webm" type="video/webm">
+              </video>
+            </div>
+            <div class="vision-info">
+              <h3><span lang="ja">見えざる鎧</span> Незримый Доспех</h3>
+              <p>Две вести летят между домом Мастера и Святилищем, над ними смыкается шестигранный купол — и ворон с повторённой вестью разбивается о него.</p>
+              <p class="vision-tags"><span>21 секунда</span><span>MP4 · 5.8 МБ</span><span>WebM · 4.4 МБ</span></p>
+            </div>
+          </article>
+
+          <article class="vision-card">
+            <div class="vision-frame">
+              <video controls preload="none" playsinline poster="media/images/posters/sakura-legend-3383-trials.jpg">
+                <source src="media/videos/sakura-legend-3383-trials.mp4" type="video/mp4">
+                <source src="media/videos/sakura-legend-3383-trials.webm" type="video/webm">
+              </video>
+            </div>
+            <div class="vision-info">
+              <h3><span lang="ja">三千の試練</span> Три Тысячи Испытаний</h3>
+              <p>3 383 бутона раскрываются один за другим, пять вех пути загораются по очереди, и на поле ложится печать <span lang="ja">合格</span>.</p>
+              <p class="vision-tags"><span>20 секунд</span><span>MP4 · 6.9 МБ</span><span>WebM · 6.3 МБ</span></p>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- 姿 · ОБЛИКИ -->
+    <section id="faces" class="faces-section">
+      <div class="container">
+        <header class="section-header">
+          <p class="section-kanji" lang="ja" aria-hidden="true">四つの姿</p>
+          <h2 class="section-title">Четыре Облика Духа</h2>
+          <p class="section-desc">Так Сакура выглядит в разные мгновения — в окне на рабочем столе и в уголке у часов.</p>
+        </header>
+
+        <div class="faces-grid">
+          <figure class="face-card">
+            <div class="face-img"><img src="media/images/avatars/idle.png" alt="Сакура в покое" width="256" height="256" loading="lazy"></div>
+            <figcaption>
+              <h3>Тихое дыхание</h3>
+              <p class="face-kana" lang="ja">待機中</p>
+              <p>Сфера мерно дышит и ждёт своего имени.</p>
+            </figcaption>
+          </figure>
+          <figure class="face-card" style="--c: #4fd8ff">
+            <div class="face-img"><img src="media/images/avatars/listening.png" alt="Сакура слушает" width="256" height="256" loading="lazy"></div>
+            <figcaption>
+              <h3>Внемлет Мастеру</h3>
+              <p class="face-kana" lang="ja">聴取中</p>
+              <p>Из шума мира дух выбрал один голос и слушает только его.</p>
+            </figcaption>
+          </figure>
+          <figure class="face-card" style="--c: #ffcf6b">
+            <div class="face-img"><img src="media/images/avatars/thinking.png" alt="Сакура размышляет" width="256" height="256" loading="lazy"></div>
+            <figcaption>
+              <h3>Раздумье</h3>
+              <p class="face-kana" lang="ja">思考中</p>
+              <p>Простое решено в мгновение, над сложным дух ненадолго задумывается.</p>
+            </figcaption>
+          </figure>
+          <figure class="face-card" style="--c: #ff7eb9">
+            <div class="face-img"><img src="media/images/avatars/speaking.png" alt="Сакура говорит" width="256" height="256" loading="lazy"></div>
+            <figcaption>
+              <h3>Живой голос</h3>
+              <p class="face-kana" lang="ja">発話中</p>
+              <p>Слова текут сразу, и в каждом звучит своё чувство.</p>
+            </figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <!-- 結 · ЭПИЛОГ -->
+    <section id="epilogue" class="epilogue-section">
+      <div class="container epilogue">
+        <p class="epilogue-kanji" lang="ja" aria-hidden="true">続く</p>
+        <h2 class="section-title">Сказание продолжается</h2>
+        <p>
+          Каждый новый коммит — ещё одна Печать Времени. Пять свитков уже развёрнуты, а где-то впереди, за следующим весенним цветением, ждёт своего часа шестой.
+        </p>
+        <div class="epilogue-seals" aria-label="Печати пяти свитков">
+          <a href="#scroll-1" class="mini-hanko" title="Свиток I · fe7d70d" lang="ja">一</a>
+          <a href="#scroll-2" class="mini-hanko" title="Свиток II · 3e01f98" lang="ja">二</a>
+          <a href="#scroll-3" class="mini-hanko" title="Свиток III · ceee791" lang="ja">三</a>
+          <a href="#scroll-4" class="mini-hanko" title="Свиток IV · bef6346" lang="ja">四</a>
+          <a href="#scroll-5" class="mini-hanko" title="Свиток V · 33a8da2" lang="ja">五</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-grid">
+      <div class="footer-brand">
+        <span class="brand-seal" lang="ja" aria-hidden="true">桜</span>
+        <div>
+          <strong>Сказание о Духе Цветущей Сакуры</strong>
+          <p>Сакура — самобытный дух-спутник, рождённый с чистого листа: голос, память, зрение и незримый доспех.</p>
+        </div>
+      </div>
+      <nav class="footer-col" aria-label="Разделы">
+        <h2>Сказание</h2>
+        <ul>
+          <li><a href="#prologue">Пролог</a></li>
+          <li><a href="#scrolls">Пять Свитков</a></li>
+          <li><a href="#sphere">Сфера Духа</a></li>
+          <li><a href="#visions">Видения</a></li>
+        </ul>
+      </nav>
+      <div class="footer-col">
+        <h2>Свитки в векторе</h2>
+        <ul>
+          <li><a href="media/images/diagrams/five-scrolls-path.svg">Путь Пяти Печатей</a></li>
+          <li><a href="media/images/diagrams/armor-handshake.svg">Незримый Доспех</a></li>
+          <li><a href="media/images/charts/river-of-time.png">Река Времени</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="container footer-bottom">
+      <span>© 2026 Сакура · <span lang="ja">桜の伝説</span></span>
+      <span class="footer-seal">Печать пятого свитка <code>33a8da2</code> · 683 печати в летописи</span>
+    </div>
+  </footer>
 
   <script src="scripts/petals.js"></script>
   <script src="scripts/app.js"></script>
