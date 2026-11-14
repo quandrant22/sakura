@@ -1,257 +1,208 @@
 """Ролик «Незримый Доспех» — sakura-legend-invisible-armor.mp4 / .webm.
 
-Дом Мастера и Святилище Kizune-Ryoiki обмениваются двумя вестями
-(рукопожатие Noise IK: → e, es, s, ss и ← e, ee, se), над ними смыкается
-шестигранный доспех, а тень-ворон с повторённой вестью разбивается о него.
+Фон — «Канбара: вечерний снег» Хиросигэ с параллаксом (деревня ближе неба).
+Дом Мастера (деревня слева) и Святилище Kizune-Ryoiki (дом в центре)
+обмениваются двумя вестями рукопожатия Noise IK (→ e, es, s, ss и ← e, ee, se),
+над ними смыкается светящийся шестигранный доспех, а ворон Каванабэ Кёсая
+с повторённой вестью разбивается о него — печать 拒 и клякса туши.
 
-Запуск из корня репозитория: python site/tools/generate_video_armor.py
+Запуск из корня репозитория: python -I site/tools/generate_video_armor.py
 """
 
 from __future__ import annotations
 
 import math
 import random
+import sys
+from pathlib import Path
 
-from PIL import Image, ImageDraw
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import legend_common as L
+from PIL import Image, ImageDraw  # noqa: E402
+
+import legend_cinema as C  # noqa: E402
+import legend_common as L  # noqa: E402
 
 NAME = "sakura-legend-invisible-armor"
-W, H = 1920, 1080
+W, H = C.W, C.H
 SECONDS = 21.0
-
-HOUSE = (330, 820)
-PAGODA = (1590, 820)
-DOME_C, DOME_RX, DOME_RY = (960, 840), 800, 540
-M1 = (3.2, 7.0)
-M2 = (7.0, 10.6)
-ARMOR = 10.6
-CROW = (14.4, 18.0)
-HIT = 16.0
-FINAL = 18.0
-
-
-def draw_house(d: ImageDraw.ImageDraw, x, ground, glow_k=1.0):
-    col = (14, 10, 22, 255)
-    d.rectangle([x - 120, ground - 120, x + 120, ground], fill=col)
-    d.polygon([(x - 175, ground - 112), (x - 120, ground - 150), (x, ground - 215), (x + 120, ground - 150),
-               (x + 175, ground - 112), (x + 120, ground - 128), (x, ground - 190), (x - 120, ground - 128)], fill=col)
-    for wx in (x - 70, x + 30):
-        d.rectangle([wx, ground - 92, wx + 42, ground - 40], fill=(255, 196, 120, int(230 * glow_k)))
-        d.line([wx + 21, ground - 92, wx + 21, ground - 40], fill=col, width=3)
-        d.line([wx, ground - 66, wx + 42, ground - 66], fill=col, width=3)
-
-
-def draw_pagoda(d: ImageDraw.ImageDraw, x, ground, glow_k=1.0):
-    col = (14, 10, 22, 255)
-    y = ground
-    for tier, (bw, th) in enumerate(((150, 110), (118, 95), (88, 85))):
-        d.rectangle([x - bw * 0.62, y - th, x + bw * 0.62, y], fill=col)
-        d.rectangle([x - 18, y - th * 0.72, x + 18, y - th * 0.18], fill=(255, 190, 140, int(220 * glow_k)))
-        roof_y = y - th
-        d.polygon([(x - bw - 40, roof_y + 18), (x - bw, roof_y - 4), (x + bw, roof_y - 4), (x + bw + 40, roof_y + 18),
-                   (x + bw * 0.7, roof_y - 34), (x - bw * 0.7, roof_y - 34)], fill=col)
-        y = roof_y - 30
-    d.line([x, y, x, y - 90], fill=col, width=8)
-    for i in range(5):
-        d.ellipse([x - 14, y - 22 - i * 16, x + 14, y - 8 - i * 16], outline=col, width=4)
+M1, M2 = (3.2, 7.0), (7.0, 10.6)
+ARMOR, CROW, HIT, FINAL = 10.6, (14.2, 18.0), 16.0, 18.0
+HOUSE, SANCT = (500, 600), (1180, 470)
+DOME_C, DOME_RX, DOME_RY = (840, 900), 800, 600
+HIT_PT = (620, 330)
 
 
 def tag_sprite(label: str) -> Image.Image:
-    fnt = L.font("serif_bold", 32)
+    fnt = L.font("serif_bold", 34)
     L.check_glyphs(label, fnt)
-    w = int(fnt.getlength(label)) + 40
-    img = Image.new("RGBA", (w, 54), (0, 0, 0, 0))
+    w = int(fnt.getlength(label)) + 46
+    img = Image.new("RGBA", (w, 58), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    d.rounded_rectangle([1, 1, w - 2, 52], radius=26, fill=(36, 20, 54, 230), outline=L.GOLD + (255,), width=2)
-    d.text((w / 2, 27), label, font=fnt, fill=L.GOLD_PALE + (255,), anchor="mm")
+    d.rounded_rectangle([1, 1, w - 2, 56], radius=28, fill=(30, 16, 44, 225), outline=L.GOLD + (255,), width=2)
+    d.text((w / 2, 29), label, font=fnt, fill=L.GOLD_PALE + (255,), anchor="mm")
     return img
 
 
-def arc_point(a, b, u, lift):
-    x = a[0] + (b[0] - a[0]) * u
-    y = a[1] + (b[1] - a[1]) * u - 4 * lift * u * (1 - u)
-    return x, y
-
-
-def crow_polygon(cx, cy, s, flap):
-    """Силуэт ворона: тело, хвост и машущие крылья."""
-    up = math.sin(flap) * 0.9
-    body = [(cx - 1.1 * s, cy), (cx - 0.5 * s, cy - 0.22 * s), (cx + 0.6 * s, cy - 0.18 * s), (cx + 1.05 * s, cy - 0.05 * s),
-            (cx + 0.6 * s, cy + 0.2 * s), (cx - 0.3 * s, cy + 0.22 * s), (cx - 1.5 * s, cy + 0.35 * s),
-            (cx - 1.4 * s, cy + 0.05 * s)]
-    wing = [(cx - 0.2 * s, cy - 0.1 * s), (cx + 0.1 * s, cy - (0.9 + up) * s), (cx + 0.55 * s, cy - (1.5 + up * 1.2) * s),
-            (cx + 0.45 * s, cy - (0.6 + up * 0.5) * s), (cx + 0.35 * s, cy - 0.12 * s)]
-    return body, wing
+def arc(a, b, u, lift):
+    return a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u - 4 * lift * u * (1 - u)
 
 
 def build():
     rnd = random.Random(5)
-    bg = L.night_sky(W, H, seed=17, moon=(0.5, 0.15), horizon=0.7)
-    d = ImageDraw.Draw(bg, "RGBA")
-    ground = [(0, H)] + [(x, 835 + 18 * math.sin(x / 260) + 8 * math.sin(x / 70)) for x in range(0, W + 20, 20)] + [(W, H)]
-    d.polygon(ground, fill=(10, 7, 16, 255))
-    petals = L.Petals(40, W, H, seed=33, size=(6, 13), speed=(30, 70))
+    bg = C.Parallax("kanbara", depth="vertical", z0=1.05, z1=1.12, pan=(0.03, 0.0), near_extra=0.03)
+    bokeh, mist = C.Bokeh(seed=33), C.Mist(seed=9, alpha=80, color=(170, 170, 210), y=(0.6, 1.0))
+    vign = C.vignette_overlay(0.62)
+    shade_b = C.side_shade("bottom", 0.32, 0.9)
+    night = Image.new("RGB", (W, H), (8, 8, 26))
+    crow = C.crow()
+    crow = crow.resize((300, int(300 * crow.height / crow.width)), Image.LANCZOS)
 
+    title = C.Calligraphy("見えざる鎧", 150, color=L.PAPER, vertical=False, spacing=1.0)
+    t_ru = C.text_shadowed("Незримый Доспех", L.font("serif_bold", 64), L.SAKURA_PALE + (255,))
+    t_seal = C.text_shadowed("Свиток IV · Печать bef6346 · 16 октября 2026", L.font("serif", 32), L.GOLD_PALE + (255,))
     f_cap = L.font("serif", 38)
-    f_tech = L.font("sans", 24)
-    captions = {
-        "m1": L.text_sprite("Первая весть: мимолётный ключ и сокрытое имя Мастера", f_cap, L.PAPER + (255,)),
-        "m2": L.text_sprite("Ответ Святилища: ключи сплетаются в общую тайну", f_cap, L.PAPER + (255,)),
-        "armor": L.text_sprite("Тайну знают лишь двое — доспех сомкнулся", f_cap, L.PAPER + (255,)),
-        "crow": L.text_sprite("Повторённую весть узнали и отвергли у самых врат", f_cap, L.PAPER + (255,)),
-        "final": L.text_sprite("Тайна и подлинность подтверждены доказательствами ProVerif", f_cap, L.PAPER + (255,)),
-    }
-    tech = L.text_sprite("Noise IK · Curve25519 · ChaChaPoly · BLAKE2s · кадры «SK»", f_tech, L.GOLD + (255,))
-    title_k = L.text_sprite("見えざる鎧", L.font("serif_bold", 132), L.MOON + (255,))
-    title_r = L.text_sprite("Незримый Доспех", L.font("serif_bold", 64), L.SAKURA_PALE + (255,))
-    title_s = L.text_sprite("Свиток IV · Печать bef6346 · 16 октября 2026", L.font("serif", 32), L.GOLD_PALE + (255,))
-    lbl_house = L.text_sprite("主 · Дом Мастера", L.font("serif_bold", 30), L.PAPER + (230,))
-    lbl_pagoda = L.text_sprite("社 · Святилище Kizune-Ryoiki", L.font("serif_bold", 30), L.PAPER + (230,))
-    tags1 = [tag_sprite(s) for s in ("e", "es", "s", "ss")]
-    tags2 = [tag_sprite(s) for s in ("e", "ee", "se")]
-    seal_reject = L.seal(("拒",), 150, round_seal=True, seed=41)
-    seal_proof = L.seal(("証",), 190, seed=42)
-    end_title = L.text_sprite("見えざる鎧 · Незримый Доспех", L.font("serif_bold", 56), L.SAKURA_PALE + (255,))
+    caps = {k: C.text_shadowed(v, f_cap, L.PAPER + (255,)) for k, v in {
+        "m1": "Первая весть: мимолётный ключ и сокрытое имя Мастера",
+        "m2": "Ответ Святилища: ключи сплетаются в общую тайну",
+        "armor": "Тайну знают лишь двое — доспех сомкнулся",
+        "crow": "Повторённую весть узнали и отвергли у самых врат",
+        "final": "Тайна и подлинность подтверждены доказательствами ProVerif"}.items()}
+    tech = C.text_shadowed("Noise IK · Curve25519 · ChaChaPoly · BLAKE2s · кадры «SK»", L.font("sans", 24), L.GOLD + (255,), blur=4)
+    lbl_house = C.text_shadowed("主 · Дом Мастера", L.font("serif_bold", 30), L.PAPER + (255,), blur=5)
+    lbl_sanct = C.text_shadowed("社 · Святилище Kizune-Ryoiki", L.font("serif_bold", 30), L.PAPER + (255,), blur=5)
+    credit = C.text_shadowed("Утагава Хиросигэ · «Канбара: вечерний снег» · ворон — Каванабэ Кёсай",
+                             L.font("serif", 22), (200, 190, 200, 255), blur=4)
+    tags1, tags2 = [tag_sprite(s) for s in ("e", "es", "s", "ss")], [tag_sprite(s) for s in ("e", "ee", "se")]
+    seal_reject, seal_proof = L.seal(("拒",), 160, round_seal=True, seed=41), L.seal(("証",), 200, seed=42)
+    splash = C.ink_splash(420, L.VERMILION, seed=9)
+    end_title = C.Calligraphy("見えざる鎧", 96, color=L.PAPER, vertical=False, spacing=1.0)
 
-    house_pt = (HOUSE[0] + 60, HOUSE[1] - 230)
-    pagoda_pt = (PAGODA[0] - 40, PAGODA[1] - 380)
-
-    # шестигранники доспеха и время их появления
-    hexes = []
-    size = 36
-    hx_step, hy_step = size * 1.5, size * math.sqrt(3)
-    for col in range(-30, 31):
-        for row in range(0, 20):
-            x = DOME_C[0] + col * hx_step
-            y = DOME_C[1] - row * hy_step - (hy_step / 2 if col % 2 else 0)
+    hexes, size = [], 38
+    for col in range(-24, 25):
+        for row in range(0, 18):
+            x = DOME_C[0] + col * size * 1.5
+            y = DOME_C[1] - row * size * math.sqrt(3) - (size * math.sqrt(3) / 2 if col % 2 else 0)
             nx, ny = (x - DOME_C[0]) / DOME_RX, (y - DOME_C[1]) / DOME_RY
             r = nx * nx + ny * ny
-            if r < 0.93 and y < DOME_C[1] - 10:
-                hexes.append((x, y, min(abs(nx), 1.0) * 0.4 + (1 - min(abs(nx), 1)) * 1.2 * math.sqrt(r) + rnd.uniform(0, 0.15),
-                              rnd.uniform(0, math.tau)))
+            if r < 0.92 and y < DOME_C[1] - 20:
+                hexes.append((x, y, math.sqrt(r) * 0.9 + rnd.uniform(0, 0.18), rnd.uniform(0, 6.3)))
 
-    def armor_layer(f, t, k, hit_k=0.0, hit_pt=None):
-        d = ImageDraw.Draw(f, "RGBA")
+    def armor(light, t, hit_k):
+        d = ImageDraw.Draw(light)
         built = (t - ARMOR) / 1.8
         for x, y, delay, ph in hexes:
             a = L.clamp01((built - delay) * 3)
             if a <= 0:
                 continue
-            shimmer = 0.65 + 0.35 * math.sin(t * 2.4 + ph)
-            col = L.GOLD
-            if hit_pt is not None and hit_k > 0:
-                dist = math.hypot(x - hit_pt[0], y - hit_pt[1])
-                ring = math.exp(-((dist - hit_k * 420) / 60) ** 2) * (1 - hit_k)
-                col = L.mix(L.GOLD, L.VERMILION, min(1.0, ring * 2.5))
-                shimmer += ring * 1.5
-            pts = [(x + size * 0.92 * math.cos(i * math.pi / 3), y + size * 0.92 * math.sin(i * math.pi / 3)) for i in range(7)]
-            d.polygon(pts[:6], fill=(255, 210, 160, int(16 * a * k * shimmer)))
-            d.line(pts, fill=col + (int(min(255, 120 * a * k * shimmer)),), width=2)
+            shimmer = 0.55 + 0.45 * math.sin(t * 2.2 + ph)
+            col = L.GOLD_PALE
+            if hit_k > 0:
+                ring = math.exp(-((math.hypot(x - HIT_PT[0], y - HIT_PT[1]) - hit_k * 520) / 70) ** 2) * (1 - hit_k)
+                col = L.mix(L.GOLD_PALE, (255, 90, 70), min(1.0, ring * 2.5))
+                shimmer += ring * 1.6
+            pts = [(x + size * 0.9 * math.cos(i * math.pi / 3), y + size * 0.9 * math.sin(i * math.pi / 3)) for i in range(7)]
+            d.line(pts, fill=col + (int(min(255, 150 * a * shimmer)),), width=2)
         edge = L.clamp01(built)
         if edge > 0:
             box = [DOME_C[0] - DOME_RX, DOME_C[1] - DOME_RY, DOME_C[0] + DOME_RX, DOME_C[1] + DOME_RY]
-            span = 90 * edge
-            d.arc(box, 270 - span, 270 + span, fill=L.GOLD_PALE + (int(220 * k),), width=4)
+            d.arc(box, 270 - 90 * edge, 270 + 90 * edge, fill=(255, 226, 170, 235), width=5)
 
-    def frame(t):
-        f = bg.copy()
-        petals.draw(f, t, gust=6, k=0.75)
-        d = ImageDraw.Draw(f, "RGBA")
-        house_glow = 0.8 + 0.2 * math.sin(t * 1.7)
-        draw_house(d, *HOUSE, house_glow)
-        draw_pagoda(d, *PAGODA, 0.85 + 0.15 * math.sin(t * 1.3 + 1))
-        L.glow(f, (HOUSE[0] - 20, HOUSE[1] - 66), 120, (255, 190, 120), 0.35)
-        L.glow(f, (PAGODA[0], PAGODA[1] - 200), 160, (255, 180, 140), 0.3)
-        L.paste(f, lbl_house, (HOUSE[0], HOUSE[1] + 52), 0.9)
-        L.paste(f, lbl_pagoda, (PAGODA[0], PAGODA[1] + 52), 0.9)
+    def frame(t: float) -> Image.Image:
+        f = Image.blend(night, bg.frame(t / SECONDS), 0.6)
+        light = C.glow_layer()
+        mist.draw(f, t, speed=20, k=1.0)
+        L.paste(f, shade_b, (W / 2, H / 2), 1.0)
+        L.glow(light, (HOUSE[0] - 60, HOUSE[1] + 40), 160, (255, 190, 120), 0.35 + 0.06 * math.sin(t * 1.7))
+        L.glow(light, (SANCT[0] - 30, SANCT[1] + 140), 190, (255, 180, 130), 0.32 + 0.06 * math.sin(t * 1.3))
+        lab_k = L.smooth((t - 2.6) / 0.6) * L.smooth((FINAL - t) / 0.6)
+        L.paste(f, lbl_house, (HOUSE[0] - 80, HOUSE[1] + 190), lab_k)
+        L.paste(f, lbl_sanct, (SANCT[0] + 40, SANCT[1] + 300), lab_k)
 
-        # заглавие
         tk = L.window(t, 0.2, 3.2, 0.6)
         if tk:
-            L.paste(f, title_k, (W / 2, 330), tk)
-            L.paste(f, title_r, (W / 2, 470), tk)
-            L.paste(f, title_s, (W / 2, 540), tk)
+            sp = title.sprite(L.clamp01((t - 0.3) / 1.6))
+            L.paste(f, sp, (W / 2, 330), tk)
+            L.paste(f, t_ru, (W / 2, 480 - C.rise(L.smooth((t - 1.2) / 0.6))), tk * L.smooth((t - 1.2) / 0.6))
+            L.paste(f, t_seal, (W / 2, 550), tk * L.smooth((t - 1.6) / 0.6))
+            L.paste(f, credit, (W - 30 - credit.width / 2, H - 34), tk * 0.85)
 
-        # две вести
-        for (start, end), a, b, tags, lift, key in ((M1, house_pt, pagoda_pt, tags1, 190, "m1"),
-                                                     (M2, pagoda_pt, house_pt, tags2, 170, "m2")):
+        d = ImageDraw.Draw(light)
+        for (start, end), a, b, tags, lift, key in ((M1, HOUSE, SANCT, tags1, 330, "m1"), (M2, SANCT, HOUSE, tags2, 260, "m2")):
             if start - 0.2 <= t <= end + 0.6:
+                vis = L.window(t, start, end + 0.4, 0.4)
                 u = L.smooth((t - start - 0.3) / (end - start - 1.0))
-                trail = [arc_point(a, b, uu / 60 * u, lift) for uu in range(61)]
-                if len(trail) > 1:
-                    d.line(trail, fill=L.SAKURA + (int(150 * L.window(t, start, end + 0.5, 0.4)),), width=3, joint="curve")
+                trail = [arc(a, b, uu / 80 * u, lift) for uu in range(81)]
+                if u > 0.01:
+                    d.line(trail, fill=(255, 186, 210, int(110 * vis)), width=8, joint="curve")
+                    d.line(trail, fill=(255, 236, 244, int(230 * vis)), width=3, joint="curve")
                 for i, sp in enumerate(tags):
-                    # слева направо ярлыки читаются по порядку (e, es, s, ss)
-                    ut = u - 0.07 * ((len(tags) - i) if b[0] > a[0] else (i + 1))
+                    ut = u - 0.105 * ((len(tags) - i) if b[0] > a[0] else (i + 1))
                     if ut > 0:
-                        L.paste(f, sp, arc_point(a, b, ut, lift + 60), L.window(t, start + 0.3, end, 0.4))
-                px, py = arc_point(a, b, u, lift)
-                L.glow(f, (px, py), 90, L.SAKURA, 0.9 * L.window(t, start, end, 0.3))
-                L.blossom(d, px, py, 24, L.SAKURA_PALE, int(255 * L.window(t, start, end, 0.3)), t * 3)
-                L.paste(f, captions[key], (W / 2, 975), L.window(t, start + 0.2, end, 0.5))
+                        L.paste(f, sp, arc(a, b, ut, lift + 70), vis)
+                px, py = arc(a, b, u, lift)
+                L.glow(light, (px, py), 110, L.SAKURA, 1.0 * vis)
+                L.blossom(d, px, py, 22, L.SAKURA_PALE, int(255 * vis), t * 3)
+                L.paste(f, caps[key], (W / 2, 975), L.window(t, start + 0.2, end, 0.5))
 
-        # доспех, сфера и запечатанные кадры
         if t >= ARMOR:
-            hit_k = L.clamp01((t - HIT) / 1.2) if t >= HIT else 0.0
-            armor_layer(f, t, 1.0, hit_k, (DOME_C[0] - 180, DOME_C[1] - DOME_RY + 40))
+            hit_k = L.clamp01((t - HIT) / 1.3) if t >= HIT else 0.0
+            armor(light, t, hit_k)
             sk = L.smooth((t - ARMOR - 0.6) / 1.2)
-            L.spirit_sphere(f, (W / 2, 610), 70, L.STATE["idle"], t, level=0.35, rings=2, satellites=3, k=sk)
-            for i in range(6):  # запечатанные лепестки ходят по дуге
-                ph = ((t - ARMOR) * 0.33 + i / 6) % 1.0
-                a, b = (house_pt, pagoda_pt) if i % 2 == 0 else (pagoda_pt, house_pt)
-                px, py = arc_point(a, b, ph, 180)
-                L.glow(f, (px, py), 40, L.GOLD, 0.7 * sk)
-                d.rounded_rectangle([px - 9, py - 9, px + 9, py + 9], radius=3, fill=L.VERMILION + (int(230 * sk),))
+            L.spirit_sphere(f, (W / 2 - 120, 640), 62, L.STATE["idle"], t, level=0.35, rings=2, satellites=3, k=sk)
+            L.glow(light, (W / 2 - 120, 640), 220, L.STATE["idle"], 0.4 * sk)
+            for i in range(6):
+                ph = ((t - ARMOR) * 0.32 + i / 6) % 1.0
+                a, b = (HOUSE, SANCT) if i % 2 == 0 else (SANCT, HOUSE)
+                px, py = arc(a, b, ph, 240)
+                L.glow(light, (px, py), 50, L.VERMILION, 0.8 * sk)
+                d.rounded_rectangle([px - 10, py - 10, px + 10, py + 10], radius=3, fill=(230, 80, 66, int(255 * sk)))
             if t < CROW[0] + 0.3:
-                L.paste(f, captions["armor"], (W / 2, 975), L.window(t, ARMOR + 0.5, CROW[0] + 0.3, 0.5))
-            L.paste(f, tech, (W / 2, 1035), L.smooth((t - ARMOR - 1.0) / 0.8) * L.smooth((SECONDS - t) / 0.6))
+                L.paste(f, caps["armor"], (W / 2, 975), L.window(t, ARMOR + 0.5, CROW[0] + 0.3, 0.5))
+            L.paste(f, tech, (W / 2, 1036), L.smooth((t - ARMOR - 1.0) / 0.8) * L.smooth((SECONDS - t) / 0.6))
 
-        # ворон с повторённой вестью
         if CROW[0] <= t <= CROW[1]:
-            hit_pt = (DOME_C[0] - 180, DOME_C[1] - DOME_RY + 40)
             if t < HIT:
                 u = L.smooth((t - CROW[0]) / (HIT - CROW[0]))
-                cx, cy = -120 + (hit_pt[0] + 40 + 120) * u, 120 + (hit_pt[1] - 60 - 120) * u
-                ck = 1.0
+                cx, cy = -200 + (HIT_PT[0] - 60 + 200) * u, 60 + (HIT_PT[1] - 110 - 60) * u + 18 * math.sin(t * 9)
+                ck, rot, cr = 1.0, -8 + 6 * math.sin(t * 7), crow
             else:
                 u = (t - HIT) / (CROW[1] - HIT)
-                cx, cy = hit_pt[0] - 60 - 300 * u, hit_pt[1] - 90 - 220 * u
-                ck = L.clamp01(1 - u * 1.4)
-            body, wing = crow_polygon(cx, cy, 62, t * 9)
-            d.polygon(body, fill=(6, 3, 10, int(250 * ck)))
-            d.polygon(wing, fill=(6, 3, 10, int(250 * ck)))
-            d.ellipse([cx + 0.62 * 62 - 5, cy - 0.12 * 62 - 5, cx + 0.62 * 62 + 5, cy - 0.12 * 62 + 5],
-                      fill=(230, 40, 40, int(255 * ck)))
-            if t < HIT:  # украденный лепесток-копия в когтях
-                L.blossom(d, cx + 10, cy + 30, 14, (160, 150, 170), int(220 * ck), t)
-            if t >= HIT:
-                flash = L.clamp01(1 - (t - HIT) / 0.5)
-                L.glow(f, hit_pt, 200, L.VERMILION, flash)
+                cx, cy = HIT_PT[0] - 80 - 380 * u, HIT_PT[1] - 130 - 260 * u
+                ck, rot, cr = L.clamp01(1 - u * 1.3), 25 + 40 * u, crow.transpose(Image.FLIP_LEFT_RIGHT)
+            L.paste(f, cr.rotate(rot, resample=Image.BICUBIC, expand=True), (cx, cy), ck)
+            if t < HIT:
+                L.blossom(ImageDraw.Draw(f, "RGBA"), cx + 120, cy + 70, 16, (170, 160, 180), int(220 * ck), t)
+            else:
+                flash = L.clamp01(1 - (t - HIT) / 0.6)
+                L.glow(light, HIT_PT, 260, (255, 80, 60), flash)
+                L.paste(f, splash, (HIT_PT[0] + 10, HIT_PT[1] - 100), 0.6 * L.window(t, HIT, CROW[1] + 0.4, 0.2))
                 sc = 1 + 0.5 * (1 - L.ease_out(L.clamp01((t - HIT) / 0.25)))
-                L.paste(f, seal_reject.resize((int(150 * sc), int(150 * sc)), Image.LANCZOS),
-                        (hit_pt[0] - 10, hit_pt[1] - 120), L.window(t, HIT, CROW[1] + 0.4, 0.25))
-            L.paste(f, captions["crow"], (W / 2, 975), L.window(t, CROW[0] + 0.3, CROW[1], 0.5))
+                L.paste(f, seal_reject.resize((int(160 * sc), int(160 * sc)), Image.LANCZOS),
+                        (HIT_PT[0] + 10, HIT_PT[1] - 110), L.window(t, HIT, CROW[1] + 0.4, 0.2))
+            L.paste(f, caps["crow"], (W / 2, 975), L.window(t, CROW[0] + 0.3, CROW[1], 0.5))
 
-        # финал
         if t >= FINAL - 0.2:
             k = L.window(t, FINAL, SECONDS + 1, 0.5) * L.smooth((SECONDS - t) / 0.6)
-            sc = 1 + 0.4 * (1 - L.ease_out(L.clamp01((t - FINAL - 0.3) / 0.25)))
-            if t > FINAL + 0.3:
-                L.paste(f, seal_proof.resize((int(190 * sc), int(190 * sc)), Image.LANCZOS), (W / 2, 330), k)
-            L.paste(f, end_title, (W / 2, 470), k)
-            L.paste(f, captions["final"], (W / 2, 975), k)
+            stamp = L.clamp01((t - FINAL - 0.3) / 0.22)
+            if stamp > 0:
+                L.paste(f, splash, (W / 2, 300), 0.5 * k * stamp)
+                sc = 1 + 0.4 * (1 - L.ease_out(stamp))
+                L.paste(f, seal_proof.resize((int(200 * sc), int(200 * sc)), Image.LANCZOS), (W / 2, 300), k * stamp)
+            sp = end_title.sprite(L.clamp01((t - FINAL - 0.6) / 1.0))
+            L.paste(f, sp, (W / 2, 480), k)
+            L.paste(f, caps["final"], (W / 2, 975), k)
 
-        fade = L.smooth(t / 0.6) * L.smooth((SECONDS - t) / 0.6)
-        if fade < 1:
-            f = Image.blend(Image.new("RGB", f.size, L.NIGHT_TOP), f, fade)
-        return f
+        f = C.bloom(f, light, radius=24, strength=1.05)
+        bokeh.draw(f, t, k=0.7, gust=8)
+        L.paste(f, vign, (W / 2, H / 2), 1.0)
+        return C.fade_to(f, L.smooth(t / 0.6) * L.smooth((SECONDS - t) / 0.6))
 
     return frame
 
 
 def main():
-    L.render_video(NAME, build(), SECONDS, poster_at=13.6)
+    L.render_video(NAME, build(), SECONDS, poster_at=13.4)
 
 
 if __name__ == "__main__":

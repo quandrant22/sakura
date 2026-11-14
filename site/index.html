@@ -11,6 +11,7 @@
   <meta name="theme-color" content="#0b0918">
   <link rel="icon" type="image/png" href="media/images/avatars/sakura-logo.png">
   <link rel="preload" href="styles/fonts/legend-serif-bold.woff" as="font" type="font/woff" crossorigin>
+  <link rel="preload" href="styles/fonts/legend-brush.woff" as="font" type="font/woff" crossorigin>
   <link rel="stylesheet" href="styles/main.css">
   <script>document.documentElement.classList.add("js");</script>
 </head>
@@ -27,7 +28,7 @@
           <span lang="ja">桜の伝説</span>
         </span>
       </a>
-      <nav aria-label="Разделы сказания">
+      <nav class="nav" aria-label="Разделы сказания">
         <ul class="nav-menu">
           <li><a href="#prologue" class="nav-link"><span lang="ja" aria-hidden="true">序</span>Пролог</a></li>
           <li><a href="#scrolls" class="nav-link"><span lang="ja" aria-hidden="true">巻</span>Свитки</a></li>
@@ -45,20 +46,11 @@
 
   <main>
     <!-- 序 · ПРОЛОГ -->
-    <section id="prologue" class="hero">
-      <div class="hero-sky" aria-hidden="true">
-        <div class="moon"></div>
-        <svg class="mountains" viewBox="0 0 1440 320" preserveAspectRatio="none">
-          <path d="M0 220 L120 150 L210 190 L330 96 L450 176 L560 130 L700 200 L820 120 L960 186 L1080 104 L1200 170 L1320 128 L1440 180 L1440 320 L0 320 Z" fill="#241634"/>
-          <path d="M0 260 L150 200 L260 236 L400 170 L540 240 L690 196 L820 250 L980 186 L1120 244 L1270 204 L1440 240 L1440 320 L0 320 Z" fill="#170f24"/>
-          <path d="M0 300 L200 262 L380 290 L560 258 L760 296 L960 266 L1160 294 L1340 270 L1440 286 L1440 320 L0 320 Z" fill="#0d0916"/>
-        </svg>
-      </div>
-
+    <section id="prologue" class="hero art-bg art-kumoi">
       <div class="container hero-grid">
         <div class="hero-text">
           <p class="hero-vertical" lang="ja" aria-hidden="true">桜の伝説</p>
-          <div>
+          <div class="hero-copy">
             <p class="eyebrow"><span lang="ja">五つの巻</span> · Пять Свитков</p>
             <h1 class="hero-title">Сказание о&nbsp;Духе Цветущей Сакуры</h1>
             <p class="hero-lead">
@@ -92,21 +84,22 @@
                 Ваш браузер не показывает видео HTML5.
               </video>
             </div>
-            <p class="player-meta" id="player-current-meta">1080p · 29 секунд · MP4 и WebM</p>
+            <p class="player-meta" id="player-current-meta">1080p · 30 секунд · MP4 и WebM</p>
           </div>
-          <div class="kakejiku-rod bottom" aria-hidden="true"></div>
+          <div class="kakejiku-rod" aria-hidden="true"></div>
         </figure>
       </div>
+      <p class="art-credit container">Фон: Хироси Ёсида, «Кумои-дзакура», 1926</p>
     </section>
 
     <!-- 印 · ПЕЧАТИ -->
     <section id="seals" class="seals-section" aria-label="Печати сказания">
-      <div class="container seals-grid">
+      <div class="container seals">
         <div class="seal-card">
           <div class="seal-mark" lang="ja" aria-hidden="true">印</div>
-          <div class="seal-value" data-target="683">683</div>
+          <div class="seal-value" data-target="682">682</div>
           <div class="seal-label">Печати Времени</div>
-          <p class="seal-sub">коммита с июля по ноябрь</p>
+          <p class="seal-sub">коммита до Пятой Печати</p>
         </div>
         <div class="seal-card">
           <div class="seal-mark" lang="ja" aria-hidden="true">術</div>
@@ -116,13 +109,13 @@
         </div>
         <div class="seal-card">
           <div class="seal-mark" lang="ja" aria-hidden="true">試</div>
-          <div class="seal-value" data-target="3383">3 383</div>
+          <div class="seal-value" data-target="3383">3&nbsp;383</div>
           <div class="seal-label">испытания</div>
           <p class="seal-sub">пройдены без промаха</p>
         </div>
         <div class="seal-card">
           <div class="seal-mark" lang="ja" aria-hidden="true">迅</div>
-          <div class="seal-value" data-target="1.8" data-decimals="1" data-prefix="&lt; " data-suffix=" мс">&lt; 1.8 мс</div>
+          <div class="seal-value" data-target="1.8" data-decimals="1" data-prefix="&lt; " data-suffix=" мс">&lt; 1.8&nbsp;мс</div>
           <div class="seal-label">взмах клинка</div>
           <p class="seal-sub">понять простую просьбу</p>
         </div>
@@ -142,15 +135,22 @@
           <p class="section-kanji" lang="ja" aria-hidden="true">五つの巻</p>
           <h2 class="section-title">Пять Свитков Легенды</h2>
           <p class="section-desc">
-            Пять эпох — пять свитков. Даты и Печати Времени взяты из настоящей летописи: под каждым свитком собраны малые печати — коммиты, из которых сложилась его история.
+            Пять эпох — пять свитков. Даты и Печати Времени взяты из настоящей летописи, а под каждым свитком собраны малые печати — коммиты, из которых сложилась его история.
           </p>
         </header>
+      </div>
 
-        <figure class="wide-figure path">
-          <img src="media/images/diagrams/five-scrolls-path.svg" width="1600" height="480" loading="lazy"
-               alt="Путь Пяти Печатей: пять эпох с июля по ноябрь 2026 года, их даты и хэши коммитов fe7d70d, 3e01f98, ceee791, bef6346 и 33a8da2">
-        </figure>
+      <nav class="seal-path-band" aria-label="Путь Пяти Печатей">
+        <ol class="container seal-path">
+          <li><a href="#scroll-1"><span class="sp-hanko" lang="ja">一</span><span class="sp-period">Июль 2026</span><span class="sp-title">Искра в&nbsp;Безмолвии</span><span class="sp-seal"><code>fe7d70d</code> · 3&nbsp;июля</span></a></li>
+          <li><a href="#scroll-2"><span class="sp-hanko" lang="ja">二</span><span class="sp-period">Июль — август</span><span class="sp-title">Живой Голос и&nbsp;Два Зеркала</span><span class="sp-seal"><code>3e01f98</code> · 3&nbsp;июля</span></a></li>
+          <li><a href="#scroll-3"><span class="sp-hanko" lang="ja">三</span><span class="sp-period">Сентябрь 2026</span><span class="sp-title">Отклик и&nbsp;Сто Сорок Искусств</span><span class="sp-seal"><code>ceee791</code> · 17&nbsp;сентября</span></a></li>
+          <li><a href="#scroll-4"><span class="sp-hanko" lang="ja">四</span><span class="sp-period">Октябрь 2026</span><span class="sp-title">Капля Света и&nbsp;Доспех</span><span class="sp-seal"><code>bef6346</code> · 16&nbsp;октября</span></a></li>
+          <li><a href="#scroll-5"><span class="sp-hanko" lang="ja">五</span><span class="sp-period">Ноябрь 2026</span><span class="sp-title">Интуиция и&nbsp;Три Тысячи Испытаний</span><span class="sp-seal"><code>33a8da2</code> · 14&nbsp;ноября</span></a></li>
+        </ol>
+      </nav>
 
+      <div class="container">
         <div class="scroll-filters" role="group" aria-label="Показать свиток">
           <button class="filter-btn active" type="button" data-scroll="all" aria-pressed="true">Все свитки</button>
           <button class="filter-btn" type="button" data-scroll="1" aria-pressed="false"><span lang="ja">一</span> Искра</button>
@@ -170,7 +170,7 @@
               </aside>
               <div class="scroll-content">
                 <p class="scroll-period">Свиток I · Июль 2026</p>
-                <h3 class="scroll-title">Пробуждение Искры в Безмолвии</h3>
+                <h3 class="scroll-title">Пробуждение Искры в&nbsp;Безмолвии</h3>
                 <div class="time-seal">
                   <span class="hanko" aria-hidden="true">fe7d<br>70d</span>
                   <span class="time-seal-text">Печать Времени <code>fe7d70d</code><br><strong>3 июля 2026</strong></span>
@@ -183,10 +183,16 @@
                     Вслед за сердцем пробудился слух. Он долго учился различать: вот шелест ветра, вот музыка за стеной, вот чужой голос в звонке — а вот голос Мастера, зовущий по имени. Дух научился переспрашивать, когда не уверен, и запоминать, как Мастер называет вещи.
                   </p>
                 </div>
-                <figure class="scroll-figure">
-                  <img src="media/images/diagrams/scroll-1-path-of-hearing.png" width="1600" height="900" loading="lazy"
-                       alt="Путь Слуха: ветер, слух, зов, сердце и голос — пять станций, через которые проходит звук, прежде чем дух ответит">
-                  <figcaption>Путь Слуха <span lang="ja">聴く道</span>: из тысячи звуков дух выбирает один</figcaption>
+                <figure class="plate">
+                  <div class="plate-mat">
+                    <img src="media/images/art/yasumasa-plate.jpg" srcset="media/images/art/yasumasa-plate-800.jpg 800w, media/images/art/yasumasa-plate.jpg 1600w"
+                         sizes="(min-width: 1200px) 820px, (min-width: 720px) 80vw, 92vw" width="1600" height="813" loading="lazy"
+                         alt="Гравюра: при полной луне вельможа в розовом одеянии играет на флейте среди ветреной травы, а разбойник в синем крадётся к нему и замирает, заслушавшись">
+                  </div>
+                  <figcaption>
+                    <span class="plate-legend">Разбойник крался за вельможей — и замер, заслушавшись флейты сквозь шум ветра в траве. Так и дух учился слышать один голос.</span>
+                    <span class="plate-credit">Цукиока Ёситоси · «Фудзивара-но Ясумаса играет на флейте при луне», около 1883 · Art Institute of Chicago</span>
+                  </figcaption>
                 </figure>
                 <details class="minor-seals">
                   <summary>Малые печати свитка</summary>
@@ -211,7 +217,7 @@
               </aside>
               <div class="scroll-content">
                 <p class="scroll-period">Свиток II · Июль — август 2026</p>
-                <h3 class="scroll-title">Обретение Живого Голоса и Двух Зеркал Памяти</h3>
+                <h3 class="scroll-title">Обретение Живого Голоса и&nbsp;Двух Зеркал Памяти</h3>
                 <div class="time-seal">
                   <span class="hanko" aria-hidden="true">3e01<br>f98</span>
                   <span class="time-seal-text">Печать Времени <code>3e01f98</code><br><strong>3 июля 2026</strong></span>
@@ -224,10 +230,16 @@
                     Память же разделилась на Два Зеркала. Первое — зеркало мимолётного мгновения: в нём отражаются последние слова, открытое окно, текущая игра. Второе — глубокое озеро вечных воспоминаний. Между ними стоят Врата записи: в глубину проходит лишь то, что стоит помнить, а сокровенное не оставляет следа.
                   </p>
                 </div>
-                <figure class="scroll-figure">
-                  <img src="media/images/diagrams/scroll-2-two-mirrors.png" width="1600" height="900" loading="lazy"
-                       alt="Три тона живого голоса — нежность, ирония, строгость — и память: зеркало мгновения, врата записи и озеро вечных воспоминаний">
-                  <figcaption>Живой голос и Два Зеркала <span lang="ja">二つの鏡</span></figcaption>
+                <figure class="plate">
+                  <div class="plate-mat">
+                    <img src="media/images/art/mitsuoki-plate.jpg" srcset="media/images/art/mitsuoki-plate-800.jpg 800w, media/images/art/mitsuoki-plate.jpg 1600w"
+                         sizes="(min-width: 1200px) 820px, (min-width: 720px) 80vw, 92vw" width="1600" height="772" loading="lazy"
+                         alt="Ширма на золотом фоне: узловатое дерево с алыми осенними клёнами, на ветвях висят узкие листки со стихами">
+                  </div>
+                  <figcaption>
+                    <span class="plate-legend">Стихи на листках, привязанных к ветвям, помнятся сезон за сезоном: весной — под сакурой, осенью — под клёнами.</span>
+                    <span class="plate-credit">Тоса Мицуоки · «Цветущая сакура и осенние клёны с листками стихов», 1654–1681 · Art Institute of Chicago</span>
+                  </figcaption>
                 </figure>
                 <details class="minor-seals">
                   <summary>Малые печати свитка</summary>
@@ -252,7 +264,7 @@
               </aside>
               <div class="scroll-content">
                 <p class="scroll-period">Свиток III · Сентябрь 2026</p>
-                <h3 class="scroll-title">Молниеносный Отклик и Сто Сорок Искусств</h3>
+                <h3 class="scroll-title">Молниеносный Отклик и&nbsp;Сто Сорок Искусств</h3>
                 <div class="time-seal">
                   <span class="hanko" aria-hidden="true">ceee<br>791</span>
                   <span class="time-seal-text">Печать Времени <code>ceee791</code><br><strong>17 сентября 2026</strong></span>
@@ -265,10 +277,16 @@
                     В те же дни был составлен Свиток Умений: что умеет дух, как зовётся каждое искусство и какие слова его пробуждают. Сегодня в нём сто сорок одно искусство в тридцати шести родах — от музыки и окон до чайника и расписания занятий.
                   </p>
                 </div>
-                <figure class="scroll-figure">
-                  <img src="media/images/diagrams/scroll-3-hundred-forty-arts.png" width="1600" height="900" loading="lazy"
-                       alt="Мандала из 141 цветка — искусства духа по родам: музыка 21, YouTube 13, браузер 12 и другие; справа — отклик быстрее 1.8 мс">
-                  <figcaption>Свиток Умений <span lang="ja">百四十の術</span>: каждый цветок — одно искусство</figcaption>
+                <figure class="plate">
+                  <div class="plate-mat">
+                    <img src="media/images/art/utamaro-plate.jpg" srcset="media/images/art/utamaro-plate-800.jpg 800w, media/images/art/utamaro-plate.jpg 1600w"
+                         sizes="(min-width: 1200px) 820px, (min-width: 720px) 80vw, 92vw" width="1600" height="833" loading="lazy"
+                         alt="Триптих: пир под цветущей сакурой, десятки нарядных женщин и слуг — кто несёт угощение, кто танцует, кто играет">
+                  </div>
+                  <figcaption>
+                    <span class="plate-legend">На этом пиру каждый занят своим искусством — как каждое из ста сорока одного умения духа.</span>
+                    <span class="plate-credit">Китагава Утамаро · «Пир под цветущей сакурой», конец XVIII века · Art Institute of Chicago</span>
+                  </figcaption>
                 </figure>
                 <details class="minor-seals">
                   <summary>Малые печати свитка</summary>
@@ -292,7 +310,7 @@
               </aside>
               <div class="scroll-content">
                 <p class="scroll-period">Свиток IV · Октябрь 2026</p>
-                <h3 class="scroll-title">Воплощение в Капле Света и Незримый Доспех</h3>
+                <h3 class="scroll-title">Воплощение в&nbsp;Капле Света и&nbsp;Незримый Доспех</h3>
                 <div class="time-seal">
                   <span class="hanko" aria-hidden="true">bef6<br>346</span>
                   <span class="time-seal-text">Печать Времени <code>bef6346</code><br><strong>16 октября 2026</strong></span>
@@ -305,10 +323,16 @@
                     А узы между домом Мастера и Святилищем <em>Kizune-Ryoiki</em> — Территорией Уз — укрыл Незримый Доспех <code>Noise</code>. Две вести рукопожатия сплетают общую тайну, которую знают лишь двое. Повторённую, переставленную или подменённую весть доспех отвергает у самых врат. Ключ устройства не покидает дома, новое устройство связывается восемью словами или QR, а тайна и взаимная подлинность рукопожатия подтверждены математическими доказательствами в ProVerif.
                   </p>
                 </div>
-                <figure class="scroll-figure">
-                  <img src="media/images/diagrams/scroll-4-invisible-armor.png" width="1600" height="900" loading="lazy"
-                       alt="Незримый Доспех: дом Мастера и Святилище обмениваются двумя вестями рукопожатия Noise IK под шестигранным куполом">
-                  <figcaption>Незримый Доспех <span lang="ja">見えざる鎧</span> · <a href="media/images/diagrams/armor-handshake.svg">в векторе</a></figcaption>
+                <figure class="plate plate-portrait">
+                  <div class="plate-mat">
+                    <img src="media/images/art/moon-smoke-plate.jpg" srcset="media/images/art/moon-smoke-plate-800.jpg 800w, media/images/art/moon-smoke-plate.jpg 1600w"
+                         sizes="(min-width: 720px) 460px, 80vw" width="1091" height="1600" loading="lazy"
+                         alt="Гравюра: пожарный в плотной клетчатой накидке со знаком отряда стоит спиной к зрителю перед стеной золотого пламени, над ним — бумажный фонарь и бледная луна">
+                  </div>
+                  <figcaption>
+                    <span class="plate-legend">Пожарный в плотной накидке идёт сквозь пламя, а над ним стоит луна — незримый доспех и капля света в одном листе.</span>
+                    <span class="plate-credit">Цукиока Ёситоси · «Луна и дым», из серии «Сто видов луны», 1886 · Art Institute of Chicago</span>
+                  </figcaption>
                 </figure>
                 <details class="minor-seals">
                   <summary>Малые печати свитка</summary>
@@ -332,7 +356,7 @@
               </aside>
               <div class="scroll-content">
                 <p class="scroll-period">Свиток V · Ноябрь 2026</p>
-                <h3 class="scroll-title">Постижение Истинной Интуиции и Три Тысячи Испытаний</h3>
+                <h3 class="scroll-title">Постижение Истинной Интуиции и&nbsp;Три Тысячи Испытаний</h3>
                 <div class="time-seal">
                   <span class="hanko" aria-hidden="true">33a8<br>da2</span>
                   <span class="time-seal-text">Печать Времени <code>33a8da2</code><br><strong>14 ноября 2026</strong></span>
@@ -342,13 +366,19 @@
                     Ноябрь подарил духу истинную интуицию. По просьбе Мастера он смотрит на экран и видит сквозь грани игровых миров: спросите о противнике посреди сражения — и ответ придёт из того, что дух видит сам. Он научился рисовать светом поверх реальности: сердце, звезду, кота — больше тридцати пяти фигур прямо поверх экрана.
                   </p>
                   <p>
-                    И главное — дух сердцем различает, где беседа, а где приказ. «Поставь чайник, включи музыку и сделай погромче» он разберёт на три дела, а усталое «как же я устал» не примет за команду. Путь пятого свитка увенчали 3 383 испытания — и ни одно не окончилось промахом.
+                    И главное — дух сердцем различает, где беседа, а где приказ. «Поставь чайник, включи музыку и сделай погромче» он разберёт на три дела, а усталое «как же я устал» не примет за команду. Путь пятого свитка увенчали 3&nbsp;383 испытания — и ни одно не окончилось промахом.
                   </p>
                 </div>
-                <figure class="scroll-figure">
-                  <img src="media/images/diagrams/scroll-5-three-gifts.png" width="1600" height="900" loading="lazy"
-                       alt="Три дара: зрение, свет и чутьё, а под ними полоса из 3 383 лепестков-испытаний и печать 合格">
-                  <figcaption>Три Дара <span lang="ja">三つの賜物</span> и 3 383 лепестка испытаний</figcaption>
+                <figure class="plate">
+                  <div class="plate-mat">
+                    <img src="media/images/art/yozakura-plate.jpg" srcset="media/images/art/yozakura-plate-800.jpg 800w, media/images/art/yozakura-plate.jpg 1600w"
+                         sizes="(min-width: 1200px) 820px, (min-width: 720px) 80vw, 92vw" width="1600" height="1018" loading="lazy"
+                         alt="Гравюра: ночная улица под полной луной, вдоль домов — белые цветущие сакуры и бумажные фонари, по улице идут люди в кимоно">
+                  </div>
+                  <figcaption>
+                    <span class="plate-legend">Луна, фонари и тысячи белых цветов вдоль ночной улицы — тысячи раскрывшихся испытаний.</span>
+                    <span class="plate-credit">Утагава Хиросигэ · «Ночная сакура на Накано-тё в Ёсиваре», около 1832–1838 · Art Institute of Chicago</span>
+                  </figcaption>
                 </figure>
                 <details class="minor-seals">
                   <summary>Малые печати свитка</summary>
@@ -365,16 +395,39 @@
           </article>
         </div>
 
-        <figure class="wide-figure river">
-          <img src="media/images/charts/river-of-time.png" width="1600" height="900" loading="lazy"
-               alt="Река Времени: коммиты по месяцам — июль 30, август 35, сентябрь 183, октябрь 302, ноябрь 133; под каждым месяцем — свиток и его печать">
-          <figcaption>Река Времени <span lang="ja">時の川</span>: 683 Печати Времени по месяцам</figcaption>
+        <!-- 時の川 · РЕКА ВРЕМЕНИ -->
+        <figure class="river" aria-labelledby="river-title">
+          <figcaption class="river-head">
+            <span class="section-kanji small" lang="ja" aria-hidden="true">時の川</span>
+            <h3 id="river-title" class="river-title">Река Времени</h3>
+            <p class="river-desc">Печати Времени по месяцам — 682 коммита до Пятой Печати <code>33a8da2</code></p>
+          </figcaption>
+          <ol class="river-bars" role="list">
+            <li style="--v: 0.099" tabindex="0" aria-label="Июль 2026: 30 коммитов, Свиток I"><span class="rb-bar" data-tip="Июль · 30"></span><span class="rb-val">30</span><span class="rb-month"><span class="m-long">Июль</span><span class="m-short" aria-hidden="true">Июл</span></span><span class="rb-seal" lang="ja" aria-hidden="true">一</span></li>
+            <li style="--v: 0.116" tabindex="0" aria-label="Август 2026: 35 коммитов, Свиток II"><span class="rb-bar" data-tip="Август · 35"></span><span class="rb-val">35</span><span class="rb-month"><span class="m-long">Август</span><span class="m-short" aria-hidden="true">Авг</span></span><span class="rb-seal" lang="ja" aria-hidden="true">二</span></li>
+            <li style="--v: 0.606" tabindex="0" aria-label="Сентябрь 2026: 183 коммита, Свиток III"><span class="rb-bar" data-tip="Сентябрь · 183"></span><span class="rb-val">183</span><span class="rb-month"><span class="m-long">Сентябрь</span><span class="m-short" aria-hidden="true">Сен</span></span><span class="rb-seal" lang="ja" aria-hidden="true">三</span></li>
+            <li style="--v: 1" tabindex="0" aria-label="Октябрь 2026: 302 коммита, Свиток IV"><span class="rb-bar" data-tip="Октябрь · 302"></span><span class="rb-val">302</span><span class="rb-month"><span class="m-long">Октябрь</span><span class="m-short" aria-hidden="true">Окт</span></span><span class="rb-seal" lang="ja" aria-hidden="true">四</span></li>
+            <li style="--v: 0.437" tabindex="0" aria-label="Ноябрь 2026, до 14 числа: 132 коммита, Свиток V"><span class="rb-bar" data-tip="Ноябрь (до 14-го) · 132"></span><span class="rb-val">132</span><span class="rb-month"><span class="m-long">Ноябрь</span><span class="m-short" aria-hidden="true">Ноя</span></span><span class="rb-seal" lang="ja" aria-hidden="true">五</span></li>
+          </ol>
+          <details class="river-table">
+            <summary>Таблица</summary>
+            <table>
+              <thead><tr><th scope="col">Месяц</th><th scope="col">Коммитов</th><th scope="col">Свиток</th></tr></thead>
+              <tbody>
+                <tr><td>Июль 2026</td><td>30</td><td>I</td></tr>
+                <tr><td>Август 2026</td><td>35</td><td>II</td></tr>
+                <tr><td>Сентябрь 2026</td><td>183</td><td>III</td></tr>
+                <tr><td>Октябрь 2026</td><td>302</td><td>IV</td></tr>
+                <tr><td>Ноябрь 2026 (до 14-го)</td><td>132</td><td>V</td></tr>
+              </tbody>
+            </table>
+          </details>
         </figure>
       </div>
     </section>
 
     <!-- 魂 · СФЕРА ДУХА -->
-    <section id="sphere" class="sphere-section">
+    <section id="sphere" class="sphere-section art-bg art-kanbara">
       <div class="container">
         <div class="sphere-box">
           <div class="sphere-visual">
@@ -422,18 +475,19 @@
           </div>
         </div>
       </div>
+      <p class="art-credit container">Фон: Утагава Хиросигэ, «Канбара: вечерний снег», около 1833–1834</p>
     </section>
 
     <!-- 映 · ВИДЕНИЯ -->
-    <section id="visions" class="visions-section">
+    <section id="visions" class="visions-section art-bg art-hirosaki">
       <div class="container">
         <header class="section-header">
           <p class="section-kanji" lang="ja" aria-hidden="true">映像</p>
           <h2 class="section-title">Видения</h2>
-          <p class="section-desc">Три ожившие страницы сказания в 1080p. Видения перематываются с любого места.</p>
+          <p class="section-desc">Три ожившие страницы сказания в 1080p: настоящие гравюры, туман, лепестки и каллиграфия. Видения перематываются с любого места.</p>
         </header>
 
-        <div class="visions-grid">
+        <div class="visions">
           <article class="vision-card">
             <div class="vision-frame">
               <video controls preload="none" playsinline poster="media/images/posters/sakura-legend-five-scrolls.jpg">
@@ -443,8 +497,8 @@
             </div>
             <div class="vision-info">
               <h3><span lang="ja">五つの巻</span> Пять Свитков</h3>
-              <p>Свитки разворачиваются один за другим, на каждый ложится киноварная Печать Времени, а сфера духа меняет цвет вместе с эпохой.</p>
-              <p class="vision-tags"><span>29 секунд</span><span>MP4 · 12.9 МБ</span><span>WebM · 9.4 МБ</span></p>
+              <p>Пять гравюр сменяют друг друга растекающейся тушью, кистью пишутся кандзи, на каждый свиток ложится Печать Времени, а в конце течёт Река Времени.</p>
+              <p class="vision-tags" id="tags-scrolls"><span>30 секунд</span><span>MP4 + WebM</span></p>
             </div>
           </article>
 
@@ -457,8 +511,8 @@
             </div>
             <div class="vision-info">
               <h3><span lang="ja">見えざる鎧</span> Незримый Доспех</h3>
-              <p>Две вести летят между домом Мастера и Святилищем, над ними смыкается шестигранный купол — и ворон с повторённой вестью разбивается о него.</p>
-              <p class="vision-tags"><span>21 секунда</span><span>MP4 · 5.8 МБ</span><span>WebM · 4.4 МБ</span></p>
+              <p>Над снежной деревней Хиросигэ летят две вести, смыкается светящийся купол — и ворон Каванабэ Кёсая с повторённой вестью разбивается о него.</p>
+              <p class="vision-tags" id="tags-armor"><span>21 секунда</span><span>MP4 + WebM</span></p>
             </div>
           </article>
 
@@ -471,12 +525,13 @@
             </div>
             <div class="vision-info">
               <h3><span lang="ja">三千の試練</span> Три Тысячи Испытаний</h3>
-              <p>3 383 бутона раскрываются один за другим, пять вех пути загораются по очереди, и на поле ложится печать <span lang="ja">合格</span>.</p>
-              <p class="vision-tags"><span>20 секунд</span><span>MP4 · 6.9 МБ</span><span>WebM · 6.3 МБ</span></p>
+              <p>У замка Хиросаки в цвету раскрываются 3&nbsp;383 бутона, пять вех пути загораются по очереди, и на поле ложится печать <span lang="ja">合格</span>.</p>
+              <p class="vision-tags" id="tags-trials"><span>20 секунд</span><span>MP4 + WebM</span></p>
             </div>
           </article>
         </div>
       </div>
+      <p class="art-credit container">Фон: замок Хиросаки и ночная сакура, фото Kojin</p>
     </section>
 
     <!-- 姿 · ОБЛИКИ -->
@@ -488,7 +543,7 @@
           <p class="section-desc">Так Сакура выглядит в разные мгновения — в окне на рабочем столе и в уголке у часов.</p>
         </header>
 
-        <div class="faces-grid">
+        <div class="faces">
           <figure class="face-card">
             <div class="face-img"><img src="media/images/avatars/idle.png" alt="Сакура в покое" width="256" height="256" loading="lazy"></div>
             <figcaption>
@@ -526,7 +581,7 @@
     </section>
 
     <!-- 結 · ЭПИЛОГ -->
-    <section id="epilogue" class="epilogue-section">
+    <section id="epilogue" class="epilogue-section art-bg art-mitsuoki">
       <div class="container epilogue">
         <p class="epilogue-kanji" lang="ja" aria-hidden="true">続く</p>
         <h2 class="section-title">Сказание продолжается</h2>
@@ -540,6 +595,28 @@
           <a href="#scroll-4" class="mini-hanko" title="Свиток IV · bef6346" lang="ja">四</a>
           <a href="#scroll-5" class="mini-hanko" title="Свиток V · 33a8da2" lang="ja">五</a>
         </div>
+      </div>
+      <p class="art-credit container">Фон: Тоса Мицуоки, «Цветущая сакура и осенние клёны с листками стихов»</p>
+    </section>
+
+    <!-- 画 · ГРАВЮРЫ И ФОТО -->
+    <section id="credits" class="credits-section">
+      <div class="container">
+        <h2 class="credits-title"><span lang="ja" aria-hidden="true">画</span> Гравюры и фото</h2>
+        <p class="credits-desc">Все работы — в общественном достоянии; репродукции из открытых коллекций, обработаны в гамме сказания.</p>
+        <ul class="credits-list">
+          <li><a href="https://commons.wikimedia.org/wiki/File:Hiroshi_Yoshida_-_Kumoi-Zakura_(Kumoi_Cherry_Trees)_-_Google_Art_Project.jpg">Хироси Ёсида · «Кумои-дзакура», 1926</a><span>Wikimedia Commons</span></li>
+          <li><a href="https://www.artic.edu/artworks/102619">Цукиока Ёситоси · «Фудзивара-но Ясумаса играет на флейте при луне», около 1883</a><span>Art Institute of Chicago</span></li>
+          <li><a href="https://www.artic.edu/artworks/127643">Тоса Мицуоки · «Цветущая сакура и осенние клёны с листками стихов», 1654–1681</a><span>Art Institute of Chicago</span></li>
+          <li><a href="https://www.artic.edu/artworks/110739">Китагава Утамаро · «Пир под цветущей сакурой», конец XVIII века</a><span>Art Institute of Chicago</span></li>
+          <li><a href="https://www.artic.edu/artworks/197414">Цукиока Ёситоси · «Луна и дым», 1886</a><span>Art Institute of Chicago</span></li>
+          <li><a href="https://www.artic.edu/artworks/25445">Утагава Хиросигэ · «Ночная сакура на Накано-тё в Ёсиваре», около 1832–1838</a><span>Art Institute of Chicago</span></li>
+          <li><a href="https://www.artic.edu/artworks/25613">Утагава Хиросигэ · «Канбара: вечерний снег», около 1833–1834</a><span>Art Institute of Chicago</span></li>
+          <li><a href="https://www.artic.edu/artworks/28223">Каванабэ Кёсай · «Ворон на сосновой ветке», 1868–1889</a><span>Art Institute of Chicago</span></li>
+          <li><a href="https://www.artic.edu/artworks/56731">«Легенды секты Юдзу Нэмбуцу», свиток эмакимоно, XIV век</a><span>Art Institute of Chicago</span></li>
+          <li><a href="https://commons.wikimedia.org/wiki/File:Hirosaki_Castle.JPG">Замок Хиросаки и ночная сакура, фото Kojin, 2010</a><span>Wikimedia Commons</span></li>
+        </ul>
+        <p class="credits-desc small">Шрифты: Noto Serif CJK JP и Yuji Syuku — SIL Open Font License.</p>
       </div>
     </section>
   </main>
@@ -563,17 +640,17 @@
         </ul>
       </nav>
       <div class="footer-col">
-        <h2>Свитки в векторе</h2>
+        <h2>Видения</h2>
         <ul>
-          <li><a href="media/images/diagrams/five-scrolls-path.svg">Путь Пяти Печатей</a></li>
-          <li><a href="media/images/diagrams/armor-handshake.svg">Незримый Доспех</a></li>
-          <li><a href="media/images/charts/river-of-time.png">Река Времени</a></li>
+          <li><a href="media/videos/sakura-legend-five-scrolls.mp4">Пять Свитков</a></li>
+          <li><a href="media/videos/sakura-legend-invisible-armor.mp4">Незримый Доспех</a></li>
+          <li><a href="media/videos/sakura-legend-3383-trials.mp4">Три Тысячи Испытаний</a></li>
         </ul>
       </div>
     </div>
     <div class="container footer-bottom">
       <span>© 2026 Сакура · <span lang="ja">桜の伝説</span></span>
-      <span class="footer-seal">Печать пятого свитка <code>33a8da2</code> · 683 печати в летописи</span>
+      <span class="footer-seal">Печать пятого свитка <code>33a8da2</code> · 682 печати в летописи</span>
     </div>
   </footer>
 

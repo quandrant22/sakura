@@ -184,7 +184,7 @@ function initVideoPlayer() {
     scrolls: {
       name: "sakura-legend-five-scrolls",
       title: "Пять Свитков: пролог, пять эпох и их Печати Времени",
-      meta: "1080p · 29 секунд · MP4 и WebM",
+      meta: "1080p · 30 секунд · MP4 и WebM",
     },
     armor: {
       name: "sakura-legend-invisible-armor",
@@ -234,6 +234,8 @@ function initScrolls() {
 
   const open = (card) => card.classList.add("is-open");
   if ("IntersectionObserver" in window && !REDUCED_MOTION) {
+    // Порог 0: свиток раскрывается, как только его край вошёл в кадр. Порог в долях
+    // высоты не годится — на узком экране свиток в 4–5 тысяч пикселей до него не доходил.
     const io = new IntersectionObserver(
       (entries) => entries.forEach((e) => {
         if (e.isIntersecting) {
@@ -241,9 +243,16 @@ function initScrolls() {
           io.unobserve(e.target);
         }
       }),
-      { threshold: 0.12, rootMargin: "0px 0px -8% 0px" },
+      { threshold: 0, rootMargin: "0px 0px -10% 0px" },
     );
     cards.forEach((c) => io.observe(c));
+    // страховка: всё, что уже выше нижнего края экрана (переход по якорю, печать), открыто
+    const sweep = () => cards.forEach((c) => {
+      if (!c.classList.contains("is-open") && c.getBoundingClientRect().top < window.innerHeight) open(c);
+    });
+    window.addEventListener("hashchange", () => setTimeout(sweep, 50));
+    window.addEventListener("beforeprint", () => cards.forEach(open));
+    setTimeout(sweep, 400);
   } else {
     cards.forEach(open);
   }

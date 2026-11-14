@@ -1,7 +1,8 @@
 """Общие кисти «Сказания о Духе Цветущей Сакуры» для генераторов site/tools.
 
-Здесь живут палитра, шрифты, ночное небо с горами, лепестки, сфера духа,
-печати-ханко, свиток и кодирование кадров в MP4 + WebM.
+Здесь живут палитра, шрифты с проверкой глифов, лепесток и цветок сакуры,
+сфера духа, печати-ханко, данные пяти свитков и кодирование кадров в MP4 + WebM.
+Кинематографические слои (гравюры, параллакс, кисть, тушь) — в legend_cinema.py.
 
 Шрифты ищутся через fontconfig (Linux: пакет fonts-noto-cjk), а на Windows —
 в C:\\Windows\\Fonts. Перед каждой надписью проверяется, что в шрифте есть все
@@ -14,7 +15,6 @@ from __future__ import annotations
 import functools
 import math
 import os
-import random
 import shutil
 import subprocess
 import sys
@@ -28,8 +28,6 @@ SITE = ROOT / "site"
 VIDEOS_DIR = SITE / "media" / "videos"
 IMAGES_DIR = SITE / "media" / "images"
 POSTERS_DIR = IMAGES_DIR / "posters"
-DIAGRAMS_DIR = IMAGES_DIR / "diagrams"
-CHARTS_DIR = IMAGES_DIR / "charts"
 
 # ── палитра ─────────────────────────────────────────────────────────────
 NIGHT_TOP = (8, 8, 22)
@@ -133,7 +131,7 @@ def wrap(s: str, fnt, max_w: float) -> list[str]:
     """Перенос по словам под ширину max_w."""
     check_glyphs(s, fnt)
     lines, cur = [], ""
-    for word in s.split():
+    for word in s.split(" "):          # только обычный пробел: неразрывный держит «3 383» вместе
         trial = (cur + " " + word).strip()
         if fnt.getlength(trial) <= max_w or not cur:
             cur = trial
@@ -143,17 +141,6 @@ def wrap(s: str, fnt, max_w: float) -> list[str]:
     if cur:
         lines.append(cur)
     return lines
-
-
-def vertical_text(draw: ImageDraw.ImageDraw, x: float, y: float, s: str, fnt, fill,
-                  spacing: float = 1.08, anchor_bottom: bool = False):
-    """Пишет столбец сверху вниз (кандзи), x — середина столбца."""
-    check_glyphs(s, fnt)
-    step = fnt.size * spacing
-    if anchor_bottom:
-        y -= step * len(s)
-    for i, ch in enumerate(s):
-        draw.text((x, y + i * step + step / 2), ch, font=fnt, fill=fill, anchor="mm")
 
 
 def text_sprite(s: str, fnt, fill, stroke=0, stroke_fill=None, pad=8) -> Image.Image:
@@ -188,6 +175,8 @@ def paste(base: Image.Image, sprite: Image.Image, center, k: float = 1.0):
     y = int(round(center[1] - sp.height / 2))
     # обрезаем спрайт по краям кадра вручную
     sx, sy = max(0, -x), max(0, -y)
+    if sx >= sp.width or sy >= sp.height:          # спрайт целиком за краем кадра
+        return
     if sx or sy:
         sp = sp.crop((sx, sy, sp.width, sp.height))
         x, y = x + sx, y + sy
@@ -226,81 +215,7 @@ def mix(c1, c2, k: float):
     return tuple(int(a + (b - a) * k) for a, b in zip(c1, c2))
 
 
-# ── ночное небо, луна, горы ─────────────────────────────────────────────
-def _vertical_gradient(w: int, h: int, stops) -> np.ndarray:
-    ys = np.linspace(0, 1, h)[:, None]
-    out = np.zeros((h, w, 3), dtype=np.float32)
-    for (p0, c0), (p1, c1) in zip(stops, stops[1:]):
-        m = ((ys >= p0) & (ys <= p1)).astype(np.float32)
-        k = np.clip((ys - p0) / max(p1 - p0, 1e-6), 0, 1)
-        for ch in range(3):
-            out[..., ch] += m[..., 0][:, None] * (c0[ch] + (c1[ch] - c0[ch]) * k[..., 0][:, None])
-    return np.clip(out, 0, 255)
-
-
-def _ridge(w: int, base: float, amp: float, rnd: random.Random, octaves=5) -> np.ndarray:
-    xs = np.arange(w, dtype=np.float32)
-    y = np.full(w, base, dtype=np.float32)
-    for o in range(octaves):
-        freq = (o + 1) ** 1.7 / w * rnd.uniform(1.5, 3.2)
-        phase = rnd.uniform(0, math.tau)
-        y -= amp / (o + 1) ** 1.25 * (0.5 + 0.5 * np.sin(xs * freq * math.tau + phase))
-    return y
-
-
-def night_sky(w: int, h: int, seed: int = 7, moon=(0.78, 0.2), mountains=True,
-              horizon: float = 0.72) -> Image.Image:
-    """Неподвижный фон: небо, звёзды, луна, тушевые горы и туман."""
-    rnd = random.Random(seed)
-    arr = _vertical_gradient(w, h, [(0.0, NIGHT_TOP), (0.55, NIGHT_MID), (1.0, NIGHT_LOW)])
-    img = Image.fromarray(arr.astype(np.uint8), "RGB")
-    d = ImageDraw.Draw(img, "RGBA")
-    for _ in range(int(w * h / 5200)):
-        x, y = rnd.uniform(0, w), rnd.uniform(0, h * horizon)
-        r = rnd.choice([0.6, 0.8, 1.0, 1.0, 1.4, 1.9])
-        a = rnd.randint(50, 200)
-        d.ellipse([x - r, y - r, x + r, y + r], fill=(255, 246, 236, a))
-    if moon:
-        mx, my = moon[0] * w, moon[1] * h
-        mr = h * 0.085
-        halo = Image.new("RGBA", img.size, (0, 0, 0, 0))
-        hd = ImageDraw.Draw(halo)
-        hd.ellipse([mx - mr * 3.2, my - mr * 3.2, mx + mr * 3.2, my + mr * 3.2], fill=(255, 220, 200, 34))
-        hd.ellipse([mx - mr * 1.8, my - mr * 1.8, mx + mr * 1.8, my + mr * 1.8], fill=(255, 230, 210, 46))
-        halo = halo.filter(ImageFilter.GaussianBlur(h * 0.11))
-        img.paste(halo, (0, 0), halo)
-        d = ImageDraw.Draw(img, "RGBA")
-        d.ellipse([mx - mr, my - mr, mx + mr, my + mr], fill=MOON + (255,))
-        seas = Image.new("RGBA", img.size, (0, 0, 0, 0))
-        sd = ImageDraw.Draw(seas)
-        for _ in range(6):  # лунные моря — размытые и бледные
-            ox, oy = rnd.uniform(-0.5, 0.4) * mr, rnd.uniform(-0.45, 0.45) * mr
-            rr = rnd.uniform(0.1, 0.24) * mr
-            sd.ellipse([mx + ox - rr, my + oy - rr, mx + ox + rr, my + oy + rr], fill=(214, 196, 180, 60))
-        seas = seas.filter(ImageFilter.GaussianBlur(mr * 0.08))
-        img.paste(seas, (0, 0), seas)
-    if mountains:
-        layers = [
-            (horizon - 0.06, 0.16, (40, 26, 58)),
-            (horizon + 0.04, 0.13, (28, 18, 40)),
-            (horizon + 0.14, 0.10, (16, 11, 24)),
-        ]
-        for i, (base, amp, col) in enumerate(layers):
-            ridge = _ridge(w, base * h, amp * h, rnd)
-            poly = [(0, h)] + [(x, float(ridge[x])) for x in range(0, w, 4)] + [(w, h)]
-            layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
-            ImageDraw.Draw(layer).polygon(poly, fill=col + (255,))
-            img.paste(layer, (0, 0), layer)
-            mist = Image.new("RGBA", img.size, (0, 0, 0, 0))
-            my0 = int(float(ridge.mean()) + h * 0.04)
-            ImageDraw.Draw(mist).rectangle([0, my0 - h * 0.03, w, my0 + h * 0.03],
-                                           fill=(150, 120, 170, 30 - i * 6))
-            mist = mist.filter(ImageFilter.GaussianBlur(h * 0.03))
-            img.paste(mist, (0, 0), mist)
-    return img
-
-
-# ── сакура: цветок, ветвь, лепестки ─────────────────────────────────────
+# ── сакура: лепесток и цветок ───────────────────────────────────────────
 def petal_polygon(cx, cy, size, rot, squash=1.0, steps=14):
     """Лепесток с выемкой на кончике, повёрнутый на rot, сжатый по оси (переворот)."""
     pts = []
@@ -326,70 +241,6 @@ def blossom(draw: ImageDraw.ImageDraw, cx, cy, r, color=SAKURA, alpha=255, rot=0
         a = rot + k * math.tau / 5 + 0.6
         sx, sy = cx + math.sin(a) * r * 0.34, cy - math.cos(a) * r * 0.34
         draw.ellipse([sx - r * 0.05, sy - r * 0.05, sx + r * 0.05, sy + r * 0.05], fill=GOLD_PALE + (alpha,))
-
-
-def branch(img: Image.Image, start, angle, length, width, seed=3, depth=5, bloom=True, scale=1.0):
-    """Тушевая ветвь сакуры с цветами (рисуется один раз в статичный слой)."""
-    rnd = random.Random(seed)
-    d = ImageDraw.Draw(img, "RGBA")
-    flowers = []
-
-    def grow(x, y, ang, ln, wd, dp):
-        if dp == 0 or ln < 8:
-            flowers.append((x, y))
-            return
-        pts = [(x, y)]
-        cx, cy, a = x, y, ang
-        for _ in range(6):
-            a += rnd.uniform(-0.2, 0.2) + (ang - a) * 0.35  # изгиб без ухода в сторону
-            cx += math.cos(a) * ln / 6
-            cy += math.sin(a) * ln / 6
-            pts.append((cx, cy))
-        for i in range(len(pts) - 1):
-            w0 = max(1, int(wd * (1 - i / 8)))
-            d.line([pts[i], pts[i + 1]], fill=(58, 38, 46, 255), width=w0, joint="curve")
-        for i in (2, 4):
-            if rnd.random() < 0.8 and dp > 1:
-                bx, by = pts[i]
-                grow(bx, by, a + rnd.choice([-1, 1]) * rnd.uniform(0.4, 0.9), ln * 0.55, wd * 0.6, dp - 1)
-        if rnd.random() < 0.7:
-            flowers.append(pts[-1])
-        grow(cx, cy, ang + rnd.uniform(-0.3, 0.3), ln * 0.7, wd * 0.72, dp - 1)
-
-    grow(start[0], start[1], angle, length, width, depth)
-    if bloom:
-        for (fx, fy) in flowers:
-            for _ in range(rnd.randint(1, 3)):
-                ox, oy = rnd.uniform(-14, 14) * scale, rnd.uniform(-14, 14) * scale
-                col = rnd.choice([SAKURA, SAKURA_PALE, SAKURA, (250, 196, 214)])
-                blossom(d, fx + ox, fy + oy, rnd.uniform(9, 17) * scale, col, 245, rnd.uniform(0, 6))
-    return img
-
-
-class Petals:
-    """Лепестки — детерминированная функция времени (кадры можно рисовать в любом порядке)."""
-
-    def __init__(self, n: int, w: int, h: int, seed=11, size=(7, 15), speed=(40, 95)):
-        rnd = random.Random(seed)
-        self.w, self.h = w, h
-        self.items = [dict(
-            x=rnd.uniform(-0.1 * w, 1.1 * w), y=rnd.uniform(0, h + 80),
-            vy=rnd.uniform(*speed), vx=rnd.uniform(-25, 35),
-            size=rnd.uniform(*size), rot=rnd.uniform(0, math.tau), vr=rnd.uniform(-1.2, 1.2),
-            flip=rnd.uniform(0, math.tau), vf=rnd.uniform(1.2, 3.2),
-            sway=rnd.uniform(0, math.tau), alpha=rnd.randint(140, 235),
-            col=rnd.choice([SAKURA, SAKURA_PALE, (250, 190, 210), SAKURA]),
-        ) for _ in range(n)]
-
-    def draw(self, img: Image.Image, t: float, gust: float = 0.0, k: float = 1.0):
-        d = ImageDraw.Draw(img, "RGBA")
-        span_y, span_x = self.h + 80, self.w * 1.3
-        for p in self.items:
-            y = (p["y"] + p["vy"] * t) % span_y - 40
-            x = (p["x"] + (p["vx"] + gust) * t + 28 * math.sin(p["sway"] + t * 1.3)) % span_x - self.w * 0.15
-            squash = 0.25 + 0.75 * abs(math.cos(p["flip"] + p["vf"] * t))
-            d.polygon(petal_polygon(x, y, p["size"], p["rot"] + p["vr"] * t, squash, steps=8),
-                      fill=p["col"] + (int(p["alpha"] * k),))
 
 
 # ── сфера духа ──────────────────────────────────────────────────────────
@@ -491,53 +342,6 @@ def seal(lines: tuple[str, ...], size: int = 180, color=VERMILION, ink=PAPER, se
     return img
 
 
-# ── свиток макимоно ─────────────────────────────────────────────────────
-@functools.lru_cache(maxsize=4)
-def paper_texture(w: int, h: int, seed=9) -> Image.Image:
-    rnd = np.random.default_rng(seed)
-    base = np.ones((h, w, 3), dtype=np.float32) * np.array(PAPER, dtype=np.float32)
-    fib = rnd.normal(0, 1, (h // 2 + 1, w // 8 + 1)).astype(np.float32)
-    fib = np.asarray(Image.fromarray(((fib + 3) * 40).clip(0, 255).astype(np.uint8)).resize((w, h), Image.BICUBIC),
-                     dtype=np.float32) / 255 - 0.5
-    grain = rnd.normal(0, 1, (h, w)).astype(np.float32)
-    base += (fib * 18 + grain * 4)[..., None]
-    yy = np.linspace(-1, 1, h)[:, None]
-    xx = np.linspace(-1, 1, w)[None, :]
-    vign = 1 - 0.1 * (xx ** 2 + yy ** 2)
-    base *= vign[..., None]
-    return Image.fromarray(base.clip(0, 255).astype(np.uint8), "RGB").convert("RGBA")
-
-
-def scroll(base: Image.Image, center, full_w: int, h: int, progress: float, k: float = 1.0) -> tuple:
-    """Разворачивающийся свиток; возвращает рамку бумаги (x0, y0, x1, y1)."""
-    cx, cy = center
-    w = max(24, int(full_w * ease_out(progress)))
-    x0, x1 = int(cx - w / 2), int(cx + w / 2)
-    y0, y1 = int(cy - h / 2), int(cy + h / 2)
-    m = 40  # тень размываем только вокруг свитка, а не по всему кадру
-    shadow = Image.new("RGBA", (x1 - x0 + 2 * m + 20, y1 - y0 + 2 * m + 30), (0, 0, 0, 0))
-    ImageDraw.Draw(shadow).rectangle([m + 10, m + 18, m + 10 + (x1 - x0), m + 26 + (y1 - y0)],
-                                     fill=(0, 0, 0, int(120 * k)))
-    shadow = shadow.filter(ImageFilter.GaussianBlur(14))
-    base.paste(shadow, (x0 - m, y0 - m), shadow)
-    paper = paper_texture(full_w, h).crop(((full_w - w) // 2, 0, (full_w - w) // 2 + w, h))
-    paste(base, paper, (cx, cy), k)
-    d = ImageDraw.Draw(base, "RGBA")
-    band = int(h * 0.07)
-    for yb in (y0, y1 - band):  # парчовые кромки
-        d.rectangle([x0, yb, x1, yb + band], fill=(52, 34, 70, int(255 * k)))
-        d.line([x0, yb + band * 0.3, x1, yb + band * 0.3], fill=GOLD + (int(200 * k),), width=2)
-        d.line([x0, yb + band * 0.7, x1, yb + band * 0.7], fill=GOLD + (int(200 * k),), width=2)
-    rw = int(h * 0.055)
-    for xr in (x0, x1):  # деревянные валики с золотыми наконечниками
-        d.rounded_rectangle([xr - rw, y0 - rw * 1.4, xr + rw, y1 + rw * 1.4], radius=rw,
-                            fill=WOOD + (int(255 * k),))
-        d.line([xr - rw * 0.4, y0 - rw, xr - rw * 0.4, y1 + rw], fill=(120, 80, 60, int(160 * k)), width=2)
-        for yc in (y0 - rw * 1.6, y1 + rw * 1.6):
-            d.ellipse([xr - rw * 0.8, yc - rw * 0.6, xr + rw * 0.8, yc + rw * 0.6], fill=GOLD + (int(255 * k),))
-    return (x0 + rw * 2, y0 + band, x1 - rw * 2, y1 - band)
-
-
 # ── видео ───────────────────────────────────────────────────────────────
 def ffmpeg_bin() -> str:
     exe = shutil.which("ffmpeg")
@@ -609,14 +413,7 @@ def verify_video(path: Path, min_seconds: float) -> str:
             f"{path.stat().st_size / 1e6:.1f} МБ — декодируется без ошибок")
 
 
-# ── статичные картинки ──────────────────────────────────────────────────
-def save_png(img: Image.Image, path: Path):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    img.convert("RGB").save(path, optimize=True)
-    print(f"  [ok] {path.relative_to(ROOT)} — {path.stat().st_size / 1e3:.0f} КБ")
-
-
-# ── пять свитков: общая канва для роликов, схем и SVG ───────────────────
+# ── пять свитков: общая канва для роликов ───────────────────
 SCROLLS = [
     dict(num="一", kan="第一巻", jp="静寂に灯る火", period="Июль 2026",
          title="Пробуждение Искры в Безмолвии", seal="fe7d70d", date="3 июля 2026",
@@ -642,5 +439,5 @@ SCROLLS = [
          title="Постижение Истинной Интуиции и Три Тысячи Испытаний", seal="33a8da2", date="14 ноября 2026",
          color=SAKURA,
          lines=["Взгляд сквозь грани игровых миров и рисунки светом.",
-                "Беседа и приказ различимы сердцем. 3 383 испытания."]),
+                "Беседа и приказ различимы сердцем. 3\u00a0383 испытания."]),
 ]

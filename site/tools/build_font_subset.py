@@ -1,8 +1,9 @@
-"""Подмножество шрифта для сайта: styles/fonts/legend-serif-{regular,bold}.woff.
+"""Подмножества шрифтов для сайта: styles/fonts/legend-serif-{regular,bold}.woff и legend-brush.woff.
 
 Берёт Noto Serif CJK JP (SIL Open Font License) и оставляет только нужные
 глифы: латиницу, кириллицу, знаки препинания и все символы, которые
 встречаются в index.html и scripts/app.js (в том числе каждое кандзи).
+Кандзи и кана заголовков — кистью: Yuji Syuku (SIL OFL, кэш fetch_art.py).
 Запускать после любой правки текста страницы:
 
     python site/tools/build_font_subset.py
@@ -12,13 +13,16 @@ from __future__ import annotations
 
 import re
 import shutil
+import sys
 from html import unescape
 from pathlib import Path
 
 from fontTools import subset
 from fontTools.ttLib import TTFont
 
-import legend_common as L
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # работает и под python -I
+
+import legend_common as L  # noqa: E402
 
 OUT = L.SITE / "styles" / "fonts"
 SOURCES = [L.SITE / "index.html", L.SITE / "scripts" / "app.js"]
@@ -38,8 +42,9 @@ def page_chars() -> str:
     return "".join(sorted(set(text + BASE)))
 
 
-def build(kind: str, out_name: str, chars: str):
-    path, index = L.font_file(kind)
+def build(kind: str, out_name: str, chars: str, path: str | None = None, index: int = 0):
+    if path is None:
+        path, index = L.font_file(kind)
     font = TTFont(path, fontNumber=index)
     opts = subset.Options()
     opts.flavor = "woff"
@@ -66,6 +71,10 @@ def main():
           f"{sum(1 for c in chars if ord(c) > 0x3000)}")
     build("serif", "legend-serif-regular.woff", chars)
     build("serif_bold", "legend-serif-bold.woff", chars)
+    brush = Path.home() / ".cache" / "sakura-legend-art" / "fonts" / "yujisyuku"
+    cjk = "".join(c for c in chars if 0x3000 <= ord(c) <= 0x9FFF)
+    build("brush", "legend-brush.woff", cjk, path=str(brush / "YujiSyuku-Regular.ttf"))
+    shutil.copy(brush / "OFL.txt", OUT / "LICENSE-YujiSyuku.txt")
     for lic in LICENSES:
         if lic.exists():
             shutil.copy(lic, OUT / "LICENSE-NotoSerifCJK.txt")

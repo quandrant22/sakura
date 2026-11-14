@@ -1,43 +1,54 @@
 # Генераторы «Сказания о Духе Цветущей Сакуры»
 
-Скрипты рисуют ролики, иллюстрации и шрифт для `site/`. Запускать из корня
-репозитория — пути вывода считаются от него.
+Скрипты готовят для `site/` гравюры, ролики и шрифты. Запускать из корня
+репозитория. Скрипты читают скачанные файлы, поэтому запускаются в изолированном
+режиме `python -I`: каждый сам добавляет свою папку в `sys.path`.
 
 ```bash
-python site/tools/generate_all_videos.py            # 3 ролика 1080p (MP4 H.264 + WebM VP9) + постеры, затем проверка
-python site/tools/generate_all_videos.py --verify-only   # только проверить готовые ролики
-python site/tools/generate_video_scrolls.py         # по одному: «Пять Свитков»
-python site/tools/generate_video_armor.py           #            «Незримый Доспех»
-python site/tools/generate_video_trials.py          #            «Три Тысячи Испытаний»
-python site/tools/generate_diagrams_and_charts.py   # 6 иллюстраций тушью (PNG): Река Времени и свитки I–V
-python site/tools/generate_svg_diagrams.py          # 2 векторных свитка (SVG)
-python site/tools/build_font_subset.py              # подмножество шрифта под текст index.html и app.js
+python -I site/tools/fetch_art.py                     # 1. гравюры и фото: скачать (public domain) и обработать
+python -I site/tools/generate_all_videos.py           # 2. три ролика 1080p (MP4 H.264 + WebM VP9) + постеры, затем проверка
+python -I site/tools/generate_all_videos.py --verify-only   #    только проверить готовые ролики
+python -I site/tools/build_font_subset.py             # 3. подмножества шрифтов под текст index.html и app.js
 ```
 
 | Файл | Что внутри |
 | --- | --- |
-| `legend_common.py` | палитра, поиск шрифтов, проверка глифов, небо, ветви, лепестки, сфера духа, печати, свиток, кодирование и проверка видео, данные пяти свитков |
+| `fetch_art.py` | каталог работ (Art Institute of Chicago, Wikimedia Commons), проверка public domain, скачивание в кэш |
+| `art_process.py` | пластины для свитков, тёмные фоны разделов, исходники роликов, ворон Кёсая, бумага свитков |
+| `legend_cinema.py` | параллакс по гравюре, туман, лепестки на трёх глубинах, свечение, кандзи кистью, клякса и переход тушью |
+| `legend_common.py` | палитра, шрифты с проверкой глифов, сфера духа, печати-ханко, данные пяти свитков, кодирование и проверка видео |
 | `generate_video_*.py` | сцены роликов; у каждого `NAME`, `SECONDS`, `build()` и `main()` |
-| `generate_diagrams_and_charts.py` | Река Времени (коммиты по месяцам из `git log`), Свиток Умений (из `sakura_core/capabilities.yaml`) и иллюстрации свитков |
-| `build_font_subset.py` | `styles/fonts/legend-serif-{regular,bold}.woff` из Noto Serif CJK JP + лицензия OFL |
+| `build_font_subset.py` | `styles/fonts/legend-serif-{regular,bold}.woff` (Noto Serif CJK JP) и `legend-brush.woff` (Yuji Syuku) + лицензии OFL |
+
+## Гравюры и права
+
+Берутся только работы в общественном достоянии: у Art Institute of Chicago —
+с флагом `is_public_domain`, с Commons — с лицензией Public domain или CC0. Все
+художники умерли до 1956 года, поэтому работы свободны и в России, и в Японии.
+Оригиналы хранятся в кэше вне репозитория: `~/.cache/sakura-legend-art/raw/<ключ>/`.
+Каждый лежит в своей папке вместе с `meta.json` (источник и лицензия). В репозиторий
+попадают только производные файлы из `media/images/art/`, а список источников
+выводится на страницу в блоке «Гравюры и фото».
+
+Кистевой шрифт Yuji Syuku (SIL OFL) скачивается в тот же кэш, в `fonts/`.
 
 ## Что нужно
 
 - Python 3.11+ с Pillow, numpy, fontTools и PyYAML (всё есть в `venv` сервера);
 - `ffmpeg` и `ffprobe` в PATH (кодеки libx264 и libvpx-vp9);
-- шрифты с кириллицей и кандзи. На Linux: `apt install fonts-noto-cjk` — их
-  находит `fc-match`. На Windows подойдут Yu Mincho и Yu Gothic.
+- шрифт с кириллицей и кандзи: на Linux `apt install fonts-noto-cjk` (его находит
+  `fc-match`), на Windows — Yu Mincho и Yu Gothic.
 
-Перед каждой надписью проверяется, что в шрифте есть все её глифы. Если
-символа нет, генератор падает с ошибкой — квадратиков в кадре не бывает.
+Перед каждой надписью проверяется, что в шрифте есть все её глифы. Если символа
+нет, генератор падает с ошибкой, так что квадратиков в кадре не бывает.
 
-Рендер тяжёлый: на сервере запускайте с `nice -n 19`, чтобы не мешать
-Сакуре. Ролики собираются примерно за 5–8 минут.
+Рендер тяжёлый: на сервере ролики собираются примерно за 40 минут на все три.
+Запускайте с `nice -n 19`, чтобы не мешать Сакуре.
 
 ## После генерации
 
-1. После правки текста страницы пересоберите шрифт: `build_font_subset.py`.
+1. После правки текста страницы пересоберите шрифты (`build_font_subset.py`).
 2. `*.png` и `*.jpg` стоят в корневом `.gitignore`, поэтому картинки сайта
    добавляются принудительно: `git add -f site/media/images`.
-3. На сервере опубликуйте витрину: `/usr/local/bin/sakura-site-sync`
+3. На сервере опубликуйте витрину командой `/usr/local/bin/sakura-site-sync`
    (каталог `tools/` не публикуется).

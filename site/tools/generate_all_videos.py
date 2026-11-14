@@ -1,26 +1,31 @@
 """Все ролики «Сказания о Духе Цветущей Сакуры» (1080p, MP4 H.264 + WebM VP9).
 
-  sakura-legend-five-scrolls      — Пять Свитков: пролог, пять эпох и их Печати Времени
-  sakura-legend-invisible-armor   — Незримый Доспех: две вести, купол и отвергнутый ворон
-  sakura-legend-3383-trials       — Три Тысячи Испытаний: 3 383 бутона и печать 合格
+  sakura-legend-five-scrolls      — Пять Свитков: пять гравюр, кандзи кистью, Печати Времени, Река Времени
+  sakura-legend-invisible-armor   — Незримый Доспех: снег Хиросигэ, две вести, купол и ворон Кёсая
+  sakura-legend-3383-trials       — Три Тысячи Испытаний: ночной Хиросаки, 3 383 бутона и печать 合格
+
+Фоны — настоящие гравюры и фото из кэша fetch_art.py (сначала python -I site/tools/fetch_art.py).
 
 После рендера каждый файл проверяется: ffprobe (кодек, размер, длительность)
 и полное декодирование ffmpeg без единой ошибки. Постеры кладутся в
 media/images/posters/.
 
 Запуск из корня репозитория:
-    python site/tools/generate_all_videos.py                # отрендерить и проверить
-    python site/tools/generate_all_videos.py --verify-only  # только проверить готовые
+    python -I site/tools/generate_all_videos.py                # отрендерить и проверить
+    python -I site/tools/generate_all_videos.py --verify-only  # только проверить готовые
 """
 
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
-import generate_video_armor
-import generate_video_scrolls
-import generate_video_trials
-import legend_common as L
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # работает и под python -I
+
+import generate_video_armor  # noqa: E402
+import generate_video_scrolls  # noqa: E402
+import generate_video_trials  # noqa: E402
+import legend_common as L  # noqa: E402
 
 MODULES = (generate_video_scrolls, generate_video_armor, generate_video_trials)
 
