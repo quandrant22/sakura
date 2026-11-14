@@ -303,7 +303,11 @@ class TestFastPathFollowup:
             assert got["texts"] == ["Готово."], f"Telegram: «Готово» всегда ({action})"
 
     def test_vps_text_reply_unchanged(self, monkeypatch):
+        import config
         import sakura_core.bridge as br
+        # Здесь проверяется доставка VPS-текста, а не стилизация: она сетевая
+        # (LLM) и покрыта test_humanize.py. Без этого исход зависел от сети.
+        monkeypatch.setattr(config, "STYLIZE_TIMEOUT_S", 0)
         _patch_router(monkeypatch, _FakeDecision("weather.now"))
         _patch_exec(monkeypatch, ("Солнечно.", True))
         spoken, acked = [], []

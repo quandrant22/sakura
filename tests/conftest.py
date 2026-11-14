@@ -37,6 +37,21 @@ def isolated_secure_channel(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def only_test_gemini_key(monkeypatch):
+    """Ключи Gemini в тестах — только тестовый.
+
+    config.py читает серверный .env, а там есть настоящие GEMINI_KEY_2…N: setdefault
+    выше заменяет лишь первый ключ. Непропатченный вызов модели (например,
+    стилизация ответа в stylize.humanize_command_reply) после отказа фейкового ключа
+    переходил на настоящий и шёл в Gemini — исход теста зависел от сети и от того,
+    успел ли прогреться клиент за таймаут (test_vps_text_reply_unchanged падал
+    только в полном прогоне). Тесты со своими наборами ключей ставят их сами."""
+    import config
+
+    monkeypatch.setattr(config, "GEMINI_KEYS", [os.environ["GEMINI_KEY_1"]])
+
+
+@pytest.fixture(autouse=True)
 def isolated_chat_log(monkeypatch, tmp_path):
     """Журнал чата — своя пустая база на каждый тест, не memory/chat.db."""
     import config
