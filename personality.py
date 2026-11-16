@@ -179,6 +179,23 @@ INTIMATE_INVARIANTS = """ГРАНИЦЫ (не меняются никаким о
 MODES = ("master", "guest", "intimate")
 
 
+def _intimate_docs() -> str:
+    """Внешность и база о Мастере — только для образа intimate."""
+    from sakura_core import persona
+    out = ""
+    try:
+        out += ("\n\nТВОЯ ВНЕШНОСТЬ (взрослая женщина; так ты выглядишь и так "
+                "описываешь себя)\n\n" + persona.get("intimate_figure"))
+    except persona.PersonaError:
+        pass
+    try:
+        out += ("\n\nЧТО ТЫ ЗНАЕШЬ О НЁМ В ЭТОМ РЕЖИМЕ (только здесь; вне режима "
+                "ты этого не упоминаешь)\n\n" + persona.get("intimate_kb"))
+    except persona.PersonaError:
+        pass
+    return out
+
+
 def get_system_prompt(active_window: str | None = None,
                       ctx_location: str = "home",
                       ctx_status: str = "free",
@@ -212,6 +229,7 @@ def get_system_prompt(active_window: str | None = None,
         return (
             "Приватный разговор. Только русский язык.\n\n"
             + persona.get("intimate")
+            + _intimate_docs()
             + "\n\n" + INTIMATE_INVARIANTS
             + f"\n\nСЕЙЧАС\n\nВремя: {now.strftime('%H:%M')}, {day}, {situation['period']}"
         )

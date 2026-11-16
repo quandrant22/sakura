@@ -1106,6 +1106,19 @@ def clean_reply(text: str) -> str:
 
 # ── Сборка contents ──────────────────────────────────────────────────────
 
+def _im_note(channel: str | None, user_message: str) -> None:
+    """«запомни…» в режиме 18+ — в базу режима (persona intimate_kb), не в память."""
+    from modules.intimacy_mode import is_active as _act
+    if not channel or not _act(channel):
+        return
+    try:
+        from adapters.persona_commands import remember_note
+        if remember_note(user_message):
+            log.info("[llm] заметка режима 18+ записана в базу режима")
+    except Exception as e:  # noqa: BLE001 — заметка не должна ронять ответ
+        log.warning("[llm] заметка режима: %s", type(e).__name__)
+
+
 def _build_contents(
     user_message: str, extra_system: str = "", history_limit: int = 60,
     channel: str | None = None,
@@ -1353,6 +1366,7 @@ async def ask_gemini(
         else:
             from modules.intimacy_mode import remember_turn as _im_remember
             _im_remember(channel, user_message, reply)
+            _im_note(channel, user_message)
             log.info("[llm] memory skipped for intimate conversation turn")
 
     return reply
@@ -1528,6 +1542,7 @@ async def ask_gemini_voice(
     else:
         from modules.intimacy_mode import remember_turn as _im_remember
         _im_remember(channel, user_message, clean_text)
+        _im_note(channel, user_message)
         log.info("[voice] history skipped for intimate turn")
     log.info(f"[{channel}] ответ: {_im_redact(clean_text, channel)}")
 

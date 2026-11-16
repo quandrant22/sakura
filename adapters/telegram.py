@@ -149,6 +149,9 @@ def _register_commands():
     dp.message(Command("забудь_задачи"))(_master_only(cmd_forget_tasks_impl))
     from adapters.persona_commands import cmd_persona_impl
     dp.message(Command("образ", "persona"))(_master_only(cmd_persona_impl, bot=bot))
+    from adapters.persona_commands import cmd_intimate_kb_impl, cmd_figure_impl
+    dp.message(Command("база", "kb"))(_master_only(cmd_intimate_kb_impl, bot=bot))
+    dp.message(Command("фигура", "figure"))(_master_only(cmd_figure_impl, bot=bot))
 
     async def _forget_tasks_cb(callback):
         if is_master(callback.from_user.id):
