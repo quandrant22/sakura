@@ -237,3 +237,61 @@ def test_guest_reply_uses_guest_audience(monkeypatch):
         llm.ask_gemini_as_guest(1, "привет", "Гость", "guest"))
     assert out
     assert seen.get("audience") == "guest"
+
+
+# ── Ход разговора внутри режима (RAM-буфер) ──────────────────────────
+
+def test_dialogue_kept_in_ram_while_active():
+    im.mark("режим 18+", "tg_private")
+    im.remember_turn("tg_private", "первая реплика", "ответ один")
+    im.remember_turn("tg_private", "вторая реплика", "ответ два")
+    assert [t for _, t in im.dialogue("tg_private")] == [
+        "первая реплика", "ответ один", "вторая реплика", "ответ два"]
+    assert im.dialogue("voice") == []
+
+
+def test_dialogue_not_kept_when_mode_off():
+    im.remember_turn("tg_private", "привет", "привет")
+    assert im.dialogue("tg_private") == []
+
+
+def test_dialogue_cleared_on_stop():
+    im.mark("режим 18+", "tg_private")
+    im.remember_turn("tg_private", "а", "б")
+    im.mark("стоп", "tg_private")
+    assert not im.is_active("tg_private")
+    im.mark("режим 18+", "tg_private")
+    assert im.dialogue("tg_private") == []
+
+
+def test_dialogue_capped():
+    im.mark("режим 18+", "tg_private")
+    for i in range(im.DIALOGUE_LIMIT):
+        im.remember_turn("tg_private", f"u{i}", f"m{i}")
+    assert len(im.dialogue("tg_private")) == im.DIALOGUE_LIMIT
+
+
+@pytest.mark.parametrize("phrase", ["мне тебя никогда не хватит", "не стоп, продолжай"])
+def test_negated_stop_does_not_exit(phrase):
+    im.mark("режим 18+", "tg_private")
+    im.mark(phrase, "tg_private")
+    assert im.is_active("tg_private")
+
+
+@pytest.mark.parametrize("phrase", ["стоп", "хватит", "Стоп, мне неприятно", "смени тему"])
+def test_stop_still_exits(phrase):
+    im.mark("режим 18+", "tg_private")
+    im.mark(phrase, "tg_private")
+    assert not im.is_active("tg_private")
+
+
+def test_build_contents_includes_ram_dialogue(monkeypatch):
+    import memory.memory as mm
+    from sakura_core import llm
+    monkeypatch.setattr(mm, "get_history", lambda: [{"role": "user", "parts": ["старое"]}])
+    im.mark("режим 18+", "tg_private")
+    im.remember_turn("tg_private", "что я сказал?", "ты сказал…")
+    texts = [c.parts[0].text for c in llm._build_contents("новое", channel="tg_private")]
+    assert texts == ["старое", "что я сказал?", "ты сказал…", "новое"]
+    texts = [c.parts[0].text for c in llm._build_contents("новое", channel="voice")]
+    assert texts == ["старое", "новое"]

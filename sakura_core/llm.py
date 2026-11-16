@@ -1107,7 +1107,8 @@ def clean_reply(text: str) -> str:
 # ── Сборка contents ──────────────────────────────────────────────────────
 
 def _build_contents(
-    user_message: str, extra_system: str = "", history_limit: int = 60
+    user_message: str, extra_system: str = "", history_limit: int = 60,
+    channel: str | None = None,
 ) -> list:
     from google.genai import types as _t
     from memory.memory import get_history
@@ -1117,6 +1118,10 @@ def _build_contents(
         _t.Content(role=m["role"], parts=[_t.Part(text=m["parts"][0])])
         for m in history
     ]
+    # Режим 18+: ход разговора живёт в RAM (intimacy_mode), не в истории.
+    from modules.intimacy_mode import dialogue as _im_dialogue
+    for role, text in _im_dialogue(channel):
+        contents.append(_t.Content(role=role, parts=[_t.Part(text=text)]))
     msg = f"{extra_system}\n\n{user_message}" if extra_system else user_message
     contents.append(_t.Content(role="user", parts=[_t.Part(text=msg)]))
     return contents
@@ -1271,7 +1276,8 @@ async def ask_gemini(
     _t_llm = None
     if not key:
         return "Мастер, все API ключи исчерпаны на сегодня."
-    contents = _build_contents(user_message, history_limit=history_limit)
+    contents = _build_contents(user_message, history_limit=history_limit,
+                               channel=channel)
     try:
         _t_prep = _t_mono() - _t0
         request_chain = chain or _chain_for_request(history_limit, save_history)
@@ -1345,6 +1351,8 @@ async def ask_gemini(
             except Exception as e:
                 log.debug(f"[llm] ask_gemini: {type(e).__name__}: {e}")
         else:
+            from modules.intimacy_mode import remember_turn as _im_remember
+            _im_remember(channel, user_message, reply)
             log.info("[llm] memory skipped for intimate conversation turn")
 
     return reply
@@ -1406,7 +1414,7 @@ async def ask_gemini_voice(
     log.info(f"[voice] _build_system за {_t_now-_t_build:.2f}с{_from_recv}")
 
     contents  = _build_contents(
-        user_message, history_limit=config.VOICE_HISTORY_LIMIT
+        user_message, history_limit=config.VOICE_HISTORY_LIMIT, channel=channel
     )
     emotion   = "neutral"
     full_text = ""
@@ -1518,6 +1526,8 @@ async def ask_gemini_voice(
         add_to_history("user",  user_message)
         add_to_history("model", clean_text)
     else:
+        from modules.intimacy_mode import remember_turn as _im_remember
+        _im_remember(channel, user_message, clean_text)
         log.info("[voice] history skipped for intimate turn")
     log.info(f"[{channel}] ответ: {_im_redact(clean_text, channel)}")
 

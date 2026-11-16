@@ -54,6 +54,13 @@ _state: dict[str, tuple[float, float]] = {}
 # Флаг для ночной рефлексии: был ли режим хоть в одном канале
 _was_active_since_reflection: bool = False
 
+# channel → [(role, text), …] — ход разговора внутри режима. Только RAM:
+# в историю на диске реплики 18+ не пишутся (I3), но без этого буфера модель
+# видела бы на каждом ходу лишь реплики ДО режима и «забывала» сказанное
+# секунду назад. Чистится при выходе из режима и при перезапуске.
+DIALOGUE_LIMIT = 40
+_dialogue: dict[str, list[tuple[str, str]]] = {}
+
 
 # ── Словари ──────────────────────────────────────────────────────────
 # Каждая запись — регулярное выражение для основы слова; левая граница
@@ -99,7 +106,9 @@ _MANUAL_ACTIVATE = [
 
 _STRONG_RX = [re.compile(rf"(?<!\w){p}", re.IGNORECASE) for p in _STRONG]
 _WEAK_RX = [re.compile(rf"(?<!\w){p}", re.IGNORECASE) for p in _WEAK]
-_STOP_RX = [re.compile(rf"(?<!\w){re.escape(s)}(?!\w)", re.IGNORECASE) for s in _STOP_PHRASES]
+# «не хватит», «не стоп» — не просьба остановиться.
+_STOP_RX = [re.compile(rf"(?<!\w)(?<!\bне )(?<!\bни ){re.escape(s)}(?!\w)", re.IGNORECASE)
+            for s in _STOP_PHRASES]
 _MANUAL_RX = [re.compile(rf"(?<!\w){re.escape(m)}(?![\w+])", re.IGNORECASE) for m in _MANUAL_ACTIVATE]
 
 
@@ -170,6 +179,28 @@ def _off(channel: str, reason: str) -> None:
     if is_active(channel):
         log.info("[intimacy] off channel=%s reason=%s", channel, reason)
     _state.pop(channel, None)
+    _dialogue.pop(channel, None)
+
+
+def remember_turn(channel: str | None, user_text: str, reply: str) -> None:
+    """Запомнить ход в оперативном буфере режима (не на диске)."""
+    ch = _normalize_channel(channel)
+    if ch not in ("voice", "text", "tg_private") or not is_active(ch):
+        return
+    buf = _dialogue.setdefault(ch, [])
+    if user_text:
+        buf.append(("user", user_text))
+    if reply:
+        buf.append(("model", reply))
+    del buf[:-DIALOGUE_LIMIT]
+
+
+def dialogue(channel: str | None) -> list[tuple[str, str]]:
+    """Ход разговора внутри режима — только пока режим активен в канале."""
+    ch = _normalize_channel(channel)
+    if not ch or not is_active(ch):
+        return []
+    return list(_dialogue.get(ch, ()))
 
 
 def mark(text: str, channel: str) -> None:
@@ -237,6 +268,7 @@ def _reset_state() -> None:
     """Сброс всего состояния (только для тестов)."""
     global _was_active_since_reflection
     _state.clear()
+    _dialogue.clear()
     _was_active_since_reflection = False
 
 
