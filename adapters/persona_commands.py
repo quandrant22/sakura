@@ -120,7 +120,8 @@ async def cmd_persona_impl(message, bot=None):
 
 # ── Документы режима 18+: база о Мастере и её фигура ─────────────────
 #
-# Правятся прямо в Telegram:
+# Правятся прямо в Telegram и ТОЛЬКО при активном режиме 18+ в личном чате
+# (вне режима команды и кнопки отвечают «доступно только в режиме 18+»):
 #   /база, /фигура            — карточка с кнопками параметров
 #   нажать параметр           — следующим сообщением прислать значение
 #   /фигура рост 172          — быстрая правка параметра
@@ -486,6 +487,15 @@ def remember_note(text: str) -> bool:
 
 # ── aiogram ──────────────────────────────────────────────────────────
 
+LOCKED_TEXT = "Это доступно только в режиме 18+."
+
+
+def unlocked() -> bool:
+    """База и фигура правятся только при активном режиме 18+ в личном чате."""
+    from modules.intimacy_mode import is_active
+    return is_active("tg_private")
+
+
 def _kb(rows):
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -513,6 +523,10 @@ async def _send_file(message, doc: str):
 
 async def _doc_cmd_impl(doc: str, message, bot=None):
     import asyncio
+
+    if not unlocked():
+        await message.answer(LOCKED_TEXT)
+        return
 
     raw = message.text or message.caption or ""
     args = raw.split(maxsplit=1)[1] if len(raw.split(maxsplit=1)) > 1 else ""
@@ -553,6 +567,18 @@ async def cmd_figure_impl(message, bot=None):
 
 async def callback_impl(callback):
     import asyncio
+    if not unlocked():
+        global _pending
+        _pending = None
+        try:
+            await callback.answer(LOCKED_TEXT, show_alert=True)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except Exception:  # noqa: BLE001
+            pass
+        return
     reply, show, doc = await asyncio.to_thread(handle_callback, callback.data or "")
     try:
         await callback.answer()
@@ -570,7 +596,11 @@ async def callback_impl(callback):
 async def pending_input_impl(message) -> bool:
     """Из обработчика сообщений Мастера: True — сообщение съедено редактором."""
     import asyncio
+    global _pending
     if not pending_active():
+        return False
+    if not unlocked():
+        _pending = None      # режим погас — ввод не ждём, сообщение идёт как обычное
         return False
     res = await asyncio.to_thread(handle_pending_input, message.text or "")
     if res is None:

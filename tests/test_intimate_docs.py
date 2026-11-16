@@ -162,3 +162,68 @@ def test_im_note_only_when_mode_active():
     im.mark("режим 18+", "tg_private")
     llm._im_note("tg_private", "запомни, что мне нравится медленно")
     assert "медленно" in persona.get("intimate_kb")
+
+
+# ── Доступ только в режиме 18+ ───────────────────────────────────────
+
+class _Msg:
+    def __init__(self, text=""):
+        self.text, self.caption, self.document, self.out = text, None, None, []
+
+    async def answer(self, t, reply_markup=None):
+        self.out.append(t)
+
+    async def edit_text(self, t, reply_markup=None):
+        self.out.append(t)
+
+    async def edit_reply_markup(self, reply_markup=None):
+        self.out.append("<кнопки убраны>")
+
+
+class _Cb:
+    def __init__(self, data):
+        self.data, self.message, self.alerts = data, _Msg(), []
+
+    async def answer(self, text=None, show_alert=False):
+        if text:
+            self.alerts.append(text)
+
+
+def test_commands_locked_outside_mode():
+    import asyncio
+    m = _Msg("/фигура рост 150")
+    asyncio.run(pc.cmd_figure_impl(m))
+    assert m.out == [pc.LOCKED_TEXT]
+    assert ("Рост", "около 168 см") in pc.fields("intimate_figure")
+    m = _Msg("/база")
+    asyncio.run(pc.cmd_intimate_kb_impl(m))
+    assert m.out == [pc.LOCKED_TEXT]
+
+
+def test_buttons_locked_outside_mode():
+    import asyncio
+    cb = _Cb("pdoc:f:reset")
+    asyncio.run(pc.callback_impl(cb))
+    assert cb.alerts == [pc.LOCKED_TEXT] and cb.message.out == ["<кнопки убраны>"]
+
+
+def test_pending_dropped_when_mode_ends():
+    import asyncio
+    im.mark("режим 18+", "tg_private")
+    m = _Msg("/фигура")
+    asyncio.run(pc.cmd_figure_impl(m))
+    assert "Нажми параметр" in m.out[0]
+    asyncio.run(pc.callback_impl(_Cb("pdoc:f:e:1")))
+    assert pc.pending_active()
+    im.mark("стоп", "tg_private")
+    assert not asyncio.run(pc.pending_input_impl(_Msg("150 см")))
+    assert not pc.pending_active()
+    assert ("Рост", "около 168 см") in pc.fields("intimate_figure")
+
+
+def test_works_inside_mode():
+    import asyncio
+    im.mark("режим 18+", "tg_private")
+    asyncio.run(pc.callback_impl(_Cb("pdoc:f:e:1")))
+    assert asyncio.run(pc.pending_input_impl(_Msg("172 см")))
+    assert ("Рост", "172 см") in pc.fields("intimate_figure")
