@@ -1,9 +1,10 @@
 """core/hands.py — руки: приложения, громкость, медиа, диктовка, скриншот, ссылки.
 
-Скан приложений из четырёх источников:
+Скан приложений из пяти источников:
   - меню «Пуск» (.lnk)
   - Get-StartApps (Microsoft Store / UWP + установленные) → shell:AppsFolder
   - Steam (по манифестам) → steam://rungameid/<appid>
+  - Epic Games (по манифестам) → com.epicgames.launcher://apps/… (напрямую .exe такие игры не стартуют)
   - папки с играми-пиратками (.exe) из config.GAME_DIRS
 Ручные «запомни» (apps.json) имеют наивысший приоритет.
 
@@ -73,6 +74,7 @@ _app_cache: dict = {}
 # Путь к кэшу приложений на диск (с TTL ~6 часов)
 _APPS_CACHE_FILE = os.path.join(os.path.dirname(config.APPS_FILE) or ".", "apps_cache.json")
 _APPS_CACHE_TTL = 6 * 3600  # 6 часов в секундах
+EPIC_URI = "com.epicgames.launcher:"
 
 # Индекс файлов по всему диску. Запуск — init_index() из агента при старте.
 file_index = FileIndex(
@@ -319,6 +321,43 @@ def _scan_steam() -> dict:
     return apps
 
 
+def _epic_manifest_dir() -> str:
+    """Папка манифестов Epic: путь из реестра Windows, иначе стандартный."""
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Epic Games\EpicGamesLauncher") as key:
+            return os.path.join(winreg.QueryValueEx(key, "AppDataPath")[0], "Manifests")
+    except (ImportError, OSError):
+        return os.path.join(os.environ.get("ProgramData", r"C:\ProgramData"),
+                            "Epic", "EpicGamesLauncher", "Data", "Manifests")
+
+
+def _scan_epic() -> dict:
+    """Установленные игры Epic Games. Запуск только через лаунчер: он выдаёт игре вход в аккаунт."""
+    apps = {}
+    folder = _epic_manifest_dir()
+    if not os.path.isdir(folder):
+        return apps
+    for fn in os.listdir(folder):
+        if not fn.lower().endswith(".item"):
+            continue
+        try:
+            with open(os.path.join(folder, fn), encoding="utf-8-sig") as f:
+                item = json.load(f)
+            name, app = (item.get("DisplayName") or "").strip(), item.get("AppName") or ""
+            namespace, catalog = item.get("CatalogNamespace"), item.get("CatalogItemId")
+            if (not (name and app and namespace and catalog) or item.get("bIsIncompleteInstall")
+                    or not item.get("bIsApplication", True)
+                    or item.get("MainGameAppName", app) != app):     # дополнения отдельно не запускаются
+                continue
+            apps[re.sub(r"[™®©]", "", name).strip().lower()] = (
+                f"{EPIC_URI}//apps/{quote(namespace, safe='')}%3A{quote(catalog, safe='')}%3A{quote(app, safe='')}"
+                "?action=launch&silent=true")
+        except (OSError, ValueError, AttributeError) as e:
+            log.debug(f"epic manifest {fn}: {type(e).__name__}")
+    return apps
+
+
 def _scan_game_dirs() -> dict:
     """Пиратки: .exe в config.GAME_DIRS. Имя папки → самый крупный .exe (обычно сама игра)."""
     apps = {}
@@ -381,12 +420,13 @@ def scan_apps(force: bool = False) -> dict:
     if not force:
         cached = _load_apps_cache()
         if cached is not None:
+            cached.update(_scan_epic())        # игру могли поставить, пока кэш ещё свежий
             _app_cache = cached
             log.info(f"Загружен apps_cache.json: {len(cached)} приложений")
             return cached
 
     apps = {}
-    for source in (_scan_start_menu, _scan_start_apps, _scan_steam, _scan_game_dirs, _scan_desktop):
+    for source in (_scan_start_menu, _scan_start_apps, _scan_steam, _scan_game_dirs, _scan_desktop, _scan_epic):
         try:
             apps.update(source())
         except Exception as e:
@@ -402,7 +442,7 @@ def scan_apps(force: bool = False) -> dict:
 def _is_target(s: str) -> bool:
     """Уже готовая для запуска строка (таргет от VPS), а не разговорное имя."""
     low = s.lower()
-    return (low.startswith(("shell:", "steam:", "http://", "https://"))
+    return (low.startswith(("shell:", "steam:", "http://", "https://", EPIC_URI))
             or os.path.exists(s)
             or (len(s) > 2 and s[1] == ":"))           # путь вида C:\...
 
@@ -422,6 +462,22 @@ def _launch(target: str) -> bool:
             return False
 
 
+_epic_merged = False
+
+
+def _merge_epic():
+    """Кэш с диска мог быть собран до установки игры или до появления скана Epic."""
+    global _epic_merged
+    if not _epic_merged:
+        _epic_merged = True
+        _app_cache.update(_scan_epic())
+
+
+def _launched_text(name: str, target: str, opened: str) -> str:
+    """Epic только принимает запрос: игра откроется после лаунчера, «открыла» было бы неправдой."""
+    return f"запускаю {name} через Epic Games" if target.startswith(EPIC_URI) else f"{opened} {name}"
+
+
 def _resolve_target_with_name(name: str) -> tuple[str, str] | None:
     """Разговорное имя → (реальное_имя, таргет).
 
@@ -431,6 +487,7 @@ def _resolve_target_with_name(name: str) -> tuple[str, str] | None:
     Возвращает кортеж (ключ_из_кэша, таргет) или None.
     """
     _ensure_app_cache()
+    _merge_epic()
     norm_name = _normalize_app_name(name)
     query_tokens = _normalize_app_name_tokens(name)
 
@@ -509,7 +566,7 @@ def open_app(name: str) -> str:
     resolved = _resolve_target_with_name(name)
     if resolved and _launch(resolved[1]):
         real_name = _pretty_app_name(resolved[0])
-        return f"открыл {real_name}"
+        return _launched_text(real_name, resolved[1], "открыл")
 
     opened = file_index.open(name)
     if opened:
@@ -1085,7 +1142,7 @@ def _resolve_exe_names(name: str) -> tuple[str, str, set[str]]:
         names.add(base)
         names.add(base + ".exe")
     low = (target or "").lower()
-    if not low.startswith(("shell:", "steam:", "http://", "https://")):
+    if not low.startswith(("shell:", "steam:", "http://", "https://", EPIC_URI)):
         try:
             stem = os.path.splitext(os.path.basename(target.strip().strip('"')))[0].lower()
             if stem:
@@ -1144,7 +1201,7 @@ def switch_to_app(name: str) -> dict:
             return {"ok": False,
                     "detail": f"окно найдено ({title}), не удалось вывести вперёд"}
     if _launch(target):
-        return {"ok": True, "detail": f"открыла {pretty}"}
+        return {"ok": True, "detail": _launched_text(pretty, target, "открыла")}
     return {"ok": False, "detail": f"не удалось запустить {pretty}"}
 
 

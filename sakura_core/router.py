@@ -179,6 +179,8 @@ class Router:
 
     def _clarify_question(self, decl) -> str:
         """Сформулировать уточняющий вопрос для param с required='ask'."""
+        if decl.param is not None and decl.param.ask:
+            return decl.param.ask
         param_name = decl.param.name if decl.param else "параметр"
         # Маппинг имён параметров на вопросы
         questions = {

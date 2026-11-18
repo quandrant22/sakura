@@ -1,5 +1,6 @@
 import os
 import sys
+import os
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -11,6 +12,50 @@ if ROOT not in sys.path:
 
 from desktop.core import hands, kettle
 from desktop.core.platform import windows as _win_platform
+
+
+class TestEpicGames(unittest.TestCase):
+    FORTNITE = {"DisplayName": "Fortnite", "AppName": "Fortnite", "MainGameAppName": "Fortnite", "CatalogNamespace": "fn",
+                "CatalogItemId": "4fe75bbc5a674f4f9b356b5c90567da5", "bIsApplication": True}
+    URI = "com.epicgames.launcher://apps/fn%3A4fe75bbc5a674f4f9b356b5c90567da5%3AFortnite?action=launch&silent=true"
+
+    def scan(self, *items):
+        import json as _json
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            for i, item in enumerate(items):
+                with open(os.path.join(d, f"{i}.item"), "w", encoding="utf-8-sig") as f:
+                    f.write(item if isinstance(item, str) else _json.dumps(item))
+            with patch.object(hands, "_epic_manifest_dir", return_value=d):
+                return hands._scan_epic()
+
+    def test_game_launches_through_epic_launcher(self):
+        self.assertEqual(self.scan(self.FORTNITE), {"fortnite": self.URI})
+
+    def test_skips_broken_incomplete_and_dlc(self):
+        apps = self.scan("не json", {**self.FORTNITE, "bIsIncompleteInstall": True},
+                         {**self.FORTNITE, "DisplayName": "DLC", "AppName": "Dlc"},
+                         {**self.FORTNITE, "DisplayName": "Tool", "bIsApplication": False})
+        self.assertEqual(apps, {})
+
+    def test_trademark_sign_is_removed_from_name(self):
+        self.assertIn("rocket league", self.scan({**self.FORTNITE, "DisplayName": "Rocket League®"}))
+
+    def test_no_epic_installed(self):
+        with patch.object(hands, "_epic_manifest_dir", return_value="/нет/такой/папки"):
+            self.assertEqual(hands._scan_epic(), {})
+
+    def test_spoken_russian_name_finds_the_game(self):
+        with patch.object(hands, "_app_cache", {"fortnite": self.URI}), patch.object(hands, "_epic_merged", True), \
+             patch.object(hands, "_load_apps", return_value={}):
+            self.assertEqual(hands._resolve_target("фортнайт"), self.URI)
+
+    def test_reply_does_not_claim_the_game_is_already_open(self):
+        with patch.object(hands, "_app_cache", {"fortnite": self.URI}), patch.object(hands, "_epic_merged", True), \
+             patch.object(hands, "_load_apps", return_value={}), patch.object(hands, "_launch", return_value=True) as launch:
+            res = hands.switch_to_app("фортнайт")
+        launch.assert_called_once_with(self.URI)
+        self.assertEqual(res, {"ok": True, "detail": "запускаю Fortnite через Epic Games"})
 
 
 class TestHandsAppCache(unittest.TestCase):

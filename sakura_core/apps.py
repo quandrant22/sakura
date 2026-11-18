@@ -30,7 +30,7 @@ async def analyze_apps(apps: dict, device_id: str):
         exe_apps = {k: v for k, v in apps.items()
                     if isinstance(v, str) and (
                         v.lower().endswith((".exe", ".lnk", ".url"))
-                        or v.startswith(("steam:", "shell:", "http")))}
+                        or v.startswith(("steam:", "shell:", "http", "com.epicgames.launcher:")))}
         names    = list(exe_apps.keys())[:200]
         from sakura_core.llm import generate as _llm_generate
         from google.genai import types

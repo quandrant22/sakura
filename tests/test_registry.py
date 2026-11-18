@@ -63,8 +63,9 @@ def test_load_returns_131_declarations(registry):
     # games-overlay-widgets (7) + music.play_track (1) + companion.husk_status (1) → 140.
     # этап 3 NLU: youtube.open («открой/включи ютуб») → 141.
     # feat/yandex-music-full: 24 действия встроенной Яндекс.Музыки → 165,
-    # system.volume_up/down (общая громкость отдельно от музыки) → 167.
-    assert len(registry) == 167
+    # system.volume_up/down (общая громкость отдельно от музыки) → 167,
+    # app.launch («запусти игру …») → 168.
+    assert len(registry) == 168
 
 
 def test_validate_passes_on_real_registry(registry):
@@ -534,7 +535,7 @@ def test_param_resolve_accepted_and_wired(registry):
     # однозначные глаголы остались в app.switch без фильтра
     assert set(by_id["app.switch"].triggers) == {
         "переключись на", "перейди в", "разверни"}
-    assert set(by_id["app.switch_open"].triggers) == {"открой", "покажи"}
+    assert set(by_id["app.switch_open"].triggers) == {"открой", "покажи", "запусти"}
 
 
 def test_resolve_matches_installed_app(index, installed_apps):
