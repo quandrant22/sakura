@@ -72,3 +72,26 @@ describe("очередь", () => {
     expect([...q.order].sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5]);
   });
 });
+
+describe("очередь Яндекс.Музыки", () => {
+  const t = (id: number): Track => ({ id, source: "yandex", title: `T${id}`, artist: "A", album: "", duration: 1 });
+
+  test("append добавляет в конец и не сбивает текущий", () => {
+    const q = Q.append(Q.setItems(Q.emptyQueue(), [t(1), t(2)], 1), [t(3)]);
+    expect(q.items.map((x) => x.id)).toEqual([1, 2, 3]);
+    expect(q.index).toBe(1);
+    expect(Q.nextIndex(q)).toBe(2);
+  });
+
+  test("append при перемешивании: новые треки играют после уже запланированных", () => {
+    const q = Q.append(Q.setShuffle(Q.setItems(Q.emptyQueue(), [t(1), t(2)], 0), true), [t(3)]);
+    expect(q.order[q.order.length - 1]).toBe(2);
+  });
+
+  test("clearUpcoming оставляет только текущий трек", () => {
+    const q = Q.clearUpcoming(Q.setItems(Q.emptyQueue(), [t(1), t(2), t(3)], 1));
+    expect(q.items.map((x) => x.id)).toEqual([2]);
+    expect(q.index).toBe(0);
+    expect(Q.nextIndex(q)).toBe(-1);
+  });
+});

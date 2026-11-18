@@ -33,6 +33,11 @@ from pathlib import Path
 log = logging.getLogger("sakura.persona")
 
 MODES: tuple[str, ...] = ("master", "guest", "intimate")
+# Документы режима 18+ — читаются ТОЛЬКО при сборке образа intimate:
+#   intimate_kb.md      — база о Мастере для режима (правит он сам, сюда же
+#                         «запомни…» внутри режима); в основную память не идёт
+#   intimate_figure.md  — её внешность в режиме («/фигура»)
+DOCS: tuple[str, ...] = ("intimate_kb", "intimate_figure")
 MAX_CHARS = 12_000
 MIN_CHARS = 40
 HISTORY_KEEP = 10
@@ -55,8 +60,8 @@ def persona_dir() -> Path:
 
 
 def _check_mode(mode: str) -> str:
-    if mode not in MODES:
-        raise PersonaError(f"неизвестный режим образа: {mode!r}; есть: {', '.join(MODES)}")
+    if mode not in MODES and mode not in DOCS:
+        raise PersonaError(f"неизвестный режим образа: {mode!r}; есть: {', '.join(MODES + DOCS)}")
     return mode
 
 
@@ -123,7 +128,7 @@ def get_default(mode: str) -> str:
 def version() -> str:
     """Короткий отпечаток всех действующих образов — для ключей кэша промпта."""
     h = hashlib.md5()
-    for mode in MODES:
+    for mode in MODES + DOCS:
         for p in (_runtime_path(mode), _default_path(mode)):
             try:
                 st = p.stat()

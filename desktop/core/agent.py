@@ -70,9 +70,17 @@ _MUSIC_BROWSER_VERBS = (
     "shuffle", "repeat", "seek_forward", "seek_back",
     "podcasts", "mute", "volume_up", "volume_down",
 )
+# Только встроенная Яндекс.Музыка (media.yandex_commands): без неё — честный отказ с подсказкой.
+_MUSIC_EMBEDDED_VERBS = (
+    "play_artist", "play_album", "play_playlist", "station", "similar", "chart", "new_releases",
+    "playlist_of_day", "queue_add", "play_next", "queue_show", "queue_clear", "queue_remove", "search",
+    "lyrics", "unlike", "like_album", "like_artist", "playlist_add", "playlist_remove", "playlist_create",
+    "playlist_delete", "seek_to", "volume_set",
+)
 
 # Те же глаголы — операции пульта приложения Яндекс.Музыки (media.yandex_remote).
-_REMOTE_OPS = {"seek_forward": ("seek_by", 10), "seek_back": ("seek_by", -10)}
+_REMOTE_OPS = {"seek_forward": ("seek_by", 10), "seek_back": ("seek_by", -10),
+               **{v: ("embedded_only", v) for v in _MUSIC_EMBEDDED_VERBS}}
 
 
 def _yamusic_remote():
@@ -90,7 +98,7 @@ for _v, _lg in _MUSIC_SMTC_VERBS:
     _c = f"music.{_v}"
     _MUSIC_INBOUND[_c] = _MUSIC_INBOUND[f"music_{_lg[6:]}"] = \
         _MUSIC_INBOUND[f"music:{_v}"] = ("smtc", _c, _lg)
-for _v in _MUSIC_BROWSER_VERBS:
+for _v in (*_MUSIC_BROWSER_VERBS, *_MUSIC_EMBEDDED_VERBS):
     _c = f"music.{_v}"
     _MUSIC_INBOUND[_c] = _MUSIC_INBOUND[f"music:{_v}"] = ("browser", _c, f"music:{_v}")
 for _a in _MUSIC_APP_ACTIONS:
@@ -750,6 +758,19 @@ class Agent:
             await _send_ack(R.unsupported("пока не поддерживается: нужен серверный computer_step"))
             return
 
+        # Встроенные плееры (desktop.core.media): если активен встроенный —
+        # действие music.*/youtube.* исполняет он, иначе — прежний внешний путь ниже.
+        media = getattr(self, "media", None)
+        if media is not None:
+            handled = await media.handle_command(action, arg)
+            if isinstance(handled, dict):
+                await _send_ack(handled)
+                return
+            if handled is not None:
+                ok, detail = handled
+                await _send_ack(R.from_legacy({"ok": ok, "result": detail}))
+                return
+
         # «Включи музыку» (шаг Ж): запустить Яндекс.Музыку и начать воспроизведение.
         if action == "music.autoplay":
             ap = getattr(self, "autoplay", None)
@@ -758,17 +779,6 @@ class Agent:
                 ap = self.autoplay = Autoplay()
             await _send_ack(await ap.run(arg or "wave"))
             return
-
-        # Игровой режим — переключаем через bus
-        # Встроенные плееры (desktop.core.media): если активен встроенный —
-        # действие music.*/youtube.* исполняет он, иначе — прежний внешний путь ниже.
-        media = getattr(self, "media", None)
-        if media is not None:
-            handled = await media.handle_command(action, arg)
-            if handled is not None:
-                ok, detail = handled
-                await _send_ack(R.from_legacy({"ok": ok, "result": detail}))
-                return
 
         # Яндекс.Музыка не запущена — запуск с параметрами из Настроек (шаг Е: кнопки окна).
         # app_launcher выставляет run() (в тестах его нет — старый путь без системных вызовов).

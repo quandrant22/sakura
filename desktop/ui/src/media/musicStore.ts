@@ -6,7 +6,15 @@ import type { CoreClient } from "../api/client";
 import { CoreError } from "../api/types";
 import type { AudioEngine } from "./audioEngine";
 import * as Q from "./queue";
-import { fromLibrary, type LibraryTrack, type PlayStatus, type Track } from "./types";
+import { fromLibrary, type LibraryTrack, type PlayStatus, type Track, type YandexShow } from "./types";
+
+const WAVE = "user:onyourwave";
+/** Сколько треков станции должно оставаться впереди, прежде чем подгрузить следующую порцию. */
+const STATION_LOW_WATER = 2;
+
+interface StationBatch { items: Track[]; batch_id?: string | null }
+interface YandexPlay { tracks: Track[]; station?: string | null; batch_id?: string | null; shuffle?: boolean }
+interface YandexEnqueue { tracks: Track[]; next?: boolean }
 
 export interface MusicState {
   queue: Q.Queue;
@@ -19,8 +27,15 @@ export interface MusicState {
   sinkId: string;
   cover: string | null;
   error: string | null;
+  /** Станция Яндекса, которая продолжает очередь сама («Моя волна», радио по треку). */
+  station: { id: string; batchId: string | null } | null;
+  /** Последняя команда Сакуры показать экран Яндекс.Музыки. */
+  yandexShow: YandexShow | null;
 
   playTracks(tracks: Track[], start?: number): Promise<void>;
+  playStation(station: string): Promise<void>;
+  enqueue(tracks: Track[], next?: boolean): Promise<void>;
+  setYandexShow(show: YandexShow | null): void;
   playAt(index: number): Promise<void>;
   toggle(): Promise<void>;
   next(auto?: boolean): Promise<void>;
@@ -51,6 +66,7 @@ const REPORT_EVERY_MS = 5000;
 export function createMusicStore(client: CoreClient, engine: AudioEngine) {
   let lastReport = 0;
   let nearEndArmed = true;
+  let stationLoading = false;
 
   const store = createStore<MusicState>()((set, get) => {
     const current = () => {
@@ -75,7 +91,37 @@ export function createMusicStore(client: CoreClient, engine: AudioEngine) {
         player: "music", status: s.status, source: t?.source ?? "", title: t?.title ?? "",
         artist: t?.artist ?? "", album: t?.album ?? "", position: s.position, duration: s.duration,
         track_id: t && t.source === "local" ? t.id : null, new_track: newTrack,
+        ym_id: t && t.source === "yandex" ? t.id : null,
       }).catch(() => {});
+    }
+
+    /** Станция учится на прослушиваниях; сбой отзыва не должен мешать музыке. */
+    function feedback(event: "trackStarted" | "trackFinished" | "skip", t: Track | null, played = 0) {
+      const st = get().station;
+      if (!st || !t || t.source !== "yandex") return;
+      void client.call("media_yandex", { op: "feedback", station: st.id, event, id: t.id, played,
+                                         batch_id: st.batchId }).catch(() => {});
+    }
+
+    /** Впереди мало треков — подгрузить следующую порцию станции. */
+    async function topUpStation() {
+      const st = get().station;
+      const q = get().queue;
+      if (!st || stationLoading || q.items.length - 1 - q.index > STATION_LOW_WATER) return;
+      stationLoading = true;
+      try {
+        const last = q.items[q.items.length - 1];
+        const r = await client.call<StationBatch>("media_yandex", { op: "station", station: st.id, after: last?.id });
+        if (get().station?.id !== st.id) return;   // пока ждали, включили другое
+        const known = new Set(get().queue.items.map((t) => t.id));
+        const fresh = (r.items ?? []).filter((t) => !known.has(t.id));
+        if (fresh.length) set({ queue: Q.append(get().queue, fresh), station: { id: st.id, batchId: r.batch_id ?? st.batchId } });
+        void preloadNext();
+      } catch {
+        // сеть вернётся — попробуем на следующем треке
+      } finally {
+        stationLoading = false;
+      }
     }
 
     async function preloadNext() {
@@ -103,7 +149,9 @@ export function createMusicStore(client: CoreClient, engine: AudioEngine) {
         set({ status: "playing" });
         nearEndArmed = true;
         report(true);
+        feedback("trackStarted", t);
         void preloadNext();
+        void topUpStation();
       } catch (e) {
         const msg = e instanceof CoreError && e.code === "yandex_unavailable"
           ? `${e.message}. Используйте внешний плеер.` : e instanceof Error ? e.message : "Не удалось воспроизвести";
@@ -120,6 +168,7 @@ export function createMusicStore(client: CoreClient, engine: AudioEngine) {
         const n = Q.nextIndex(s.queue, true);
         if (n >= 0 && n !== s.queue.index) {
           nearEndArmed = false;
+          feedback("trackFinished", current(), position);
           void start(n, s.crossfade);
         }
       }
@@ -148,13 +197,39 @@ export function createMusicStore(client: CoreClient, engine: AudioEngine) {
       sinkId: "default",
       cover: null,
       error: null,
+      station: null,
+      yandexShow: null,
 
       current,
 
       async playTracks(tracks, startAt = 0) {
-        set({ queue: Q.setItems(get().queue, tracks, startAt) });
+        set({ queue: Q.setItems(get().queue, tracks, startAt), station: null });
         await start(get().queue.index);
       },
+      async playStation(station) {
+        try {
+          const r = await client.call<StationBatch>("media_yandex", { op: "station", station });
+          if (!r.items?.length) return set({ error: "Станция пока пуста" });
+          set({ queue: Q.setItems({ ...get().queue, shuffle: false }, r.items, 0),
+                station: { id: station, batchId: r.batch_id ?? null } });
+          await start(0);
+        } catch (e) {
+          set({ error: e instanceof Error ? e.message : "Станция недоступна" });
+        }
+      },
+      async enqueue(tracks, next = false) {
+        if (!tracks.length) return;
+        if (get().queue.index < 0) return get().playTracks(tracks);
+        if (next) {
+          let q = get().queue;
+          for (const t of [...tracks].reverse()) q = Q.playNext(q, t);
+          set({ queue: q });
+        } else {
+          set({ queue: Q.append(get().queue, tracks) });
+        }
+        void preloadNext();
+      },
+      setYandexShow: (show) => set({ yandexShow: show }),
       playAt: (i) => start(i),
 
       async toggle() {
@@ -172,6 +247,9 @@ export function createMusicStore(client: CoreClient, engine: AudioEngine) {
       },
 
       async next(auto = false) {
+        feedback(auto ? "trackFinished" : "skip", current(), get().position);
+        // Станция не кончается: порция могла не успеть подгрузиться к концу трека.
+        if (Q.nextIndex(get().queue, auto) < 0 && get().station) await topUpStation();
         const n = Q.nextIndex(get().queue, auto);
         if (n < 0) {
           engine.pause();
@@ -274,6 +352,24 @@ export function createMusicStore(client: CoreClient, engine: AudioEngine) {
           case "repeat": return s.cycleRepeat();
           case "mute": return s.toggleMute();
           case "volumeBy": return s.volumeBy(Number(arg) || 0);
+          case "volumeSet": return s.setVolume((Number(arg) || 0) / 100);
+          case "ym_play": {
+            const a = arg as YandexPlay;
+            const shuffle = !!a.shuffle;
+            const startAt = shuffle ? Math.floor(Math.random() * a.tracks.length) : 0;
+            set({ queue: Q.setItems({ ...get().queue, shuffle }, a.tracks, startAt),
+                  station: a.station ? { id: a.station, batchId: a.batch_id ?? null } : null });
+            return start(get().queue.index);
+          }
+          case "ym_enqueue": {
+            const a = arg as YandexEnqueue;
+            return s.enqueue(a.tracks, !!a.next);
+          }
+          case "ym_show": return s.setYandexShow(arg as YandexShow);
+          case "queue_clear":
+            set({ queue: Q.clearUpcoming(get().queue), station: null });
+            return engine.preload(null);
+          case "queue_remove": return s.remove(Number(arg));
           case "like": return s.like();
           case "dislike": return s.dislike();
           case "play_liked": {
@@ -288,18 +384,17 @@ export function createMusicStore(client: CoreClient, engine: AudioEngine) {
             set({ error: "«Любимое» пока пусто" });
             return;
           }
-          case "wave": {
-            try {
-              const r = await client.call<{ items: Track[] }>("media_yandex", { op: "wave" });
-              if (r.items.length) return s.playTracks(r.items);
-            } catch (e) {
-              set({ error: e instanceof Error ? e.message : "«Моя волна» недоступна" });
-            }
-            return;
-          }
+          case "wave": return s.playStation(WAVE);
         }
       },
     };
+  });
+
+  // Ядру нужна очередь, чтобы Сакура могла ответить, что играет дальше и убрать трек по названию.
+  store.subscribe((s, prev) => {
+    if (s.queue.items === prev.queue.items && s.queue.index === prev.queue.index) return;
+    void client.call("media_queue", { index: s.queue.index,
+      items: s.queue.items.map((t) => ({ title: t.title, artist: t.artist })) }).catch(() => {});
   });
   return store;
 }

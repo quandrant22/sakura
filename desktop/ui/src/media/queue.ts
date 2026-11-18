@@ -78,6 +78,20 @@ export function playNext(q: Queue, t: Track): Queue {
   return { ...q, items, order };
 }
 
+/** Добавить треки в конец очереди. */
+export function append(q: Queue, tracks: Track[]): Queue {
+  const items = [...q.items, ...tracks];
+  const added = tracks.map((_, k) => q.items.length + k);
+  return { ...q, items, index: q.index < 0 && items.length ? 0 : q.index,
+           order: q.shuffle ? [...q.order, ...added] : linear(items.length) };
+}
+
+/** Очистить очередь: остаётся только текущий трек. */
+export function clearUpcoming(q: Queue): Queue {
+  const cur = q.index >= 0 ? q.items[q.index] : undefined;
+  return cur ? { ...q, items: [cur], index: 0, order: [0] } : { ...q, items: [], index: -1, order: [] };
+}
+
 export function removeAt(q: Queue, i: number): Queue {
   if (i < 0 || i >= q.items.length) return q;
   const items = q.items.filter((_, k) => k !== i);

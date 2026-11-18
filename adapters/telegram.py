@@ -149,6 +149,15 @@ def _register_commands():
     dp.message(Command("забудь_задачи"))(_master_only(cmd_forget_tasks_impl))
     from adapters.persona_commands import cmd_persona_impl
     dp.message(Command("образ", "persona"))(_master_only(cmd_persona_impl, bot=bot))
+    from adapters.persona_commands import cmd_intimate_kb_impl, cmd_figure_impl
+    dp.message(Command("база", "kb"))(_master_only(cmd_intimate_kb_impl, bot=bot))
+    dp.message(Command("фигура", "figure"))(_master_only(cmd_figure_impl, bot=bot))
+    from adapters.persona_commands import callback_impl as _pdoc_cb_impl
+
+    async def _pdoc_cb(callback):
+        if is_master(callback.from_user.id):
+            await _pdoc_cb_impl(callback)
+    dp.callback_query(F.data.startswith("pdoc:"))(_pdoc_cb)
 
     async def _forget_tasks_cb(callback):
         if is_master(callback.from_user.id):
@@ -258,6 +267,11 @@ async def handle_message(message: Message):
     text       = message.text
     text_lower = text.lower()
     _text_raw  = text
+    # Ввод значения для /база, /фигура после нажатия кнопки — до детектора
+    # режима и журнала: значение не включает режим и не пишется в лог.
+    from adapters.persona_commands import pending_input_impl as _pdoc_input
+    if await _pdoc_input(message):
+        return
     from modules.intimacy_mode import mark as _im_mark
     from modules.intimacy_mode import redact as _im_redact
     _im_mark(text, "tg_private")

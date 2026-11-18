@@ -6,6 +6,7 @@
   GET      /cover/<sha1>            обложка из кэша медиатеки
   GET      /subtitle/<id>/<n>       субтитры (.vtt как есть, .srt → WebVTT)
   GET      /youtube/player.html     страница плеера YouTube IFrame API
+  GET/HEAD /yandex/<id>             поток трека Яндекс.Музыки (Range, CORS для Web Audio)
 Файлы отдаются ТОЛЬКО через медиатеку и только из папок владельца
 (MediaLibrary.is_allowed: realpath + commonpath).
 
@@ -21,6 +22,8 @@ import os
 import re
 import secrets
 import threading
+import urllib.error
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -32,6 +35,26 @@ MIME = {".flac": "audio/flac", ".opus": "audio/ogg", ".ogg": "audio/ogg", ".oga"
         ".wav": "audio/wav", ".aac": "audio/aac", ".wma": "audio/x-ms-wma", ".avi": "video/x-msvideo"}
 CHUNK = 256 * 1024
 YT_ID = re.compile(r"^[A-Za-z0-9_-]{6,20}$")
+YM_ID = re.compile(r"^\d{1,20}(?::\d{1,20})?$")
+YM_HOSTS = (".yandex.net", ".yandex.ru", ".yandex.com")
+YM_TIMEOUT_S = 15
+
+
+def ym_host_allowed(url: str) -> bool:
+    """Поток Яндекса берём только по https и только с его серверов."""
+    u = urlparse(url)
+    host = (u.hostname or "").lower()
+    return u.scheme == "https" and any(host.endswith(h) for h in YM_HOSTS)
+
+
+class _YmRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not ym_host_allowed(newurl):
+            raise urllib.error.URLError("redirect outside yandex")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_ym_opener = urllib.request.build_opener(_YmRedirects)
 
 
 def srt_to_vtt(text: str) -> str:
@@ -110,6 +133,9 @@ class MediaServer:
         self.token = token or secrets.token_urlsafe(24)
         self._httpd: ThreadingHTTPServer | None = None
         self.port: int | None = None
+        # (track_id, fresh) → прямая ссылка; задаёт MediaService
+        self.yandex_link = None
+        self.yandex_open = lambda req: _ym_opener.open(req, timeout=YM_TIMEOUT_S)
 
     @property
     def origin(self) -> str:
@@ -164,6 +190,8 @@ class MediaServer:
                         return self._subtitle(int(parts[1]), int(parts[2]), head)
                     if parts == ["youtube", "player.html"]:
                         return self._player(qs, head)
+                    if len(parts) == 2 and parts[0] == "yandex" and YM_ID.fullmatch(parts[1]):
+                        return self._yandex(parts[1], head)
                 except ValueError:
                     return self._deny(400, "bad id")
                 return self._deny(404, "not found")
@@ -236,6 +264,61 @@ class MediaServer:
                 self._headers(200, "text/vtt; charset=utf-8", len(body))
                 if not head:
                     self.wfile.write(body)
+                return None
+
+            def _ym_upstream(self, track_id: str, head: bool):
+                """Открыть поток; истёкшую ссылку (403/404/410) один раз получаем заново."""
+                for fresh in (False, True):
+                    link = server.yandex_link(track_id, fresh)
+                    if not ym_host_allowed(link):
+                        raise urllib.error.URLError("link outside yandex")
+                    req = urllib.request.Request(link, method="HEAD" if head else "GET")
+                    if self.headers.get("Range"):
+                        req.add_header("Range", self.headers["Range"])
+                    try:
+                        return server.yandex_open(req)
+                    except urllib.error.HTTPError as e:
+                        e.close()
+                        if fresh or e.code not in (403, 404, 410):
+                            raise
+                return None
+
+            def _yandex(self, track_id: str, head: bool):
+                if server.yandex_link is None:
+                    return self._deny(404, "yandex off")
+                try:
+                    up = self._ym_upstream(track_id, head)
+                except urllib.error.HTTPError as e:
+                    if e.code == 416:
+                        return self._deny(416, "range")
+                    log.warning("[yandex] поток: HTTP %s", e.code)
+                    return self._deny(502, "upstream")
+                except Exception as e:  # noqa: BLE001 — сеть, блокировка, ProviderError
+                    log.warning("[yandex] поток: %s", type(e).__name__)
+                    return self._deny(502, "upstream")
+                with up:
+                    self.send_response(getattr(up, "status", 200))
+                    self.send_header("Content-Type", up.headers.get("Content-Type") or "audio/mpeg")
+                    self.send_header("Accept-Ranges", "bytes")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_header("Cache-Control", "no-store")
+                    if up.headers.get("Content-Range"):
+                        self.send_header("Content-Range", up.headers["Content-Range"])
+                    if up.headers.get("Content-Length"):
+                        self.send_header("Content-Length", up.headers["Content-Length"])
+                    else:
+                        self.close_connection = True
+                    self.end_headers()
+                    if head:
+                        return None
+                    try:
+                        while buf := up.read(CHUNK):
+                            self.wfile.write(buf)
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass  # плеер перемотал и закрыл соединение
+                    except OSError as e:
+                        log.info("[yandex] поток прерван: %s", type(e).__name__)
+                        self.close_connection = True
                 return None
 
             def _player(self, qs: dict, head: bool):

@@ -10,6 +10,7 @@ import os
 import sys
 
 from desktop.core import config
+from desktop.core import results as R
 
 from .audio_session import AudioSession
 from .library import MediaLibrary
@@ -18,6 +19,7 @@ from .providers import ProviderError, remote_smtc
 from .providers import video as video_provider
 from .providers.yandex import UNOFFICIAL_NOTE, YandexProvider
 from .router import MediaRouter
+from .yandex_commands import YandexCommands
 
 log = logging.getLogger("sakura.media")
 
@@ -36,7 +38,11 @@ class MediaService:
         self.server = MediaServer(self.library)
         self.router = MediaRouter(volume_step=config.VOLUME_STEP)
         self.audio = AudioSession(duck_pct=self.get("player_duck_pct"), emit=emit)
+        self._yandex_injected = yandex is not None
         self.yandex = yandex or YandexProvider(config.YANDEX_MUSIC_TOKEN, self.get("music_yandex"))
+        self.ym = YandexCommands(lambda: self.yandex, emit, self.router)
+        self.server.yandex_link = lambda track_id, fresh: self.yandex.stream_url(track_id, fresh)
+        self.router.yandex_on = self.yandex.enabled
         self._scan_task: asyncio.Task | None = None
         self._apply_folders()
 
@@ -45,7 +51,8 @@ class MediaService:
         defaults = {"music_folders": config.MUSIC_FOLDERS, "video_folders": config.VIDEO_FOLDERS,
                     "crossfade_s": config.CROSSFADE_S, "player_duck_pct": config.PLAYER_DUCK_PCT,
                     "youtube_mode": config.YOUTUBE_MODE, "youtube_proxy": config.YOUTUBE_PROXY,
-                    "music_yandex": config.MUSIC_YANDEX}
+                    "music_yandex": config.MUSIC_YANDEX or (config.MUSIC_YANDEX_AUTO
+                                                            and bool(config.YANDEX_MUSIC_TOKEN.strip()))}
         v = self.settings.items().get(key)
         return defaults[key] if v is None else v
 
@@ -71,8 +78,18 @@ class MediaService:
         elif key == "player_duck_pct":
             self.audio.set_duck_pct(value)
         elif key == "music_yandex":
+            self._yandex_injected = False
             self.yandex = YandexProvider(config.YANDEX_MUSIC_TOKEN, value)
+            self.router.yandex_on = self.yandex.enabled
         return self.snapshot()
+
+    def _sync_yandex(self):
+        """Токен вставили в «Настройки → Секреты» на ходу — подхватываем без перезапуска."""
+        if not self._yandex_injected:
+            token, enabled = config.YANDEX_MUSIC_TOKEN.strip(), bool(self.get("music_yandex"))
+            if token != self.yandex._token or (enabled and bool(token)) != self.yandex.enabled:
+                self.yandex = YandexProvider(token, enabled)
+        self.router.yandex_on = self.yandex.enabled
 
     def _apply_folders(self):
         self.library.set_folders(self.get("music_folders"), self.get("video_folders"))
@@ -111,10 +128,28 @@ class MediaService:
         return self.router.active_window_hint()
 
     async def handle_command(self, action: str, arg: str = ""):
-        """None — не медиа или внешний путь (агент исполняет как раньше). Иначе (ok, detail)."""
+        """None — не медиа или внешний путь (агент исполняет как раньше).
+        Иначе (ok, detail) или готовый результат desktop.core.results."""
+        self._sync_yandex()
+        if action == "music.autoplay" and self.router.yandex_on:
+            status = self.router.players["music"].status
+            if status == "playing":
+                return R.noop("Музыка уже играет")
+            if status == "paused" and arg in ("last", "any"):
+                self._emit({"type": "media_command", "player": "music", "cmd": "toggle", "arg": None})
+                return R.done("Продолжила музыку")
+        action, arg = self._yandex_alias(action, arg)
+        if action == "ym.open":
+            self._emit({"type": "media_command", "player": "music", "cmd": "ym_show", "arg": {"view": "home"}})
+            return True, "Открыла Яндекс Музыку"
         route = self.router.plan(action, arg)
         if route is None or route.target == "external":
             return None
+        if route.cmd == "ym":
+            res = await self.ym.run(route.arg, arg)
+            if res is None:
+                return None
+            return R.done(res[1]) if res[0] else R.failed(res[1])
         if route.cmd == "now_playing":
             return True, self.router.now_playing_text(route.player)
         if route.cmd == "list_playlists":
@@ -127,11 +162,26 @@ class MediaService:
         self._emit({"type": "media_command", "player": route.player, "cmd": route.cmd, "arg": route.arg})
         return True, f"{route.player}: {route.cmd}"
 
+    def _yandex_alias(self, action: str, arg: str) -> tuple[str, str]:
+        """«Включи музыку» и «открой Яндекс Музыку» — во встроенный плеер, когда он включён."""
+        if not self.router.yandex_on:
+            return action, arg
+        if action == "music.autoplay":
+            return {"liked": "music.liked_tracks", "playlist_of_day": "music.playlist_of_day"}.get(arg, "music.wave"), ""
+        target = action.split(":", 1)[1] if action.startswith(("open_app:", "switch_to_app:")) else \
+            (arg or "яндекс музыка") if action == "open.app" else \
+            arg if action in ("app.switch", "app.switch_open") else None
+        if target is not None:
+            from desktop.core import app_launch
+            if app_launch.app_key(target) == "yandex_music":
+                return "ym.open", ""
+        return action, arg
+
     # ── команды интерфейса ─────────────────────────────────────────
     def register(self, api_command):
         for name in ("state", "library", "scan", "urls", "playlist", "history", "position", "open_url",
                      "youtube_from_browser", "youtube_to_browser", "youtube_check", "yandex", "level",
-                     "settings", "external", "clear_covers", "open_external", "ymremote"):
+                     "settings", "external", "clear_covers", "open_external", "ymremote", "queue"):
             api_command(f"media_{name}", getattr(self, f"cmd_{name}"))
 
     async def cmd_state(self, msg):
@@ -141,6 +191,10 @@ class MediaService:
         fields = {k: msg[k] for k in ("status", "source", "title", "artist", "album", "position", "duration")
                   if k in msg}
         self.router.update(player, **fields)
+        if player == "music" and "ym_id" in msg:
+            self.router.players["music"].extra["ym_id"] = msg["ym_id"]
+            if msg.get("new_track") and msg["ym_id"]:
+                self.ym.note_played(fields.get("title", ""), fields.get("artist", ""))
         if "status" in fields:
             self.audio.set_playing(player, fields["status"] == "playing")
         if fields.get("status") == "playing" and msg.get("track_id") and msg.get("new_track"):
@@ -149,6 +203,12 @@ class MediaService:
             except (ValueError, TypeError):
                 pass
         self._emit({"type": "now_playing", "player": player, **fields})
+
+    async def cmd_queue(self, msg):
+        """Окно сообщает очередь — чтобы Сакура могла сказать, что играет дальше."""
+        items = [{"title": str(t.get("title", "")), "artist": str(t.get("artist", ""))}
+                 for t in (msg.get("items") or [])]
+        self.ym.set_queue(items, int(msg.get("index", -1)))
 
     def _with_covers(self, items: list[dict]) -> list[dict]:
         # URL обложки с токеном медиасервера — интерфейс показывает её как есть.
@@ -254,11 +314,25 @@ class MediaService:
             if op == "playlists":
                 return {"items": await asyncio.to_thread(y.playlists)}
             if op == "playlist":
-                return {"items": await asyncio.to_thread(y.playlist_tracks, int(str(msg["id"]).removeprefix("ym:")))}
+                return {"items": await asyncio.to_thread(y.playlist_tracks, str(msg["id"]))}
             if op == "wave":
                 return {"items": await asyncio.to_thread(y.wave)}
+            if op == "search_all":
+                return await asyncio.to_thread(y.search_all, str(msg.get("q", "")))
+            if op == "artist":
+                return {"items": await asyncio.to_thread(y.artist_tracks, str(msg["id"]))}
+            if op == "album":
+                return {"items": await asyncio.to_thread(y.album_tracks, str(msg["id"]))}
+            if op == "station":
+                return await asyncio.to_thread(y.station_tracks, str(msg["station"]), msg.get("after"))
+            if op == "feedback":
+                return {"ok": await asyncio.to_thread(y.station_feedback, str(msg["station"]), str(msg["event"]),
+                                                      msg.get("id"), float(msg.get("played") or 0), msg.get("batch_id"))}
             if op == "stream":
-                return {"src": await asyncio.to_thread(y.stream_url, str(msg["id"]))}
+                tid = str(msg["id"]).removeprefix("ym:")
+                if not y.enabled:
+                    raise ProviderError("Яндекс.Музыка выключена (MUSIC_YANDEX=0 или нет токена)")
+                return {"src": self.server.url(f"/yandex/{tid}")}
             if op == "like":
                 return {"ok": await asyncio.to_thread(y.like, str(msg["id"]), bool(msg.get("on", True)))}
         except ProviderError as e:

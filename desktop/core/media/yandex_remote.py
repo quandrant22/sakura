@@ -21,6 +21,8 @@ TOKEN_HINT = f"Нужен доступ к Яндекс.Музыке: встав�
 NO_SOUND = "Звук Яндекс.Музыки не найден: включите трек — повторю через 2 с"
 NO_PLAYER = "Яндекс.Музыка ничего не воспроизводит — включите трек в приложении"
 SEEK_NO = "Приложение Яндекс.Музыки не даёт перематывать через Windows — перемотайте в окне приложения"
+EMBEDDED_HINT = (f"Это умеет встроенный плеер Яндекс.Музыки: вставь YANDEX_MUSIC_TOKEN в «{SECRETS_PLACE}» "
+                 "и включи его в настройках медиа")
 MODES_TTL_S = 10.0
 RETRY_MS = 2000
 REPEAT_CYCLE = {"none": "list", "list": "track", "track": "none"}
@@ -162,6 +164,8 @@ class YandexRemote:
                 "cover": _cover_url(cover)}
 
     async def control(self, op: str, value=None) -> dict:
+        if op == "embedded_only":
+            return R.unsupported(EMBEDDED_HINT, help="token")
         s = self.smtc
         if op == "play_pause":
             ok = await s._smtc_control("play_pause")
