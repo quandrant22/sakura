@@ -31,11 +31,15 @@ export interface MusicState {
   station: { id: string; batchId: string | null } | null;
   /** Последняя команда Сакуры показать экран Яндекс.Музыки. */
   yandexShow: YandexShow | null;
+  /** Треки из «Мне нравится» — чтобы кнопка лайка показывала настоящее состояние. */
+  likedIds: ReadonlySet<Track["id"]>;
 
   playTracks(tracks: Track[], start?: number): Promise<void>;
   playStation(station: string): Promise<void>;
   enqueue(tracks: Track[], next?: boolean): Promise<void>;
   setYandexShow(show: YandexShow | null): void;
+  toggleLike(): Promise<void>;
+  showLyrics(): Promise<void>;
   playAt(index: number): Promise<void>;
   toggle(): Promise<void>;
   next(auto?: boolean): Promise<void>;
@@ -67,6 +71,7 @@ export function createMusicStore(client: CoreClient, engine: AudioEngine) {
   let lastReport = 0;
   let nearEndArmed = true;
   let stationLoading = false;
+  let likesLoaded = false;
 
   const store = createStore<MusicState>()((set, get) => {
     const current = () => {
@@ -107,7 +112,9 @@ export function createMusicStore(client: CoreClient, engine: AudioEngine) {
     async function topUpStation() {
       const st = get().station;
       const q = get().queue;
-      if (!st || stationLoading || q.items.length - 1 - q.index > STATION_LOW_WATER) return;
+      // Впереди считаем по порядку игры: при перемешивании он не совпадает с порядком списка.
+      const ahead = q.order.length - 1 - q.order.indexOf(q.index);
+      if (!st || stationLoading || ahead > STATION_LOW_WATER) return;
       stationLoading = true;
       try {
         const last = q.items[q.items.length - 1];
@@ -136,10 +143,28 @@ export function createMusicStore(client: CoreClient, engine: AudioEngine) {
       }
     }
 
+    function markLiked(id: Track["id"], on: boolean) {
+      const ids = new Set(get().likedIds);
+      if (on) ids.add(id); else ids.delete(id);
+      set({ likedIds: ids });
+    }
+
+    async function loadLikes() {
+      if (likesLoaded) return;
+      likesLoaded = true;
+      try {
+        const r = await client.call<{ ids?: string[] }>("media_yandex", { op: "likes" });
+        set({ likedIds: new Set([...(r?.ids ?? []), ...get().likedIds]) });
+      } catch {
+        likesLoaded = false;   // сеть вернётся — загрузим на следующем треке
+      }
+    }
+
     async function start(index: number, crossfade = 0) {
       const q = get().queue;
       const t = q.items[index];
       if (!t) return;
+      if (t.source === "yandex") void loadLikes();
       set({ queue: { ...q, index }, error: null, position: 0, duration: t.duration ?? 0 });
       try {
         const { src, cover } = await srcFor(t);
@@ -199,6 +224,7 @@ export function createMusicStore(client: CoreClient, engine: AudioEngine) {
       error: null,
       station: null,
       yandexShow: null,
+      likedIds: new Set<Track["id"]>(),
 
       current,
 
@@ -230,6 +256,29 @@ export function createMusicStore(client: CoreClient, engine: AudioEngine) {
         void preloadNext();
       },
       setYandexShow: (show) => set({ yandexShow: show }),
+      async toggleLike() {
+        const t = current();
+        if (!t || t.source !== "yandex") return get().like();
+        const on = !get().likedIds.has(t.id);
+        markLiked(t.id, on);
+        try {
+          await client.call("media_yandex", on ? { op: "like", id: t.id, on: true } : { op: "unlike", id: t.id });
+        } catch (e) {
+          markLiked(t.id, !on);
+          set({ error: e instanceof Error ? e.message : "Лайк не сохранился" });
+        }
+      },
+      async showLyrics() {
+        const t = current();
+        if (!t || t.source !== "yandex") return;
+        try {
+          const r = await client.call<{ text?: string | null }>("media_yandex", { op: "lyrics", id: t.id });
+          if (r?.text) set({ yandexShow: { view: "lyrics", title: t.title, text: r.text } });
+          else set({ error: "У этой песни нет текста" });
+        } catch (e) {
+          set({ error: e instanceof Error ? e.message : "Текст недоступен" });
+        }
+      },
       playAt: (i) => start(i),
 
       async toggle() {
@@ -329,7 +378,10 @@ export function createMusicStore(client: CoreClient, engine: AudioEngine) {
       async like() {
         const t = current();
         if (!t) return;
-        if (t.source === "yandex") await client.call("media_yandex", { op: "like", id: t.id, on: true });
+        if (t.source === "yandex") {
+          await client.call("media_yandex", { op: "like", id: t.id, on: true });
+          markLiked(t.id, true);
+        }
         else await client.call("media_playlist", { op: "like", track_id: t.id });
       },
       async dislike() {
@@ -366,6 +418,10 @@ export function createMusicStore(client: CoreClient, engine: AudioEngine) {
             return s.enqueue(a.tracks, !!a.next);
           }
           case "ym_show": return s.setYandexShow(arg as YandexShow);
+          case "ym_liked": {
+            const a = arg as { id: Track["id"]; on: boolean };
+            return markLiked(a.id, a.on);
+          }
           case "queue_clear":
             set({ queue: Q.clearUpcoming(get().queue), station: null });
             return engine.preload(null);

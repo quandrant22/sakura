@@ -335,6 +335,12 @@ class MediaService:
                 return {"src": self.server.url(f"/yandex/{tid}")}
             if op == "like":
                 return {"ok": await asyncio.to_thread(y.like, str(msg["id"]), bool(msg.get("on", True)))}
+            if op == "unlike":
+                return {"ok": await asyncio.to_thread(y.unlike, str(msg["id"]))}
+            if op == "likes":
+                return {"ids": await asyncio.to_thread(y.liked_ids)}
+            if op == "lyrics":
+                return {"text": await asyncio.to_thread(y.lyrics, str(msg["id"]))}
         except ProviderError as e:
             from desktop.core.api.server import ApiError
             raise ApiError("yandex_unavailable", str(e)) from None

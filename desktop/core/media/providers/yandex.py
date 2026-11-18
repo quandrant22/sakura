@@ -320,6 +320,12 @@ class YandexProvider:
         return bool(self._call("лайк", lambda c: c.users_likes_tracks_add(tid) if on
                                else c.users_dislikes_tracks_add(tid)))
 
+    def liked_ids(self) -> list[str]:
+        """Id всех треков из «Мне нравится» — чтобы кнопка лайка показывала правду."""
+        def f(c):
+            return [f"ym:{str(s.id).split(':')[0]}" for s in (c.users_likes_tracks() or [])]
+        return self._call("«Мне нравится»", f)
+
     def unlike(self, track_id: str) -> bool:
         tid = str(track_id).removeprefix("ym:")
         return bool(self._call("снятие лайка", lambda c: c.users_likes_tracks_remove(tid)))
