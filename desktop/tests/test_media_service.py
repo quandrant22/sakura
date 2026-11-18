@@ -219,7 +219,7 @@ def test_yandex_disabled_by_default():
 def test_yandex_provider_with_fake_client():
     y = YandexProvider("secret-token", enabled=True, client_factory=lambda tok: FakeYM())
     item = y.search("song")[0]
-    assert item == {"id": "ym:5", "source": "yandex", "title": "Song", "artist": "Artist", "album": "LP",
+    assert item == {"id": "ym:5", "source": "yandex", "title": "Song", "artist": "Artist", "album": "LP", "album_id": None,
                     "duration": 180.0, "cover": "https://avatars.yandex.net/x/200x200"}
     assert y.stream_url("ym:5") == "mp3-320"
     assert y.wave()[0]["title"] == "Song"

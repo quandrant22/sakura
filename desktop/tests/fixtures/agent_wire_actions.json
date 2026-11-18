@@ -420,6 +420,102 @@
   "youtube.open": [
    "youtube.open",
    ""
+  ],
+  "music.play_artist": [
+   "music.play_artist",
+   ""
+  ],
+  "music.play_album": [
+   "music.play_album",
+   ""
+  ],
+  "music.play_playlist": [
+   "music.play_playlist",
+   ""
+  ],
+  "music.station": [
+   "music.station",
+   ""
+  ],
+  "music.similar": [
+   "music.similar",
+   ""
+  ],
+  "music.chart": [
+   "music.chart",
+   ""
+  ],
+  "music.new_releases": [
+   "music.new_releases",
+   ""
+  ],
+  "music.playlist_of_day": [
+   "music.playlist_of_day",
+   ""
+  ],
+  "music.queue_add": [
+   "music.queue_add",
+   ""
+  ],
+  "music.play_next": [
+   "music.play_next",
+   ""
+  ],
+  "music.queue_show": [
+   "music.queue_show",
+   ""
+  ],
+  "music.queue_clear": [
+   "music.queue_clear",
+   ""
+  ],
+  "music.queue_remove": [
+   "music.queue_remove",
+   ""
+  ],
+  "music.search": [
+   "music.search",
+   ""
+  ],
+  "music.lyrics": [
+   "music.lyrics",
+   ""
+  ],
+  "music.unlike": [
+   "music.unlike",
+   ""
+  ],
+  "music.like_album": [
+   "music.like_album",
+   ""
+  ],
+  "music.like_artist": [
+   "music.like_artist",
+   ""
+  ],
+  "music.playlist_add": [
+   "music.playlist_add",
+   ""
+  ],
+  "music.playlist_remove": [
+   "music.playlist_remove",
+   ""
+  ],
+  "music.playlist_create": [
+   "music.playlist_create",
+   ""
+  ],
+  "music.playlist_delete": [
+   "music.playlist_delete",
+   ""
+  ],
+  "music.seek_to": [
+   "music.seek_to",
+   ""
+  ],
+  "music.volume_set": [
+   "music.volume_set",
+   ""
   ]
  }
 }

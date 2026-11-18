@@ -9,6 +9,15 @@ export interface Track {
   cover?: string | null;        // URL обложки (медиасервер или Яндекс)
   cover_hash?: string | null;
   track_no?: number | null;
+  album_id?: string | null;     // Яндекс.Музыка
+}
+
+/** Что показать на экране Яндекс.Музыки по команде Сакуры. */
+export interface YandexShow {
+  view: "home" | "search" | "playlists" | "lyrics";
+  q?: string;
+  title?: string;
+  text?: string;
 }
 
 export type PlayStatus = "stopped" | "playing" | "paused";

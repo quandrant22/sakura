@@ -16,9 +16,18 @@ BUILTIN_IDLE_S = 600.0
 SEEK_STEP_S = 10
 SPEED_STEP = 0.25
 
-MUSIC_ACTIONS = ("dislike", "history", "like", "liked_tracks", "mute", "next", "now_playing", "play_pause",
-                 "play_track", "playlists", "podcasts", "prev", "repeat", "restart", "seek_back", "seek_forward",
-                 "shuffle", "volume_down", "volume_up", "wave")
+MUSIC_ACTIONS = ("chart", "dislike", "history", "like", "like_album", "like_artist", "liked_tracks", "lyrics", "mute",
+                 "new_releases", "next", "now_playing", "play_album", "play_artist", "play_next", "play_pause",
+                 "play_playlist", "play_track", "playlist_add", "playlist_create", "playlist_delete",
+                 "playlist_of_day", "playlist_remove", "playlists", "podcasts", "prev", "queue_add", "queue_clear",
+                 "queue_remove", "queue_show", "repeat", "restart", "search", "seek_back", "seek_forward", "seek_to",
+                 "shuffle", "similar", "station", "unlike", "volume_down", "volume_set", "volume_up", "wave")
+# Исполняет встроенная Яндекс.Музыка (yandex_commands), когда она включена — даже если плеер молчит.
+YANDEX_VERBS = frozenset({"chart", "history", "like_album", "like_artist", "liked_tracks", "lyrics", "new_releases",
+                          "play_album", "play_artist", "play_next", "play_playlist", "play_track", "playlist_add",
+                          "playlist_create", "playlist_delete", "playlist_of_day", "playlist_remove", "playlists",
+                          "queue_add", "queue_clear", "queue_remove", "queue_show", "search", "seek_to", "similar",
+                          "station", "unlike", "volume_set", "wave"})
 YOUTUBE_ACTIONS = ("forward", "fullscreen", "like", "mini", "next", "pause", "rewind", "speed_down",
                    "speed_up", "sub_toggle", "theater", "trending", "open")
 
@@ -93,6 +102,7 @@ class MediaRouter:
         self.volume_step = volume_step
         self.clock = clock
         self.players = {"music": PlayerState(), "video": PlayerState()}
+        self.yandex_on = False      # встроенная Яндекс.Музыка включена и есть токен
 
     def update(self, player: str, **state):
         if player not in self.players:
@@ -104,7 +114,11 @@ class MediaRouter:
         st.updated = self.clock()
 
     def active(self, player: str) -> bool:
-        return self.players[player].active(self.clock())
+        st = self.players[player]
+        # Встроенная Яндекс.Музыка — основной плеер: пауза не «протухает» через 10 минут.
+        if player == "music" and self.yandex_on and st.status == "paused":
+            return True
+        return st.active(self.clock())
 
     def plan(self, action: str, arg: str = "") -> Route | None:
         """None — действие не медиа. Иначе маршрут: встроенный плеер или внешний путь."""
@@ -113,6 +127,8 @@ class MediaRouter:
             return None
         dom, verb = c
         player = "music" if dom == "music" else "video"
+        if dom == "music" and self.yandex_on and verb in YANDEX_VERBS:
+            return Route("builtin", "music", "ym", verb)
         table = MUSIC_BUILTIN if dom == "music" else YOUTUBE_BUILTIN
         impl = table.get(verb)
         if impl is None or not self.active(player):

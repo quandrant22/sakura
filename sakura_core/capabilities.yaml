@@ -439,6 +439,257 @@
     pattern: '(?:включи|поставь|найди|сыграй|вруби)\\s+(?:трек|песню)?\\s*(.+)'
     required: ask
 
+# Встроенная Яндекс.Музыка (desktop/core/media/yandex_commands.py)
+- id: music.play_artist
+  desc: 'Включить музыку исполнителя в Яндекс Музыке'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: llm
+  triggers: ['включи исполнителя', 'поставь исполнителя', 'включи артиста', 'поставь артиста', 'включи музыку исполнителя', 'включи треки исполнителя']
+  param:
+    name: query
+    pattern: '(?:исполнителя|артиста)\s+(.+)'
+    required: ask
+
+- id: music.play_album
+  desc: 'Включить альбом в Яндекс Музыке'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: llm
+  triggers: ['включи альбом', 'поставь альбом', 'вруби альбом', 'открой альбом', 'сыграй альбом']
+  param:
+    name: query
+    pattern: 'альбом\s+(.+)'
+    required: ask
+
+- id: music.play_playlist
+  desc: 'Включить или открыть плейлист в Яндекс Музыке'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: llm
+  triggers: ['включи плейлист', 'поставь плейлист', 'вруби плейлист', 'открой плейлист', 'сыграй плейлист']
+  param:
+    name: query
+    pattern: 'плейлист\s+(.+)'
+    required: ask
+
+- id: music.station
+  desc: 'Включить радиостанцию Яндекс Музыки по жанру, настроению или занятию'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: llm
+  triggers: ['включи радио', 'поставь радио', 'включи станцию', 'поставь станцию', 'включи жанр']
+  param:
+    name: query
+    pattern: '(?:радио|станцию|жанр)\s+(.+)'
+    required: ask
+
+- id: music.similar
+  desc: 'Включить музыку, похожую на текущий трек'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: llm
+  triggers: ['включи похожее', 'поставь похожее', 'включи похожие треки', 'включи похожую музыку']
+
+- id: music.chart
+  desc: 'Включить чарт Яндекс Музыки'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: llm
+  triggers: ['включи чарт', 'поставь чарт', 'топ чарта', 'чарт яндекс музыки']
+
+- id: music.new_releases
+  desc: 'Включить новинки Яндекс Музыки'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: llm
+  triggers: ['включи новинки', 'поставь новинки', 'новинки музыки', 'новые релизы']
+
+- id: music.playlist_of_day
+  desc: 'Включить плейлист дня'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: llm
+  triggers: ['плейлист дня', 'включи плейлист дня', 'поставь плейлист дня']
+
+- id: music.queue_add
+  desc: 'Добавить трек, альбом, плейлист или исполнителя в конец очереди'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: llm
+  triggers: ['в очередь']
+  param:
+    name: query
+    pattern: '(?:добавь|закинь|кинь|поставь)\s+(?:в\s+очередь\s+(.+)|(.+?)\s+в\s+очередь)'
+    required: true
+
+- id: music.play_next
+  desc: 'Поставить трек следующим в очереди'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: llm
+  triggers: ['следующим']
+  param:
+    name: query
+    pattern: '(?:следующим\s+(?:поставь|включи|сыграй)\s+(.+)|(?:поставь|включи|сыграй)\s+(?:следующим\s+(.+)|(.+?)\s+следующим))'
+    required: true
+
+- id: music.queue_show
+  desc: 'Сказать, что играет дальше и что в очереди'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: llm
+  triggers: ['что в очереди', 'покажи очередь', 'что дальше играет', 'какой трек следующий']
+
+- id: music.queue_clear
+  desc: 'Очистить очередь воспроизведения'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['очисти очередь', 'очистить очередь', 'сбрось очередь']
+
+- id: music.queue_remove
+  desc: 'Убрать трек из очереди по названию или номеру'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: llm
+  triggers: ['убери из очереди', 'удали из очереди']
+  param:
+    name: query
+    pattern: 'из\s+очереди\s+(.+)'
+    required: ask
+
+- id: music.search
+  desc: 'Найти музыку в Яндекс Музыке и показать результаты, не включая'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: llm
+  triggers: ['найди в яндекс музыке', 'поищи в яндекс музыке', 'найди музыку', 'поищи музыку']
+  param:
+    name: query
+    pattern: '(?:музыке|музыку)\s+(.+)'
+    required: ask
+
+- id: music.lyrics
+  desc: 'Показать текст текущей песни'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: llm
+  triggers: ['текст песни', 'покажи текст песни', 'слова песни', 'какие слова у песни']
+
+- id: music.unlike
+  desc: 'Убрать лайк с текущего трека'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: llm
+  triggers: ['убери лайк', 'сними лайк', 'убери из любимых', 'удали из любимых']
+
+- id: music.like_album
+  desc: 'Добавить альбом текущего трека в коллекцию'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: llm
+  triggers: ['лайкни альбом', 'добавь альбом в коллекцию', 'сохрани альбом']
+
+- id: music.like_artist
+  desc: 'Добавить исполнителя текущего трека в любимые'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: llm
+  triggers: ['лайкни исполнителя', 'добавь исполнителя в любимые', 'подпишись на исполнителя']
+
+- id: music.playlist_add
+  desc: 'Добавить текущий или названный трек в свой плейлист; param: «плейлист» или «трек в плейлист плейлист»'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: llm
+  triggers: ['в плейлист']
+  param:
+    name: query
+    pattern: '(?:добавь|закинь|кинь)\s+(?:трек\s+|песню\s+|это\s+)?(.*?в\s+плейлист\s+.+)'
+    required: true
+
+- id: music.playlist_remove
+  desc: 'Убрать текущий трек из своего плейлиста'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: llm
+  triggers: ['убери из плейлиста', 'удали из плейлиста', 'убери трек из плейлиста', 'удали трек из плейлиста']
+  param:
+    name: query
+    pattern: 'из\s+плейлиста\s+(.+)'
+    required: ask
+
+- id: music.playlist_create
+  desc: 'Создать новый плейлист'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: llm
+  triggers: ['создай плейлист', 'сделай плейлист', 'новый плейлист']
+  param:
+    name: query
+    pattern: 'плейлист\s+(.+)'
+    required: ask
+
+- id: music.playlist_delete
+  desc: 'Удалить свой плейлист целиком'
+  executor: agent
+  reversible: false
+  confirm: true
+  confirm_prompt: 'Удалить плейлист целиком?'
+  followup: llm
+  triggers: ['удали плейлист', 'удалить плейлист']
+  param:
+    name: query
+    pattern: 'плейлист\s+(.+)'
+    required: ask
+
+- id: music.seek_to
+  desc: 'Перемотать трек на точное время, в начало или на сколько-то вперёд и назад'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['перемотай на', 'перемотай трек на']
+  context: playing:music
+  param:
+    name: query
+    pattern: 'перемотай\s+(?:трек\s+)?на\s+(.+)'
+    required: ask
+
+- id: music.volume_set
+  desc: 'Установить громкость музыки в процентах'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['громкость музыки', 'сделай музыку на']
+  param:
+    name: query
+    pattern: '(\d{1,3})'
+    required: true
+
 - id: music_stats.recent
   legacy: [music_stats:recent]
   desc: 'Что я слушал сегодня/вчера/за неделю'

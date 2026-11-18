@@ -38,6 +38,12 @@ EXPECTED = {
     "youtube.open": None,               # открыть сайт — всегда внешний браузер
     "music.restart": ("music", "seek", 0), "music.restart_playing": ("music", "seek", 0),
     "music.play_track": None,
+    # Встроенная Яндекс.Музыка выключена — внешний путь (включённая: test_yandex_commands.py).
+    **{f"music.{v}": None for v in ("play_artist", "play_album", "play_playlist", "station", "similar", "chart",
+                                    "new_releases", "playlist_of_day", "queue_add", "play_next", "queue_show",
+                                    "queue_clear", "queue_remove", "search", "lyrics", "unlike", "like_album",
+                                    "like_artist", "playlist_add", "playlist_remove", "playlist_create",
+                                    "playlist_delete", "seek_to", "volume_set")},
 }
 
 
@@ -50,10 +56,10 @@ class Clock:
 
 
 def test_registry_has_30_media_actions_all_known():
-    assert len(MEDIA_IDS) == 34
+    assert len(MEDIA_IDS) == 58
     assert sorted(MEDIA_IDS) == sorted(EXPECTED)
     # 19 из реестра + music.restart («трек сначала», п. 7) — триггеры добавит серверный агент.
-    assert len(MUSIC_ACTIONS) == 20 and len(YOUTUBE_ACTIONS) == 13
+    assert len(MUSIC_ACTIONS) == 44 and len(YOUTUBE_ACTIONS) == 13
     assert set(MUSIC_ACTIONS) | {"restart_playing"} == {c.split(".")[1] for c in MEDIA_IDS if c.startswith("music.")}
 
 

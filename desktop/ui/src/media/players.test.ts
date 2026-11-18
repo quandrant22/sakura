@@ -147,6 +147,75 @@ describe("музыкальный плеер", () => {
     expect(m.getState().error).toContain("Используйте внешний плеер");
   });
 
+  describe("Яндекс.Музыка", () => {
+    const ym = (id: number): Track => ({ id: `ym:${id}`, source: "yandex", title: `Y${id}`, artist: "A", album: "", duration: 100 });
+    const setup = () => {
+      const core = new FakeCore();
+      core.handlers.media_yandex = (p) => {
+        if (p.op === "stream") return { src: `http://y/${p.id}` };
+        if (p.op === "station") return { items: [ym(10), ym(11)], batch_id: "b2" };
+        return { ok: true };
+      };
+      const eng = new FakeEngine();
+      return { core, eng, m: createMusicStore(core, eng) };
+    };
+    const ops = (core: FakeCore, op: string) => core.calls.filter((c) => c.type === "media_yandex" && c.payload.op === op);
+
+    test("станция подгружает следующую порцию сама и не повторяет треки", async () => {
+      const { core, m } = setup();
+      await m.getState().command("ym_play", { tracks: [ym(1)], station: "track:1", batch_id: "b1" });
+      await vi.waitFor(() => expect(m.getState().queue.items.map((t) => t.id)).toEqual(["ym:1", "ym:10", "ym:11"]));
+      expect(ops(core, "station")[0]!.payload).toMatchObject({ station: "track:1", after: "ym:1" });
+      expect(m.getState().station).toEqual({ id: "track:1", batchId: "b2" });
+    });
+
+    test("отзывы станции: начало, пропуск, дослушал до конца", async () => {
+      const { core, eng, m } = setup();
+      await m.getState().command("ym_play", { tracks: [ym(1), ym(2), ym(3), ym(4), ym(5)], station: "user:onyourwave" });
+      await m.getState().next();
+      eng.ended();
+      await vi.waitFor(() => expect(m.getState().current()?.id).toBe("ym:3"));
+      expect(ops(core, "feedback").map((c) => c.payload.event)).toEqual(
+        expect.arrayContaining(["trackStarted", "skip", "trackFinished"]));
+    });
+
+    test("обычный список выключает станцию", async () => {
+      const { m } = setup();
+      await m.getState().command("ym_play", { tracks: [ym(1)], station: "track:1" });
+      await m.getState().playTracks([tr(1)]);
+      expect(m.getState().station).toBeNull();
+    });
+
+    test("в очередь: в конец, следующим, а в пустую — сразу играть", async () => {
+      const { m } = setup();
+      await m.getState().command("ym_enqueue", { tracks: [ym(1)] });
+      expect(m.getState().status).toBe("playing");
+      await m.getState().command("ym_enqueue", { tracks: [ym(2)] });
+      await m.getState().command("ym_enqueue", { tracks: [ym(3), ym(4)], next: true });
+      expect(m.getState().queue.items.map((t) => t.id)).toEqual(["ym:1", "ym:3", "ym:4", "ym:2"]);
+    });
+
+    test("ядро знает очередь и текущий трек Яндекса", async () => {
+      const { core, m } = setup();
+      await m.getState().command("ym_play", { tracks: [ym(1), ym(2), ym(3), ym(4)] });
+      expect(core.states().at(-1)).toMatchObject({ ym_id: "ym:1", track_id: null });
+      const sent = core.calls.filter((c) => c.type === "media_queue").at(-1)!.payload;
+      expect(sent).toMatchObject({ index: 0 });
+      expect((sent.items as unknown[]).length).toBe(4);
+    });
+
+    test("очистить очередь, убрать трек, точная громкость", async () => {
+      const { m } = setup();
+      await m.getState().command("ym_play", { tracks: [ym(1), ym(2), ym(3)] });
+      await m.getState().command("queue_remove", 2);
+      expect(m.getState().queue.items.map((t) => t.id)).toEqual(["ym:1", "ym:2"]);
+      await m.getState().command("queue_clear");
+      expect(m.getState().queue.items.map((t) => t.id)).toEqual(["ym:1"]);
+      await m.getState().command("volumeSet", 40);
+      expect(m.getState().volume).toBeCloseTo(0.4);
+    });
+  });
+
   test("перетаскивание в очереди и «играть следующим»", async () => {
     const m = createMusicStore(new FakeCore(), new FakeEngine());
     await m.getState().playTracks([tr(1), tr(2), tr(3)], 0);

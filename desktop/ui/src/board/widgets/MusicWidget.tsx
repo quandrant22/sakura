@@ -7,7 +7,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { Cover } from "../../components/media/Cover";
 import { MusicView } from "../../components/media/MusicView";
 import { BAR_STYLES, MUSIC_SOURCES, type MusicBarStyle, type MusicSource, usePrefs } from "../../layout/prefs";
-import { useMusic } from "../../media/MediaContext";
+import { useMediaMeta, useMusic } from "../../media/MediaContext";
 import { fmtTime } from "../../media/types";
 import { prevAction } from "./music/barLogic";
 import { YandexBar } from "./music/YandexBar";
@@ -34,17 +34,20 @@ function BarMenu({ onClose }: { onClose(): void }) {
   const source = usePrefs((p) => p.musicSource);
   const style = usePrefs((p) => p.musicBarStyle);
   const set = usePrefs((p) => p.set);
+  const embedded = useMediaMeta((m) => !!m.settings?.music_yandex);
   const opt = (on: boolean) => "rounded-full px-2.5 py-1 text-xs " + (on ? "bg-accent-grad text-white" : "text-ink-dim hover:text-ink");
   return (
     <div role="menu" aria-label="Меню панели музыки" onMouseLeave={onClose}
          className="absolute right-2 top-1 z-10 flex flex-col gap-1 rounded-btn border border-line bg-panel2 p-2 shadow-soft">
-      <div className="flex items-center gap-1">
-        <span className="w-16 text-[11px] text-ink-dim">Источник</span>
-        {(Object.keys(MUSIC_SOURCES) as MusicSource[]).map((k) => (
-          <button key={k} type="button" role="menuitemradio" aria-checked={source === k} className={opt(source === k)}
-                  onClick={() => { set("musicSource", k); onClose(); }}>{MUSIC_SOURCES[k]}</button>
-        ))}
-      </div>
+      {!embedded && (
+        <div className="flex items-center gap-1">
+          <span className="w-16 text-[11px] text-ink-dim">Источник</span>
+          {(Object.keys(MUSIC_SOURCES) as MusicSource[]).map((k) => (
+            <button key={k} type="button" role="menuitemradio" aria-checked={source === k} className={opt(source === k)}
+                    onClick={() => { set("musicSource", k); onClose(); }}>{MUSIC_SOURCES[k]}</button>
+          ))}
+        </div>
+      )}
       <div className="flex items-center gap-1">
         <span className="w-16 text-[11px] text-ink-dim">Стиль</span>
         {(Object.keys(BAR_STYLES) as MusicBarStyle[]).map((k) => (
@@ -114,7 +117,10 @@ function LocalBar({ onMenu }: { onMenu(): void }) {
 }
 
 export function MusicWidget() {
-  const source = usePrefs((p) => p.musicSource);
+  const pref = usePrefs((p) => p.musicSource);
+  // Встроенная Яндекс.Музыка играет в самой Сакуре: пульт внешнего приложения ей не нужен.
+  const embedded = useMediaMeta((m) => !!m.settings?.music_yandex);
+  const source = embedded ? "sakura" : pref;
   const [ref, height] = useHeight<HTMLDivElement>();
   const [menu, setMenu] = useState(false);
   const toggle = () => setMenu((m) => !m);

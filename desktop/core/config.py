@@ -191,6 +191,8 @@ CROSSFADE_S = float(os.getenv("CROSSFADE_S", "0"))          # плавный п�
 PLAYER_DUCK_PCT = int(os.getenv("PLAYER_DUCK_PCT", "30"))   # громкость плееров, пока Сакура слушает/говорит
 YOUTUBE_MODE = os.getenv("YOUTUBE_MODE", "embedded").strip().lower()  # embedded | remote
 YOUTUBE_PROXY = os.getenv("YOUTUBE_PROXY", "").strip()      # прокси только для плеера YouTube
+# Не задано — встроенная Яндекс.Музыка включается сама, как только есть YANDEX_MUSIC_TOKEN.
+MUSIC_YANDEX_AUTO = not os.getenv("MUSIC_YANDEX", "").strip()
 MUSIC_YANDEX = os.getenv("MUSIC_YANDEX", "0").strip().lower() in ("1", "true", "yes", "on")
 
 # ── Аудио-устройство вывода ─────────────────────────────────────────

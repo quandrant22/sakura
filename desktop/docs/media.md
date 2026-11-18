@@ -66,9 +66,24 @@
 и отдаёт файлы только через медиатеку и только из выбранных папок (realpath + commonpath;
 `..`, `%2e%2e`, чужие диски и симлинки наружу не проходят). Тесты: `test_media_server.py`.
 
-## Яндекс.Музыка (опция)
+## Яндекс.Музыка во встроенном плеере
 
-`MUSIC_YANDEX=1` + `YANDEX_MUSIC_TOKEN` в `.env`. Библиотека `yandex-music` неофициальная
+Включается сама, когда есть `YANDEX_MUSIC_TOKEN`; `MUSIC_YANDEX=0` оставляет только пульт приложения.
+Пока она включена, команды ниже исполняет встроенный плеер, даже если он молчит
+(`router.YANDEX_VERBS` → `yandex_commands.py`). Звук идёт через `/yandex/<id>` медиасервера.
+
+| Действие | Что делает |
+|---|---|
+| `music.play_track` / `play_artist` / `play_album` / `play_playlist` | найти и включить; «вперемешку» в запросе перемешивает |
+| `music.wave` / `station` / `similar` | станция: очередь продолжается сама, Яндекс получает отзывы о прослушивании |
+| `music.liked_tracks` / `chart` / `new_releases` / `playlist_of_day` | включить подборку |
+| `music.queue_add` / `play_next` / `queue_show` / `queue_remove` / `queue_clear` | очередь |
+| `music.search` / `playlists` / `lyrics` | показать на экране Яндекс Музыки поверх приложения |
+| `music.unlike` / `like_album` / `like_artist` | лайки |
+| `music.playlist_add` / `playlist_remove` / `playlist_create` / `playlist_delete` | свои плейлисты; удаление — с подтверждением и только по точному названию |
+| `music.seek_to` / `volume_set` | точная перемотка и громкость |
+
+Библиотека `yandex-music` неофициальная
 (MarshalX, LGPL-3.0, API получен обратной разработкой); в интерфейсе — пометка
 «неофициальный доступ». Ошибки и блокировки — понятное сообщение и откат на внешний плеер.
 Токен не логируется и не попадает в тексты ошибок (тест `test_yandex_errors_hide_token`).

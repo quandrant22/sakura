@@ -26,6 +26,7 @@ import { TitleBar } from "./components/TitleBar";
 import { CATALOG, gamesPage, getPage, patchWidget, setActivePage, type WidgetType } from "./layout/boardModel";
 import { VIEWS } from "./board/registry";
 import { CHAT, prefsStore, usePrefs } from "./layout/prefs";
+import { YandexOverlay } from "./components/media/YandexOverlay";
 import { MediaProvider } from "./media/MediaContext";
 import { Devices } from "./screens/Devices";
 import { Scenarios } from "./screens/Scenarios";
@@ -265,7 +266,7 @@ export function Providers({ client, children }: { client?: CoreClient; children:
   useEffect(() => store.getState().init(), [store]);
   return (
     <StoreContext.Provider value={store}>
-      <MediaProvider client={core}>{children}</MediaProvider>
+      <MediaProvider client={core}>{children}<YandexOverlay /></MediaProvider>
     </StoreContext.Provider>
   );
 }

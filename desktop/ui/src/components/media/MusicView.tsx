@@ -9,6 +9,7 @@ import { useMediaClient, useMediaMeta, useMusic } from "../../media/MediaContext
 import { fmtTime, fromLibrary, type LibraryTrack, type Track } from "../../media/types";
 import { EmptyState, ErrorState, Skeleton } from "../ui";
 import { Cover } from "./Cover";
+import { YandexView } from "./YandexView";
 
 type View = "tracks" | "albums" | "artists" | "playlists" | "yandex";
 type Filter = { album?: string; artist?: string; playlist?: number; title?: string } | null;
@@ -48,7 +49,9 @@ function TrackRow({ index, style, tracks, currentId, onPlay, onNext }: RowCompon
   );
 }
 
-export function MusicView() {
+export function MusicView({ initialView = "tracks", initialQuery = "", initialYandex }: {
+  initialView?: View; initialQuery?: string; initialYandex?: "playlists";
+}) {
   const client = useMediaClient();
   const settings = useMediaMeta((s) => s.settings);
   const scan = useMediaMeta((s) => s.scan);
@@ -56,8 +59,8 @@ export function MusicView() {
   const playTracks = useMusic((s) => s.playTracks);
   const playNext = useMusic((s) => s.playNext);
   const currentId = useMusic((s) => s.current()?.id);
-  const [view, setView] = useState<View>("tracks");
-  const [q, setQ] = useState("");
+  const [view, setView] = useState<View>(initialView);
+  const [q, setQ] = useState(initialQuery);
   const [filter, setFilter] = useState<Filter>(null);
   const [reload, setReload] = useState(0);
   // Результат привязан к ключу запроса: пока ключ не совпал — показываем загрузку
@@ -70,12 +73,7 @@ export function MusicView() {
   useEffect(() => {
     let alive = true;
     const load = async (): Promise<unknown[]> => {
-      if (view === "yandex") {
-        const r = q.trim()
-          ? await client.call<{ items: Track[] }>("media_yandex", { op: "search", q })
-          : await client.call<{ items: Track[] }>("media_yandex", { op: "liked" });
-        return r.items;
-      }
+      if (view === "yandex") return [];      // свой экран: YandexView
       if (filter?.playlist !== undefined) {
         const r = await client.call<{ items: LibraryTrack[] }>("media_playlist", { op: "tracks", id: filter.playlist });
         return r.items.map(fromLibrary);
@@ -93,7 +91,7 @@ export function MusicView() {
     return () => { alive = false; };
   }, [client, view, q, filter, version, reload, reqKey]);
 
-  const showTracks = view === "tracks" || view === "yandex" || filter !== null;
+  const showTracks = view === "tracks" || filter !== null;
 
   return (
     <div className="flex min-h-0 flex-1 gap-4">
@@ -140,12 +138,14 @@ export function MusicView() {
         )}
 
         <div className="mt-2 min-h-0 flex-1 px-2 pb-3">
-          {error ? (
+          {view === "yandex" ? (
+            <YandexView query={q} startOn={initialYandex} />
+          ) : error ? (
             <ErrorState text={error} onRetry={() => setReload((x) => x + 1)} />
           ) : rows === null ? (
             <Skeleton lines={6} />
           ) : rows.length === 0 ? (
-            <EmptyState text={view === "yandex" ? "Ничего не найдено" : "Медиатека пуста. Добавьте папки с музыкой: Настройки → Медиа"} />
+            <EmptyState text="Медиатека пуста. Добавьте папки с музыкой: Настройки → Медиа" />
           ) : showTracks ? (
             <List rowComponent={TrackRow} rowCount={rows.length} rowHeight={40} className="h-full"
                   rowProps={{ tracks: rows as Track[], currentId, onPlay: (i) => void playTracks(rows as Track[], i), onNext: playNext }} />

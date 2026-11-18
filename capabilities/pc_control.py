@@ -38,7 +38,8 @@ PC_ACTIONS = (
 )
 # «да» на вопрос подтверждения исполняется через Executor (команда собрана
 # в момент вопроса, уходит с "confirmed": true): эти действия и computer.do.
-EXECUTOR_CONFIRMED = frozenset(PC_ACTIONS) | {"computer.do"}
+# music.playlist_delete: название плейлиста должно дожить до «да», поэтому команда собирается заранее.
+EXECUTOR_CONFIRMED = frozenset(PC_ACTIONS) | {"computer.do", "music.playlist_delete"}
 
 # Действия-списки и чтения: результат (detail) пересказывается голосом.
 READ_ACTIONS = frozenset({
