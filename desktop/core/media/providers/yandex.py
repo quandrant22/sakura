@@ -7,7 +7,9 @@ get_download_info(get_direct_links=True), окно получает их чер�
 (media_server, маршрут /yandex/<id>). Любая ошибка → ProviderError с понятным
 текстом; вызывающий откатывается на remote_smtc.
 """
+import difflib
 import logging
+import re
 import threading
 import time
 
@@ -59,8 +61,25 @@ def _norm(s: str) -> str:
     return " ".join((s or "").lower().replace("ё", "е").split())
 
 
+_CYR = str.maketrans({"б": "b", "в": "v", "г": "g", "д": "d", "ж": "j", "з": "z", "к": "k", "л": "l", "м": "m",
+                      "н": "n", "п": "p", "р": "r", "с": "s", "т": "t", "ф": "f", "х": "h", "ц": "ts", "ч": "k",
+                      "ш": "s", "щ": "s"})
+_LAT = (("sh", "s"), ("ch", "k"), ("ck", "k"), ("ph", "f"), ("th", "t"), ("qu", "kv"), ("q", "k"), ("w", "v"), ("x", "ks"))
+SOUND_MATCH = 0.85
+
+
+def sound_key(s: str) -> str:
+    """Согласные названия на слух: «джепэнвел мэ» и «Japan Volume» → jpnvlm."""
+    t = _norm(s).replace("дж", "j").translate(_CYR)
+    for a, b in _LAT:
+        t = t.replace(a, b)
+    t = re.sub(r"c(?=[eiy])", "s", t).replace("c", "k")
+    t = re.sub(r"[^a-z0-9]|[aeiouy]", "", t)
+    return re.sub(r"(.)\1+", r"\1", t)
+
+
 def best_match(items: list[dict], query: str, key: str) -> dict | None:
-    """Точное совпадение → начало названия → вхождение; иначе None."""
+    """Точное совпадение → начало названия → вхождение → похожее звучание; иначе None."""
     q = _norm(query)
     if not q:
         return None
@@ -68,7 +87,13 @@ def best_match(items: list[dict], query: str, key: str) -> dict | None:
         for it in items:
             if test(_norm(it.get(key, ""))):
                 return it
-    return None
+    # Голос распознаётся кириллицей, а плейлист может называться латиницей (и наоборот).
+    sound = sound_key(query)
+    if len(sound) < 3:
+        return None
+    scored = [(difflib.SequenceMatcher(None, sound, sound_key(it.get(key, ""))).ratio(), i) for i, it in enumerate(items)]
+    score, index = max(scored, key=lambda p: (p[0], -p[1]), default=(0.0, -1))
+    return items[index] if score >= SOUND_MATCH else None
 
 
 class YandexProvider:

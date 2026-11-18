@@ -218,6 +218,27 @@ def test_best_match_and_playlist_id():
     assert parse_playlist_id("ym:12:3") == ("12", 3) and parse_playlist_id("ym:3") == (None, 3)
 
 
+@pytest.mark.parametrize("spoken,want", [("джепэнвел мэ", "Japan Volume"), ("джопэн валуме", "Japan Volume"),
+                                         ("вальхейм", "Вальхейм"), ("valheim", "Вальхейм"), ("оф роуд", "Off-road"),
+                                         ("наше лето", "Наше Лето")])
+def test_playlist_found_by_sound(spoken, want):
+    items = [{"name": n} for n in ("Вальхейм", "Japan Volume", "Off-road", "Долгая дорога", "Наше Лето")]
+    assert best_match(items, spoken, "name")["name"] == want
+
+
+@pytest.mark.parametrize("spoken", ["рок", "классика для сна", "джаз вечером"])
+def test_unlike_names_do_not_match_by_sound(spoken):
+    items = [{"name": n} for n in ("Вальхейм", "Japan Volume", "Off-road", "Долгая дорога", "Наше Лето")]
+    assert best_match(items, spoken, "name") is None
+
+
+def test_delete_never_uses_sound_match(ym):
+    cmds, _, provider, _ = ym
+    provider.playlists = lambda: [{"id": "ym:1:9", "name": "Japan Volume", "tracks": 1}]
+    assert run(cmds, "playlist_delete", "джепэнвел мэ")[0] is False
+    assert provider.calls == []
+
+
 def test_station_tracks_continue_after_last_track():
     seen = {}
 

@@ -19,6 +19,13 @@ INDEX = build_index(DECLS)
 @pytest.mark.parametrize("text,action,param", [
     ("включи альбом Nevermind", "music.play_album", "Nevermind"),
     ("включи плейлист Бег", "music.play_playlist", "Бег"),
+    ("Запусти плейлист джепэнвел мэ", "music.play_playlist", "джепэнвел мэ"),
+    ("запусти альбом Nevermind", "music.play_album", "Nevermind"),
+    ("запусти трек Nirvana", "music.play_track", "Nirvana"),
+    ("включи трек Nirvana", "music.play_track", "Nirvana"),
+    ("поставь песню Группа крови", "music.play_track", "Группа крови"),
+    ("запусти мою волну", "music.wave", None),
+    ("запусти плейлист дня", "music.playlist_of_day", None),
     ("включи плейлист дня", "music.playlist_of_day", None),
     ("включи исполнителя Земфира", "music.play_artist", "Земфира"),
     ("добавь в очередь Smells Like Teen Spirit", "music.queue_add", "Smells Like Teen Spirit"),
