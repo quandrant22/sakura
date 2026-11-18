@@ -35,6 +35,10 @@ if ENV_FILE:
 
 # ── Подключение к VPS ───────────────────────────────────────────────
 VPS_WS_URL   = os.getenv("VPS_WS_URL",   "ws://48.102.162.187:8765")
+# Адрес для TCP-соединения вместо адреса из VPS_WS_URL (обычно IP сервера). Имя из
+# VPS_WS_URL остаётся в TLS (SNI, проверка сертификата) и в заголовке Host. Нужен,
+# когда домен за Cloudflare, а провайдер замораживает соединения к Cloudflare.
+VPS_CONNECT_HOST = os.getenv("VPS_CONNECT_HOST", "").strip()
 # Транспорт до сервера (desktop.core.transport): ws | wss | noise; пусто — по схеме VPS_WS_URL.
 SERVER_TRANSPORT = os.getenv("SERVER_TRANSPORT", "")
 # Закрепление сертификата для wss: SHA-256 отпечаток DER (hex, двоеточия допустимы).

@@ -1236,7 +1236,10 @@ class Agent:
         from desktop.core import transport as _tr
         try:
             _transport = _tr.make_transport(config.SERVER_TRANSPORT, config.VPS_WS_URL, config.SERVER_CERT_SHA256,
-                                            pubkey_sha256=config.SERVER_PUBKEY_SHA256)
+                                            pubkey_sha256=config.SERVER_PUBKEY_SHA256,
+                                            connect_host=getattr(config, "VPS_CONNECT_HOST", ""))
+            if getattr(config, "VPS_CONNECT_HOST", ""):
+                log.info("[agent] TCP напрямую на %s (имя для TLS — из VPS_WS_URL)", config.VPS_CONNECT_HOST)
             self.transport = _transport
         except _tr.TransportError as e:
             log.error("[agent] транспорт: %s", e)

@@ -151,9 +151,27 @@ class NoiseTransport:
         return conn
 
 
+def pin_connect_host(connect_fn, host: str):
+    """websockets.connect, который ставит TCP-соединение на host (IP), а имя
+    сервера для TLS (SNI, проверка сертификата) и заголовок Host берёт из URL.
+
+    Нужен, когда домен стоит за прокси (Cloudflare), а провайдер режет к нему
+    трафик: соединение идёт прямо на сервер, сертификат проверяется как обычно."""
+    base = connect_fn or websockets.connect
+
+    def connect(url, **kw):
+        kw.setdefault("host", host)
+        return base(url, **kw)
+    return connect
+
+
 def make_transport(kind: str | None, url: str, cert_sha256: str = "", connect_fn=None,
-                   pubkey_sha256: str = "", keystore=None) -> Transport:
-    """Транспорт по настройке SERVER_TRANSPORT; по умолчанию — по схеме URL (ws или wss)."""
+                   pubkey_sha256: str = "", keystore=None, connect_host: str = "") -> Transport:
+    """Транспорт по настройке SERVER_TRANSPORT; по умолчанию — по схеме URL (ws или wss).
+
+    connect_host (VPS_CONNECT_HOST) — адрес для TCP вместо адреса из URL."""
+    if (connect_host or "").strip():
+        connect_fn = pin_connect_host(connect_fn, connect_host.strip())
     kind = (kind or "").strip().lower() or ("wss" if url.startswith("wss://") else "ws")
     if kind not in KINDS:
         raise TransportError(f"SERVER_TRANSPORT: неизвестный транспорт «{kind}» (ws, wss, noise, noise-only)")

@@ -180,3 +180,46 @@ def test_kinds_and_default_unchanged():
     assert T.make_transport("noise-only", "ws://h").required is True
     with pytest.raises(T.TransportError):
         T.make_transport("tls", "ws://h")
+
+
+# ── VPS_CONNECT_HOST: TCP на IP, имя для TLS — из URL ──
+def test_connect_host_pins_tcp_address_for_every_kind():
+    for kind in ("wss", "noise-only"):
+        calls = []
+        t = T.make_transport(kind, "wss://sub.example.ru/ws-x", connect_fn=fake_connect(calls),
+                             connect_host="193.23.201.214")
+        if kind == "wss":
+            asyncio.run(t.connect())
+        else:
+            asyncio.run(t._connect(t.url))
+        url, kw = calls[0]
+        assert url == "wss://sub.example.ru/ws-x", "в URL остаётся имя — SNI, сертификат и Host по нему"
+        assert kw["host"] == "193.23.201.214"
+        assert "server_hostname" not in kw, "имя для TLS не подменяется"
+
+
+def test_connect_host_empty_keeps_old_behaviour():
+    calls = []
+    asyncio.run(T.make_transport("", "ws://1.2.3.4:8765", connect_fn=fake_connect(calls),
+                                 connect_host="  ").connect())
+    assert calls == [("ws://1.2.3.4:8765", {"ping_interval": 20, "proxy": None, "max_size": None})]
+
+
+def test_connect_host_reaches_real_websockets_with_sni_from_url():
+    """Настоящий websockets.connect: TCP идёт на host, SNI и проверка — по имени из URL."""
+    import websockets
+
+    seen = {}
+
+    async def fake_create_connection(factory, host=None, port=None, **kw):
+        seen.update(host=host, port=port, server_hostname=kw.get("server_hostname"))
+        raise ConnectionRefusedError("стоп: дальше сеть не нужна")
+
+    async def go():
+        loop = asyncio.get_running_loop()
+        loop.create_connection = fake_create_connection
+        connect = T.pin_connect_host(websockets.connect, "193.23.201.214")
+        with pytest.raises(OSError):
+            await connect("wss://sub.example.ru/ws-x", open_timeout=2)
+    asyncio.run(go())
+    assert seen == {"host": "193.23.201.214", "port": 443, "server_hostname": "sub.example.ru"}
