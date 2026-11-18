@@ -14,7 +14,10 @@ system.shutdown / system.restart / system.sleep (этап 5, переезд 3/3)
 `_pending_system`) и в реестре их не было вовсе.
 """
 
+import re
+
 from sakura_core.executor import AgentCommand, register_table
+from sakura_core.ru_numbers import digits_in, volume_step
 
 SYSTEM_AGENT_ACTIONS = (
     "game_mode.on",
@@ -57,12 +60,22 @@ SYSTEM_COMMANDS["app.switch_open"] = _switch_app
 
 def _set_volume(ctx) -> AgentCommand:
     """Установить системную громкость на переданный процент."""
-    level = (ctx.param or "").strip()
-    if not level:
+    m = re.search(r"\d+", digits_in(ctx.param or ""))
+    if not m:
         raise ValueError("system.volume: не извлечён уровень громкости")
-    return AgentCommand("volume", arg=level)
+    return AgentCommand("volume", arg=str(min(100, int(m.group(0)))))
+
+
+def _nudge_volume(sign: str):
+    """Общая громкость относительно текущей: клиент понимает «+N» и «-N»."""
+    def handle(ctx) -> AgentCommand:
+        step = volume_step(str((ctx.extra or {}).get("text") or ""))
+        return AgentCommand("system.volume", arg=f"{sign}{step or 10}")
+    return handle
 
 
 SYSTEM_COMMANDS["system.volume"] = _set_volume
+SYSTEM_COMMANDS["system.volume_up"] = _nudge_volume("+")
+SYSTEM_COMMANDS["system.volume_down"] = _nudge_volume("-")
 
 register_table(SYSTEM_COMMANDS)

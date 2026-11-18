@@ -8,6 +8,7 @@
 import re
 
 from sakura_core.executor import AgentCommand, register_table
+from sakura_core.ru_numbers import digits_in, volume_step
 
 # 20 музыкальных действий реестра (music.*, без music_stats.*)
 MUSIC_AGENT_ACTIONS = (
@@ -56,6 +57,27 @@ def _query_handler(action: str):
 
 for _aid in MUSIC_QUERY_ACTIONS:
     MUSIC_COMMANDS[_aid] = _query_handler(_aid)
+
+
+def _numeric_handler(action: str):
+    """Числа словами превращаются в цифры здесь: клиент получает «2 минуты 40 секунд»."""
+    def handle(ctx):
+        return AgentCommand(action, digits_in(_query(ctx)))
+    return handle
+
+
+for _aid in ("music.seek_to", "music.volume_set"):
+    MUSIC_COMMANDS[_aid] = _numeric_handler(_aid)
+
+
+def _volume_step_handler(action: str):
+    def handle(ctx):
+        return AgentCommand(action, volume_step(str((ctx.extra or {}).get("text") or "")))
+    return handle
+
+
+for _aid in ("music.volume_up", "music.volume_down"):
+    MUSIC_COMMANDS[_aid] = _volume_step_handler(_aid)
 
 
 def _play_handler(action: str, prefix: str = ""):

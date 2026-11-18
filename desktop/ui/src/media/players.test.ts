@@ -204,6 +204,42 @@ describe("музыкальный плеер", () => {
       expect((sent.items as unknown[]).length).toBe(4);
     });
 
+    test("лайк: состояние с сервера, переключение и откат при ошибке", async () => {
+      const { core, m } = setup();
+      const base = core.handlers.media_yandex!;
+      core.handlers.media_yandex = (p) => (p.op === "likes" ? { ids: ["ym:1"] } : base(p));
+      await m.getState().command("ym_play", { tracks: [ym(1), ym(2)] });
+      await vi.waitFor(() => expect(m.getState().likedIds.has("ym:1")).toBe(true));
+      await m.getState().toggleLike();
+      expect(m.getState().likedIds.has("ym:1")).toBe(false);
+      expect(ops(core, "unlike")).toHaveLength(1);
+      core.handlers.media_yandex = () => { throw new Error("нет сети"); };
+      await m.getState().toggleLike();
+      expect(m.getState().likedIds.has("ym:1")).toBe(false);
+      expect(m.getState().error).toBe("нет сети");
+    });
+
+    test("текст песни открывается на экране, без текста — понятная ошибка", async () => {
+      const { core, m } = setup();
+      await m.getState().command("ym_play", { tracks: [ym(1)] });
+      core.handlers.media_yandex = (p) => (p.op === "lyrics" ? { text: "строка" } : { ok: true });
+      await m.getState().showLyrics();
+      expect(m.getState().yandexShow).toEqual({ view: "lyrics", title: "Y1", text: "строка" });
+      core.handlers.media_yandex = () => ({ text: null });
+      await m.getState().showLyrics();
+      expect(m.getState().error).toBe("У этой песни нет текста");
+    });
+
+    test("станция при перемешивании считает оставшиеся треки по порядку игры", async () => {
+      const { core, m } = setup();
+      await m.getState().command("ym_play", { tracks: [ym(1), ym(2), ym(3), ym(4), ym(5), ym(6)], station: "s" });
+      await vi.waitFor(() => expect(core.states().length).toBeGreaterThan(0));
+      const before = ops(core, "station").length;
+      m.setState({ queue: { ...m.getState().queue, shuffle: true, index: 5, order: [5, 0, 1, 2, 3, 4] } });
+      await m.getState().playAt(5);
+      expect(ops(core, "station").length).toBe(before);
+    });
+
     test("очистить очередь, убрать трек, точная громкость", async () => {
       const { m } = setup();
       await m.getState().command("ym_play", { tracks: [ym(1), ym(2), ym(3)] });

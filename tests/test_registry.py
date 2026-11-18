@@ -62,8 +62,9 @@ def test_load_returns_131_declarations(registry):
     # feat/schedule: schedule.today/tomorrow/week/next/refresh: 126 → 131;
     # games-overlay-widgets (7) + music.play_track (1) + companion.husk_status (1) → 140.
     # этап 3 NLU: youtube.open («открой/включи ютуб») → 141.
-    # feat/yandex-music-full: 24 действия встроенной Яндекс.Музыки → 165.
-    assert len(registry) == 165
+    # feat/yandex-music-full: 24 действия встроенной Яндекс.Музыки → 165,
+    # system.volume_up/down (общая громкость отдельно от музыки) → 167.
+    assert len(registry) == 167
 
 
 def test_validate_passes_on_real_registry(registry):

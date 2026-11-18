@@ -516,6 +516,14 @@
   "music.volume_set": [
    "music.volume_set",
    ""
+  ],
+  "system.volume_up": [
+   "system.volume",
+   "+10"
+  ],
+  "system.volume_down": [
+   "system.volume",
+   "-10"
   ]
  }
 }

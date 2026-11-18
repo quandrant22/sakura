@@ -37,20 +37,25 @@ def parse_seek(arg: str) -> tuple[str, int] | None:
         return "seek", 0
     m = re.fullmatch(r"(.*?)\s*(вперед|назад)", text)
     if m:
-        sec = _seconds(m.group(1) or "10") if not m.group(1).startswith("минут") else 60
+        sec = _seconds(m.group(1) or "10")
         return None if sec is None else ("seekBy", sec if m.group(2) == "вперед" else -sec)
     sec = _seconds(text)
     return None if sec is None else ("seek", sec)
 
 
 def _seconds(text: str) -> int | None:
+    """«2:40», «160», «2 минуты 40 секунд», «минуту», «40 секунд»."""
     m = re.fullmatch(r"(\d{1,2}):(\d{2})", text)
     if m:
         return int(m.group(1)) * 60 + int(m.group(2))
-    m = re.fullmatch(r"(\d+)\s*(мин\w*|сек\w*)?", text)
-    if not m:
+    if text.isdigit():
+        return int(text)
+    if re.fullmatch(r"минут[ауы]?", text):
+        return 60
+    parts = re.findall(r"(\d+)\s*(мин\w*|сек\w*)", text)
+    if not parts or re.sub(r"\d+\s*(?:мин\w*|сек\w*)|\bи\b|\s", "", text):
         return None
-    return int(m.group(1)) * (60 if (m.group(2) or "").startswith("мин") else 1)
+    return sum(int(n) * (60 if unit.startswith("мин") else 1) for n, unit in parts)
 
 
 def _who(t: dict) -> str:
@@ -300,6 +305,7 @@ class YandexCommands:
         if not tid:
             return False, NOTHING_PLAYING
         await asyncio.to_thread(self.y.unlike, tid)
+        self._send("ym_liked", {"id": tid, "on": False})
         return True, "Убрала лайк"
 
     async def _like_album(self, _arg: str):
@@ -388,7 +394,8 @@ class YandexCommands:
         return True, f"Перемотала на {sec // 60}:{sec % 60:02d}"
 
     async def _volume_set(self, arg: str):
-        if not arg.isdigit() or int(arg) > 100:
-            return False, "Громкость — число от 0 до 100"
-        self._send("volumeSet", int(arg))
-        return True, f"Громкость музыки {int(arg)}%"
+        m = re.search(r"\d+", arg)
+        if not m or int(m.group(0)) > 100:
+            return False, "Громкость музыки — число от 0 до 100"
+        self._send("volumeSet", int(m.group(0)))
+        return True, f"Громкость музыки {int(m.group(0))}%"

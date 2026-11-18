@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, test } from "vitest";
 import type { CoreClient, Listener } from "../../api/client";
 import { DemoClient } from "../../api/demo";
 import type { CoreEvent } from "../../api/types";
+import { MusicView } from "../../components/media/MusicView";
 import { MediaProvider, useMediaMeta, useMusicStore } from "../../media/MediaContext";
 import type { Track } from "../../media/types";
 import { MusicWidget } from "./MusicWidget";
@@ -62,4 +63,31 @@ test("команды ядра media_command и приглушение audio_duck
   expect(screen.getByLabelText("Играть")).toBeTruthy();
   act(() => { c.push({ type: "audio_duck", gains: { music: 0.3, video: 0.3 }, ramp_ms: 150 }); });
   expect(screen.getByText("duck 0.3")).toBeTruthy();
+});
+
+test("включённые «перемешать» и «повтор» подсвечиваются, повтор проходит три режима", async () => {
+  render(<MediaProvider client={new DemoClient("normal")}><Harness /><MusicWidget /></MediaProvider>);
+  await act(async () => { fireEvent.click(screen.getByText("старт")); });
+  const shuffle = screen.getByLabelText("Перемешать");
+  expect(shuffle.className).toContain("text-ink-dim");
+  fireEvent.click(shuffle);
+  expect(shuffle.className).toContain("text-accent");
+  expect(shuffle.className).not.toContain("text-ink-dim");   // иначе серый цвет перебивает подсветку
+  fireEvent.click(screen.getByLabelText("Повтор выключен"));
+  expect(screen.getByLabelText("Повтор: вся очередь").className).toContain("text-accent");
+  fireEvent.click(screen.getByLabelText("Повтор: вся очередь"));
+  fireEvent.click(screen.getByLabelText("Повтор: один трек"));
+  expect(screen.getByLabelText("Повтор выключен").className).toContain("text-ink-dim");
+});
+
+test("со встроенной Яндекс.Музыкой в медиатеке остаётся только она", async () => {
+  const c = new EventClient("normal");
+  render(<MediaProvider client={c}><MusicView /></MediaProvider>);
+  expect(screen.getByText("Альбомы")).toBeTruthy();
+  await act(async () => {
+    c.push({ type: "media_settings", settings: { music_yandex: true, crossfade_s: 0, youtube_proxy: "" } } as unknown as CoreEvent);
+  });
+  expect(screen.queryByText("Альбомы")).toBeNull();
+  expect(screen.queryByLabelText("Пересканировать папки")).toBeNull();
+  expect(screen.getByText("Моя волна")).toBeTruthy();
 });

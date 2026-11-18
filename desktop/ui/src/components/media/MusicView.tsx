@@ -59,7 +59,10 @@ export function MusicView({ initialView = "tracks", initialQuery = "", initialYa
   const playTracks = useMusic((s) => s.playTracks);
   const playNext = useMusic((s) => s.playNext);
   const currentId = useMusic((s) => s.current()?.id);
-  const [view, setView] = useState<View>(initialView);
+  // Со встроенной Яндекс.Музыкой виджет показывает только её, без локальной медиатеки.
+  const yandexOnly = !!settings?.music_yandex;
+  const [chosenView, setView] = useState<View>(initialView);
+  const view: View = yandexOnly ? "yandex" : chosenView;
   const [q, setQ] = useState(initialQuery);
   const [filter, setFilter] = useState<Filter>(null);
   const [reload, setReload] = useState(0);
@@ -97,7 +100,7 @@ export function MusicView({ initialView = "tracks", initialQuery = "", initialYa
     <div className="flex min-h-0 flex-1 gap-4">
       <section className="flex min-h-0 flex-1 flex-col rounded-panel border border-line bg-panel shadow-soft">
         <header className="flex flex-wrap items-center gap-2 px-4 pt-4">
-          {VIEWS.map((v) => (
+          {!yandexOnly && VIEWS.map((v) => (
             <button key={v.id} type="button" onClick={() => { setView(v.id); setFilter(null); }}
                     aria-current={view === v.id && !filter ? "page" : undefined}
                     className={"rounded-card px-3 py-1.5 text-sm " + (view === v.id && !filter ? "bg-accent-soft text-accent" : "text-ink-dim hover:text-ink")}>
@@ -117,14 +120,16 @@ export function MusicView({ initialView = "tracks", initialQuery = "", initialYa
               <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск" aria-label="Поиск музыки"
                      className="w-44 bg-transparent text-sm text-ink outline-none placeholder:text-ink-dim" />
             </label>
-            <button type="button" title="Пересканировать папки" aria-label="Пересканировать папки"
-                    onClick={() => void client.call("media_scan")}
-                    className="grid h-8 w-8 place-items-center rounded-card border border-line text-ink-dim hover:text-accent">
-              <RefreshCw size={14} className={scan?.state === "running" ? "animate-spin" : ""} />
-            </button>
+            {!yandexOnly && (
+              <button type="button" title="Пересканировать папки" aria-label="Пересканировать папки"
+                      onClick={() => void client.call("media_scan")}
+                      className="grid h-8 w-8 place-items-center rounded-card border border-line text-ink-dim hover:text-accent">
+                <RefreshCw size={14} className={scan?.state === "running" ? "animate-spin" : ""} />
+              </button>
+            )}
           </div>
         </header>
-        {scan?.state === "running" && (
+        {!yandexOnly && scan?.state === "running" && (
           <div className="mx-4 mt-3 text-xs text-ink-dim" role="status">
             Сканирую: {scan.done ?? 0} из {scan.total ?? "?"}
             <div className="mt-1 h-1 rounded bg-white/5"><div className="h-1 rounded bg-accent" style={{ width: `${scan.total ? ((scan.done ?? 0) / scan.total) * 100 : 5}%` }} /></div>
@@ -198,7 +203,7 @@ function QueuePanel() {
     <section className="flex w-[clamp(220px,20vw,300px)] shrink-0 flex-col rounded-panel border border-line bg-panel shadow-soft" aria-label="Очередь">
       <header className="px-4 pb-2 pt-4 text-sm font-semibold text-ink">Очередь <span className="font-normal text-ink-dim">{queue.items.length || ""}</span></header>
       {queue.items.length === 0 ? (
-        <EmptyState text="Очередь пуста — дважды щёлкните по треку" />
+        <EmptyState text="Очередь пуста — выберите трек" />
       ) : (
         <ol className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
           {queue.items.map((t, i) => (
@@ -206,7 +211,7 @@ function QueuePanel() {
                 onDrop={() => { if (drag !== null) move(drag, i); setDrag(null); }}
                 className={"group flex items-center gap-2 rounded-card px-2 py-1.5 text-sm " + (i === queue.index ? "bg-accent-soft text-accent" : "text-ink hover:bg-white/5")}>
               <GripVertical size={14} className="shrink-0 cursor-grab text-ink-dim" aria-hidden="true" />
-              <button type="button" onDoubleClick={() => void playAt(i)} onClick={(e) => e.detail === 0 && void playAt(i)}
+              <button type="button" onClick={() => void playAt(i)}
                       className="min-w-0 flex-1 text-left" aria-label={`${t.title} — ${t.artist}`}>
                 <span className="block truncate">{t.title}</span>
                 <span className="block truncate text-xs text-ink-dim">{t.artist}</span>

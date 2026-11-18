@@ -205,7 +205,10 @@ def test_provider_error_falls_back_or_reports(ym):
 
 @pytest.mark.parametrize("arg,want", [("1:30", ("seek", 90)), ("2 минуты", ("seek", 120)), ("45", ("seek", 45)),
                                       ("начало", ("seek", 0)), ("30 секунд вперёд", ("seekBy", 30)),
-                                      ("минуту назад", ("seekBy", -60)), ("куда-то", None)])
+                                      ("минуту назад", ("seekBy", -60)), ("куда-то", None),
+                                      ("2 минуты 40 секунд", ("seek", 160)), ("2 минуты и 40 секунд", ("seek", 160)),
+                                      ("90 секунд", ("seek", 90)), ("минуту", ("seek", 60)),
+                                      ("1 минуту 10 секунд вперёд", ("seekBy", 70)), ("2 минуты куда-то", None)])
 def test_parse_seek(arg, want):
     assert parse_seek(arg) == want
 
@@ -357,6 +360,8 @@ def test_provider_calls_match_real_library():
         y.station_feedback("genre:rock", event, "ym:5", 10.0, "b")
     assert y.stream_url("ym:5") == "https://s.yandex.net/x" and y.track_refs("ym:5")["album_id"] == "7"
     y.like("ym:5"), y.unlike("ym:5"), y.like_album("7"), y.like_artist("8")
+    c.users_likes_tracks.return_value = [n(id="5:7"), n(id="6")]
+    assert y.liked_ids() == ["ym:5", "ym:6"]
     y.playlist_create("Новый"), y.playlist_add("ym:1:3", "ym:5"), y.playlist_delete("ym:1:3")
     y.playlist_remove("ym:1:3", "ym:5")
     c.users_playlists_delete_track.assert_called_once_with(3, 0, 1, revision=2)
