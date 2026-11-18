@@ -46,7 +46,7 @@ def _switch_app(ctx) -> AgentCommand:
     (registry_clarify). Сюда пустое значение доезжает только с LLM-пути;
     падение безопасно — вызывающий хендлер уходит на старый путь.
     """
-    app = (ctx.param or "").strip()
+    app = (ctx.param or "").strip().strip(".,!?…").strip()
     if not app:
         raise ValueError(
             "app.switch: не извлечён параметр app (какое приложение?)"
@@ -56,6 +56,7 @@ def _switch_app(ctx) -> AgentCommand:
 
 SYSTEM_COMMANDS["app.switch"] = _switch_app
 SYSTEM_COMMANDS["app.switch_open"] = _switch_app
+SYSTEM_COMMANDS["app.launch"] = _switch_app
 
 
 def _set_volume(ctx) -> AgentCommand:

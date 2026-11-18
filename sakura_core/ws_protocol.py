@@ -434,6 +434,23 @@ async def _answer_read_result(action, ok, detail, dev_name, ask_gemini, bot) -> 
         await bot.send_message(MASTER_ID, text)
 
 
+def music_result_phrase(action: str, detail: str) -> str:
+    """Что сказать по ответу встроенного плеера: он присылает готовый текст, без блока music."""
+    text = (detail or "").strip()
+    if action == "music.now_playing":
+        text = f"Сейчас играет {text}"
+    return text if len(text) <= READ_RESULT_MAX else text[:READ_RESULT_MAX].rsplit(" ", 1)[0] + "…"
+
+
+async def _say_music_result(action, detail, dev_name, bot) -> None:
+    text = music_result_phrase(action, detail)
+    ws_dev = st.connected_devices.get(dev_name)
+    if voice_turns.current() is not None and ws_dev is not None:
+        await stream_tts_to_device(text, ws_dev, dev_name, literal=True, reply_kind="llm")
+    else:
+        await bot.send_message(MASTER_ID, text)
+
+
 async def handle_command_result(websocket, data, ctx) -> None:
     """Результат команды агента. Ответ на него — продолжение голосового
     хода, отправившего команду: его turn_id, вытеснен ход — без озвучки."""
@@ -493,6 +510,12 @@ async def _handle_command_result(websocket, data, ctx) -> None:
         from capabilities.pc_control import READ_ACTIONS
         if _act in READ_ACTIONS:
             await _answer_read_result(_act, _cmd_ok, _cmd_detail, dev_name, ask_gemini, bot)
+            return
+        from sakura_core.registry import followup_for
+        if (str(_act or "").startswith("music.") and _cmd_ok and _cmd_detail and not data.get("music")
+                and followup_for(_act) == "llm"):
+            # Без этого ответ встроенного плеера («что играет», «что в очереди») остаётся без голоса.
+            await _say_music_result(_act, _cmd_detail, dev_name, bot)
             return
     elif result:
         _cmd_detail = str(result)

@@ -78,6 +78,8 @@ class Param:
     # без cue такой триггер не срабатывает — «поставь чайник на кухне»
     # остаётся обычным кипячением, а не вопросом о температуре.
     cue: Optional[str] = None
+    # ask — уточняющий вопрос, если значения нет («Какой альбом включить?»).
+    ask: Optional[str] = None
 
     def __post_init__(self):
         if isinstance(self.required, bool):
@@ -193,7 +195,10 @@ def _parse_param(raw, where: str) -> Optional[Param]:
             re.compile(cue)
         except re.error as e:
             raise RegistryError(f"{where}: param.cue невалидный regex: {e}")
-    return Param(name=name, pattern=pattern, required=req, resolve=resolve, cue=cue)
+    ask = raw.get("ask")
+    if ask is not None and (not isinstance(ask, str) or not ask):
+        raise RegistryError(f"{where}: param.ask должен быть непустой строкой")
+    return Param(name=name, pattern=pattern, required=req, resolve=resolve, cue=cue, ask=ask)
 
 
 def declaration_from_dict(raw: dict) -> Declaration:
@@ -340,6 +345,13 @@ def load(path: Path = REGISTRY_PATH) -> list[Declaration]:
 # resolve не матчатся вовсе, фраза уходит дальше по роутеру (LLM), как до
 # появления app.switch.
 _installed_apps: Optional[frozenset[str]] = None
+_installed_sounds: frozenset[str] = frozenset()
+
+
+def _app_sound(name: str) -> str:
+    """Согласные названия: голос даёт «фортнайт», а в списке приложений — Fortnite."""
+    from modules.translit import transliterate
+    return re.sub(r"[^a-z0-9]|[aeiouy]", "", transliterate(name or "").replace("ck", "k").replace("c", "k"))
 
 
 def set_installed_apps(apps, extra: Optional[Iterable[str]] = None) -> None:
@@ -350,9 +362,10 @@ def set_installed_apps(apps, extra: Optional[Iterable[str]] = None) -> None:
     разговорные имена (keys из memory/apps_mapping_<device>.json, их
     строит sakura_core.apps.analyze_apps: «дискорд» → Discord.exe).
     """
-    global _installed_apps
+    global _installed_apps, _installed_sounds
     if apps is None and not extra:
         _installed_apps = None
+        _installed_sounds = frozenset()
         return
     names: set[str] = set()
     if isinstance(apps, dict):
@@ -364,6 +377,7 @@ def set_installed_apps(apps, extra: Optional[Iterable[str]] = None) -> None:
     _installed_apps = frozenset(
         n.strip().lower() for n in names if n and n.strip()
     )
+    _installed_sounds = frozenset(s for s in map(_app_sound, _installed_apps) if len(s) >= 4)
     log.info("[registry] список приложений: %d", len(_installed_apps))
 
 
@@ -377,7 +391,8 @@ def resolve_passes(value: Optional[str]) -> bool:
     apps = _installed_apps
     if not apps or not value:
         return False
-    return value.strip().lower() in apps
+    name = value.strip().strip(".,!?…").strip().lower()
+    return name in apps or _app_sound(name) in _installed_sounds
 
 
 _PARAM_PREPOSITIONS = frozenset({"на", "до"})
@@ -481,8 +496,7 @@ class TriggerIndex:
                     continue  # required — пропускаем
                 if req == "ask" and param_value is None:
                     needs_clarify = True  # помечаем, что нужен clarify
-                if resolve and param_value is not None \
-                        and param_value.strip().lower() not in apps:
+                if resolve and param_value is not None and not resolve_passes(param_value):
                     continue  # параметр — не установленное приложение, пропускаем
 
             if trigger_len > best_len:

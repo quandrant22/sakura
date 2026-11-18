@@ -524,6 +524,10 @@
   "system.volume_down": [
    "system.volume",
    "-10"
+  ],
+  "app.launch": [
+   "switch_to_app",
+   "fortnite"
   ]
  }
 }
