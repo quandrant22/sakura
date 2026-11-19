@@ -17,7 +17,8 @@ interface Persisted {
   theme: Theme;
   /** Доска v2: страницы, у каждой раскладки lg/md/sm. */
   board: Board;
-  /** pack — авто-упаковка без перекрытий; free — свободно (виджет не вытесняет соседей). */
+  /** free — свободно: виджет стоит, где поставили (пустоты над ним остаются), мешающий сосед
+   *  отодвигается вниз; pack — авто-упаковка: всё подтягивается вверх. */
   boardMode: "pack" | "free";
   /** Запущена игра → страница «Игры». */
   autoGamePage: boolean;
@@ -62,7 +63,7 @@ export interface PrefsState extends Persisted {
 const DEFAULTS = (): Persisted => ({
   theme: "night",
   board: defaultBoard(),
-  boardMode: "pack",
+  boardMode: "free",
   autoGamePage: false,
   chatWidth: CHAT.default,
   chatCollapsed: false,
@@ -89,7 +90,9 @@ export function parsePersisted(raw: Record<string, unknown> | null): Persisted {
     theme: pick(raw.theme, THEMES, d.theme),
     // v2 — проверка; старая запись (layout v1) — миграция; иначе раскладка по умолчанию.
     board: raw.board ? validateBoard(raw.board) : raw.layout ? migrateV1(raw.layout) : d.board,
-    boardMode: raw.boardMode === "free" ? "free" : "pack",
+    // До v2 «авто-упаковка» сохранялась у всех по умолчанию — переходим на свободную расстановку;
+    // после — выбор из меню доски.
+    boardMode: raw.boardModeV === 2 && raw.boardMode === "pack" ? "pack" : "free",
     autoGamePage: raw.autoGamePage === true,
     chatWidth: typeof w === "number" && Number.isFinite(w) ? Math.max(CHAT.min, Math.round(w)) : d.chatWidth,
     chatCollapsed: raw.chatCollapsed === true,
@@ -116,8 +119,8 @@ function parseViews(raw: unknown): Persisted["captureViews"] {
   return out;
 }
 
-const persisted = (s: PrefsState): Persisted => ({
-  theme: s.theme, board: s.board, boardMode: s.boardMode, autoGamePage: s.autoGamePage, chatWidth: s.chatWidth, chatCollapsed: s.chatCollapsed,
+const persisted = (s: PrefsState): Persisted & { boardModeV: 2 } => ({
+  theme: s.theme, board: s.board, boardMode: s.boardMode, boardModeV: 2, autoGamePage: s.autoGamePage, chatWidth: s.chatWidth, chatCollapsed: s.chatCollapsed,
   locked: s.locked, mobility: s.mobility, preset: s.preset, showCommandResults: s.showCommandResults,
   musicSource: s.musicSource, musicBarStyle: s.musicBarStyle, videoFit: s.videoFit,
   captureFps: s.captureFps, captureViews: s.captureViews,

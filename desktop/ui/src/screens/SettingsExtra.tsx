@@ -201,7 +201,7 @@ export function GameModeSection() {
   const on = useApp((x) => x.gameMode);
   return (
     <div className="px-4 pb-2">
-      <Row label="Игровой режим" hint="Сакура тише и не перехватывает экран; включается сам при запуске игр из списка">
+      <Row label="Режим компаньона" hint="Сакура рядом в игре: смотрит экран, реагирует и пишет клипы. Включается командой «режим компаньона» или здесь; сам — если отмечено в Настройки → Игры">
         <label className="flex items-center gap-2">
           <input type="checkbox" checked={on} className="accent-accent"
                  onChange={(e) => void client.call("game_mode", { on: e.target.checked })} /> Включён</label>

@@ -1,21 +1,18 @@
 """desktop.core.gamesense — Сверхбыстрый локальный анализ игровых событий (GameSense).
 
-Вдохновлен capri-desktop GameSense.cs:
-Анализирует сырые кадры экрана (10-20 FPS) попиксельной математикой без отправки в LLM:
-- "hurt": резкое покраснение краев/экрана (получение урона).
-- "flash": резкая белая вспышка (взрыв / светошумовая граната).
-- "dark": экран потемнел почти до нуля (смерть персонажа / fade to black).
-- "bar_drop": резкое падение заполненности полоски (HP, щит, выносливость).
-- "cut": смена сцены / катсцена.
-
-При обнаружении вызывает коллбэки для мгновенных реплик или звуков Сакуры.
+Вдохновлен capri-desktop GameSense.cs. Кадры подаёт GameDirector (только в режиме компаньона и
+только пока игра в фокусе), здесь — попиксельная математика на кадре 160×90, без модели и сети:
+- "hurt": красная виньетка — края экрана заметно краснее центра и краснее, чем были последние
+  секунды, два кадра подряд (красная сцена целиком, красный интерфейс или поворот камеры
+  на красную стену — не урон);
+- "flash": резкая белая вспышка (взрыв, светошумовая граната);
+- "dark": экран ушёл в чёрное и держится — один раз на вход, снова только после того,
+  как картинка вернулась (загрузки и катсцены тоже тёмные, поэтому это не «смерть»).
 """
 
 from __future__ import annotations
 
 import logging
-import math
-import threading
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Optional
@@ -27,42 +24,46 @@ try:
 except ImportError:
     np = None
 
+# Пороги «урона»: доля красных пикселей по краям, перевес краёв над центром, рост над фоном.
+HURT_MIN_BORDER = 0.12
+HURT_MIN_VIGNETTE = 0.08
+HURT_MIN_RISE = 0.07
+HURT_FRAMES = 2
+# Фон по краям — скользящее среднее (≈2 с при 6 кадрах в секунду).
+BASELINE_ALPHA = 0.15
+DARK_FRAMES = 4
+
 
 @dataclass
 class GameSenseEvent:
-    kind: str  # "hurt", "flash", "dark", "bar_drop", "cut"
+    kind: str  # "hurt", "flash", "dark"
     strength: float = 1.0
     timestamp: float = field(default_factory=time.time)
     message: str = ""
 
 
 class GameSenseDetector:
-    """Детектор игровых событий по сырому буферу пикселей (BGRA / RGBA)."""
+    """Детектор игровых событий по сырому буферу пикселей (BGRA)."""
 
     def __init__(
         self,
         on_event: Optional[Callable[[GameSenseEvent], None]] = None,
-        cooldown: float = 2.5,
+        cooldown: float = 4.0,
     ):
         self.on_event = on_event or (lambda ev: log.info("GameSense Event: %s (%f)", ev.kind, ev.strength))
         self.cooldown = cooldown
-        self.last_event_time: dict[str, float] = {
-            "hurt": 0.0,
-            "flash": 0.0,
-            "dark": 0.0,
-            "bar_drop": 0.0,
-            "cut": 0.0,
-        }
-        self.old_mean: float = 0.0
-        self.old_red_ratio: float = 0.0
-        self.is_first_frame = True
+        self.last_event_time: dict[str, float] = {"hurt": 0.0, "flash": 0.0, "dark": 0.0}
+        self.reset()
 
     def reset(self):
+        """Сброс фона: после паузы (игра не в фокусе) первые кадры только набирают фон."""
         self.old_mean = 0.0
         self.old_red_ratio = 0.0
+        self.red_baseline: Optional[float] = None
+        self.hurt_streak = 0
+        self.dark_streak = 0
+        self.dark_fired = False
         self.is_first_frame = True
-        for k in self.last_event_time:
-            self.last_event_time[k] = 0.0
 
     def feed_frame(self, bgra_bytes: bytes, width: int, height: int, timestamp: Optional[float] = None) -> list[GameSenseEvent]:
         """Обрабатывает кадр шириной width и высотой height в формате BGRA (4 байта на пиксель)."""
@@ -70,8 +71,6 @@ class GameSenseDetector:
             return []
 
         ts = timestamp or time.time()
-        events: list[GameSenseEvent] = []
-
         if np is not None:
             events = self._process_numpy(bgra_bytes, width, height, ts)
         else:
@@ -80,8 +79,21 @@ class GameSenseDetector:
         for ev in events:
             self.last_event_time[ev.kind] = ts
             self.on_event(ev)
-
         return events
+
+    def _ready(self, kind: str, ts: float) -> bool:
+        return ts - self.last_event_time[kind] >= self.cooldown
+
+    def _dark(self, is_dark: bool, ratio: float, ts: float, events: list) -> None:
+        if not is_dark:
+            self.dark_streak = 0
+            self.dark_fired = False
+            return
+        self.dark_streak += 1
+        if self.dark_streak >= DARK_FRAMES and not self.dark_fired and self._ready("dark", ts):
+            self.dark_fired = True
+            events.append(GameSenseEvent(kind="dark", strength=ratio, timestamp=ts,
+                                         message="Экран потемнел (смерть, загрузка или катсцена)"))
 
     def _process_numpy(self, bgra_bytes: bytes, width: int, height: int, ts: float) -> list[GameSenseEvent]:
         events: list[GameSenseEvent] = []
@@ -90,7 +102,7 @@ class GameSenseDetector:
         except ValueError:
             return []
 
-        # Downsample для ультрабыстрого анализа (например, 160x90)
+        # Downsample до ~160x90
         step_y = max(1, height // 90)
         step_x = max(1, width // 160)
         sample = arr[::step_y, ::step_x]  # B, G, R, A
@@ -98,53 +110,55 @@ class GameSenseDetector:
         blue = sample[:, :, 0].astype(np.float32)
         green = sample[:, :, 1].astype(np.float32)
         red = sample[:, :, 2].astype(np.float32)
-
         mean_val = float(np.mean((blue + green + red) / 3.0))
 
-        # 1. Dark / Death: >90% пикселей почти черные (<15) и средняя яркость < 12
-        black_pixels = np.sum((red < 15) & (green < 15) & (blue < 15))
-        total_pixels = red.size
-        black_ratio = float(black_pixels) / float(total_pixels)
-
-        if black_ratio > 0.92 and mean_val < 14:
-            if ts - self.last_event_time["dark"] >= self.cooldown:
-                events.append(GameSenseEvent(kind="dark", strength=black_ratio, timestamp=ts, message="Экран потемнел (смерть или катсцена)"))
+        # 1. Dark: почти весь экран чёрный и держится DARK_FRAMES кадров
+        black_ratio = float(np.mean((red < 15) & (green < 15) & (blue < 15)))
+        self._dark(black_ratio > 0.92 and mean_val < 14, black_ratio, ts, events)
 
         # 2. Flash: резкий скачок средней яркости вверх
         if not self.is_first_frame:
             bright_jump = mean_val - self.old_mean
-            if bright_jump > 60 and mean_val > 180:
-                if ts - self.last_event_time["flash"] >= self.cooldown:
-                    events.append(GameSenseEvent(kind="flash", strength=bright_jump / 100.0, timestamp=ts, message="Яркая вспышка на экране!"))
+            if bright_jump > 60 and mean_val > 180 and self._ready("flash", ts):
+                events.append(GameSenseEvent(kind="flash", strength=bright_jump / 100.0, timestamp=ts,
+                                             message="Яркая вспышка на экране"))
 
-        # 3. Hurt: резкое покраснение краев экрана (урон в шутерах/экшенах)
-        # Проверяем виньетку: полосы сверху/снизу/по бокам
-        h_s, w_s = sample.shape[0], sample.shape[1]
-        border_mask = np.zeros((h_s, w_s), dtype=bool)
-        border_size_y = max(1, h_s // 6)
-        border_size_x = max(1, w_s // 6)
-        border_mask[:border_size_y, :] = True
-        border_mask[-border_size_y:, :] = True
-        border_mask[:, :border_size_x] = True
-        border_mask[:, -border_size_x:] = True
+        # 3. Hurt: красная виньетка — края краснее центра и краснее обычного
+        h_s, w_s = red.shape
+        by, bx = max(1, h_s // 6), max(1, w_s // 6)
+        border = np.zeros((h_s, w_s), dtype=bool)
+        border[:by, :] = True
+        border[-by:, :] = True
+        border[:, :bx] = True
+        border[:, -bx:] = True
+        center = np.zeros((h_s, w_s), dtype=bool)
+        center[h_s // 3: h_s - h_s // 3, w_s // 3: w_s - w_s // 3] = True
 
-        b_red = red[border_mask]
-        b_green = green[border_mask]
-        b_blue = blue[border_mask]
-
-        # Пиксели, где красный существенно преобладает над синим и зеленым
-        red_dominant = (b_red > 100) & (b_red > (b_green * 1.5)) & (b_red > (b_blue * 1.5))
-        red_ratio = float(np.sum(red_dominant)) / float(b_red.size)
-
-        if red_ratio > 0.15 and (red_ratio - self.old_red_ratio) > 0.08:
-            if ts - self.last_event_time["hurt"] >= self.cooldown:
-                events.append(GameSenseEvent(kind="hurt", strength=red_ratio, timestamp=ts, message="Получен урон!"))
+        red_dominant = (red > 100) & (red > green * 1.5) & (red > blue * 1.5)
+        rb = float(np.mean(red_dominant[border]))
+        rc = float(np.mean(red_dominant[center])) if center.any() else 0.0
+        self._hurt(rb, rc, ts, events)
 
         self.old_mean = mean_val
-        self.old_red_ratio = red_ratio
+        self.old_red_ratio = rb
         self.is_first_frame = False
-
         return events
+
+    def _hurt(self, rb: float, rc: float, ts: float, events: list) -> None:
+        base = self.red_baseline
+        if base is None:
+            self.red_baseline = rb
+            return
+        hurt_like = rb >= HURT_MIN_BORDER and rb - rc >= HURT_MIN_VIGNETTE and rb - base >= HURT_MIN_RISE
+        if hurt_like:
+            self.hurt_streak += 1
+            if self.hurt_streak == HURT_FRAMES and self._ready("hurt", ts):
+                events.append(GameSenseEvent(kind="hurt", strength=rb, timestamp=ts,
+                                             message="Получен урон (красные края экрана)"))
+        else:
+            self.hurt_streak = 0
+            # Фон учится только на обычных кадрах — иначе длинная серия урона «станет нормой».
+            self.red_baseline = base + BASELINE_ALPHA * (rb - base)
 
     def _process_pure_python(self, bgra_bytes: bytes, width: int, height: int, ts: float) -> list[GameSenseEvent]:
         events: list[GameSenseEvent] = []
@@ -176,134 +190,14 @@ class GameSenseDetector:
         black_ratio = black_count / total_samples
         red_ratio = red_dominant_count / total_samples
 
-        if black_ratio > 0.92 and mean_val < 14:
-            if ts - self.last_event_time["dark"] >= self.cooldown:
-                events.append(GameSenseEvent(kind="dark", strength=black_ratio, timestamp=ts))
+        self._dark(black_ratio > 0.92 and mean_val < 14, black_ratio, ts, events)
 
-        if not self.is_first_frame and (mean_val - self.old_mean) > 60 and mean_val > 180:
-            if ts - self.last_event_time["flash"] >= self.cooldown:
-                events.append(GameSenseEvent(kind="flash", strength=1.0, timestamp=ts))
-
-        if red_ratio > 0.15 and (red_ratio - self.old_red_ratio) > 0.08:
-            if ts - self.last_event_time["hurt"] >= self.cooldown:
-                events.append(GameSenseEvent(kind="hurt", strength=red_ratio, timestamp=ts))
+        if not self.is_first_frame and (mean_val - self.old_mean) > 60 and mean_val > 180 and self._ready("flash", ts):
+            events.append(GameSenseEvent(kind="flash", strength=1.0, timestamp=ts))
+        # Без numpy края от центра не отделить — «урон» не определяется (ложных срабатываний больше,
+        # чем пользы).
 
         self.old_mean = mean_val
         self.old_red_ratio = red_ratio
         self.is_first_frame = False
         return events
-
-
-class GameSenseRunner:
-    """Фоновый захват экрана и анализ игровых событий (Hurt, Flash, Dark/Death)."""
-
-    def __init__(
-        self,
-        detector: Optional[GameSenseDetector] = None,
-        on_reaction: Optional[Callable[[GameSenseEvent, str], None]] = None,
-        on_event: Optional[Callable[[GameSenseEvent], None]] = None,
-        fps: int = 10,
-    ):
-        self.detector = detector or GameSenseDetector()
-        self.on_reaction = on_reaction
-        self.on_event = on_event
-        self.fps = fps
-        self.active = False
-        self._thread: Optional[threading.Thread] = None
-        self._lock = threading.Lock()
-        self.last_reaction_time = 0.0
-        self.reaction_gap = 4.0  # минимум 4 секунды между репликами Сакуры
-
-        # Подключаем внутренний обработчик детектора
-        self.detector.on_event = self._handle_event
-
-    def start(self):
-        with self._lock:
-            if self.active:
-                return
-            self.active = True
-            self.detector.reset()
-            self._thread = threading.Thread(target=self._run_loop, name="GameSenseRunner", daemon=True)
-            self._thread.start()
-            log.info("[gamesense] Фоновый анализатор запущен (fps=%d)", self.fps)
-
-    def stop(self):
-        with self._lock:
-            self.active = False
-            self._thread = None
-            log.info("[gamesense] Фоновый анализатор остановлен")
-
-    def _handle_event(self, ev: GameSenseEvent):
-        if self.on_event:
-            try:
-                self.on_event(ev)
-            except Exception as e:
-                log.debug("[gamesense] on_event error: %s", e)
-
-        now = time.time()
-        if now - self.last_reaction_time < self.reaction_gap:
-            return
-
-        import random
-        phrases = {
-            "hurt": [
-                "Мастер, аккуратнее, тебя задели!",
-                "Куда под пули прёшь?! ХП улетает!",
-                "Тебя коцают, отойди в укрытие!",
-            ],
-            "flash": [
-                "Ой, мои глаза! Кто светошумовую кинул?!",
-                "Белый экран! Осторожно, ты ослеп!",
-            ],
-            "dark": [
-                "Ну вот, приехали. Опять на респаун?",
-                "Великолепный тактический ход... прямо на кладбище.",
-                "Капец. Ты погиб, Мастер.",
-            ],
-        }
-
-        choices = phrases.get(ev.kind)
-        if choices:
-            self.last_reaction_time = now
-            chosen = random.choice(choices)
-            log.info("[gamesense] Реакция на %s: %s", ev.kind, chosen)
-            if self.on_reaction:
-                try:
-                    self.on_reaction(ev, chosen)
-                except Exception as e:
-                    log.warning("[gamesense] on_reaction error: %s", e)
-
-    def _run_loop(self):
-        from PIL import ImageGrab
-        interval = 1.0 / max(1, self.fps)
-        while self.active:
-            t0 = time.time()
-            try:
-                # Быстрый захват кадра и сжатие в 160x90 для минимального использования процессора
-                img = ImageGrab.grab()
-                small = img.resize((160, 90))
-                # RGBA байты
-                rgba = small.convert("RGBA").tobytes()
-                # Для BGRA переставляем каналы (или подаем напрямую в детектор)
-                # В numpy-версии детектора sample[:, :, 0] = Blue, 1 = Green, 2 = Red
-                # Преобразуем RGBA в BGRA байты
-                bgra = bytearray(rgba)
-                bgra[0::4], bgra[2::4] = bgra[2::4], bgra[0::4]
-                self.detector.feed_frame(bytes(bgra), 160, 90, t0)
-            except Exception as e:
-                log.debug("[gamesense] Capture loop error: %s", e)
-
-            elapsed = time.time() - t0
-            sleep_t = max(0.02, interval - elapsed)
-            time.sleep(sleep_t)
-
-
-# Синглтон
-_gamesense_runner: Optional[GameSenseRunner] = None
-
-
-def get_gamesense_runner() -> GameSenseRunner:
-    global _gamesense_runner
-    if _gamesense_runner is None:
-        _gamesense_runner = GameSenseRunner()
-    return _gamesense_runner

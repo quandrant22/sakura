@@ -115,7 +115,7 @@ export function ScreenSection() {
           <button type="button" className={btn} onClick={() => void test()} disabled={!enabled}><Crosshair size={13} /> Проверить</button>
         </div>
       </Row>
-      <Row label="Субтитры вне игр" hint="В игре её реплики видны всегда; здесь — и на обычном рабочем столе">
+      <Row label="Сакура поверх экрана и вне игр" hint="Как в игре: пока она слушает или говорит, внизу экрана появляется ядро и её реплики. Окно сцены показывается только в эти секунды">
         <label className="flex items-center gap-2 text-sm text-ink">
           <input type="checkbox" checked={Boolean(settings?.stage_subtitles_always)}
                  onChange={(e) => void client.call("settings_set", { key: "stage_subtitles_always", value: e.target.checked })} /> Показывать

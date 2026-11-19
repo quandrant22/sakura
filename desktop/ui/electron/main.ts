@@ -108,7 +108,7 @@ function buildTrayMenu(): void {
     Menu.buildFromTemplate([
       { label: "Открыть", click: showWindow },
       { label: "Заглушить микрофон", type: "checkbox", checked: !trayState.mic, click: () => send("mic_toggle") },
-      { label: "Игровой режим", type: "checkbox", checked: trayState.game, click: () => send("game_mode") },
+      { label: "Режим компаньона", type: "checkbox", checked: trayState.game, click: () => send("game_mode") },
       ...(coreState === "failed"
         ? [{ label: "Ядро не запустилось: открыть журнал", click: openCoreLog }] : []),
       { type: "separator" },

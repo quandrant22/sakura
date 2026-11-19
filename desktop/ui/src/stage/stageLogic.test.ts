@@ -9,6 +9,9 @@ test("пустая сцена прячется; ядро видно только
   expect(hasContent({ ...EMPTY_STAGE, coreState: "speaking" }, 0)).toBe(false);
   expect(hasContent({ ...EMPTY_STAGE, coreState: "speaking", gameMode: true }, 0)).toBe(true);
   expect(hasContent({ ...EMPTY_STAGE, coreState: "idle", gameMode: true }, 0)).toBe(false);
+  // «Сакура поверх экрана и вне игр» — ядро и без игры; без настройки вне игры — нет.
+  expect(hasContent({ ...EMPTY_STAGE, coreState: "speaking", subtitlesAlways: true }, 0)).toBe(true);
+  expect(hasContent({ ...EMPTY_STAGE, coreState: "speaking" }, 0)).toBe(false);
 });
 
 test("рисование живёт duration секунд; 0 — до очистки; пустой список — очистка", () => {

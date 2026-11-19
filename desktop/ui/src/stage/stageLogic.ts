@@ -25,7 +25,7 @@ export interface StageModel {
   toasts: StageToast[];
   coreState: "idle" | "listening" | "thinking" | "speaking";
   gameMode: boolean;
-  /** Показывать субтитры вне игры (в игре — всегда). */
+  /** Вне игры — как в игре: ядро, пока слушает/говорит, и субтитры (настройка stage_subtitles_always). */
   subtitlesAlways: boolean;
 }
 
@@ -55,8 +55,15 @@ export function prune(m: StageModel, now: number): StageModel {
 /** Окно сцены нужно, только если на нём что-то есть (пустое окно поверх игры — лишняя задержка кадра). */
 export function hasContent(m: StageModel, now: number): boolean {
   const p = prune(m, now);
-  const coreVisible = p.gameMode && (p.coreState === "listening" || p.coreState === "speaking" || p.coreState === "thinking");
+  const coreVisible = coreShown(p);
   return Boolean(p.ink?.shapes.length) || Boolean(p.subtitle) || p.toasts.length > 0 || coreVisible;
+}
+
+const ACTIVE_CORE = new Set<string>(["listening", "thinking", "speaking"]);
+
+/** Ядро на сцене: в игре или с настройкой «вне игр», пока Сакура слушает, думает или говорит. */
+export function coreShown(m: StageModel): boolean {
+  return (m.gameMode || m.subtitlesAlways) && ACTIVE_CORE.has(m.coreState);
 }
 
 /** Рисование: duration 0 — до явной очистки (держим час), иначе — секунды. */

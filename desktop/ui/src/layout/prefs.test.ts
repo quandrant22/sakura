@@ -16,14 +16,20 @@ afterEach(() => vi.useRealTimers());
 test("по умолчанию: «Сакура-ночь», чат 350, доска v2 из трёх страниц", () => {
   const p = parsePersisted(null);
   expect(p).toMatchObject({ theme: "night", chatWidth: 350, chatCollapsed: false, locked: false, mobility: "normal",
-                            preset: "soft", boardMode: "pack", autoGamePage: false });
+                            preset: "soft", boardMode: "free", autoGamePage: false });
   expect(p.board).toEqual(defaultBoard());
 });
 
 test("испорченные значения заменяются значениями по умолчанию", () => {
   const p = parsePersisted({ theme: "neon", chatWidth: 10, board: "x", mobility: "turbo", locked: "yes", boardMode: "chaos" });
-  expect(p).toMatchObject({ theme: "night", chatWidth: CHAT.min, locked: false, mobility: "normal", boardMode: "pack" });
+  expect(p).toMatchObject({ theme: "night", chatWidth: CHAT.min, locked: false, mobility: "normal", boardMode: "free" });
   expect(p.board).toEqual(defaultBoard());
+});
+
+test("свободная расстановка: старая «авто-упаковка» по умолчанию переходит на «свободно», новый выбор сохраняется", () => {
+  expect(parsePersisted({ boardMode: "pack" }).boardMode).toBe("free");
+  expect(parsePersisted({ boardMode: "pack", boardModeV: 2 }).boardMode).toBe("pack");
+  expect(parsePersisted({ boardMode: "free", boardModeV: 2 }).boardMode).toBe("free");
 });
 
 test("старая запись (layout v1) мигрирует в v2", () => {

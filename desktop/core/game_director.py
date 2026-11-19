@@ -1,11 +1,13 @@
 """desktop.core.game_director — Сакура в играх: от «заметила игру» до «итоги сессии».
 
-Раз в WATCH_S проверяет активное окно (game_detect). Игра началась → сессия:
-  • игровой режим включается сам (как раньше по списку), сцена держится поверх игры;
+Раз в WATCH_S проверяет активное окно (game_detect). Игра началась → сессия (итоги, статистика API).
+Режим компаньона (шина game_mode) включается командой «режим компаньона», кнопкой в виджете или в
+трее; сам — только с настройкой game_companion_auto. Сессия закончилась — режим выключается.
+Только в режиме компаньона:
   • GameSense (desktop/core/gamesense.py — урон, вспышка, затемнение) получает уменьшенные кадры
-    выбранного монитора SENSE_FPS раз в секунду — локально, без модели и без сети;
+    выбранного монитора SENSE_FPS раз в секунду, пока игра в фокусе — локально, без модели и сети;
   • официальные API игр (game_integrations: CS2/Dota 2 GSI, LoL Live Client) дают точные события;
-  • клип-буфер пишет последние секунды игры — победа, эйс и серия сохраняются сами (настройка);
+  • клип-буфер пишет последние секунды игры («Откат 30с»); победа, эйс и серия сохраняются сами (настройка);
   • смерти копит «тильт» — при серии Сакура один раз поддержит;
   • пока Сакура говорит, звук игры приглушается до DUCK_PCT и возвращается после;
   • эксклюзивный полноэкранный режим (fullscreen.py) — подсказка и починка по кнопке.
@@ -22,7 +24,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 from desktop.core import game_presence as gp
-from desktop.core.game_detect import GameInfo
+from desktop.core.game_detect import GameInfo, game_key
 
 log = logging.getLogger("sakura.games")
 
@@ -40,6 +42,8 @@ SPEAK_TEXT = {
     "bomb_planted": "бомба заложена", "objective": "взяли цель", "low_hp": "мало здоровья", "hurt": "получил урон",
     "flash": "яркая вспышка", "dark": "экран потемнел", "tilt": "серия смертей подряд", "achievement": "достижение",
 }
+# Режим компаньона без распознанной игры: окно во весь экран, но не Сакура, не оболочка и не браузер.
+NOT_MANUAL = frozenset({"python.exe", "pythonw.exe", "sakura core.exe"})
 
 
 @dataclass
@@ -53,6 +57,10 @@ class Session:
     gate: gp.SpeechGate = field(default_factory=gp.SpeechGate)
     tilt: gp.TiltMeter = field(default_factory=gp.TiltMeter)
     exclusive_warned: bool = False
+    # Игра сейчас в фокусе (Alt+Tab в браузер — кадры не анализируются).
+    focused: bool = True
+    # Серверу уже сказали, что компаньон в этой игре (game_session_start — один раз за сессию).
+    announced: bool = False
 
     def minutes(self, now: float) -> int:
         return max(0, int((now - self.started) // 60))
@@ -77,6 +85,8 @@ class GameDirector:
         self._gsi = None
         self._lol = None
         self._sense = None
+        # Режим компаньона: включён командой/кнопкой; в игре — анализ кадров, клипы, голос.
+        self.companion = False
 
     # ── настройки ──
     def _get(self, key: str, default: Any = None) -> Any:
@@ -151,6 +161,8 @@ class GameDirector:
         game, fg = self.detect()
         with self._lock:
             s = self.session
+        if game is None and s is None and self.companion:
+            game = self._manual_game(fg)
         if game is not None:
             if s is None or s.game.key != game.key:
                 if s is not None:
@@ -158,9 +170,26 @@ class GameDirector:
                 self.begin_session(game, fg)
             else:
                 s.last_seen = now
+                s.focused = True
                 self._check_exclusive(s, fg)
-        elif s is not None and now - s.last_seen > GRACE_S:
-            self.end_session("игра закрыта")
+        elif s is not None:
+            s.focused = s.game.reason == "режим компаньона" and bool(fg) and game_key(fg.get("exe", "")) == s.game.key
+            if s.focused:
+                s.last_seen = now
+            elif now - s.last_seen > GRACE_S:
+                self.end_session("игра закрыта")
+
+    @staticmethod
+    def _manual_game(fg: Optional[dict]) -> Optional[GameInfo]:
+        """Компаньон включён, а игра не распознана: берём окно во весь экран (не Сакуру и не браузер)."""
+        if not fg or not fg.get("fullscreen"):
+            return None
+        from desktop.core.game_detect import NOT_GAMES, nice_name
+        key = game_key(fg.get("exe", ""))
+        if not key or key in NOT_GAMES or key in NOT_MANUAL:
+            return None
+        return GameInfo(key, nice_name(fg.get("exe", ""), fg.get("path", ""), fg.get("title", "")), fg.get("exe", ""),
+                        fg.get("path", ""), "режим компаньона")
 
     # ── сессия ──
     def begin_session(self, game: GameInfo, fg: Optional[dict] = None):
@@ -170,18 +199,58 @@ class GameDirector:
         with self._lock:
             self.session = s
         log.info("[games] сессия: %s (%s), присутствие %s", game.name, game.reason, level)
-        if self.bus is not None:
-            self.bus.emit("game_mode", on=True)
-        self.emit({"type": "game_session", "state": "start", "game": game.name, "key": game.key, "level": level,
-                   "reason": game.reason})
-        self.emit({"type": "game_event", "event": "session_start", "title": game.name,
-                   "text": f"Я рядом · {gp.LEVEL_NAMES[level]}"})
         if game.key in ("league of legends.exe",) and self._lol:
             self._lol.start()
-        if level != "silent" or self._get("game_autoclip", True):
-            self._start_sense(s)
-        self._send("game_session_start", s, {"reason": game.reason})
+        if not self.companion and self._get("game_companion_auto", False):
+            self.set_companion(True)          # сам включит анализ и скажет серверу
+        elif self.companion:
+            self._companion_on(s)
+        self.emit({"type": "game_session", "state": "start", "game": game.name, "key": game.key, "level": level,
+                   "reason": game.reason, "companion": self.companion})
+        if not self.companion:
+            self.emit({"type": "game_event", "event": "session_start", "title": game.name,
+                       "text": "Скажи «режим компаньона» или нажми кнопку — и я буду рядом"})
         self._check_exclusive(s, fg)
+
+    # ── режим компаньона ──
+    def set_companion(self, on: bool) -> bool:
+        """Включить/выключить режим компаньона (команда, кнопка, трей). Состояние — по шине game_mode."""
+        on = bool(on)
+        if on == self.companion:
+            return self.companion
+        if self.bus is not None:
+            self.bus.emit("game_mode", on=on)   # вернётся в _on_bus → _apply_companion
+        if self.companion != on:               # шины нет (тесты) или подписка ещё не готова
+            self._apply_companion(on)
+        return self.companion
+
+    def _apply_companion(self, on: bool):
+        if on == self.companion:
+            return
+        self.companion = on
+        with self._lock:
+            s = self.session
+        log.info("[games] режим компаньона %s (%s)", "вкл" if on else "выкл", s.game.name if s else "игры нет")
+        if on:
+            if s is not None:
+                self._companion_on(s)
+                text = f"{gp.LEVEL_NAMES[s.level]} · реагирую на урон, вспышки, затемнение и события игры"
+            else:
+                text = "Жду игру: включи её — и я подключусь"
+            self.emit({"type": "game_event", "event": "companion_on", "title": "Режим компаньона", "text": text})
+        else:
+            self._sense = None
+            if s is not None:
+                self._unduck(s)
+            self.emit({"type": "game_event", "event": "companion_off", "title": "Режим компаньона",
+                       "text": "Выключен — смотрю молча"})
+
+    def _companion_on(self, s: Session):
+        if self._sense is None:   # кадры нужны и анализу, и клип-буферу («Откат 30с»)
+            self._start_sense(s)
+        if not s.announced:
+            s.announced = True
+            self._send("game_session_start", s, {"reason": s.game.reason})
 
     def end_session(self, why: str = ""):
         with self._lock:
@@ -194,11 +263,12 @@ class GameDirector:
         self._unduck(s)
         now = self.clock()
         log.info("[games] конец сессии %s (%s): %d мин, %s", s.game.name, why, s.minutes(now), s.stats)
-        if self.bus is not None:
-            self.bus.emit("game_mode", on=False)
+        # Игра закрыта — режим компаньона выключается; следующая игра снова ждёт команды.
+        if self.companion:
+            self.set_companion(False)
         self.emit({"type": "game_session", "state": "end", "game": s.game.name, "key": s.game.key,
                    "minutes": s.minutes(now), "stats": dict(s.stats), "highlights": list(s.highlights[-10:])})
-        if s.minutes(now) >= 5:
+        if s.announced and s.minutes(now) >= 5:
             self._send("game_session_end", s, {"minutes": s.minutes(now), "highlights": s.highlights[-10:],
                                                "speak": s.level != "silent"})
 
@@ -212,7 +282,7 @@ class GameDirector:
             s = self.session
         if s is not None and s.game.key == key:
             s.level = level
-            if self._sense is None and level != "silent":
+            if self.companion and self._sense is None and level != "silent":
                 self._start_sense(s)
         return level
 
@@ -241,6 +311,9 @@ class GameDirector:
             s.highlights.append(f"победа {detail}".strip())
         elif kind == "defeat":
             s.stats["losses"] += 1
+        # Без режима компаньона — только итоги сессии: ни всплывашек, ни голоса, ни автоклипов.
+        if not self.companion:
+            return
         # Затемнение экрана GameSense — ещё не смерть: катсцены и загрузки тоже тёмные.
         self.emit({"type": "game_event", "event": kind, "text": detail or "", "source": source})
         if kind in AUTOCLIP_EVENTS and self._get("game_autoclip", True):
@@ -288,9 +361,18 @@ class GameDirector:
         last_clip = last_sense = 0.0
         log.info("[games] кадры: %s", grabber.backend)
         try:
+            paused = False
             while not self._stop.is_set() and self._sense is token and self.session is s:
                 t = time.monotonic()
-                want_clip = self.clips is not None and self._get("game_autoclip", True) and t - last_clip >= clip_every
+                if not s.focused:
+                    # Alt+Tab: браузер и рабочий стол — не игра (белая страница — не «вспышка»).
+                    if not paused:
+                        paused = True
+                        detector.reset()
+                    time.sleep(0.25)
+                    continue
+                paused = False
+                want_clip = self.clips is not None and t - last_clip >= clip_every
                 want_sense = s.level != "silent" and t - last_sense >= sense_every
                 if want_clip or want_sense:
                     img = grabber.grab()
@@ -317,6 +399,9 @@ class GameDirector:
 
     # ── приглушение игры, пока Сакура говорит ──
     def _on_bus(self, event: str, data: dict):
+        if event == "game_mode":
+            self._apply_companion(bool(data.get("on")))
+            return
         if event != "state":
             return
         with self._lock:
@@ -372,6 +457,6 @@ class GameDirector:
         with self._lock:
             s = self.session
         if s is None:
-            return {"active": False}
+            return {"active": False, "companion": self.companion}
         return {"active": True, "game": s.game.name, "key": s.game.key, "level": s.level, "reason": s.game.reason,
-                "minutes": s.minutes(self.clock()), "stats": dict(s.stats)}
+                "minutes": s.minutes(self.clock()), "stats": dict(s.stats), "companion": self.companion}

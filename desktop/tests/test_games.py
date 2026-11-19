@@ -165,14 +165,16 @@ class Clock:
 ELDEN = GameInfo("elden.exe", "ELDEN RING", "elden.exe", "C:/e.exe", "папка игр")
 
 
-def _director(level="reactions", game=ELDEN):
+def _director(level="reactions", game=ELDEN, companion=True, auto=False):
     emitted, sent = [], []
     clock = Clock()
-    s = FakeSettings(game_presence={"elden.exe": level}, game_autoclip=False)
+    s = FakeSettings(game_presence={"elden.exe": level}, game_autoclip=False, game_companion_auto=auto)
     state = {"game": game}
     d = GameDirector(s, emit=emitted.append, send_server=sent.append, clips=FakeClips(),
                      detect=lambda: (state["game"], None), clock=clock)
     d._start_sense = lambda s: None  # без захвата экрана в тестах
+    if companion:
+        d.set_companion(True)
     return d, emitted, sent, clock, state
 
 
@@ -223,3 +225,76 @@ def test_set_level_persists_and_applies_to_session():
     assert d.session.level == "coop"
     assert d.settings["game_presence"]["elden.exe"] == "coop"
     assert json.dumps(d.snapshot())
+
+
+class Bus:
+    def __init__(self):
+        self.subs, self.log = [], []
+
+    def subscribe(self, cb):
+        self.subs.append(cb)
+
+    def emit(self, event, **data):
+        self.log.append((event, data))
+        for cb in list(self.subs):
+            cb(event, data)
+
+
+def test_game_found_but_companion_waits_for_command():
+    d, emitted, sent, clock, _ = _director(companion=False)
+    d.tick()
+    assert d.session and not d.companion
+    assert not [m for m in sent if m["type"] == "game_session_start"]   # серверу — только в режиме
+    assert emitted[-1]["event"] == "session_start" and "режим компаньона" in emitted[-1]["text"]
+    n = len(emitted)
+    d.on_event("victory")
+    assert d.session.stats["wins"] == 1 and len(emitted) == n             # итоги копятся молча
+    d.set_companion(True)
+    assert [m["type"] for m in sent] == ["game_session_start"]
+    d.on_event("multikill")
+    assert emitted[-1]["event"] == "multikill"
+
+
+def test_companion_auto_setting_enables_on_game_start():
+    d, emitted, sent, *_ = _director(companion=False, auto=True)
+    d.tick()
+    assert d.companion and sent[0]["type"] == "game_session_start"
+
+
+def test_companion_via_bus_and_off_when_game_closes():
+    emitted, sent, clock, bus = [], [], Clock(), Bus()
+    state = {"game": None}
+    d = GameDirector(FakeSettings(game_autoclip=False), emit=emitted.append, send_server=sent.append, bus=bus,
+                     clips=FakeClips(), detect=lambda: (state["game"], None), clock=clock)
+    d._start_sense = lambda s: None
+    bus.subscribe(d._on_bus)
+    bus.emit("game_mode", on=True)            # голос/кнопка до запуска игры — ждёт игру
+    assert d.companion and d.session is None
+    state["game"] = ELDEN
+    d.tick()
+    assert sent[0]["type"] == "game_session_start"
+    state["game"] = None
+    clock.t += 400
+    d.tick()
+    assert d.session is None and not d.companion
+    assert bus.log[-1] == ("game_mode", {"on": False})
+
+
+def test_alt_tab_pauses_frames():
+    d, *_ , clock, state = _director()
+    d.tick()
+    assert d.session.focused
+    state["game"] = None
+    clock.t += 5
+    d.tick()
+    assert d.session is not None and not d.session.focused
+    state["game"] = ELDEN
+    d.tick()
+    assert d.session.focused
+
+
+def test_manual_session_for_unknown_fullscreen_game():
+    fg = {"exe": "MyIndie.exe", "path": "D:/Games/x/MyIndie.exe", "title": "My Indie", "fullscreen": True}
+    assert GameDirector._manual_game(fg).key == "myindie.exe"
+    assert GameDirector._manual_game({**fg, "fullscreen": False}) is None
+    assert GameDirector._manual_game({**fg, "exe": "chrome.exe"}) is None

@@ -21,7 +21,7 @@ import { VIEWS } from "./registry";
 import { DRAG_HANDLE, NO_DRAG, Widget } from "./Widget";
 
 const packCompactor = getCompactor("vertical", false, false);      // без перекрытий, подтягивает вверх
-const freeCompactor = getCompactor(null, false, true);             // свободно: в занятое место не встаёт
+const freeCompactor = getCompactor(null, false, false);            // свободно: без подтягивания вверх, сосед отодвигается
 const HANDLES = ["s", "e", "w", "n", "se", "sw", "ne", "nw"] as const;
 const UNDO_MS = 10_000;
 const HIGHLIGHT_MS = 1600;

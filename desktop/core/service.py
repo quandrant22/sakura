@@ -34,7 +34,10 @@ DEFAULT_SETTINGS = {
     "game_presence": {},
     # Оверлей поверх игр и экрана (окно «сцена» в Electron).
     "stage_enabled": True,
-    "stage_subtitles_always": False,
+    # Сакура поверх экрана и вне игры: ядро, пока слушает/говорит, и субтитры (как в игре).
+    "stage_subtitles_always": True,
+    # Режим компаньона в игре: False — только по команде «режим компаньона» или кнопке.
+    "game_companion_auto": False,
     # Игры: «это игра» / «это не игра» (exe), автоклипы, приглушать игру, пока Сакура говорит.
     "game_processes": [],
     "game_not_processes": [],
@@ -49,7 +52,7 @@ SETTINGS_KEYS = frozenset(DEFAULT_SETTINGS) | {"autostart", "game_processes", "w
                                                "voice_volume", "cable_volume", "target_display",
                                                "game_presence_default", "game_presence", "stage_enabled",
                                                "stage_subtitles_always", "game_not_processes", "game_autoclip",
-                                               "game_duck"}
+                                               "game_duck", "game_companion_auto"}
 # Встроенный сценарий «Фокус» на сервере.
 FOCUS_SCENARIO_ID = "focus"
 
@@ -522,6 +525,8 @@ class CoreService:
             return await self.link.request({"type": "scenario_run", "id": str(arg)})
         if kind == "clip_that":
             from desktop.core.features import get_clip_buffer
+            if not get_clip_buffer().frame_count:
+                return {"text": "Клипы пишутся только в режиме компаньона — включи его в игре"}
             path = await asyncio.to_thread(get_clip_buffer().save_clip, 30)
             if path:
                 self._emit({"type": "clip_saved", "path": str(path)})
@@ -539,16 +544,8 @@ class CoreService:
             get_ink_manager().draw("circle 400 300 200 200; arrow 250 150 380 280; text 400 520 Интерактивная зона Сакуры")
             return {"text": "Нарисовала подсказку на экране"}
         if kind == "toggle_game_mode":
-            from desktop.core.features import get_gamesense_runner, get_clip_buffer
-            gs = get_gamesense_runner()
-            new_active = not gs.active
-            if new_active:
-                gs.start()
-                get_clip_buffer().start()
-            else:
-                gs.stop()
-            self.bus.emit("game_mode", on=new_active)
-            return {"active": new_active}
+            d = self._director()
+            return {"active": d.set_companion(not d.companion)}
         if kind == "toggle_call_mode":
             from desktop.core.features import get_call_mode_manager
             cm = get_call_mode_manager()
@@ -634,10 +631,12 @@ class CoreService:
             agent.stt_replacements = [p for p in pairs if isinstance(p, (list, tuple)) and len(p) == 2][:200]
 
     async def cmd_game_mode(self, msg: dict):
-        # Тот же путь, что команда сервера game_mode:on/off — событие шины (оверлей, трей).
+        # Режим компаньона. Тот же путь, что команда сервера game_mode:on/off и голос: событие шины
+        # game_mode — его ловит GameDirector (анализ кадров, клипы), оверлей и трей.
         on = bool(msg.get("on"))
         self.bus.emit("game_mode", on=on)
-        return {"on": on}
+        d = getattr(self, "_games", None)
+        return {"on": d.companion if d else on}
 
     # ── Игры (desktop/core/game_director.py) ──
     def _director(self):
@@ -1002,9 +1001,8 @@ class CoreService:
                 "type": "ink_render", "shapes": shapes, "space": screens.ink_space(),
                 "duration": getattr(ink.current_drawing, "duration", 10.0)})
 
-            # 3. Clip buffer -> фоновый буфер последних 30-60 секунд
+            # 3. Clip buffer: кадры подаёт GameDirector только в режиме компаньона (без своего захвата).
             clips = get_clip_buffer()
-            clips.start()
 
             # 4. Care manager -> периодические напоминания
             care = get_care_manager()
@@ -1027,38 +1025,6 @@ class CoreService:
             self._games = GameDirector(self.settings, emit=self._emit, send_server=_send_game, bus=self.bus,
                                        clips=clips)
             self._games.start()
-
-            # 6. GameSense Runner (мгновенные игровые реакции: урон, вспышка, смерть)
-            from desktop.core.features import get_gamesense_runner
-            gs = get_gamesense_runner()
-
-            def _on_gamesense_reaction(ev, phrase):
-                self._emit({
-                    "type": "gamesense_event",
-                    "kind": ev.kind,
-                    "strength": ev.strength,
-                    "message": phrase,
-                })
-                if self._agent and getattr(self._agent, "_state", "") not in ("speaking", "thinking"):
-                    prompt = f'[Событие в игре ({ev.kind})]: Скажи эмоционально и коротко: "{phrase}"'
-                    self._agent.submit_user_text(prompt, source="game")
-
-            gs.on_reaction = _on_gamesense_reaction
-            gs.on_event = lambda ev: self._emit({
-                "type": "gamesense_event",
-                "kind": ev.kind,
-                "strength": ev.strength,
-                "message": ev.message,
-            })
-
-            def _on_bus_game_mode(data):
-                on = bool(data.get("on", False)) if isinstance(data, dict) else bool(data)
-                if on:
-                    gs.start()
-                    clips.start()
-                else:
-                    gs.stop()
-            self.bus.on("game_mode", _on_bus_game_mode)
 
             # 6. Call Mode & Watch Along loopback speech listener (захват речи друга из Discord/видео)
             from desktop.core.features import (

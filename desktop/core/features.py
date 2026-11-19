@@ -2,7 +2,6 @@
 
 Объединяет:
 - HuskManager (Husk Mode для CLI-агентов)
-- GameSenseDetector (мгновенные игровые реакции)
 - LookoutEngine (фоновый визуальный дозор)
 - ClipBuffer (голосовое клипирование в MP4)
 - InkManager (рисование поверх экрана)
@@ -19,7 +18,6 @@ from typing import Optional
 from desktop.core.call_mode import CallModeManager
 from desktop.core.care import CareManager
 from desktop.core.clips import ClipBuffer
-from desktop.core.gamesense import GameSenseDetector, GameSenseRunner, get_gamesense_runner
 from desktop.core.husk import HuskManager
 from desktop.core.ink import InkManager
 from desktop.core.lookout import LookoutEngine
@@ -30,7 +28,6 @@ from desktop.core.watch_along import WatchAlongManager
 log = logging.getLogger("sakura.features")
 
 _husk_manager: Optional[HuskManager] = None
-_gamesense_detector: Optional[GameSenseDetector] = None
 _lookout_engine: Optional[LookoutEngine] = None
 _clip_buffer: Optional[ClipBuffer] = None
 _ink_manager: Optional[InkManager] = None
@@ -50,10 +47,6 @@ def get_husk_manager() -> HuskManager:
 get_husk_agent_bridge = get_husk_manager
 
 
-def get_gamesense_detector() -> GameSenseDetector:
-    return get_gamesense_runner().detector
-
-
 def get_lookout_engine() -> LookoutEngine:
     global _lookout_engine
     if _lookout_engine is None:
@@ -64,7 +57,8 @@ def get_lookout_engine() -> LookoutEngine:
 def get_clip_buffer() -> ClipBuffer:
     global _clip_buffer
     if _clip_buffer is None:
-        _clip_buffer = ClipBuffer()
+        # Кадры подаёт GameDirector в режиме компаньона (8 в секунду), своего захвата экрана нет.
+        _clip_buffer = ClipBuffer(fps=8)
     return _clip_buffer
 
 

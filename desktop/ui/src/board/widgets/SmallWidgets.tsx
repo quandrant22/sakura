@@ -201,7 +201,7 @@ export function QuickActionsWidget() {
         {mic ? <Mic size={13} /> : <MicOff size={13} className="text-accent" />} {mic ? "Микрофон вкл." : "Микрофон выкл."}
       </button>
       <button type="button" className={game ? activeChip : chip} aria-pressed={game} onClick={() => void setGame(!game)}>
-        <Gamepad2 size={13} className={game ? "text-accent" : ""} /> Игровой режим
+        <Gamepad2 size={13} className={game ? "text-accent" : ""} /> Компаньон
       </button>
     </div>
   );

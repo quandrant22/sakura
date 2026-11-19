@@ -9,7 +9,7 @@ import { bridge } from "../bridge";
 import { SakuraCore } from "../core-gfx/SakuraCore";
 import { STATE_STYLE } from "../core-gfx/stateStyle";
 import {
-  arrowHead, EMPTY_STAGE, GAME_EVENT_TITLES, hasContent, type InkShape, prune, scalePoints, type StageModel,
+  arrowHead, coreShown, EMPTY_STAGE, GAME_EVENT_TITLES, hasContent, type InkShape, prune, scalePoints, type StageModel,
   withInk, withSubtitle, withToast,
 } from "./stageLogic";
 
@@ -134,7 +134,7 @@ export function Stage() {
   }, [visible]);
 
   const style = STATE_STYLE[shown.coreState];
-  const coreOn = shown.gameMode && shown.coreState !== "idle";
+  const coreOn = coreShown(shown);
 
   return (
     <div className="pointer-events-none fixed inset-0 overflow-hidden" aria-hidden>

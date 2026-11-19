@@ -1022,18 +1022,20 @@ class Hearing(threading.Thread):
         def has(targets, cutoff=0.75):
             return any(difflib.get_close_matches(w, targets, n=1, cutoff=cutoff) for w in words)
 
-        if ((("выйди" in low) or ("выход" in low) or ("обычный" in low) or ("выключи" in low))
-                and (has(("игровой", "игры", "игру")) or "режим" in low)):
-            self.agent.bus.emit("game_mode", on=False)
-            self.agent.set_state("idle")
-            log.info("[game] игровой режим ВЫКЛ")
-            return True
-        if has(("игровой", "игру", "игры")) and "режим" in low:
-            self.agent.bus.emit("game_mode", on=True)
-            self.agent.set_state("idle")
-            log.info("[game] игровой режим ВКЛ")
-            return True
-        return False
+        # «Режим компаньона» (он же игровой режим): «режим компаньона», «включи компаньона»,
+        # «игровой режим»; выключение — «выйди из режима компаньона», «выключи игровой режим», «обычный режим».
+        companion = has(("компаньон", "компаньона", "компаньоном", "компаньоне"), cutoff=0.8)
+        game_words = has(("игровой", "игровом", "игрового"))
+        off = any(w in low for w in ("выйди", "выход", "выключи", "отключи", "хватит", "обычный", "заверши"))
+        verb_on = any(w in low for w in ("включи", "войди", "зайди", "стань", "активируй", "запусти", "будь"))
+        if "обычный режим" not in low:
+            if not (companion or game_words) or not ("режим" in low or off or verb_on):
+                return False
+        on = not off
+        self.agent.bus.emit("game_mode", on=on)
+        self.agent.set_state("idle")
+        log.info("[game] режим компаньона %s", "ВКЛ" if on else "ВЫКЛ")
+        return True
 
     def _update_dialog(self, text: str):
         import difflib

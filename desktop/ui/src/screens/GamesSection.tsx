@@ -1,4 +1,4 @@
-// Настройки → «Игры»: текущая сессия и уровень присутствия Сакуры, уровни по играм, «это игра / не игра»,
+// Настройки → «Игры»: режим компаньона (вручную или сам), текущая сессия и уровень присутствия Сакуры, уровни по играм, «это игра / не игра»,
 // игровые API (CS2/Dota 2 — файл GSI по кнопке; LoL — сам), автоклипы, приглушение игры, полноэкранный режим.
 import { Gamepad2, Plug, Plus, Wrench, X } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
@@ -119,6 +119,20 @@ export function GamesSection() {
   const s = st?.session;
   return (
     <div className="px-4 pb-2">
+      <Row label="Режим компаньона" hint="Анализ экрана, реакции голосом и клипы — только в этом режиме. Голосом: «режим компаньона» / «выйди из режима компаньона»">
+        <div className="flex flex-wrap items-center gap-4 text-sm text-ink">
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={gameMode} onChange={(e) => void client.call("game_mode", { on: e.target.checked })} />
+            Включён
+          </label>
+          <label className="flex items-center gap-2 text-ink-dim">
+            <input type="checkbox" checked={Boolean(settings?.game_companion_auto)}
+                   onChange={(e) => void client.call("settings_set", { key: "game_companion_auto", value: e.target.checked })} />
+            Включать сам при запуске игры
+          </label>
+        </div>
+      </Row>
+
       <Row label="Сейчас" hint="Игру Сакура узнаёт сама — по процессу: Steam, Epic, GOG, Riot, Battle.net, VK Play, эмуляторы">
         {s?.active ? (
           <div className="flex flex-col gap-2">
@@ -134,13 +148,7 @@ export function GamesSection() {
             )}
           </div>
         ) : (
-          <div className="flex items-center gap-3 text-sm text-ink-dim">
-            Не играешь
-            <label className="flex items-center gap-2 text-ink">
-              <input type="checkbox" checked={gameMode} onChange={(e) => void client.call("game_mode", { on: e.target.checked })} />
-              Игровой режим вручную
-            </label>
-          </div>
+          <div className="text-sm text-ink-dim">Не играешь</div>
         )}
       </Row>
 

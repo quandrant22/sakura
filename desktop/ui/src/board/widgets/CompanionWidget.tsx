@@ -1,6 +1,7 @@
 import {
   Activity,
   Bot,
+  ChevronDown,
   Eraser,
   Eye,
   Film,
@@ -17,9 +18,27 @@ import { useEffect, useState } from "react";
 
 import type { WidgetProps } from "./SmallWidgets";
 import { useMediaClient } from "../../media/MediaContext";
+import { GAME_EVENT_TITLES } from "../../stage/stageLogic";
 import { useApp } from "../../store";
 
-export function CompanionWidget({}: WidgetProps) {
+type Level = "silent" | "reactions" | "commentator" | "coop";
+const LEVEL_NAMES: Record<Level, string> = { silent: "Молчит", reactions: "Реакции", commentator: "Комментатор", coop: "Напарник" };
+interface GameSession { active: boolean; game?: string; level?: Level; companion?: boolean }
+
+/** На что она реагирует в режиме компаньона и с какого уровня присутствия говорит об этом вслух
+ *  (остальное — всплывашка на экране). Совпадает с desktop/core/game_presence.py SPOKEN. */
+const REACTS: { what: string; how: string; voice: Level }[] = [
+  { what: "Победа, поражение, эйс, серия, достижение", how: "игровые API: CS2, Dota 2, League of Legends", voice: "reactions" },
+  { what: "Серия смертей", how: "4 смерти за 10 минут — поддержит один раз", voice: "reactions" },
+  { what: "Убийства, смерти, раунды, бомба", how: "игровые API", voice: "commentator" },
+  { what: "Вспышка", how: "экран резко побелел", voice: "commentator" },
+  { what: "Урон", how: "края экрана резко покраснели (виньетка), а центр — нет", voice: "coop" },
+  { what: "Затемнение", how: "экран ушёл в чёрное — смерть, загрузка или катсцена", voice: "coop" },
+];
+const LEVEL_ORDER: Level[] = ["silent", "reactions", "commentator", "coop"];
+const QUIET_EVENTS = new Set(["session_start", "companion_on", "companion_off"]);
+
+export function CompanionWidget(_props: WidgetProps) {
   const client = useMediaClient();
   const quick = useApp((s) => s.quickAction);
   const s = useApp((s) => s.settings);
@@ -31,6 +50,8 @@ export function CompanionWidget({}: WidgetProps) {
   const [callerName, setCallerName] = useState("");
   const [loading, setLoading] = useState(false);
   const [recentGameEvent, setRecentGameEvent] = useState<string | null>(null);
+  const [session, setSession] = useState<GameSession>({ active: false });
+  const [showReacts, setShowReacts] = useState(false);
 
   // Initial fetch of companion status
   useEffect(() => {
@@ -46,17 +67,27 @@ export function CompanionWidget({}: WidgetProps) {
       })
       .catch(() => {});
 
-    // Listen to real-time events
-    const unreg = client.onEvent((ev: any) => {
-      if (ev.type === "gamesense_event") {
-        setRecentGameEvent(ev.kind || "alert");
-        setTimeout(() => setRecentGameEvent(null), 3500);
+    const loadGame = () => client.call<{ session: GameSession }>("games_state")
+      .then((r) => { if (alive && r?.session) setSession(r.session); }).catch(() => {});
+    void loadGame();
+
+    // События в реальном времени: игра началась/закончилась, на что она сейчас отреагировала.
+    let badge: ReturnType<typeof setTimeout> | null = null;
+    const unreg = client.onEvent((raw) => {
+      const ev = raw as { type: string; event?: unknown };
+      if (ev.type === "game_session" || ev.type === "game_mode") void loadGame();
+      if (ev.type === "game_event" && !QUIET_EVENTS.has(String(ev.event))) {
+        const kind = String(ev.event);
+        setRecentGameEvent(GAME_EVENT_TITLES[kind] ?? kind);
+        if (badge) clearTimeout(badge);
+        badge = setTimeout(() => setRecentGameEvent(null), 3500);
       }
     });
 
     return () => {
       alive = false;
       unreg();
+      if (badge) clearTimeout(badge);
     };
   }, [client]);
 
@@ -99,6 +130,13 @@ export function CompanionWidget({}: WidgetProps) {
       await quick("toggle_game_mode");
     }
   };
+  const autoCompanion = Boolean(s?.game_companion_auto);
+  const level: Level = session.level ?? ((s?.game_presence_default as Level) || "reactions");
+  const levelIdx = LEVEL_ORDER.indexOf(level);
+  const gameStatus = game
+    ? session.active ? `${session.game} · ${LEVEL_NAMES[level]}` : "Жду игру — включи её, и я подключусь"
+    : session.active ? `Вижу: ${session.game}. Скажи «режим компаньона» или нажми кнопку`
+      : "Включается командой «режим компаньона» или кнопкой";
 
   const voiceVol = typeof s?.voice_volume === "number" ? s.voice_volume : 50;
   const cableVol = typeof s?.cable_volume === "number" ? s.cable_volume : 85;
@@ -131,7 +169,7 @@ export function CompanionWidget({}: WidgetProps) {
         </div>
       </div>
 
-      {/* 2. GameSense & Gaming Hero Card */}
+      {/* 2. Режим компаньона в игре */}
       <div
         className={`relative overflow-hidden rounded-2xl border transition-all duration-300 p-3.5 shadow-soft backdrop-blur-md ${
           game
@@ -152,25 +190,19 @@ export function CompanionWidget({}: WidgetProps) {
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-ink">
-                  {game ? "Игровой режим (GameSense)" : "GameSense"}
-                </span>
+                <span className="text-xs font-semibold text-ink">Режим компаньона</span>
                 {game && (
                   <span className="rounded-full bg-accent/20 px-1.5 py-0.2 text-[9px] font-bold text-accent uppercase tracking-wider animate-pulse">
                     LIVE
                   </span>
                 )}
                 {recentGameEvent && (
-                  <span className="rounded-full bg-red-500/20 px-1.5 py-0.2 text-[9px] font-bold text-red-400 uppercase tracking-wider animate-bounce">
-                    {recentGameEvent === "hurt" ? "Урон!" : recentGameEvent === "flash" ? "Вспышка!" : "Смерть!"}
+                  <span className="rounded-full bg-red-500/20 px-1.5 py-0.2 text-[9px] font-bold text-red-400 uppercase tracking-wider">
+                    {recentGameEvent}
                   </span>
                 )}
               </div>
-              <p className="text-[10px] text-ink-dim truncate">
-                {game
-                  ? "Анализ экрана: урон, вспышки, авто-клипы и фразы Сакуры"
-                  : "Мгновенные выкрики при уроне и буфер клипов MP4"}
-              </p>
+              <p className="text-[10px] text-ink-dim truncate" title={gameStatus}>{gameStatus}</p>
             </div>
           </div>
 
@@ -183,9 +215,44 @@ export function CompanionWidget({}: WidgetProps) {
                 : "border border-line/80 bg-panel text-ink hover:border-accent hover:text-accent active:scale-95"
             }`}
           >
-            {game ? "В игре" : "Включить"}
+            {game ? "Выключить" : "Включить"}
           </button>
         </div>
+
+        <div className="mt-2 flex items-center justify-between gap-2 text-[10px] text-ink-dim">
+          <label className="flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" checked={autoCompanion} className="accent-accent"
+                   onChange={(e) => void client.call("settings_set", { key: "game_companion_auto", value: e.target.checked })} />
+            Включать сам при запуске игры
+          </label>
+          <button type="button" onClick={() => setShowReacts((v) => !v)} aria-expanded={showReacts}
+                  className="flex items-center gap-0.5 hover:text-ink cursor-pointer">
+            На что реагирует <ChevronDown size={11} className={showReacts ? "rotate-180 transition-transform" : "transition-transform"} />
+          </button>
+        </div>
+
+        {showReacts && (
+          <ul className="mt-2 flex flex-col gap-1 rounded-xl border border-white/[0.06] bg-panel/70 p-2 text-[10px]">
+            {REACTS.map((r) => {
+              const voiced = levelIdx >= LEVEL_ORDER.indexOf(r.voice);
+              return (
+                <li key={r.what} className="flex items-start justify-between gap-2">
+                  <span className="min-w-0">
+                    <span className="text-ink">{r.what}</span>
+                    <span className="text-ink-dim"> — {r.how}</span>
+                  </span>
+                  <span className={`shrink-0 ${voiced ? "text-accent" : "text-ink-dim"}`}
+                        title={voiced ? "Скажет голосом" : `Голосом — с уровня «${LEVEL_NAMES[r.voice]}», сейчас всплывашка`}>
+                    {voiced ? "голос" : "экран"}
+                  </span>
+                </li>
+              );
+            })}
+            <li className="mt-1 text-ink-dim">
+              Уровень «{LEVEL_NAMES[level]}» — меняется в Настройки → Игры или голосом. Экран смотрит только пока игра в фокусе.
+            </li>
+          </ul>
+        )}
       </div>
 
       {/* 3. Discord Call Mode Card */}
@@ -256,7 +323,7 @@ export function CompanionWidget({}: WidgetProps) {
           <button
             type="button"
             onClick={() => void quick("clip_that")}
-            title="Сохранить последние 30 секунд геймплея в MP4"
+            title="Сохранить последние 30 секунд игры в MP4 (буфер пишется в режиме компаньона)"
             className="flex flex-col items-center justify-center gap-1 rounded-xl border border-white/[0.06] bg-panel/70 py-2 px-1 text-ink-dim transition-all duration-200 hover:border-accent hover:text-ink hover:shadow-[0_0_12px_rgba(255,42,133,0.2)] active:scale-95 cursor-pointer"
           >
             <Film size={14} className="text-accent" />

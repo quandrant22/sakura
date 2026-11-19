@@ -831,11 +831,11 @@ class Agent:
 
         if action == "game_mode:on":
             self.bus.emit("game_mode", on=True)
-            await _send_ack(R.done("игровой режим включён"))
+            await _send_ack(R.done("режим компаньона включён"))
             return
         if action == "game_mode:off":
             self.bus.emit("game_mode", on=False)
-            await _send_ack(R.done("игровой режим выключен"))
+            await _send_ack(R.done("режим компаньона выключен"))
             return
 
         # ── Новые примитивы (этап 4) ────────────────────────────────
