@@ -207,7 +207,7 @@ def test_scenario_phrase_and_from_text():
     acts = prev["scenario"]["actions"]
     assert {"type": "pause", "value": "5"} in acts
     assert any(a["type"] == "action" for a in acts)
-    assert any("не понято" in w for w in prev["warnings"])
+    assert any("не поняла" in w for w in prev["warnings"])
     assert reply("scenario_from_text", text="")["code"] == "bad_request"
 
 

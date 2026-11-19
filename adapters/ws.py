@@ -356,6 +356,11 @@ async def ws_handler(websocket):
             from sakura_core.vision import capture as _vision_capture
             _vision_capture.forget(device_id)
             await proto_devices.on_disconnect(device_id)
+            try:
+                from sakura_core import scenario_triggers
+                await scenario_triggers.on_device_disconnected(device_id)
+            except Exception as e:
+                log.debug(f"[scenario] отключение {device_id}: {type(e).__name__}: {e}")
             set_device_offline(device_id)
             await asyncio.to_thread(ps_offline, device_id)
             log.info(f"Устройство отключено: {device_id}")
@@ -429,13 +434,22 @@ async def _maybe_run_scenario(data, ws_dev, ctx, speak) -> bool:
     """Фраза-условие сценария (v1): запуск сценария вместо обычного разбора.
     Сценарий с опасными действиями голосом не запускается."""
     from sakura_core import scenarios
+    text = data.get("text") or ""
     try:
-        s = await asyncio.to_thread(scenarios.match_phrase, data.get("text") or "")
+        s = await asyncio.to_thread(scenarios.match_phrase, text)
+        if s is None:
+            is_cmd, s = await asyncio.to_thread(scenarios.match_command, text)
+            if is_cmd and s is None:
+                await speak("Не нашла такой сценарий. Посмотри названия на экране «Сценарии».")
+                return True
     except Exception as e:
         log.debug(f"[scenario] фраза: {type(e).__name__}: {e}")
         return False
     if s is None:
         return False
+    if s["id"] in scenarios.running:
+        await speak(f"Сценарий «{s['name']}» уже выполняется.")
+        return True
     if scenarios.dangerous_actions(s):
         await speak(f"У сценария «{s['name']}» есть опасные действия — запусти его из приложения.")
         return True
@@ -447,8 +461,9 @@ async def _maybe_run_scenario(data, ws_dev, ctx, speak) -> bool:
                 await ws_dev.send(json.dumps(event, ensure_ascii=False))
             except Exception:
                 pass
+    scenarios.running.add(s["id"])
     spawn(scenarios.run(s, emit=_emit, device_ws=ws_dev, device_id=data.get("device_id"),
-                        register_command=ctx.get("_register_command")),
+                        register_command=ctx.get("_register_command"), trigger="phrase"),
           name=f"scenario-{s['id']}")
     return True
 

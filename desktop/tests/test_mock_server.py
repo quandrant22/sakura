@@ -66,6 +66,7 @@ def test_all_v2_requests_answered():
     payloads = {
         "scenario_get": {"id": "focus"}, "scenario_delete": {"id": "sleep"},
         "scenario_run": {"id": "focus"}, "scenario_from_text": {"text": "Создай сценарий сна"},
+        "scenario_toggle": {"id": "focus", "enabled": False},
         "scenario_save": {"scenario": {"name": "Новый", "conditions": [], "actions": []}},
         "memory_search": {"q": "лоу"}, "memory_update": {"id": "k1", "text": "x"},
         "memory_delete": {"id": "k2"}, "history_search": {"q": "а"}, "history_delete": {"id": "m1"},
@@ -75,6 +76,7 @@ def test_all_v2_requests_answered():
         "devices_request": "devices", "status_request": "status",
         "scenarios_list": "scenarios", "scenario_get": "scenario", "scenario_save": "scenario",
         "scenario_delete": "scenarios", "scenario_from_text": "scenario_preview",
+        "scenario_toggle": "scenario", "scenario_catalog": "scenario_catalog",
         "memory_list": "memory_items", "memory_search": "memory_items",
         "memory_update": "memory_items", "memory_delete": "memory_items",
         "profile_get": "profile", "profile_set": "profile",

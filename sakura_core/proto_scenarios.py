@@ -6,6 +6,11 @@
   scenario_delete {id}           → scenarios {scenarios}
   scenario_run {id, confirm?}    → scenario_run_started {run_id, id}, пуши scenario_event
   scenario_from_text {text}      → scenario_preview {scenario, warnings}  (не сохраняется)
+  scenario_toggle {id, enabled}  → scenario {scenario}
+  scenario_catalog               → scenario_catalog {actions}  (команды для конструктора)
+
+scenario_save отвечает ещё и warnings (подсказки: «условий нет», «опасные
+действия сами не запустятся»). Автозапуск по условиям — scenario_triggers.
 
 Опасные действия (confirm в реестре) — запуск только с confirm: true,
 иначе error/confirm_required со списком действий.
@@ -51,7 +56,18 @@ async def _save(ws, data, ctx):
         s = await asyncio.to_thread(scenarios.save, data.get("scenario"))
     except scenarios.ScenarioError as e:
         raise _err(e) from None
-    return {"type": "scenario", "scenario": s}
+    return {"type": "scenario", "scenario": s, "warnings": scenarios.warnings_for(s)}
+
+
+async def _toggle(ws, data, ctx):
+    s = await asyncio.to_thread(scenarios.set_enabled, _id(data), data.get("enabled") is not False)
+    if s is None:
+        raise V2Error("not_found", "сценарий не найден")
+    return {"type": "scenario", "scenario": s, "warnings": scenarios.warnings_for(s)}
+
+
+async def _catalog(ws, data, ctx):
+    return {"type": "scenario_catalog", "actions": await asyncio.to_thread(scenarios.catalog)}
 
 
 async def _delete(ws, data, ctx):
@@ -68,6 +84,8 @@ async def _run(ws, data, ctx):
     s = await asyncio.to_thread(scenarios.get, _id(data))
     if s is None:
         raise V2Error("not_found", "сценарий не найден")
+    if s["id"] in scenarios.running:
+        raise V2Error("busy", "сценарий уже выполняется")
     danger = scenarios.dangerous_actions(s)
     confirmed = data.get("confirm") is True
     if danger and not confirmed:
@@ -82,9 +100,11 @@ async def _run(ws, data, ctx):
             log.debug(f"[scenario] событие не отправлено: {type(e).__name__}")
 
     await ws.send(json.dumps({"type": "scenario_run_started", "request_id": data.get("request_id"),
-                              "run_id": run_id, "id": s["id"]}, ensure_ascii=False))
+                              "run_id": run_id, "id": s["id"], "name": s["name"],
+                              "trigger": "вручную"}, ensure_ascii=False))
     import modules.state as st
     device_id = data.get("device_id")
+    scenarios.running.add(s["id"])
     spawn(scenarios.run(s, emit=emit, device_ws=st.connected_devices.get(device_id) or ws,
                         device_id=device_id, register_command=ctx.get("_register_command"),
                         confirmed=confirmed, run_id=run_id),
@@ -102,5 +122,6 @@ async def _from_text(ws, data, ctx):
 
 for _k, _f in {"scenarios_list": _list, "scenario_get": _get, "scenario_save": _save,
                "scenario_delete": _delete, "scenario_run": _run,
-               "scenario_from_text": _from_text}.items():
+               "scenario_from_text": _from_text, "scenario_toggle": _toggle,
+               "scenario_catalog": _catalog}.items():
     proto_v2.register(_k, _f)

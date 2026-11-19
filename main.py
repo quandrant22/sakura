@@ -377,6 +377,9 @@ async def main(*, lifecycle=None, stop_event=None):
 
     set_reminder_callback(await make_reminder_cb(_get_active_ws, stream_tts_to_device, send_to_master, get_current_emotion))
     spawn(reminder_check_loop(), name="reminder-check-loop")
+    from sakura_core import scenario_triggers
+    scenario_triggers.reset()
+    spawn(scenario_triggers.time_loop(), name="scenario-time-loop")
 
     try:
         from modules.tg_monitor import get_monitor

@@ -34,7 +34,7 @@ V2_REQUESTS = frozenset({
     "chat_delete", "chat_clear",
     "devices_request", "status_request", "secure_devices",
     "scenarios_list", "scenario_get", "scenario_save", "scenario_delete",
-    "scenario_run", "scenario_from_text",
+    "scenario_run", "scenario_from_text", "scenario_toggle", "scenario_catalog",
     "memory_list", "memory_search", "memory_update", "memory_delete",
     "profile_get", "profile_set",
     "browser_step", "browser.resume",

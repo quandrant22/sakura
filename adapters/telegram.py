@@ -125,6 +125,7 @@ def _register_commands():
         cmd_pair_impl, cmd_devices_impl, cmd_revoke_impl,
         cmd_export_chat_impl, cmd_clear_chat_impl,
         cmd_forget_tasks_impl, cb_forget_tasks_impl,
+        cmd_scenarios_impl, cb_scenarios_impl,
     )
     dp.message(Command("помощь"))(_master_only(cmd_help_impl))
     dp.message(Command("health"))(_master_only(cmd_health_impl))
@@ -163,6 +164,13 @@ def _register_commands():
         if is_master(callback.from_user.id):
             await cb_forget_tasks_impl(callback)
     dp.callback_query(F.data.in_({"forget_tasks:yes", "forget_tasks:no"}))(_forget_tasks_cb)
+
+    dp.message(Command("сценарии", "scenarios"))(_master_only(cmd_scenarios_impl))
+
+    async def _scenarios_cb(callback):
+        if is_master(callback.from_user.id):
+            await cb_scenarios_impl(callback)
+    dp.callback_query(F.data.startswith("scn:"))(_scenarios_cb)
 
     async def _power_cb(callback):
         if not is_master(callback.from_user.id):

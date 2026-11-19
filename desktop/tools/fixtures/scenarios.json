@@ -2,9 +2,10 @@
   "scenarios": [
     {"id": "focus", "name": "Фокус", "enabled": true, "builtin": true,
      "conditions": [{"type": "phrase", "value": "режим фокуса"}],
-     "actions": [{"type": "action", "value": "system.dnd_on"}, {"type": "action", "value": "music.wave"}]},
+     "actions": [{"type": "action", "value": "music.wave"}, {"type": "notify", "value": "Режим фокуса: включаю волну, не отвлекаю"}],
+     "last_run": 1760086800, "last_status": "ok", "run_count": 12},
     {"id": "sleep", "name": "Режим сна", "enabled": true,
-     "conditions": [{"type": "time", "value": "22:00-07:00"}],
-     "actions": [{"type": "action", "value": "phone.dnd_on"}, {"type": "pause", "value": "5"}, {"type": "telegram", "value": "Спокойной ночи"}]}
+     "conditions": [{"type": "time", "value": "23:00", "days": [0, 1, 2, 3, 4]}],
+     "actions": [{"type": "action", "value": "display.night_light"}, {"type": "pause", "value": "5"}, {"type": "telegram", "value": "Спокойной ночи"}]}
   ]
 }

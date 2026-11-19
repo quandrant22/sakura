@@ -1,0 +1,14 @@
+{
+  "actions": [
+    {"id": "music.wave", "title": "Моя волна", "desc": "Моя волна в Яндекс Музыке", "group": "Музыка", "confirm": false, "device": true, "param": null},
+    {"id": "music.play_track", "title": "Включить трек", "desc": "Включить трек — включи трек Кино", "group": "Музыка", "confirm": false, "device": true, "param": {"name": "query", "required": true, "hint": "Какой трек включить"}},
+    {"id": "music.play_pause", "title": "Пауза / продолжить", "desc": "Пауза или продолжить музыку", "group": "Музыка", "confirm": false, "device": true, "param": null},
+    {"id": "system.volume", "title": "Громкость системы", "desc": "Громкость системы — поставь громкость 30", "group": "Звук", "confirm": false, "device": true, "param": {"name": "level", "required": true, "hint": "Уровень, 0–100"}},
+    {"id": "display.night_light", "title": "Ночной свет", "desc": "Ночной свет экрана", "group": "Экран", "confirm": false, "device": true, "param": null},
+    {"id": "app.launch", "title": "Открыть приложение", "desc": "Открыть приложение — открой дискорд", "group": "Приложения", "confirm": false, "device": true, "param": {"name": "app", "required": true, "hint": "Какое приложение открыть"}},
+    {"id": "kettle.boil", "title": "Вскипятить чайник", "desc": "Вскипятить чайник", "group": "Чайник", "confirm": false, "device": false, "param": null},
+    {"id": "weather.now", "title": "Погода сейчас", "desc": "Погода сейчас", "group": "Погода", "confirm": false, "device": false, "param": null},
+    {"id": "briefing.now", "title": "Что нового", "desc": "Что нового, сделай брифинг", "group": "Брифинг", "confirm": false, "device": false, "param": null},
+    {"id": "power.sleep", "title": "Сон компьютера", "desc": "Отправить компьютер в сон", "group": "Питание", "confirm": true, "device": true, "param": null}
+  ]
+}

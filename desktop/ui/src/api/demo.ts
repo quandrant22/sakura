@@ -3,10 +3,11 @@
 // unsupported — сервер без proto 2.
 import devicesFx from "../../../tools/fixtures/devices.json";
 import historyFx from "../../../tools/fixtures/history.json";
+import catalogFx from "../../../tools/fixtures/scenario_catalog.json";
 import scenariosFx from "../../../tools/fixtures/scenarios.json";
 import statusFx from "../../../tools/fixtures/status.json";
 import type { CoreClient, LinkState, Listener } from "./client";
-import { CoreError, type CoreEvent, type Device, type Message, type Scenario, type Settings } from "./types";
+import { type CatalogAction, CoreError, type CoreEvent, type Device, type Message, type Scenario, type Settings } from "./types";
 
 export type DemoMode = "normal" | "empty" | "offline" | "unsupported";
 
@@ -36,7 +37,7 @@ export class DemoClient implements CoreClient {
     const shift = now - 1760090400;
     this.messages = empty ? [] : (historyFx.messages as Message[]).map((m) => ({ ...m, ts: m.ts + shift }));
     this.devices = empty ? [] : (devicesFx.devices as Device[]).map((d) => ({ ...d, last_seen: d.last_seen + shift }));
-    this.scenarios = empty ? [] : (scenariosFx.scenarios as Scenario[]);
+    this.scenarios = empty ? [] : (structuredClone(scenariosFx.scenarios) as Scenario[]);
   }
 
   start(): void {
@@ -164,6 +165,25 @@ export class DemoClient implements CoreClient {
       }
       case "scenario_run":
         return { type: "scenario_run_started", run_id: "r1", id: message.id } as T;
+      case "scenario_catalog":
+        return { type: "scenario_catalog", actions: catalogFx.actions as CatalogAction[] } as T;
+      case "scenario_save": {
+        const sc = { ...(message.scenario as Scenario) };
+        if (!sc.name?.trim()) throw new CoreError("bad_request", "Название: от 1 до 60 символов");
+        if (!sc.actions?.length) throw new CoreError("bad_request", "Добавь хотя бы одно действие");
+        const old = this.scenarios.find((x) => x.id && x.id === sc.id);
+        const saved: Scenario = { ...old, ...sc, id: sc.id ?? `s${++this.seq}` };
+        this.scenarios = old ? this.scenarios.map((x) => (x.id === saved.id ? saved : x)) : [...this.scenarios, saved];
+        return { type: "scenario", scenario: saved,
+                 warnings: saved.conditions.length ? [] : ["Условий нет — запуск кнопкой ▶"] } as T;
+      }
+      case "scenario_toggle": {
+        this.scenarios = this.scenarios.map((x) => (x.id === message.id ? { ...x, enabled: message.enabled !== false } : x));
+        return { type: "scenario", scenario: this.scenarios.find((x) => x.id === message.id), warnings: [] } as T;
+      }
+      case "scenario_delete":
+        this.scenarios = this.scenarios.filter((x) => x.id !== message.id);
+        return { type: "scenarios", scenarios: this.scenarios } as T;
       case "memory_list":
       case "memory_search": {
         const items = this.mode === "empty" ? [] : [

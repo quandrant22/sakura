@@ -79,9 +79,11 @@
 | `status_request` | — | `status {tone, mode, context, quote}` |
 | `scenarios_list` | — | `scenarios {scenarios:[Scenario]}` |
 | `scenario_get` | `id` | `scenario {scenario}` |
-| `scenario_save` | `scenario` (без `id` — создать) | `scenario {scenario}` |
+| `scenario_save` | `scenario` (без `id` — создать) | `scenario {scenario, warnings:[str]}` — подсказки: «условий нет», «опасные действия сами не запустятся» |
+| `scenario_toggle` | `id`, `enabled` | `scenario {scenario, warnings}` |
+| `scenario_catalog` | — | `scenario_catalog {actions:[{id, title, desc, group, confirm, device, param:{name, required, hint}\|null}]}` — команды для конструктора |
 | `scenario_delete` | `id` | `scenarios {scenarios}` |
-| `scenario_run` | `id` | `scenario_run_started {run_id, id}`, затем пуши `scenario_event` |
+| `scenario_run` | `id`, `confirm` (для опасных) | `scenario_run_started {run_id, id, name, trigger}`, затем пуши `scenario_event`; уже идёт — `error/busy`, опасный без `confirm` — `error/confirm_required` |
 | `scenario_from_text` | `text` | `scenario_preview {scenario, warnings:[str]}` — не сохраняется |
 | `memory_list` | `category` (необяз.), `offset`, `limit` | `memory_items {items, total, counts}` |
 | `memory_search` | `q`, `limit` | `memory_items` |
@@ -97,7 +99,8 @@
 | `chat_message` | `message: Message` | каждое новое сообщение, включая голосовые (расшифровка) и ответы |
 | `device_update` | `device: Device` | изменилось состояние устройства |
 | `status` | `tone, mode, context, quote` | изменился статус |
-| `scenario_event` | `run_id, step, status: ok\|error\|done, detail` | ход запуска сценария |
+| `scenario_event` | `run_id, id, step, status: ok\|error\|done, detail` | ход запуска сценария |
+| `scenario_run_started` | `run_id, id, name, trigger` | автозапуск по условию (`trigger`: «по времени», «устройство подключилось»…) |
 
 ### 1.5 Типы
 
@@ -114,8 +117,13 @@
 
 // Scenario
 {"id": "sleep", "name": "Режим сна", "enabled": true, "builtin": false,
- "conditions": [{"type": "phrase|time|device_connected|device_disconnected|app_started", "value": "22:00-07:00"}],
- "actions":    [{"type": "action|pause|telegram|notify", "value": "phone.dnd_on"}]}
+ "conditions": [{"type": "phrase|time|device_connected|device_disconnected|app_started", "value": "23:00",
+                 "days": [0, 1, 2, 3, 4]}],          // days — только у time: 0 = пн … 6 = вс, нет — каждый день
+ "actions":    [{"type": "action|pause|telegram|notify", "value": "music.play_track", "arg": "Кино"}],
+ // пишет сервер: итог последнего запуска
+ "last_run": 1760090000.0, "last_status": "ok|error|skipped", "last_detail": "", "run_count": 3}
+// Условия: phrase — фраза голосом/в чате; time — «ЧЧ:ММ»; device_* — id устройства ("" — любое);
+// app_started — часть названия активного окна или начатой игры. Любое условие запускает сценарий.
 
 // MemoryItem
 {"id": "k1", "category": "preferences|facts|bookmarks|…", "text": "…", "ts": 1760000000.0}

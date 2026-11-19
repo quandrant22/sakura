@@ -31,7 +31,7 @@ CLOSE_UNAUTHORIZED = 4401
 V2_REQUESTS = {
     "history_request", "history_search", "history_delete", "devices_request", "status_request",
     "scenarios_list", "scenario_get", "scenario_save", "scenario_delete",
-    "scenario_run", "scenario_from_text",
+    "scenario_run", "scenario_from_text", "scenario_toggle", "scenario_catalog",
     "memory_list", "memory_search", "memory_update", "memory_delete",
     "profile_get", "profile_set",
 }
@@ -39,7 +39,7 @@ V2_REQUESTS = {
 
 def load_fixtures(path: Path = FIXTURES) -> dict:
     data = {}
-    for name in ("history", "devices", "status", "scenarios", "memory", "profile"):
+    for name in ("history", "devices", "status", "scenarios", "scenario_catalog", "memory", "profile"):
         data[name] = json.loads((path / f"{name}.json").read_text(encoding="utf-8"))
     return data
 
@@ -208,6 +208,16 @@ class MockServer:
             old.update(s)
             s = old
         return {"type": "scenario", "scenario": s}
+
+    async def _scenario_toggle(self, ws, msg):
+        s = self._find_scenario(msg.get("id"))
+        if s is None:
+            return self._err(msg, "not_found", "сценарий не найден")
+        s["enabled"] = msg.get("enabled") is not False
+        return {"type": "scenario", "scenario": s, "warnings": []}
+
+    async def _scenario_catalog(self, ws, msg):
+        return {"type": "scenario_catalog", "actions": self.state["scenario_catalog"]["actions"]}
 
     async def _scenario_delete(self, ws, msg):
         s = self._find_scenario(msg["id"])

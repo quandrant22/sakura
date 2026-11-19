@@ -4,6 +4,7 @@ import { createStore, useStore } from "zustand";
 
 import type { CoreClient, LinkState } from "./api/client";
 import {
+  type CatalogAction,
   type CoreEvent,
   CoreError,
   type CoreState,
@@ -24,7 +25,11 @@ export interface Slice<T> {
   error?: string;
 }
 
-export interface ScenarioEvent { run_id: string; step: number; status: string; detail: string }
+export interface ScenarioEvent {
+  run_id: string; step: number; status: string; detail: string;
+  /** id сценария; name/trigger — у события «запущен» (автозапуск: «по времени»…). */
+  id?: string; name?: string; trigger?: string;
+}
 
 export interface ConfirmRequest { id: string; action: string; label: string; ts: number; expires: number }
 /** Задача агента браузера (событие ядра browser_task); done/fail/cancelled приходят уведомлением. */
@@ -42,6 +47,8 @@ export interface AppState {
   devices: Slice<Device[]>;
   status: Slice<Status | null>;
   scenarios: Slice<Scenario[]>;
+  /** Команды Сакуры для конструктора (scenario_catalog). */
+  catalog: Slice<CatalogAction[]>;
   preview: Slice<{ scenario: Scenario; warnings: string[] } | null>;
   toast: { text: string; level: "info" | "warn" | "error" } | null;
   /** Запланировано выключение/перезагрузка: до какого момента (мс) — для тоста с отсчётом и «Отмена». */
@@ -76,8 +83,13 @@ export interface AppState {
   loadScenarios(): Promise<void>;
   /** Журнал запусков сценариев (события scenario_event сервера). */
   scenarioLog: (ScenarioEvent & { ts: number })[];
-  runScenario(id: string): Promise<void>;
+  /** confirm — запуск сценария с опасными действиями (после «Да» в окне). */
+  runScenario(id: string, confirm?: boolean): Promise<void>;
   deleteScenario(id: string): Promise<void>;
+  loadCatalog(): Promise<void>;
+  /** Сохранить (без id — создать); вернуть сохранённый сценарий и подсказки сервера. */
+  saveScenario(s: Scenario): Promise<{ scenario: Scenario; warnings: string[] }>;
+  toggleScenario(id: string, enabled: boolean): Promise<void>;
   sendText(text: string): Promise<void>;
   quickAction(id: string, arg?: string): Promise<void>;
   listApps(): Promise<string[]>;
@@ -272,6 +284,20 @@ export function createAppStore(client: CoreClient) {
         case "scenario_event": {
           const e = ev as unknown as ScenarioEvent;
           set({ scenarioLog: [...get().scenarioLog.slice(-99), { ...e, ts: Date.now() / 1000 }] });
+          // Итог запуска сервер записал в карточку — обновим список (статус, «когда»).
+          if (e.status === "done") {
+            void client.server<{ scenarios: Scenario[] }>({ type: "scenarios_list" })
+              .then((r) => set({ scenarios: { ...get().scenarios, data: r.scenarios ?? get().scenarios.data } }))
+              .catch(() => { /* список обновится при следующем открытии */ });
+          }
+          break;
+        }
+        case "scenario_run_started": {
+          // Автозапуск (время, устройство, приложение) — пуш без request_id.
+          const e = ev as unknown as { run_id: string; id: string; name?: string; trigger?: string };
+          if (get().scenarioLog.some((x) => x.run_id === e.run_id && x.step === -1)) break;
+          set({ scenarioLog: [...get().scenarioLog.slice(-99), { run_id: e.run_id, step: -1, status: "started",
+            detail: e.name ?? e.id, id: e.id, name: e.name, trigger: e.trigger, ts: Date.now() / 1000 }] });
           break;
         }
         case "control_paused":
@@ -315,6 +341,7 @@ export function createAppStore(client: CoreClient) {
       devices: empty<Device[]>([]),
       status: empty<Status | null>(null),
       scenarios: empty<Scenario[]>([]),
+      catalog: empty<CatalogAction[]>([]),
       preview: empty(null),
       toast: null,
       notifications: [],
@@ -372,9 +399,34 @@ export function createAppStore(client: CoreClient) {
         }),
       chatMore: false,
       scenarioLog: [],
-      async runScenario(id) {
-        const r = await client.server<{ run_id: string }>({ type: "scenario_run", id });
-        set({ scenarioLog: [...get().scenarioLog, { run_id: r.run_id, step: -1, status: "started", detail: id, ts: Date.now() / 1000 }] });
+      async runScenario(id, confirm = false) {
+        const r = await client.server<{ run_id: string }>(confirm ? { type: "scenario_run", id, confirm: true }
+                                                                  : { type: "scenario_run", id });
+        const name = get().scenarios.data.find((x) => x.id === id)?.name ?? id;
+        set({ scenarioLog: [...get().scenarioLog, { run_id: r.run_id, step: -1, status: "started", detail: name, id, name,
+                                                    trigger: "вручную", ts: Date.now() / 1000 }] });
+      },
+      loadCatalog: async () => {
+        if (get().catalog.status === "loading") return;
+        set({ catalog: { ...get().catalog, status: "loading", error: undefined } });
+        try {
+          const r = await client.server<{ actions: CatalogAction[] }>({ type: "scenario_catalog" });
+          set({ catalog: { data: r.actions ?? [], status: "ready" } });
+        } catch (e) {
+          set({ catalog: { ...get().catalog, status: failStatus(e), error: errorText(e) } });
+        }
+      },
+      async saveScenario(sc) {
+        const r = await client.server<{ scenario: Scenario; warnings?: string[] }>({ type: "scenario_save", scenario: sc });
+        const list = get().scenarios.data;
+        const next = list.some((x) => x.id === r.scenario.id)
+          ? list.map((x) => (x.id === r.scenario.id ? r.scenario : x)) : [...list, r.scenario];
+        set({ scenarios: { ...get().scenarios, data: next, status: "ready" } });
+        return { scenario: r.scenario, warnings: r.warnings ?? [] };
+      },
+      async toggleScenario(id, enabled) {
+        const r = await client.server<{ scenario: Scenario }>({ type: "scenario_toggle", id, enabled });
+        set({ scenarios: { ...get().scenarios, data: get().scenarios.data.map((x) => (x.id === id ? r.scenario : x)) } });
       },
       async deleteScenario(id) {
         const r = await client.server<{ scenarios: Scenario[] }>({ type: "scenario_delete", id });

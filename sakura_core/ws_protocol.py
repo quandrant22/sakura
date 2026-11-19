@@ -82,6 +82,15 @@ def bind_device_socket(device_id, websocket) -> None:
     spawn(_close_old(), name=f"ws-close-replaced-{device_id}")
 
 
+async def _scenario_hook(name: str, *args, **kw) -> None:
+    """Автозапуск сценариев (sakura_core/scenario_triggers); сбой не мешает протоколу."""
+    try:
+        from sakura_core import scenario_triggers
+        await getattr(scenario_triggers, name)(*args, **kw)
+    except Exception as e:
+        log.debug(f"[scenario] {name}: {type(e).__name__}: {e}")
+
+
 # ── register ───────────────────────────────────────────────────────────
 
 async def handle_register(websocket, data, ctx) -> None:
@@ -89,6 +98,7 @@ async def handle_register(websocket, data, ctx) -> None:
     bot = ctx["bot"]
 
     device_id = data.get("device_id")
+    was_online = device_id in st.connected_devices
     bind_device_socket(device_id, websocket)
     from sakura_core import proto_devices, proto_v2
     await proto_v2.on_register(websocket, data)
@@ -100,6 +110,8 @@ async def handle_register(websocket, data, ctx) -> None:
         system_info   = data.get("system_info"))
     log.info(f"Устройство подключено: {device_id}")
     await proto_devices.on_heartbeat(device_id, data)
+    await _scenario_hook("on_device_connected", device_id, was_online)
+    await _scenario_hook("on_window", device_id, data.get("active_window"))
 
     if is_master_device(device_id) and should_greet_device(device_id):
         greeting = await ask_gemini(
@@ -173,6 +185,7 @@ async def handle_ping(websocket, data, ctx) -> None:
     active_win = data.get("active_window", "")
     await asyncio.to_thread(watcher_update, device_id,
         active_win, data.get("system_info", {}))
+    await _scenario_hook("on_window", device_id, active_win)
 
     sys_info = data.get("system_info", {})
     focus_sec = data.get("focus_seconds", 0)
@@ -337,6 +350,7 @@ async def handle_game_session_start(websocket, data, ctx) -> None:
     level = str(data.get("level") or "reactions")
     gs.set_level(dev, level)
     game_hub.set_game_active(game)
+    await _scenario_hook("on_window", dev, game, game=True)
     if level == "silent":
         return
     prompt = gs.start_prompt(game, gs.last_session(str(data.get("game_key") or game)))

@@ -51,6 +51,10 @@ export interface Status {
 export interface ScenarioStep {
   type: string;
   value: string;
+  /** Параметр команды реестра (action): трек, приложение, уровень… */
+  arg?: string;
+  /** Условие time: дни недели 0 = пн … 6 = вс; нет — каждый день. */
+  days?: number[];
 }
 
 export interface Scenario {
@@ -60,6 +64,24 @@ export interface Scenario {
   builtin?: boolean;
   conditions: ScenarioStep[];
   actions: ScenarioStep[];
+  /** Итог последнего запуска — пишет сервер. */
+  last_run?: number;
+  last_status?: "ok" | "error" | "skipped";
+  last_detail?: string;
+  run_count?: number;
+}
+
+/** Команда Сакуры для конструктора сценариев (scenario_catalog). */
+export interface CatalogAction {
+  id: string;
+  title: string;
+  desc: string;
+  group: string;
+  /** Опасная: запуск только кнопкой с подтверждением. */
+  confirm: boolean;
+  /** Выполняет приложение на устройстве (нужно устройство онлайн). */
+  device: boolean;
+  param: { name: string; required: boolean; hint: string } | null;
 }
 
 export interface Settings {

@@ -377,3 +377,84 @@ async def cmd_clear_chat_impl(message: "Message"):
         await message.answer(f"Не получилось: {type(e).__name__}.")
         return
     await message.answer(f"Журнал чата очищен: удалено {n} сообщ.")
+
+
+# ── /сценарии ──────────────────────────────────────────────────
+
+def _scenario_kb(items):
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+    rows = [[InlineKeyboardButton(text=("▶ " if s.get("enabled", True) else "⏸ ") + s["name"][:40],
+                                  callback_data=f"scn:run:{s['id']}")] for s in items[:30] if s.get("id")]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def cmd_scenarios_impl(message: "Message"):
+    """/сценарии — список с кнопками запуска; опасные — после «Да»."""
+    import asyncio
+    import html
+    from sakura_core import scenarios
+    items = await asyncio.to_thread(scenarios.list_all)
+    if not items:
+        await message.answer("Сценариев пока нет — создай их в приложении (экран «Сценарии»).")
+        return
+    lines = ["<b>Сценарии</b> — нажми, чтобы запустить:"]
+    for s in items[:30]:
+        state = "" if s.get("enabled", True) else " (выключен)"
+        last = {"ok": " · ✓", "error": " · ✗ ошибка", "skipped": " · пропущен"}.get(s.get("last_status") or "", "")
+        lines.append(f"• {html.escape(s['name'])}{state}{last}")
+    await message.answer("\n".join(lines), reply_markup=_scenario_kb(items))
+
+
+async def cb_scenarios_impl(callback):
+    """Кнопки /сценарии: scn:run:<id> → запуск (опасный — вопрос), scn:yes:<id> / scn:no."""
+    import asyncio
+    import html
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+    from sakura_core import scenario_triggers, scenarios
+    from sakura_core.tasks import spawn
+    parts = (callback.data or "").split(":", 2)
+    verb, sid = (parts[1] if len(parts) > 1 else ""), (parts[2] if len(parts) > 2 else "")
+    if verb == "no":
+        await callback.message.edit_text("Хорошо, не запускаю.")
+        await callback.answer()
+        return
+    s = await asyncio.to_thread(scenarios.get, sid)
+    if s is None:
+        await callback.answer("Сценарий не найден", show_alert=True)
+        return
+    name = html.escape(s["name"])
+    danger = scenarios.dangerous_actions(s)
+    if verb == "run" and danger:
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="Да, запустить", callback_data=f"scn:yes:{sid}"),
+            InlineKeyboardButton(text="Нет", callback_data="scn:no:")]])
+        await callback.message.answer(f"В «{name}» есть опасные действия ({', '.join(danger)}). Запустить?",
+                                      reply_markup=kb)
+        await callback.answer()
+        return
+    if sid in scenarios.running:
+        await callback.answer("Уже выполняется", show_alert=True)
+        return
+    run_id = await scenario_triggers.fire(s, "telegram", confirmed=(verb == "yes"))
+    if run_id is None:
+        after = await asyncio.to_thread(scenarios.get, sid) or {}
+        await callback.answer(f"Не запущен: {after.get('last_detail') or 'нет устройства'}", show_alert=True)
+        return
+    await callback.answer("Запускаю")
+    msg = await callback.message.answer(f"▶ Запускаю «{name}»…")
+
+    async def _report():
+        for _ in range(600):                        # до 10 минут: 20 шагов с паузами
+            await asyncio.sleep(1)
+            if sid not in scenarios.running:
+                break
+        after = await asyncio.to_thread(scenarios.get, sid) or {}
+        st = after.get("last_status")
+        text = (f"✓ «{name}» выполнен" if st == "ok"
+                else f"✗ «{name}»: {html.escape(after.get('last_detail') or 'ошибка')}")
+        try:
+            await msg.edit_text(text)
+        except Exception:
+            pass
+    spawn(_report(), name=f"scenario-tg-{sid}")
+
