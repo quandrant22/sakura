@@ -43,6 +43,36 @@ ANDROID_PROJECT = os.getenv("ANDROID_PROJECT", "")  # Путь к проекту
 
 # Префикс, которым read_file сообщает о недоступности источника (см. ниже).
 READ_ERROR_PREFIX = "Ошибка чтения:"
+# Сколько символов файла отдаёт coding.read_file: ответ уходит в озвучку
+# и Telegram, читать в память многомегабайтный лог незачем.
+READ_MAX_CHARS = 100_000
+
+# Секреты и данные, которые не уходят ни в коммит, ни в ответ read_file
+# (озвучка — внешний TTS, ответ — Telegram). В рабочем дереве прода лежат
+# неигнорируемые .env.bak-*, дампы memory/backup/ — `git add -A` по голосовой
+# команде «закоммить» забрал бы их в историю репозитория.
+SECRET_GLOBS = (
+    "**/.env*", "**/*.env", "**/*.db*", "**/*.sqlite*", "**/*.session",
+    "**/*.session-journal", "**/credentials.json", "**/token.json",
+    "memory/backup/**",
+)
+# Шаблоны конфигурации (.env.example) — в репозитории, секретов в них нет.
+TEMPLATE_SUFFIX = ".example"
+
+
+def is_secret_path(path: str) -> bool:
+    """Путь попадает под SECRET_GLOBS (сравнение по частям пути)."""
+    from pathlib import PurePosixPath
+    p = PurePosixPath(str(path).replace("\\", "/"))
+    name = p.name.lower()
+    if name.endswith(TEMPLATE_SUFFIX):
+        return False                    # .env.example — шаблон без значений
+    if (name.startswith(".env") or name.endswith((".env", ".session", ".session-journal"))
+            or ".db" in name or ".sqlite" in name or name in ("credentials.json", "token.json")):
+        return True
+    from itertools import pairwise
+    return any(a == "memory" and b == "backup"
+               for a, b in pairwise(x.lower() for x in p.parts))
 
 
 def is_available() -> bool:
@@ -93,38 +123,58 @@ async def run_mimo(prompt: str, work_dir: str = PROJECT_DIR,
 
 # ── Работа с файлами сервера ────────────────────────────────────────
 
+def _read_text(path: str) -> str:
+    with open(path, encoding="utf-8") as f:
+        text = f.read(READ_MAX_CHARS + 1)
+    if len(text) > READ_MAX_CHARS:
+        text = text[:READ_MAX_CHARS] + f"\n… (файл длиннее {READ_MAX_CHARS} символов, показано начало)"
+    return text
+
+
 async def read_file(path: str) -> str:
-    """Читает файл на сервере. Ошибка источника — текстом с READ_ERROR_PREFIX."""
+    """Читает файл на сервере. Ошибка источника — текстом с READ_ERROR_PREFIX.
+
+    Файл читается в потоке (не на цикле событий) и не больше READ_MAX_CHARS;
+    секреты (SECRET_GLOBS) не читаются вовсе."""
+    if is_secret_path(path):
+        log.warning("[coding] read_file: путь с секретами — отказ")
+        return f"{READ_ERROR_PREFIX} этот файл содержит секреты, его не показываю"
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            return f.read()
+        return await asyncio.to_thread(_read_text, path)
     except Exception as e:
         return f"{READ_ERROR_PREFIX} {e}"
+
+
+def _write_text(path: str, content: str) -> None:
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
 
 
 async def write_file(path: str, content: str) -> bool:
     """Записывает файл на сервере."""
     try:
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(content)
+        await asyncio.to_thread(_write_text, path, content)
         return True
     except Exception as e:
         log.error(f"[coding] Ошибка записи {path}: {e}")
         return False
 
 
+def _replace_in_file(path: str, old_text: str, new_text: str) -> bool:
+    with open(path, encoding="utf-8") as f:
+        content = f.read()
+    if old_text not in content:
+        return False
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content.replace(old_text, new_text, 1))
+    return True
+
+
 async def edit_file(path: str, old_text: str, new_text: str) -> bool:
     """Правит файл на сервере (поиск и замена)."""
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            content = f.read()
-        if old_text not in content:
-            return False
-        content = content.replace(old_text, new_text, 1)
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(content)
-        return True
+        return await asyncio.to_thread(_replace_in_file, path, old_text, new_text)
     except Exception as e:
         log.error(f"[coding] Ошибка правки {path}: {e}")
         return False
@@ -160,10 +210,18 @@ async def git_status_result() -> tuple[str, bool]:
 
 
 async def git_commit_result(message: str) -> tuple[str, bool]:
-    """Коммит с честным ok: ok=False — git вернул ошибку."""
-    add = await run_command(["git", "add", "-A"], cwd=PROJECT_DIR)
+    """Коммит с честным ok: ok=False — git вернул ошибку.
+
+    Новые файлы добавляются, как и раньше (`git add -A`), кроме секретов и
+    данных (SECRET_GLOBS): исключения — pathspec-ом, .gitignore не нужен."""
+    excludes = [f":(exclude,glob){g}" for g in SECRET_GLOBS]
+    add = await run_command(["git", "add", "-A", "--", ".", *excludes], cwd=PROJECT_DIR)
     if not add["ok"]:
         return (f"git add не выполнился: {add['error'].strip()[:200]}", False)
+    # Исключение pathspec сильнее включения: правки отслеживаемых шаблонов
+    # (.env.example) добираем отдельно. Шаблонов нет — git вернёт ошибку, это норма.
+    await run_command(["git", "add", "-u", "--", f":(glob)**/*{TEMPLATE_SUFFIX}"],
+                      cwd=PROJECT_DIR)
     r = await run_command(["git", "commit", "-m", message], cwd=PROJECT_DIR)
     if not r["ok"]:
         detail = (r["error"] or r["output"]).strip()[:300]

@@ -11,11 +11,11 @@ generate() / stream_tokens().
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 import logging
 import random
 import re
+import sys
 import time
 from dataclasses import dataclass
 from typing import AsyncIterator, Optional
@@ -134,7 +134,9 @@ def _chain_path(chain, contents) -> str:
 
 def _chain_for_request(history_limit: int, save_history: bool):
     if not save_history:
-        caller = inspect.stack()[2].function
+        # Имя вызывающего ask_gemini — без inspect.stack(): тот читает
+        # исходники всех кадров стека на цикле событий.
+        caller = sys._getframe(2).f_code.co_name
         log.warning(
             "[llm] save_history=False without explicit chain in %s; using MODEL_CHAIN",
             caller,
@@ -310,6 +312,27 @@ def _gemma_thinking(tc):
     return _t.ThinkingConfig(thinking_level=level) if level else None
 
 
+# Запас HTTP-таймаута сверх срока вызова: asyncio.wait_for снимает ожидание
+# раньше, HTTP-таймаут лишь гарантирует, что поток не висит на сети дольше.
+HTTP_TIMEOUT_SLACK_S = 2.0
+
+
+def _request_config(model: str, cfg_kwargs: dict, budget_s: float):
+    """GenerateContentConfig с параметрами модели и HTTP-таймаутом на budget_s.
+
+    Синхронный вызов идёт в потоке (asyncio.to_thread); wait_for по сроку
+    поток не останавливает. У genai.Client таймаута по умолчанию нет — без
+    этого зависший запрос держит поток default executor (на VPS их 8) без
+    срока, и очередь за ним встают все to_thread процесса, включая SQLite.
+    http_options — настройка клиента, не параметр модели: после filter_params.
+    """
+    from google.genai import types as _t
+    params = filter_params(model, cfg_kwargs)
+    timeout_ms = int((max(budget_s, 0.0) + HTTP_TIMEOUT_SLACK_S) * 1000)
+    params["http_options"] = _t.HttpOptions(timeout=timeout_ms)
+    return _t.GenerateContentConfig(**params)
+
+
 # ── Клиент ───────────────────────────────────────────────────────────────
 
 
@@ -384,9 +407,7 @@ async def generate(contents, *, system: str = "", model: Optional[str] = None,
                 if remaining <= 0:
                     raise asyncio.TimeoutError()
 
-                def _invoke(m=model_name, c=client):
-                    from google.genai import types as _t
-
+                def _invoke(m=model_name, c=client, budget=remaining):
                     cfg_kwargs = dict(
                         system_instruction=system or None,
                         max_output_tokens=max_tokens,
@@ -403,7 +424,7 @@ async def generate(contents, *, system: str = "", model: Optional[str] = None,
                     return c.models.generate_content(
                         model=m,
                         contents=contents,
-                        config=_t.GenerateContentConfig(**filter_params(m, cfg_kwargs)),
+                        config=_request_config(m, cfg_kwargs, budget),
                     )
 
                 response = await asyncio.wait_for(asyncio.to_thread(
@@ -453,11 +474,17 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
                         api_key: Optional[str] = None,
                         safety: bool = True, thinking: bool = True,
                         chain=None, audience: str = "master") -> AsyncIterator[str]:
-    """Stream incrementally, retrying only before the first emitted token."""
+    """Stream incrementally, retrying only before the first emitted token.
+
+    У модели, за которой в цепочке есть запасная, свой срок до первого
+    токена — доля бюджета (NON_LAST_MODEL_SHARE), как в generate(): зависшая
+    первая модель не съедает весь голосовой ход, запасная успевает ответить.
+    Начавшийся ответ дочитывается в общий срок."""
     loop = asyncio.get_running_loop()
     import threading
 
-    async def _one_stream(client, model_name: str, deadline: float):
+    async def _one_stream(client, model_name: str, deadline: float,
+                          first_deadline: float):
         queue: asyncio.Queue = asyncio.Queue()
 
         def _enqueue(item) -> None:
@@ -468,8 +495,6 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
 
         def _produce() -> None:
             try:
-                from google.genai import types as _t
-
                 cfg_kwargs = dict(
                     system_instruction=system or None,
                     max_output_tokens=max_tokens,
@@ -484,7 +509,8 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
                 for chunk in client.models.generate_content_stream(
                     model=model_name,
                     contents=contents,
-                    config=_t.GenerateContentConfig(**filter_params(model_name, cfg_kwargs)),
+                    config=_request_config(model_name, cfg_kwargs,
+                                           deadline - time.monotonic()),
                 ):
                     text = getattr(chunk, "text", None)
                     if text:
@@ -495,8 +521,9 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
                 _enqueue(None)
 
         threading.Thread(target=_produce, daemon=True).start()
+        got_first = False
         while True:
-            remaining = deadline - time.monotonic()
+            remaining = (deadline if got_first else first_deadline) - time.monotonic()
             if remaining <= 0:
                 raise asyncio.TimeoutError()
             item = await asyncio.wait_for(queue.get(), timeout=remaining)
@@ -504,6 +531,7 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
                 return
             if isinstance(item, Exception):
                 raise item
+            got_first = True
             yield item
 
     models = _models_to_try(model, chain, contents)
@@ -524,10 +552,14 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
         tried_keys: set[str] = set()
         transient_retries = 0
         has_fallback = model_index < len(models) - 1
+        # Срок до первого токена: у не последней модели — доля бюджета.
+        first_deadline = deadline
+        if has_fallback:
+            first_deadline = min(deadline, time.monotonic() + timeout * NON_LAST_MODEL_SHARE)
         while current_key:
-            remaining = timeout - (time.monotonic() - started)
+            remaining = first_deadline - time.monotonic()
             if remaining <= 0:
-                return
+                break
             attempt_started = time.monotonic()
             emitted = False
             first_token_elapsed = None
@@ -535,10 +567,9 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
                 client = await asyncio.wait_for(
                     asyncio.to_thread(get_client, current_key), timeout=remaining,
                 )
-                remaining = timeout - (time.monotonic() - started)
-                if remaining <= 0:
+                if first_deadline - time.monotonic() <= 0:
                     raise asyncio.TimeoutError()
-                async for text in _one_stream(client, model_name, deadline):
+                async for text in _one_stream(client, model_name, deadline, first_deadline):
                     emitted = True
                     if first_token_elapsed is None:
                         first_token_elapsed = time.monotonic() - started
@@ -569,15 +600,22 @@ async def stream_tokens(contents, *, system: str = "", model: Optional[str] = No
                         current_key = next_key
                         transient_retries = 0
                         continue
+                elif _error_code(error) == "TIMEOUT" and has_fallback:
+                    # Первого токена нет за долю бюджета — к запасной, а не повтор.
+                    if not api_key:
+                        _cool_after_failure(current_key, model_name)
+                    break
                 elif kind == "transient" and transient_retries < len(_TRANSIENT_RETRY_DELAYS):
                     delay = _TRANSIENT_RETRY_DELAYS[transient_retries] + random.random() * 0.5
                     transient_retries += 1
-                    if delay < timeout - (time.monotonic() - started):
+                    if delay < first_deadline - time.monotonic():
                         await asyncio.sleep(delay)
                         continue
                 if kind == "transient" and has_fallback and not api_key:
                     _cool_after_failure(current_key, model_name)
                 break
+        if time.monotonic() >= deadline:
+            return
 
 # ── Контракт LlmClassify (роутер, этап 2): (текст, каталог) → id | None ──
 
@@ -1119,6 +1157,13 @@ def _im_note(channel: str | None, user_message: str) -> None:
         log.warning("[llm] заметка режима: %s", type(e).__name__)
 
 
+def _history_text(message) -> str:
+    """Текст реплики истории или "" (пустая, битая запись)."""
+    parts = message.get("parts") if isinstance(message, dict) else None
+    text = parts[0] if isinstance(parts, list) and parts else None
+    return text if isinstance(text, str) and text.strip() else ""
+
+
 def _build_contents(
     user_message: str, extra_system: str = "", history_limit: int = 60,
     channel: str | None = None,
@@ -1127,14 +1172,19 @@ def _build_contents(
     from memory.memory import get_history
     history = get_history()
     history = history[-history_limit:] if history_limit > 0 else []
+    # Пустая реплика в истории (пустой ответ модели) — 400 на КАЖДЫЙ
+    # следующий запрос с этой историей («required oneof field 'data'»):
+    # ответ снова пуст, и петля держится, пока реплика не уйдёт из окна.
     contents = [
-        _t.Content(role=m["role"], parts=[_t.Part(text=m["parts"][0])])
+        _t.Content(role=m["role"], parts=[_t.Part(text=text)])
         for m in history
+        if (text := _history_text(m))
     ]
     # Режим 18+: ход разговора живёт в RAM (intimacy_mode), не в истории.
     from modules.intimacy_mode import dialogue as _im_dialogue
     for role, text in _im_dialogue(channel):
-        contents.append(_t.Content(role=role, parts=[_t.Part(text=text)]))
+        if isinstance(text, str) and text.strip():
+            contents.append(_t.Content(role=role, parts=[_t.Part(text=text)]))
     msg = f"{extra_system}\n\n{user_message}" if extra_system else user_message
     contents.append(_t.Content(role="user", parts=[_t.Part(text=msg)]))
     return contents
@@ -1538,7 +1588,10 @@ async def ask_gemini_voice(
     )
     if not is_intimate:
         add_to_history("user",  user_message)
-        add_to_history("model", clean_text)
+        if clean_text:
+            # Пустой ответ в историю не пишется: пустая часть — 400 у API
+            # на всех следующих запросах (см. _build_contents).
+            add_to_history("model", clean_text)
     else:
         from modules.intimacy_mode import remember_turn as _im_remember
         _im_remember(channel, user_message, clean_text)

@@ -248,14 +248,22 @@ async def run_services_until_stopped(
                  for name, coro in background)
     service_completion = asyncio.gather(*tasks)
     stop_waiter = asyncio.create_task(stop_event.wait(), name="shutdown-event")
+    failure: BaseException | None = None
     try:
         done, _pending = await asyncio.wait(
             (service_completion, stop_waiter),
             return_when=asyncio.FIRST_COMPLETED,
         )
         if service_completion in done:
-            await service_completion
-            return
+            if service_completion.cancelled() or service_completion.exception() is None:
+                await service_completion
+                return
+            # Упала критическая поверхность (polling / WebSocket): gather не
+            # снимает соседей — та же остановка, что по сигналу (закрыть
+            # сокеты, Discord, SQLite), затем ошибка наружу (systemd поднимет).
+            failure = service_completion.exception()
+            log.error("[shutdown] сервис упал: %s: %s — останавливаю остальное",
+                      type(failure).__name__, failure)
 
         loop = asyncio.get_running_loop()
         deadline = loop.time() + SHUTDOWN_TIMEOUT
@@ -295,6 +303,8 @@ async def run_services_until_stopped(
             log.warning("[shutdown] deadline %.1fs; unfinished tasks: %s",
                         SHUTDOWN_TIMEOUT, ", ".join(unfinished))
         log_live_threads("конец shutdown", loop)
+        if failure is not None:
+            raise failure
     finally:
         stop_waiter.cancel()
         if not service_completion.done():

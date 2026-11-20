@@ -1050,6 +1050,10 @@ async def cancel(task: bt.BrowserTask, reason: str) -> bool:
     await orb(None)
     await tg_send(report(task, reason))
     bt.finish(task, "cancelled")
+    # Замок шага снимается и здесь: отмена извне (стоп, новая задача в окне)
+    # идёт мимо handle_step, и запись жила бы до конца процесса. Шаг, который
+    # держит замок сейчас, задачу уже не продолжит (task.active ложно).
+    _locks.pop(task.task_id, None)
     return True
 
 
@@ -1254,12 +1258,20 @@ async def handle_step(websocket, data: dict) -> None:
             out = await decide(task, data, obs, frames)
             if not task.active and out.get("action"):
                 out = {"status": "fail", "reason": f"задача {task.state}"}
-        except Exception:
+        except Exception as e:
             if task.active:
-                raise
-            # отменена посреди шага (стоп задача): ответить, а не оставить запрос без ответа
-            log.info(f"[browser] {task.task_id}: шаг {task.step} прерван — задача {task.state}")
-            out = {"status": "fail", "reason": f"задача {task.state}"}
+                # Сбой сервера посреди шага: ответить и закрыть задачу. Раньше
+                # исключение уходило в задачу spawn — desktop ждал ответа до
+                # своего таймаута (≥ 5 мин) и слал шаг заново в тот же сбой,
+                # а задача на сервере оставалась running навсегда.
+                log.exception(f"[browser] {task.task_id}: шаг {task.step} — сбой сервера: "
+                              f"{type(e).__name__}")
+                out = await _terminal(task, "fail", f"внутренняя ошибка сервера "
+                                      f"({type(e).__name__}); последнее: {task.last_note or '—'}")
+            else:
+                # отменена посреди шага (стоп задача): ответить, а не оставить запрос без ответа
+                log.info(f"[browser] {task.task_id}: шаг {task.step} прерван — задача {task.state}")
+                out = {"status": "fail", "reason": f"задача {task.state}"}
         finally:
             frames = None           # кадры живут только в deque задачи
         if task.active:

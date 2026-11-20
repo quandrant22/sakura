@@ -82,6 +82,40 @@ def bind_device_socket(device_id, websocket) -> None:
     spawn(_close_old(), name=f"ws-close-replaced-{device_id}")
 
 
+def _valid_device_id(device_id) -> bool:
+    """register/ping без device_id (или не строкой) — сокет не к чему привязать:
+    connected_devices[None] пережил бы закрытие соединения (finally ws_handler
+    снимает регистрацию только по device_id), а _get_active_ws отдавал бы его."""
+    return isinstance(device_id, str) and bool(device_id.strip())
+
+
+# Реплики модели, которые вызывают register/ping: идут фоном, цикл сокета
+# не ждёт LLM (до 20 с) — иначе голосовая команда того же устройства стоит
+# в очереди за комментарием к музыке. Ключ — вид реплики: пока предыдущая
+# думает, следующая не стартует (пинги идут на каждую смену окна).
+_bg_replies: dict[str, asyncio.Task] = {}
+
+
+def _spawn_reply(kind: str, coro) -> bool:
+    """Запустить фоновую реплику вида kind, если такая же ещё не идёт."""
+    prev = _bg_replies.get(kind)
+    if prev is not None and not prev.done():
+        coro.close()
+        return False
+    _bg_replies[kind] = spawn(coro, name=f"ws-reply-{kind}")
+    return True
+
+
+async def _tell_master(ask_gemini, bot, prompt: str, *, on_sent=None) -> None:
+    """Реплика модели Мастеру в Telegram (приветствие, музыка, здоровье ПК)."""
+    reply = await ask_gemini(prompt, save_history=False, chain=VOICE_MODEL_CHAIN,
+                             search=False)
+    if reply:
+        await bot.send_message(MASTER_ID, reply)
+        if on_sent is not None:
+            on_sent()
+
+
 async def _scenario_hook(name: str, *args, **kw) -> None:
     """Автозапуск сценариев (sakura_core/scenario_triggers); сбой не мешает протоколу."""
     try:
@@ -98,6 +132,9 @@ async def handle_register(websocket, data, ctx) -> None:
     bot = ctx["bot"]
 
     device_id = data.get("device_id")
+    if not _valid_device_id(device_id):
+        log.warning(f"[ws] register без device_id ({device_id!r}) — пропущен")
+        return
     was_online = device_id in st.connected_devices
     bind_device_socket(device_id, websocket)
     from sakura_core import proto_devices, proto_v2
@@ -114,12 +151,9 @@ async def handle_register(websocket, data, ctx) -> None:
     await _scenario_hook("on_window", device_id, data.get("active_window"))
 
     if is_master_device(device_id) and should_greet_device(device_id):
-        greeting = await ask_gemini(
-            get_greeting_prompt(), save_history=False, chain=VOICE_MODEL_CHAIN,
-            search=False,
-        )
-        if greeting:
-            await bot.send_message(MASTER_ID, greeting)
+        # Фоном: первое за день подключение не держит apps_list и голос
+        # за генерацией приветствия.
+        _spawn_reply("greeting", _tell_master(ask_gemini, bot, get_greeting_prompt()))
 
     try:
         if is_master_device(device_id) and await asyncio.to_thread(should_brief):
@@ -174,6 +208,9 @@ async def handle_ping(websocket, data, ctx) -> None:
     bot = ctx["bot"]
 
     device_id = data.get("device_id")
+    if not _valid_device_id(device_id):
+        log.warning(f"[ws] ping без device_id ({device_id!r}) — пропущен")
+        return
     bind_device_socket(device_id, websocket)
     update_device(device_id,
         active_window = data.get("active_window"),
@@ -187,7 +224,9 @@ async def handle_ping(websocket, data, ctx) -> None:
         active_win, data.get("system_info", {}))
     await _scenario_hook("on_window", device_id, active_win)
 
-    sys_info = data.get("system_info", {})
+    sys_info = data.get("system_info") or {}
+    if not isinstance(sys_info, dict):
+        sys_info = {}
     focus_sec = data.get("focus_seconds", 0)
     act_level = data.get("activity_level", 0.0)
 
@@ -217,34 +256,26 @@ async def handle_ping(websocket, data, ctx) -> None:
         spawn(get_current_game(active_win), name="detect-current-game")
 
 
-    import time as _t_music
     if active_win and should_comment_music() and \
-       _t_music.monotonic() - st._last_command_ts > 30:
+       _time.monotonic() - st._last_command_ts > 30:
         track = get_current_music_from_window(active_win)
         if track:
-            mem = db_get_memory_context()
-            prompt = make_music_comment_prompt(track, mem[:200])
-            reply = await ask_gemini(
-                prompt, save_history=False, chain=VOICE_MODEL_CHAIN,
-                search=False,
-            )
-            if reply:
-                await bot.send_message(MASTER_ID, reply)
-                mark_music_commented()
+            _spawn_reply("music", _comment_music(track, ask_gemini, bot))
 
     await asyncio.to_thread(ps_update, device_id, data)
     await announce_presence_transfer()
 
-    sys_info = data.get("system_info", {})
     if sys_info:
         alert = await asyncio.to_thread(check_pc_health, sys_info)
         if alert:
-            reply_pc = await ask_gemini(
-                alert["prompt"], save_history=False, chain=VOICE_MODEL_CHAIN,
-                search=False,
-            )
-            if reply_pc:
-                await bot.send_message(MASTER_ID, reply_pc)
+            # Кулдаун (раз в час) уже записан check_pc_health — повторов нет.
+            _spawn_reply("pc_health", _tell_master(ask_gemini, bot, alert["prompt"]))
+
+
+async def _comment_music(track, ask_gemini, bot) -> None:
+    mem = await asyncio.to_thread(db_get_memory_context)
+    prompt = make_music_comment_prompt(track, (mem or "")[:200])
+    await _tell_master(ask_gemini, bot, prompt, on_sent=mark_music_commented)
 
 
 # ── apps_list ──────────────────────────────────────────────────────────
@@ -423,12 +454,12 @@ async def _answer_read_result(action, ok, detail, dev_name, ask_gemini, bot) -> 
     """Результат действия-чтения (окна, процессы, буфер, недавние файлы,
     текст окна): пересказ голосом там, где спросили (голос) или в Telegram."""
     from modules import acks
-    from sakura_core.registry import load as _load_registry
+    from sakura_core.registry import action_desc
     detail = (detail or "").strip()[:READ_RESULT_MAX]
     if not ok:
         text = acks.error_phrase(detail)
     else:
-        desc = next((d.desc for d in _load_registry() if d.id == action), action)
+        desc = action_desc(action)
         text = ""
         if detail:
             try:
@@ -482,6 +513,10 @@ async def _handle_command_result(websocket, data, ctx) -> None:
     _resolve_command_status = ctx["_resolve_command_status"]
 
     result     = data.get("result")
+    if result is not None and not isinstance(result, str):
+        # Ниже result читается как строка (startswith/lower): объект от
+        # агента ронял весь разбор command_result.
+        result = str(result)
     screenshot = data.get("screenshot")
     dev_name   = data.get("device_id", "устройство")
 

@@ -292,7 +292,7 @@ async def _run(turn: Turn, factory: Callable[[], Awaitable[None]]) -> None:
         log.info(f"[turn] {turn.device_id}: ход {turn.turn_id} отменён")
         raise
     except Exception as e:
-        log.error(f"[turn] {turn.device_id}: ход {turn.turn_id}: {type(e).__name__}: {e}")
+        log.exception(f"[turn] {turn.device_id}: ход {turn.turn_id}: {type(e).__name__}")
     finally:
         turn.done = True
         from sakura_core import turn_timing

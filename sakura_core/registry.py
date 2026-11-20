@@ -564,6 +564,21 @@ def followup_index(declarations: Optional[Iterable[Declaration]] = None) -> dict
     return _followup_index
 
 
+_desc_index: dict[str, str] | None = None
+
+
+def action_desc(action: str) -> str:
+    """desc действия по каноническому id; неизвестный id — он сам.
+
+    Реестр читается один раз за процесс: load() — это YAML и проверка
+    достижимости (~0,1 с на цикле событий), его звали на каждый ответ
+    действия-чтения (окна, процессы, буфер)."""
+    global _desc_index
+    if _desc_index is None:
+        _desc_index = {d.id: d.desc for d in load()}
+    return _desc_index.get(action, action)
+
+
 def followup_for(action: str, declarations: Optional[Iterable[Declaration]] = None) -> str:
     """followup действия по имени на проводе (канонический id или legacy).
 

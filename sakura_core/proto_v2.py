@@ -174,7 +174,7 @@ async def handle(websocket, data: dict, ctx: dict) -> None:
         await error(e.code, e.message)
         return
     except Exception as e:
-        log.error(f"[v2] {kind}: {type(e).__name__}: {e}")
+        log.exception(f"[v2] {kind}: {type(e).__name__}")
         await error("internal", f"{kind}: ошибка сервера")
         return
     if reply is not None:

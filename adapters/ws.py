@@ -232,8 +232,17 @@ async def ws_handler(websocket):
                 yield message
 
         async for raw in incoming_messages():
+            msg_type = None
             try:
-                data     = json.loads(raw)
+                try:
+                    data = json.loads(raw)
+                except (TypeError, ValueError):
+                    log.warning(f"[ws] {_peer(websocket)}: сообщение не JSON — пропущено")
+                    continue
+                if not isinstance(data, dict):
+                    log.warning(f"[ws] {_peer(websocket)}: сообщение не объект "
+                                f"({type(data).__name__}) — пропущено")
+                    continue
                 msg_type = data.get("type")
 
                 if not _authorized(data):
@@ -321,9 +330,13 @@ async def ws_handler(websocket):
                     # Голосовой ход — задачей (voice_turns): цикл сокета
                     # читает дальше, новый запрос того же устройства
                     # вытесняет незавершённый ход, а не ждёт его.
+                    # Обработчик связывается здесь же: фабрику voice_turns
+                    # зовёт позже (после вытеснения прежнего хода), а цикл
+                    # к тому времени уже перепишет handler следующим
+                    # сообщением (ping при смене окна) — ход ушёл бы в него.
                     voice_turns.start(
                         dev_from_msg or "laptop", websocket,
-                        lambda d=data, c=_ctx: handler(websocket, d, c))
+                        lambda h=handler, d=data, c=_ctx: h(websocket, d, c))
                 elif handler:
                     await handler(websocket, data, _ctx)
                 else:
@@ -335,7 +348,9 @@ async def ws_handler(websocket):
                 update_current_track(data)
 
             except Exception as e:
-                log.error(f"[ws_handler] {e}")
+                # Сбой одного сообщения не рвёт соединение, но и не прячется:
+                # со стеком, иначе баг обработчика виден только как текст.
+                log.exception(f"[ws_handler] {msg_type}: {type(e).__name__}")
 
     except Exception as e:
         log.debug(f"[ws_handler] {type(e).__name__}: {e}")
@@ -355,24 +370,41 @@ async def ws_handler(websocket):
             proto_v2.forget(device_id)
             from sakura_core.vision import capture as _vision_capture
             _vision_capture.forget(device_id)
-            await proto_devices.on_disconnect(device_id)
-            try:
-                from sakura_core import scenario_triggers
-                await scenario_triggers.on_device_disconnected(device_id)
-            except Exception as e:
-                log.debug(f"[scenario] отключение {device_id}: {type(e).__name__}: {e}")
-            set_device_offline(device_id)
-            await asyncio.to_thread(ps_offline, device_id)
+            # Каждый шаг снятия регистрации — сам по себе: сбой пуша
+            # статуса не должен оставлять устройство «онлайн» в
+            # device_manager и presence.
+            await _cleanup_step("пуш отключения", device_id,
+                                proto_devices.on_disconnect(device_id))
+            from sakura_core import scenario_triggers
+            await _cleanup_step("сценарии", device_id,
+                                scenario_triggers.on_device_disconnected(device_id))
+            await _cleanup_step("device_manager", device_id,
+                                asyncio.to_thread(set_device_offline, device_id))
+            await _cleanup_step("presence", device_id,
+                                asyncio.to_thread(ps_offline, device_id))
             log.info(f"Устройство отключено: {device_id}")
 
             if is_master_device(device_id) and should_farewell():
-                from config import VOICE_MODEL_CHAIN
-                farewell = await ask_gemini(
-                    get_farewell_prompt(), save_history=False,
-                    chain=VOICE_MODEL_CHAIN, search=False,
-                )
-                if farewell:
-                    await send_to_master(farewell)
+                # Прощание — фоном: LLM думает секунды, а finally обработчика
+                # держит wait_closed() сервера (и остановку процесса).
+                spawn(_send_farewell(ask_gemini, get_farewell_prompt(), send_to_master),
+                      name=f"farewell-{device_id}")
+
+
+async def _cleanup_step(what: str, device_id, aw) -> None:
+    """Шаг снятия регистрации устройства: сбой — в лог, следующие шаги идут."""
+    try:
+        await aw
+    except Exception as e:
+        log.warning(f"[ws] отключение {device_id}: {what}: {type(e).__name__}: {e}")
+
+
+async def _send_farewell(ask_gemini, prompt: str, send_to_master) -> None:
+    from config import VOICE_MODEL_CHAIN
+    farewell = await ask_gemini(prompt, save_history=False,
+                                chain=VOICE_MODEL_CHAIN, search=False)
+    if farewell:
+        await send_to_master(farewell)
 
 
 import modules.state as st
