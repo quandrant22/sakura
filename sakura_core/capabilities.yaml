@@ -1706,3 +1706,76 @@
   confirm: false
   followup: ack
   triggers: ['как там задача', 'что делает агент', 'что делает антигравити', 'какой прогресс задачи', 'статус задачи', 'прогресс задачи', 'как дела с задачей', 'прогресс антигравити']
+
+# Scrap Mechanic Bridge & Navigation
+- id: scrap_mechanic.tp_bag
+  legacy: [sm:tp_bag]
+  desc: 'Телепортировать игрока к потерянному рюкзаку с вещами'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['телепортируй к вещам', 'телепортируй к рюкзаку', 'тп к вещам', 'тп к рюкзаку', 'телепорт к вещам', 'телепорт к рюкзаку']
+
+- id: scrap_mechanic.tp_elevator
+  legacy: [sm:tp_elevator]
+  desc: 'Телепортировать игрока к ближайшему лифту склада'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['телепортируй к лифту', 'тп к лифту', 'телепорт к лифту']
+
+- id: scrap_mechanic.heal
+  legacy: [sm:heal]
+  desc: 'Восстановить здоровье, дыхание и показатели игрока на 100%'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['отхиль меня', 'восстанови хп', 'полечи меня', 'вылечи меня', 'похиль меня', 'восстанови здоровье']
+
+- id: scrap_mechanic.godmode_on
+  legacy: [sm:godmode_on]
+  desc: 'Включить режим бессмертия (режим бога)'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['включи бессмертие', 'включи режим бога', 'включи годмод']
+
+- id: scrap_mechanic.godmode_off
+  legacy: [sm:godmode_off]
+  desc: 'Выключить режим бессмертия'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['выключи бессмертие', 'отключи бессмертие', 'выключи режим бога', 'отключи режим бога', 'выключи годмод']
+
+- id: scrap_mechanic.kill_bots
+  legacy: [sm:kill_bots]
+  desc: 'Уничтожить всех враждебных роботов поблизости (в радиусе 30 м)'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['убей ботов рядом', 'убей ботов', 'убей врагов', 'зачисти комнату', 'зачисти ботов', 'убей всех ботов']
+
+- id: scrap_mechanic.where_bag
+  legacy: [sm:where_bag]
+  desc: 'Подсказать направление и расстояние до рюкзака с вещами'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['где мои вещи', 'где мой рюкзак', 'где вещи', 'где рюкзак']
+
+- id: scrap_mechanic.where_elevator
+  legacy: [sm:where_elevator]
+  desc: 'Подсказать направление и расстояние до лифта склада'
+  executor: agent
+  reversible: true
+  confirm: false
+  followup: ack
+  triggers: ['куда идти к лифту', 'где лифт', 'где выход', 'куда к лифту', 'где ближайший лифт']

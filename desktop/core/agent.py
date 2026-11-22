@@ -161,6 +161,8 @@ def _legacy_action(action: str, arg: str = "") -> str:
         return f"youtube_{YOUTUBE_VERBS[verb]}"
     if domain == "ext" and verb in EXT_NAMES:
         return f"ext:{EXT_NAMES[verb]}"
+    if domain == "scrap_mechanic":
+        return f"sm:{verb}"
     if action == "close_window.браузер":
         return "close_window:браузер"
     if action == "game_mode.on":

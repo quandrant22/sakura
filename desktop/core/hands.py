@@ -839,6 +839,40 @@ def execute_command(action: str) -> dict:
         from desktop.core.browser import youtube_player_cmd
         return {"result": youtube_player_cmd(verb)}
 
+    if verb in ("sm", "scrap_mechanic"):
+        from desktop.core.game_hud.telemetry.registry import get_telemetry_provider
+        prov = get_telemetry_provider("scrapmechanic.exe")
+        if not prov:
+            return {"result": "Scrap Mechanic не найден или не запущен"}
+        subcmd = arg.strip().lower()
+        if subcmd in ("tp_bag", "tp_to_bag"):
+            prov.tp_to_bag()
+            return {"result": "телепортирую к вещам"}
+        if subcmd in ("tp_elevator", "tp_to_elevator"):
+            prov.tp_to_elevator()
+            return {"result": "телепортирую к лифту"}
+        if subcmd == "heal":
+            prov.heal()
+            return {"result": "показатели восстановлены"}
+        if subcmd in ("godmode_on", "god_on"):
+            prov.godmode(True)
+            return {"result": "бессмертие включено"}
+        if subcmd in ("godmode_off", "god_off"):
+            prov.godmode(False)
+            return {"result": "бессмертие выключено"}
+        if subcmd in ("kill_bots", "kill_nearby_bots"):
+            prov.kill_nearby_bots()
+            return {"result": "зачищаю роботов рядом"}
+        if subcmd in ("nav_bag", "where_bag"):
+            st = prov.get_state()
+            nav = st.metrics.get("bag_nav", "") if st else ""
+            return {"result": f"Рюкзак: {nav}" if nav else "нет информации о вещах"}
+        if subcmd in ("nav_elevator", "where_elevator"):
+            st = prov.get_state()
+            nav = st.metrics.get("elevator_nav", "") if st else ""
+            return {"result": f"Лифт: {nav}" if nav else "нет информации о лифте"}
+        return {"result": f"неизвестная команда Scrap Mechanic: {arg}"}
+
     if verb == "music":
         from desktop.core.browser import (
             music_album,

@@ -50,6 +50,7 @@ def _load_capabilities() -> None:
         import capabilities.vision       # noqa: F401
         import capabilities.youtube      # noqa: F401
         import capabilities.companion    # noqa: F401
+        import capabilities.scrap_mechanic  # noqa: F401
     except Exception:
         log.exception("[v3] не удалось загрузить таблицы доменов")
 
