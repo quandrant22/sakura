@@ -52,10 +52,17 @@ class GameSenseDetector:
             "dark": 0.0,
             "bar_drop": 0.0,
             "cut": 0.0,
+            "low_hp": 0.0,
         }
         self.old_mean: float = 0.0
         self.old_red_ratio: float = 0.0
         self.is_first_frame = True
+
+        # Отслеживание полоски HP (Scrap Mechanic, Souls, RPG, Action)
+        self.hp_bar_locked: Optional[dict] = None
+        self.hp_bar_candidate: Optional[dict] = None
+        self.hp_bar_candidate_frames: int = 0
+        self.low_hp_warned: bool = False
 
     def reset(self):
         self.old_mean = 0.0
@@ -63,6 +70,10 @@ class GameSenseDetector:
         self.is_first_frame = True
         for k in self.last_event_time:
             self.last_event_time[k] = 0.0
+        self.hp_bar_locked = None
+        self.hp_bar_candidate = None
+        self.hp_bar_candidate_frames = 0
+        self.low_hp_warned = False
 
     def feed_frame(self, bgra_bytes: bytes, width: int, height: int, timestamp: Optional[float] = None) -> list[GameSenseEvent]:
         """Обрабатывает кадр шириной width и высотой height в формате BGRA (4 байта на пиксель)."""
@@ -132,17 +143,139 @@ class GameSenseDetector:
         b_green = green[border_mask]
         b_blue = blue[border_mask]
 
-        # Пиксели, где красный существенно преобладает над синим и зеленым
-        red_dominant = (b_red > 100) & (b_red > (b_green * 1.5)) & (b_red > (b_blue * 1.5))
-        red_ratio = float(np.sum(red_dominant)) / float(b_red.size)
+        # Насыщенный кроваво-красный (виньетка урона): красный доминирует, зеленый и синий низкие
+        # Отсекает желтые/оранжевые стены, дерево и элементы интерфейса
+        blood_red = (b_red > 130) & (b_green < 80) & (b_blue < 80) & (b_red > (b_green + b_blue) * 1.5)
+        red_ratio = float(np.sum(blood_red)) / float(b_red.size)
 
-        if red_ratio > 0.15 and (red_ratio - self.old_red_ratio) > 0.08:
+        if red_ratio > 0.20 and (red_ratio - self.old_red_ratio) > 0.10:
             if ts - self.last_event_time["hurt"] >= self.cooldown:
                 events.append(GameSenseEvent(kind="hurt", strength=red_ratio, timestamp=ts, message="Получен урон!"))
+
+        # 4. HP Bar Tracker: полоска здоровья в HUD (Scrap Mechanic, Souls, RPG, Action)
+        hp_events = self._check_health_bar(sample, blue, green, red, ts)
+        events.extend(hp_events)
 
         self.old_mean = mean_val
         self.old_red_ratio = red_ratio
         self.is_first_frame = False
+
+        return events
+
+    def _check_health_bar(
+        self,
+        sample: np.ndarray,
+        blue: np.ndarray,
+        green: np.ndarray,
+        red: np.ndarray,
+        ts: float,
+    ) -> list[GameSenseEvent]:
+        h, w = sample.shape[0], sample.shape[1]
+        events: list[GameSenseEvent] = []
+
+        # Цветовые маски здоровья:
+        # 1. Лайм / Зеленый (Scrap Mechanic, GTA, Left 4 Dead и др.)
+        lime_mask = (green > 110) & (green > red * 1.05) & (green > blue * 1.3) & (blue < 100)
+        # 2. Красный (Souls-игры, Cyberpunk, Witcher, Diablo и др.)
+        red_mask = (red > 130) & (red > green * 1.4) & (red > blue * 1.4) & (green < 80) & (blue < 80)
+
+        regions = [
+            ("bottom_left", int(h * 0.80), int(h * 0.99), int(w * 0.01), int(w * 0.35)),
+            ("top_left", int(h * 0.01), int(h * 0.20), int(w * 0.01), int(w * 0.35)),
+        ]
+
+        bar_found = None
+        max_span = 0
+
+        for reg_name, y1, y2, x1, x2 in regions:
+            for color_name, mask in [("lime", lime_mask[y1:y2, x1:x2]), ("red", red_mask[y1:y2, x1:x2])]:
+                for ry in range(mask.shape[0]):
+                    row = mask[ry, :]
+                    cols = np.where(row)[0]
+                    if len(cols) >= 3:
+                        span = cols.max() - cols.min() + 1
+                        density = len(cols) / span
+                        if density >= 0.70 and span >= 3:
+                            if span > max_span:
+                                max_span = span
+                                bar_found = {
+                                    "region": reg_name,
+                                    "color": color_name,
+                                    "y": y1 + ry,
+                                    "x_start": x1 + cols.min(),
+                                    "width": int(span),
+                                }
+
+        if self.hp_bar_locked is None:
+            if bar_found:
+                cand = self.hp_bar_candidate
+                if (
+                    cand
+                    and cand["region"] == bar_found["region"]
+                    and cand["color"] == bar_found["color"]
+                    and abs(cand["y"] - bar_found["y"]) <= 1
+                    and abs(cand["x_start"] - bar_found["x_start"]) <= 2
+                ):
+                    self.hp_bar_candidate_frames += 1
+                    if self.hp_bar_candidate_frames >= 2:
+                        self.hp_bar_locked = {
+                            "region": bar_found["region"],
+                            "color": bar_found["color"],
+                            "y": bar_found["y"],
+                            "x_start": bar_found["x_start"],
+                            "max_w": max(int(bar_found["width"]), 8),
+                            "last_w": int(bar_found["width"]),
+                        }
+                        log.debug("[gamesense] Обнаружена полоска HP: %s", self.hp_bar_locked)
+                else:
+                    self.hp_bar_candidate = bar_found
+                    self.hp_bar_candidate_frames = 1
+        else:
+            lb = self.hp_bar_locked
+            curr_w = 0
+            if (
+                bar_found
+                and bar_found["region"] == lb["region"]
+                and bar_found["color"] == lb["color"]
+                and abs(bar_found["y"] - lb["y"]) <= 2
+            ):
+                curr_w = int(bar_found["width"])
+
+            if curr_w > lb["max_w"]:
+                lb["max_w"] = curr_w
+
+            drop = (lb["last_w"] - curr_w) / float(lb["max_w"])
+            ratio = float(curr_w) / float(lb["max_w"])
+
+            # 1. Резкое падение здоровья
+            if drop >= 0.15 and lb["last_w"] > 0:
+                if ts - self.last_event_time["hurt"] >= self.cooldown:
+                    events.append(
+                        GameSenseEvent(
+                            kind="hurt",
+                            strength=drop,
+                            timestamp=ts,
+                            message=f"Потеряно {int(drop * 100)}% здоровья!",
+                        )
+                    )
+
+            # 2. Критически мало здоровья (чуть не умер!)
+            if ratio <= 0.28:
+                if not self.low_hp_warned or (ts - self.last_event_time["low_hp"] >= 15.0):
+                    self.low_hp_warned = True
+                    self.last_event_time["low_hp"] = ts
+                    events.append(
+                        GameSenseEvent(
+                            kind="low_hp",
+                            strength=ratio,
+                            timestamp=ts,
+                            message=f"Критически мало здоровья ({int(ratio * 100)}%)!",
+                        )
+                    )
+            elif ratio > 0.40:
+                self.low_hp_warned = False
+
+            lb["last_w"] = curr_w
 
         return events
 
@@ -166,7 +299,7 @@ class GameSenseDetector:
             total_samples += 1
             if r < 15 and g < 15 and b < 15:
                 black_count += 1
-            if r > 100 and r > (g * 1.5) and r > (b * 1.5):
+            if r > 130 and g < 80 and b < 80 and r > (g + b) * 1.5:
                 red_dominant_count += 1
 
         if total_samples == 0:
@@ -184,7 +317,7 @@ class GameSenseDetector:
             if ts - self.last_event_time["flash"] >= self.cooldown:
                 events.append(GameSenseEvent(kind="flash", strength=1.0, timestamp=ts))
 
-        if red_ratio > 0.15 and (red_ratio - self.old_red_ratio) > 0.08:
+        if red_ratio > 0.20 and (red_ratio - self.old_red_ratio) > 0.10:
             if ts - self.last_event_time["hurt"] >= self.cooldown:
                 events.append(GameSenseEvent(kind="hurt", strength=red_ratio, timestamp=ts))
 
@@ -259,6 +392,12 @@ class GameSenseRunner:
                 "Ну вот, приехали. Опять на респаун?",
                 "Великолепный тактический ход... прямо на кладбище.",
                 "Капец. Ты погиб, Мастер.",
+            ],
+            "low_hp": [
+                "Мастер, у тебя почти не осталось ХП! Срочно отхилься!",
+                "Осторожно, ты на волоске от смерти!",
+                "Здоровье на нуле! Спрячься или лечись, скорее!",
+                "ХП горит! Еще один удар — и всё!",
             ],
         }
 

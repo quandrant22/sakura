@@ -82,6 +82,9 @@ KNOWN_GAMES: dict[str, str] = {
     "monsterhunterwilds.exe": "Monster Hunter Wilds",
     "destiny2.exe": "Destiny 2",
     "fallguys_client.exe": "Fall Guys",
+    "scrapmechanic.exe": "Scrap Mechanic",
+    "scrap mechanic.exe": "Scrap Mechanic",
+    "scrapmechanic_x64.exe": "Scrap Mechanic",
 }
 EMULATORS = frozenset({
     "yuzu.exe", "suyu.exe", "citron.exe", "ryujinx.exe", "rpcs3.exe", "pcsx2.exe", "pcsx2-qt.exe", "dolphin.exe",

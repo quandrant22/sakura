@@ -25,7 +25,7 @@ MIN_GAP_S = {"silent": float("inf"), "reactions": 45.0, "commentator": 18.0, "co
 SPOKEN = {
     "silent": frozenset(),
     "reactions": frozenset({"victory", "defeat", "multikill", "ace", "achievement", "tilt", "round_win_streak",
-                            "boss", "level_up"}),
+                            "boss", "level_up", "low_hp"}),
     "commentator": frozenset({"victory", "defeat", "multikill", "ace", "achievement", "tilt", "round_win_streak",
                               "boss", "level_up", "death", "kill", "round_win", "round_loss", "bomb_planted",
                               "objective", "flash", "low_hp"}),
@@ -33,8 +33,8 @@ SPOKEN = {
                        "level_up", "death", "kill", "round_win", "round_loss", "bomb_planted", "objective", "flash",
                        "low_hp", "hurt", "dark", "session_start"}),
 }
-# Важное обходит паузу (победа, достижение, тильт) — но не чаще раза в 5 с.
-URGENT = frozenset({"victory", "defeat", "achievement", "tilt", "ace"})
+# Важное обходит паузу (победа, достижение, тильт, критическое ХП) — но не чаще раза в 5 с.
+URGENT = frozenset({"victory", "defeat", "achievement", "tilt", "ace", "low_hp"})
 URGENT_GAP_S = 5.0
 
 

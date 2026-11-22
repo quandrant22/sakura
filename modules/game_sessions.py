@@ -25,7 +25,7 @@ log = logging.getLogger("sakura.game_sessions")
 DATA_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "game_sessions.json")
 KEEP_PER_GAME = 10
 MIN_GAP_S = {"silent": float("inf"), "reactions": 30.0, "commentator": 12.0, "coop": 6.0}
-URGENT = {"victory", "defeat", "achievement", "tilt", "ace"}
+URGENT = {"victory", "defeat", "achievement", "tilt", "ace", "low_hp"}
 REMIND_AFTER_S = 3 * 3600   # «в прошлый раз…» — только если с прошлой сессии прошло больше 3 часов
 LEVELS = ("silent", "reactions", "commentator", "coop")
 
@@ -122,6 +122,8 @@ def event_prompt(game: str, level: str, event_text: str, detail: str, minutes: i
               " без кавычек, не повторяй название события дословно.")
     if event_text.startswith("серия смертей"):
         base += " Это тильт: поддержи, можно предложить короткую паузу, но не нудно."
+    elif "мало здоровья" in event_text or "low_hp" in event_text:
+        base += " У Мастера критически мало здоровья (чуть не умер)! Срочно предупреди или эмоционально крикни отхилиться или уйти в укрытие."
     return base
 
 
