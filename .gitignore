@@ -153,3 +153,9 @@ desktop/debug/
 generate_doc.py
 
 
+
+data/game_sessions.json
+memory/tasks_archive.json
+memory/backup/
+scripts/bench_models_results.jsonl
+*.env.bak*
