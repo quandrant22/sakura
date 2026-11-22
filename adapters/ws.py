@@ -317,6 +317,17 @@ async def ws_handler(websocket):
                     from sakura_core import computer_use
                     spawn(computer_use.handle(websocket, data),
                           name=f"computer-step-{dev_from_msg}")
+                elif msg_type == "game_state_update":
+                    from modules import game_sessions as gs
+                    gs.set_game_state(dev_from_msg or "laptop", data)
+                elif msg_type == "hud_map_request":
+                    from sakura_core import hud_mapper_vlm
+                    spawn(hud_mapper_vlm.handle_hud_map(websocket, data, _ctx),
+                          name=f"hud-map-{dev_from_msg}")
+                elif msg_type == "hud_crop_read_request":
+                    from sakura_core import hud_mapper_vlm
+                    spawn(hud_mapper_vlm.handle_hud_crop_read(websocket, data, _ctx),
+                          name=f"hud-crop-{dev_from_msg}")
                 elif msg_type == "voice_command":
                     # Голосовой ход — задачей (voice_turns): цикл сокета
                     # читает дальше, новый запрос того же устройства

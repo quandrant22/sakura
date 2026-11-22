@@ -32,6 +32,22 @@ LEVELS = ("silent", "reactions", "commentator", "coop")
 _lock = threading.Lock()
 _last_spoken: dict[str, float] = {}
 _current_level: dict[str, str] = {}  # device_id → уровень текущей игры (для window_watcher)
+_current_game_state: dict[str, dict] = {}  # device_id → GameState (от HUD/телеметрии)
+
+
+def set_game_state(device: str, state: dict) -> None:
+    """Сохраняет актуальный срез метрик HUD/телеметрии игры на устройстве."""
+    if isinstance(state, dict):
+        _current_game_state[device or "laptop"] = state
+
+
+def get_game_state(device: str = "laptop") -> Optional[dict]:
+    """Возвращает актуальный GameState (HP, скорость, патроны и т.д.)."""
+    return _current_game_state.get(device or "laptop")
+
+
+def clear_game_state(device: str = "laptop") -> None:
+    _current_game_state.pop(device or "laptop", None)
 
 
 def _load(path: str = DATA_FILE) -> dict:
@@ -76,6 +92,7 @@ def set_level(device: str, level: str) -> None:
 
 def clear_level(device: str) -> None:
     _current_level.pop(device or "laptop", None)
+    clear_game_state(device)
 
 
 def presence_level(device: str = "laptop") -> Optional[str]:

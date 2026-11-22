@@ -948,6 +948,18 @@ class Hearing(threading.Thread):
         def has(targets, cutoff=0.75):
             return any(difflib.get_close_matches(w, targets, n=1, cutoff=cutoff) for w in words)
 
+        # Команды HUD: пересканирование и отладка
+        if "пересканируй" in low and any(k in low for k in ("интерфейс", "экран", "худ", "hud", "игр")):
+            self.agent.bus.emit("game_hud_rescan", {})
+            self.agent.set_state("idle")
+            log.info("[game] пересканирование HUD запрошено голосом")
+            return True
+        if any(k in low for k in ("отладка", "дебаг", "debug", "калибровка")) and any(k in low for k in ("интерфейс", "худ", "hud")):
+            self.agent.bus.emit("game_hud_debug", {})
+            self.agent.set_state("idle")
+            log.info("[game] отладка HUD запрошена голосом")
+            return True
+
         is_game_or_comp = (
             has(("игровой", "игры", "игру")) or
             has(("компаньон", "компаньона", "компаньонский", "напарник", "напарница")) or

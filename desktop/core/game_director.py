@@ -79,6 +79,25 @@ class GameDirector:
         self._sense = None
         self.manual_active: bool = False
 
+        # Game Awareness & Real-Time HUD Tracking
+        try:
+            from desktop.core.game_hud.brain import GameHudDirector
+            self.hud_director = GameHudDirector(
+                on_event=lambda kind, detail: self.on_event(kind, detail, source="hud"),
+                on_state_update=self._on_hud_state_update,
+                fps=3.0,
+            )
+        except Exception as e:
+            log.warning("[games] HUD Director init error: %s", e)
+            self.hud_director = None
+
+    def _on_hud_state_update(self, payload: dict):
+        self.emit(payload)
+        with self._lock:
+            s = self.session
+        if s is not None:
+            self._send("game_state_update", s, payload)
+
     # ── настройки ──
     def _get(self, key: str, default: Any = None) -> Any:
         try:
@@ -113,6 +132,8 @@ class GameDirector:
             self._gsi.stop()
         if self._lol:
             self._lol.stop()
+        if self.hud_director:
+            self.hud_director.stop_session()
 
     def _start_integrations(self):
         try:
@@ -221,6 +242,8 @@ class GameDirector:
             self._lol.start()
         if level != "silent" or self._get("game_autoclip", False):
             self._start_sense(s)
+        if self.hud_director:
+            self.hud_director.start_session(game.key, game.name, fg)
         self._send("game_session_start", s, {"reason": game.reason})
         self._check_exclusive(s, fg)
 
@@ -231,6 +254,8 @@ class GameDirector:
         if s is None:
             return
         self._sense = None  # цикл кадров сам увидит, что сессии нет
+        if self.hud_director:
+            self.hud_director.stop_session()
         if self._lol:
             self._lol.stop()
         self._unduck(s)
@@ -368,6 +393,12 @@ class GameDirector:
             if on != self.manual_active:
                 self.set_manual_mode(on)
             return
+        if event == "game_hud_rescan":
+            self.rescan_hud()
+            return
+        if event == "game_hud_debug":
+            self.capture_hud_debug()
+            return
         if event != "state":
             return
         with self._lock:
@@ -429,3 +460,14 @@ class GameDirector:
         return {"active": True, "manual_mode": manual, "auto_activate": auto,
                 "game": s.game.name, "key": s.game.key, "level": s.level, "reason": s.game.reason,
                 "minutes": s.minutes(self.clock()), "stats": dict(s.stats)}
+
+    def rescan_hud(self):
+        """Принудительный перескан интерфейса через VLM."""
+        if self.hud_director:
+            self.hud_director.rescan_hud()
+
+    def capture_hud_debug(self, save_path: Optional[str] = None) -> str:
+        """Сохранение калибровочного скриншота HUD с отрисованными рамками."""
+        if self.hud_director:
+            return self.hud_director.capture_debug(save_path)
+        return ""

@@ -470,6 +470,16 @@ def build_context_block(active_window_override: str | None = None) -> str:
     if activity_map.get(m["activity"]):
         lines.append(f"АКТИВНОСТЬ: {activity_map[m['activity']]}")
 
+    # Подмешивание реального игрового состояния (HUD / телеметрия)
+    try:
+        from modules.game_sessions import get_game_state
+        _active_dev_name = d.get("active_device") or "laptop"
+        _gst = get_game_state(_active_dev_name)
+        if _gst and _gst.get("summary"):
+            lines.append(f"ИГРОВОЕ СОСТОЯНИЕ: {_gst['summary']}")
+    except Exception:
+        pass
+
     if body:
         bits = []
         if body.get("pulse"):       bits.append(f"пульс {body['pulse']}")

@@ -1,0 +1,77 @@
+{
+  "game_id": "scrapmechanic",
+  "game_name": "Scrap Mechanic",
+  "resolution": [
+    1024,
+    577
+  ],
+  "version": "1.0",
+  "created_at": 1795362280.5792842,
+  "custom_edited": false,
+  "elements": [
+    {
+      "id": "hp_bar",
+      "type": "bar",
+      "label": "Здоровье",
+      "bbox_1000": [
+        945,
+        46,
+        990,
+        150
+      ],
+      "bbox_px": [
+        45,
+        543,
+        155,
+        573
+      ],
+      "color_hint": "lime",
+      "hsv_lower": [
+        30,
+        80,
+        80
+      ],
+      "hsv_upper": [
+        85,
+        255,
+        255
+      ],
+      "orientation": "ltr",
+      "preprocess": "rgb",
+      "reader": "local_cv",
+      "padding": 6,
+      "unit": "",
+      "min_val": 0.0,
+      "max_val": 100.0,
+      "active": true
+    },
+    {
+      "id": "hotbar_slot4_count",
+      "type": "number",
+      "label": "Слот 4 (Морковь)",
+      "bbox_1000": [
+        940,
+        415,
+        980,
+        435
+      ],
+      "bbox_px": [
+        418,
+        536,
+        451,
+        571
+      ],
+      "color_hint": "",
+      "hsv_lower": null,
+      "hsv_upper": null,
+      "orientation": "ltr",
+      "preprocess": "rgb",
+      "reader": "local_ocr",
+      "padding": 6,
+      "unit": "",
+      "min_val": 0.0,
+      "max_val": 100.0,
+      "active": true
+    }
+  ]
+}
