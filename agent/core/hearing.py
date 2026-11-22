@@ -948,16 +948,22 @@ class Hearing(threading.Thread):
         def has(targets, cutoff=0.75):
             return any(difflib.get_close_matches(w, targets, n=1, cutoff=cutoff) for w in words)
 
-        if ((("выйди" in low) or ("выход" in low) or ("обычный" in low) or ("выключи" in low))
-                and (has(("игровой", "игры", "игру")) or "режим" in low)):
+        is_game_or_comp = (
+            has(("игровой", "игры", "игру")) or
+            has(("компаньон", "компаньона", "компаньонский", "напарник", "напарница")) or
+            ("режим" in low and ("игр" in low or "комп" in low))
+        )
+
+        if ((("выйди" in low) or ("выход" in low) or ("обычный" in low) or ("выключи" in low) or ("отключи" in low) or ("стоп" in low))
+                and (is_game_or_comp or "режим" in low)):
             self.agent.bus.emit("game_mode", on=False)
             self.agent.set_state("idle")
-            log.info("[game] игровой режим ВЫКЛ")
+            log.info("[game] игровой режим / режим компаньона ВЫКЛ")
             return True
-        if has(("игровой", "игру", "игры")) and "режим" in low:
+        if is_game_or_comp and (has(("включи", "запусти", "активируй", "режим")) or "режим" in low or has(("компаньон", "компаньона"))):
             self.agent.bus.emit("game_mode", on=True)
             self.agent.set_state("idle")
-            log.info("[game] игровой режим ВКЛ")
+            log.info("[game] игровой режим / режим компаньона ВКЛ")
             return True
         return False
 

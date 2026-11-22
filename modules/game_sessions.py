@@ -141,6 +141,14 @@ def start_prompt(game: str, last: Optional[dict], now: float | None = None) -> O
             + ". Поприветствуй его в игре одной короткой фразой (до 14 слов), можно вспомнить прошлый раз.")
 
 
+def greeting_prompt(game: str) -> str:
+    """Приветствие при запуске игры или включении режима компаньона."""
+    return (f"Мастер играет в «{game}». Поприветствуй его в игре одной короткой живой фразой (до 10-12 слов) "
+            "в своём дерзком, немного язвительном, но дружеском характере Сакуры. "
+            "Если игра культовая (CS2, Dota 2, Cyberpunk 2077, Minecraft, Elden Ring, Deadlock, Tanks и т.д.), "
+            "дай короткий характерный комментарий. Без смайликов и без кавычек.")
+
+
 def end_prompt(game: str, minutes: int, stats: dict, highlights: list) -> str:
     score = _score(stats)
     hl = ", ".join(highlights or [])

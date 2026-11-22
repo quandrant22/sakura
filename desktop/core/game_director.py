@@ -29,8 +29,8 @@ log = logging.getLogger("sakura.games")
 WATCH_S = 2.0
 # Игра пропала из фокуса меньше чем на столько — та же сессия (Alt+Tab в браузер и обратно).
 GRACE_S = 90.0
-SENSE_FPS = 6.0
-CLIP_FPS = 8.0
+SENSE_FPS = 2.0  # 2 кадра/сек для GameSense минимизирует нагрузку на GPU и CPU
+CLIP_FPS = 5.0
 CLIP_WIDTH = 960
 DUCK_PCT = 40
 AUTOCLIP_EVENTS = frozenset({"victory", "ace", "multikill"})
@@ -77,6 +77,7 @@ class GameDirector:
         self._gsi = None
         self._lol = None
         self._sense = None
+        self.manual_active: bool = False
 
     # ── настройки ──
     def _get(self, key: str, default: Any = None) -> Any:
@@ -146,19 +147,58 @@ class GameDirector:
         from desktop.core.game_detect import foreground_game
         return foreground_game(self._get("game_processes", []) or [], self._get("game_not_processes", []) or [])
 
+    def set_manual_mode(self, on: bool):
+        """Ручное включение/выключение режима компаньона (по кнопке или голосовой команде)."""
+        with self._lock:
+            if self.manual_active == on:
+                return
+            self.manual_active = on
+            s = self.session
+
+        if on:
+            log.info("[games] Режим компаньона активирован вручную (кнопка/команда)")
+            game, fg = self.detect()
+            if game is not None:
+                if s is None or s.game.key != game.key:
+                    if s is not None:
+                        self.end_session("другая игра")
+                    self.begin_session(game, fg)
+            else:
+                log.info("[games] Игра пока не обнаружена, ожидание запуска")
+                self.emit({"type": "game_session", "state": "waiting", "game": "", "level": "reactions"})
+                self.emit({"type": "game_event", "event": "waiting_game", "title": "Режим компаньона",
+                           "text": "Режим компаньона включён · Ожидаю игру"})
+        else:
+            log.info("[games] Режим компаньона выключен вручную (кнопка/команда)")
+            if s is not None:
+                self.end_session("выключен пользователем")
+            else:
+                self.emit({"type": "game_session", "state": "idle", "game": ""})
+                self.emit({"type": "game_event", "event": "session_stop", "title": "Режим компаньона",
+                           "text": "Режим компаньона выключен"})
+
     def tick(self):
         now = self.clock()
         game, fg = self.detect()
         with self._lock:
             s = self.session
+            auto_default = True if self.bus is None else False
+            auto_activate = bool(self._get("game_auto_activate", auto_default))
+            allowed = auto_activate or self.manual_active
+
         if game is not None:
-            if s is None or s.game.key != game.key:
-                if s is not None:
-                    self.end_session("другая игра")
-                self.begin_session(game, fg)
+            if allowed:
+                if s is None or s.game.key != game.key:
+                    if s is not None:
+                        self.end_session("другая игра")
+                    self.begin_session(game, fg)
+                else:
+                    s.last_seen = now
+                    self._check_exclusive(s, fg)
             else:
-                s.last_seen = now
-                self._check_exclusive(s, fg)
+                # Игра видна, но авто-активация выключена (по умолчанию)
+                # Режим компаньона ждет нажатия кнопки или голосовой команды!
+                pass
         elif s is not None and now - s.last_seen > GRACE_S:
             self.end_session("игра закрыта")
 
@@ -169,6 +209,7 @@ class GameDirector:
         s = Session(game=game, started=now, level=level, last_seen=now)
         with self._lock:
             self.session = s
+            self.manual_active = True
         log.info("[games] сессия: %s (%s), присутствие %s", game.name, game.reason, level)
         if self.bus is not None:
             self.bus.emit("game_mode", on=True)
@@ -178,7 +219,7 @@ class GameDirector:
                    "text": f"Я рядом · {gp.LEVEL_NAMES[level]}"})
         if game.key in ("league of legends.exe",) and self._lol:
             self._lol.start()
-        if level != "silent" or self._get("game_autoclip", True):
+        if level != "silent" or self._get("game_autoclip", False):
             self._start_sense(s)
         self._send("game_session_start", s, {"reason": game.reason})
         self._check_exclusive(s, fg)
@@ -186,6 +227,7 @@ class GameDirector:
     def end_session(self, why: str = ""):
         with self._lock:
             s, self.session = self.session, None
+            self.manual_active = False
         if s is None:
             return
         self._sense = None  # цикл кадров сам увидит, что сессии нет
@@ -286,22 +328,26 @@ class GameDirector:
         clip_every = 1.0 / CLIP_FPS
         sense_every = 1.0 / SENSE_FPS
         last_clip = last_sense = 0.0
-        log.info("[games] кадры: %s", grabber.backend)
+        log.info("[games] кадры: %s (SENSE_FPS=%.1f)", grabber.backend, SENSE_FPS)
         try:
             while not self._stop.is_set() and self._sense is token and self.session is s:
                 t = time.monotonic()
-                want_clip = self.clips is not None and self._get("game_autoclip", True) and t - last_clip >= clip_every
+                want_clip = self.clips is not None and self._get("game_autoclip", False) and t - last_clip >= clip_every
                 want_sense = s.level != "silent" and t - last_sense >= sense_every
                 if want_clip or want_sense:
-                    img = grabber.grab()
-                    if want_sense:
-                        small = img.convert("RGB").resize((160, 90))
-                        detector.feed_frame(small.convert("RGBA").tobytes("raw", "BGRA"), 160, 90)
-                        last_sense = t
                     if want_clip:
+                        img = grabber.grab()
                         self._clip_frame(img)
                         last_clip = t
-                time.sleep(max(0.01, min(clip_every, sense_every) - (time.monotonic() - t)))
+                        if want_sense:
+                            small = img.convert("RGB").resize((160, 90))
+                            detector.feed_frame(small.convert("RGBA").tobytes("raw", "BGRA"), 160, 90)
+                            last_sense = t
+                    elif want_sense:
+                        small = grabber.grab_small((160, 90))
+                        detector.feed_frame(small.convert("RGBA").tobytes("raw", "BGRA"), 160, 90)
+                        last_sense = t
+                time.sleep(max(0.05, min(clip_every if want_clip else sense_every, sense_every) - (time.monotonic() - t)))
         except Exception:  # noqa: BLE001
             log.exception("[games] цикл кадров остановлен")
         finally:
@@ -317,6 +363,11 @@ class GameDirector:
 
     # ── приглушение игры, пока Сакура говорит ──
     def _on_bus(self, event: str, data: dict):
+        if event == "game_mode":
+            on = bool(data.get("on", False)) if isinstance(data, dict) else bool(data)
+            if on != self.manual_active:
+                self.set_manual_mode(on)
+            return
         if event != "state":
             return
         with self._lock:
@@ -371,7 +422,10 @@ class GameDirector:
     def snapshot(self) -> dict:
         with self._lock:
             s = self.session
+            manual = self.manual_active
+            auto = bool(self._get("game_auto_activate", False))
         if s is None:
-            return {"active": False}
-        return {"active": True, "game": s.game.name, "key": s.game.key, "level": s.level, "reason": s.game.reason,
+            return {"active": False, "manual_mode": manual, "auto_activate": auto}
+        return {"active": True, "manual_mode": manual, "auto_activate": auto,
+                "game": s.game.name, "key": s.game.key, "level": s.level, "reason": s.game.reason,
                 "minutes": s.minutes(self.clock()), "stats": dict(s.stats)}

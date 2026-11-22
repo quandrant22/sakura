@@ -30,7 +30,7 @@ log = logging.getLogger("sakura.clips")
 
 _DEFAULT_HISTORY_SEC = 60
 _DEFAULT_CLIP_SEC = 30
-_DEFAULT_FPS = 10  # 10 кадров в сек для баланса памяти/скорости
+_DEFAULT_FPS = 5  # 5 кадров в сек для минимальной нагрузки на CPU/GPU
 
 
 @dataclass

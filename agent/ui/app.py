@@ -84,9 +84,15 @@ def build_tray(app: QApplication, overlay, bridge=None, agent=None) -> QSystemTr
     menu.addAction("Показать / скрыть", lambda: overlay.setVisible(not overlay.isVisible()))
     menu.addSeparator()
 
-    game_action = QAction("Игровой режим (клик-сквозь)", app)
+    game_action = QAction("Режим компаньона / игровой (клик-сквозь)", app)
     game_action.setCheckable(True)
-    game_action.toggled.connect(overlay.set_game_mode)
+
+    def _on_game_toggled(checked: bool):
+        overlay.set_game_mode(checked)
+        if agent is not None and getattr(agent, "bus", None) is not None:
+            agent.bus.emit("game_mode", on=checked)
+
+    game_action.toggled.connect(_on_game_toggled)
     menu.addAction(game_action)
     if bridge is not None:
         # Синхронизация галочки с bridge.gameMode без цикла сигналов

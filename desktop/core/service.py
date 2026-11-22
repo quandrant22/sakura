@@ -259,6 +259,7 @@ class CoreService:
         c("settings_set", self.cmd_settings_set)
         c("game_mode", self.cmd_game_mode)
         c("games_state", self.cmd_games_state)
+        c("game_auto_activate_set", self.cmd_game_auto_activate_set)
         c("game_presence_set", self.cmd_game_presence_set)
         c("game_mark", self.cmd_game_mark)
         c("gsi_install", self.cmd_gsi_install)
@@ -538,15 +539,9 @@ class CoreService:
             from desktop.core.features import get_ink_manager
             get_ink_manager().draw("circle 400 300 200 200; arrow 250 150 380 280; text 400 520 Интерактивная зона Сакуры")
             return {"text": "Нарисовала подсказку на экране"}
-        if kind == "toggle_game_mode":
-            from desktop.core.features import get_gamesense_runner, get_clip_buffer
-            gs = get_gamesense_runner()
-            new_active = not gs.active
-            if new_active:
-                gs.start()
-                get_clip_buffer().start()
-            else:
-                gs.stop()
+        if kind in ("toggle_game_mode", "toggle_companion_mode"):
+            cur_active = self._games.manual_active if (hasattr(self, "_games") and self._games) else False
+            new_active = not cur_active
             self.bus.emit("game_mode", on=new_active)
             return {"active": new_active}
         if kind == "toggle_call_mode":
@@ -657,11 +652,18 @@ class CoreService:
             "levels": [{"id": lv, "name": LEVEL_NAMES[lv]} for lv in LEVELS],
             "presence": self.settings.get("game_presence", {}) or {},
             "presence_default": self.settings.get("game_presence_default", "reactions"),
+            "auto_activate": bool(self.settings.get("game_auto_activate", False)),
             "games": self.settings.get("game_processes", []) or [],
             "not_games": self.settings.get("game_not_processes", []) or [],
             "gsi": gsi,
             "global_fso_disabled": await asyncio.to_thread(fullscreen.global_fso_disabled),
         }
+
+    async def cmd_game_auto_activate_set(self, msg: dict):
+        enabled = bool(msg.get("enabled", False))
+        self.settings.set("game_auto_activate", enabled)
+        self._emit({"type": "settings", "settings": self.settings_snapshot()})
+        return {"game_auto_activate": enabled}
 
     async def cmd_game_presence_set(self, msg: dict):
         key = str(msg.get("key") or "").strip().lower()
@@ -1002,9 +1004,8 @@ class CoreService:
                 "type": "ink_render", "shapes": shapes, "space": screens.ink_space(),
                 "duration": getattr(ink.current_drawing, "duration", 10.0)})
 
-            # 3. Clip buffer -> фоновый буфер последних 30-60 секунд
+            # 3. Clip buffer -> фоновый буфер последних 30-60 секунд (кадры подаются только при активности)
             clips = get_clip_buffer()
-            clips.start()
 
             # 4. Care manager -> периодические напоминания
             care = get_care_manager()
@@ -1028,36 +1029,11 @@ class CoreService:
                                        clips=clips)
             self._games.start()
 
-            # 6. GameSense Runner (мгновенные игровые реакции: урон, вспышка, смерть)
-            from desktop.core.features import get_gamesense_runner
-            gs = get_gamesense_runner()
-
-            def _on_gamesense_reaction(ev, phrase):
-                self._emit({
-                    "type": "gamesense_event",
-                    "kind": ev.kind,
-                    "strength": ev.strength,
-                    "message": phrase,
-                })
-                if self._agent and getattr(self._agent, "_state", "") not in ("speaking", "thinking"):
-                    prompt = f'[Событие в игре ({ev.kind})]: Скажи эмоционально и коротко: "{phrase}"'
-                    self._agent.submit_user_text(prompt, source="game")
-
-            gs.on_reaction = _on_gamesense_reaction
-            gs.on_event = lambda ev: self._emit({
-                "type": "gamesense_event",
-                "kind": ev.kind,
-                "strength": ev.strength,
-                "message": ev.message,
-            })
-
+            # 6. Управление режимом игры / компаньона через шину
             def _on_bus_game_mode(data):
                 on = bool(data.get("on", False)) if isinstance(data, dict) else bool(data)
-                if on:
-                    gs.start()
-                    clips.start()
-                else:
-                    gs.stop()
+                if hasattr(self, "_games") and self._games is not None:
+                    self._games.set_manual_mode(on)
             self.bus.on("game_mode", _on_bus_game_mode)
 
             # 6. Call Mode & Watch Along loopback speech listener (захват речи друга из Discord/видео)

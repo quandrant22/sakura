@@ -202,7 +202,7 @@ class GameSenseRunner:
         detector: Optional[GameSenseDetector] = None,
         on_reaction: Optional[Callable[[GameSenseEvent, str], None]] = None,
         on_event: Optional[Callable[[GameSenseEvent], None]] = None,
-        fps: int = 10,
+        fps: int = 2,
     ):
         self.detector = detector or GameSenseDetector()
         self.on_reaction = on_reaction
@@ -274,24 +274,36 @@ class GameSenseRunner:
                     log.warning("[gamesense] on_reaction error: %s", e)
 
     def _run_loop(self):
-        from PIL import ImageGrab
-        interval = 1.0 / max(1, self.fps)
-        while self.active:
-            t0 = time.time()
-            try:
-                # Быстрый захват кадра и сжатие в 160x90 для минимального использования процессора
-                img = ImageGrab.grab()
-                small = img.resize((160, 90))
-                # RGBA байты
-                rgba = small.convert("RGBA").tobytes()
-                # Для BGRA переставляем каналы (или подаем напрямую в детектор)
-                # В numpy-версии детектора sample[:, :, 0] = Blue, 1 = Green, 2 = Red
-                # Преобразуем RGBA в BGRA байты
-                bgra = bytearray(rgba)
-                bgra[0::4], bgra[2::4] = bgra[2::4], bgra[0::4]
-                self.detector.feed_frame(bytes(bgra), 160, 90, t0)
-            except Exception as e:
-                log.debug("[gamesense] Capture loop error: %s", e)
+        try:
+            from desktop.core.screens import FastGrabber
+            grabber = FastGrabber()
+        except Exception:
+            grabber = None
+
+        interval = 1.0 / max(1, min(self.fps, 4))
+        try:
+            while self.active:
+                t0 = time.time()
+                try:
+                    if grabber is not None:
+                        small = grabber.grab_small((160, 90))
+                    else:
+                        from PIL import ImageGrab
+                        img = ImageGrab.grab()
+                        small = img.resize((160, 90))
+                    rgba = small.convert("RGBA").tobytes()
+                    bgra = bytearray(rgba)
+                    bgra[0::4], bgra[2::4] = bgra[2::4], bgra[0::4]
+                    self.detector.feed_frame(bytes(bgra), 160, 90, t0)
+                except Exception as e:
+                    log.debug("[gamesense] Capture loop error: %s", e)
+
+                elapsed = time.time() - t0
+                sleep_t = max(0.05, interval - elapsed)
+                time.sleep(sleep_t)
+        finally:
+            if grabber is not None:
+                grabber.close()
 
             elapsed = time.time() - t0
             sleep_t = max(0.02, interval - elapsed)

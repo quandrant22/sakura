@@ -223,3 +223,73 @@ def test_set_level_persists_and_applies_to_session():
     assert d.session.level == "coop"
     assert d.settings["game_presence"]["elden.exe"] == "coop"
     assert json.dumps(d.snapshot())
+
+
+class FakeBus:
+    def __init__(self):
+        self.subscribers = []
+
+    def subscribe(self, fn):
+        self.subscribers.append(fn)
+
+    def emit(self, event, **data):
+        for fn in list(self.subscribers):
+            fn(event, data)
+
+
+def test_known_games_classification():
+    g = classify("cyberpunk2077.exe", r"C:\Games\Cyberpunk 2077\bin\x64\Cyberpunk2077.exe")
+    assert g is not None and g.name == "Cyberpunk 2077"
+    g2 = classify("dota2.exe", r"D:\CustomFolder\dota2.exe")
+    assert g2 is not None and g2.name == "Dota 2"
+
+
+def test_auto_activate_off_by_default_with_bus():
+    emitted, sent = [], []
+    clock = Clock()
+    bus = FakeBus()
+    s = FakeSettings(game_presence={"elden.exe": "reactions"}, game_autoclip=False)
+    state = {"game": ELDEN}
+    d = GameDirector(s, emit=emitted.append, send_server=sent.append, bus=bus, clips=FakeClips(),
+                     detect=lambda: (state["game"], None), clock=clock)
+    d.start()
+    # Авто-активация выключена по умолчанию при наличии шины: сессия НЕ должна стартовать сама
+    d.tick()
+    assert d.session is None
+    assert sent == []
+
+    # Включение вручную по кнопке/команде (через событие шины)
+    bus.emit("game_mode", on=True)
+    assert d.session is not None
+    assert d.session.game.name == "ELDEN RING"
+    assert sent[0]["type"] == "game_session_start"
+
+    # Выключение вручную
+    clock.t += 360
+    bus.emit("game_mode", on=False)
+    assert d.session is None
+    assert any(e.get("type") == "game_session" and e.get("state") == "end" for e in emitted)
+    assert sent[-1]["type"] == "game_session_end"
+
+
+def test_manual_mode_waiting_for_game():
+    emitted, sent = [], []
+    clock = Clock()
+    bus = FakeBus()
+    s = FakeSettings(game_presence={"elden.exe": "reactions"}, game_autoclip=False)
+    state = {"game": None}
+    d = GameDirector(s, emit=emitted.append, send_server=sent.append, bus=bus, clips=FakeClips(),
+                     detect=lambda: (state["game"], None), clock=clock)
+    d.start()
+
+    # Пользователь нажал кнопку / сказал команду, когда игра еще не запущена
+    bus.emit("game_mode", on=True)
+    assert d.session is None
+    assert any(e.get("event") == "waiting_game" for e in emitted)
+
+    # Игра запустилась
+    state["game"] = ELDEN
+    d.tick()
+    assert d.session is not None
+    assert d.session.game.name == "ELDEN RING"
+

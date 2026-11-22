@@ -28,6 +28,61 @@ LAUNCHER_DIRS = (
     "\\overwatch\\", "\\world of warcraft\\", "\\diablo iv\\", "\\hearthstone\\", "\\minecraft launcher\\",
     "\\games\\",
 )
+KNOWN_GAMES: dict[str, str] = {
+    "cs2.exe": "Counter-Strike 2",
+    "csgo.exe": "Counter-Strike: Global Offensive",
+    "dota2.exe": "Dota 2",
+    "league of legends.exe": "League of Legends",
+    "valorant.exe": "VALORANT",
+    "valorant-win64-shipping.exe": "VALORANT",
+    "overwatch.exe": "Overwatch 2",
+    "gta5.exe": "Grand Theft Auto V",
+    "gtav.exe": "Grand Theft Auto V",
+    "rdr2.exe": "Red Dead Redemption 2",
+    "cyberpunk2077.exe": "Cyberpunk 2077",
+    "witcher3.exe": "The Witcher 3: Wild Hunt",
+    "genshinimpact.exe": "Genshin Impact",
+    "starrail.exe": "Honkai: Star Rail",
+    "zenlesszonezero.exe": "Zenless Zone Zero",
+    "minecraft.exe": "Minecraft",
+    "apex.exe": "Apex Legends",
+    "r5apex.exe": "Apex Legends",
+    "deadlock.exe": "Deadlock",
+    "rust.exe": "Rust",
+    "rustclient.exe": "Rust",
+    "escapefromtarkov.exe": "Escape from Tarkov",
+    "warframe.x64.exe": "Warframe",
+    "helldivers2.exe": "HELLDIVERS 2",
+    "baldursgate3.exe": "Baldur's Gate 3",
+    "bg3.exe": "Baldur's Gate 3",
+    "bg3_dx11.exe": "Baldur's Gate 3",
+    "eldenring.exe": "ELDEN RING",
+    "starfield.exe": "Starfield",
+    "terraria.exe": "Terraria",
+    "stardew valley.exe": "Stardew Valley",
+    "osu!.exe": "osu!",
+    "worldoftanks.exe": "Мир танков",
+    "palworld-win64-shipping.exe": "Palworld",
+    "palworld.exe": "Palworld",
+    "satisfactory-win64-shipping.exe": "Satisfactory",
+    "factorygame-win64-shipping.exe": "Satisfactory",
+    "rainbowsix.exe": "Rainbow Six Siege",
+    "rocketleague.exe": "Rocket League",
+    "tslgame.exe": "PUBG: BATTLEGROUNDS",
+    "subnautica.exe": "Subnautica",
+    "hollow_knight.exe": "Hollow Knight",
+    "hades.exe": "Hades",
+    "hades2.exe": "Hades II",
+    "stalker2-win64-shipping.exe": "S.T.A.L.K.E.R. 2",
+    "stalker2.exe": "S.T.A.L.K.E.R. 2",
+    "b1-win64-shipping.exe": "Black Myth: Wukong",
+    "darksoulsiii.exe": "Dark Souls III",
+    "darksoulsremastered.exe": "Dark Souls Remastered",
+    "monsterhunterworld.exe": "Monster Hunter: World",
+    "monsterhunterwilds.exe": "Monster Hunter Wilds",
+    "destiny2.exe": "Destiny 2",
+    "fallguys_client.exe": "Fall Guys",
+}
 EMULATORS = frozenset({
     "yuzu.exe", "suyu.exe", "citron.exe", "ryujinx.exe", "rpcs3.exe", "pcsx2.exe", "pcsx2-qt.exe", "dolphin.exe",
     "retroarch.exe", "cemu.exe", "ppsspp.exe", "ppssppwindows64.exe", "xenia.exe", "xenia_canary.exe",
@@ -79,6 +134,9 @@ def nice_name(exe: str, path: str = "", title: str = "") -> str:
     t = (title or "").strip()
     if t and len(t) <= 60:
         return t
+    key = game_key(exe)
+    if key in KNOWN_GAMES:
+        return KNOWN_GAMES[key]
     stem = os.path.splitext(exe or "")[0]
     while True:  # Game-Win64-Shipping → Game
         cut = re.sub(r"[-_](win64|win32|x64|shipping|dx11|dx12|vulkan|client)$", "", stem, flags=re.I)
@@ -107,6 +165,8 @@ def classify(exe: str, path: str = "", title: str = "", *, fullscreen: bool = Fa
     for d in LAUNCHER_DIRS:
         if d in low:
             return GameInfo(key, nice_name(exe, path, title), exe, path, f"папка игр ({d.strip(chr(92))})")
+    if key in KNOWN_GAMES:
+        return GameInfo(key, KNOWN_GAMES[key], exe, path, "известная игра")
     if fullscreen and gpu is not None and gpu >= GPU_BUSY:
         return GameInfo(key, nice_name(exe, path, title), exe, path, "во весь экран и нагружает видеокарту")
     return None

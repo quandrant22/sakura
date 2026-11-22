@@ -340,6 +340,8 @@ async def handle_game_session_start(websocket, data, ctx) -> None:
     if level == "silent":
         return
     prompt = gs.start_prompt(game, gs.last_session(str(data.get("game_key") or game)))
+    if not prompt:
+        prompt = gs.greeting_prompt(game)
     if prompt:
         spawn(_say_game(prompt, dev, ctx), name="game_start_say")
 

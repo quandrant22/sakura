@@ -214,6 +214,10 @@ def _legacy_action(action: str, arg: str = "") -> str:
             return "watch_along:stop"
         if verb == "husk_status":
             return "husk:status"
+        if verb in ("game_mode_on", "mode_on"):
+            return "game_mode:on"
+        if verb in ("game_mode_off", "mode_off"):
+            return "game_mode:off"
     return action
 
 

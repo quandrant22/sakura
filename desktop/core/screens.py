@@ -121,7 +121,8 @@ class FastGrabber:
         if backend in (None, "mss"):
             try:
                 import mss  # type: ignore
-                self._mss = mss.mss()
+                factory = getattr(mss, "MSS", getattr(mss, "mss", None))
+                self._mss = factory()
                 self.backend = "mss"
             except Exception:  # noqa: BLE001 — нет mss или нет дисплея
                 self._mss = None
@@ -138,12 +139,26 @@ class FastGrabber:
     def grab(self):
         from PIL import Image
         if self._mss is not None:
-            region = self._region()
-            shot = self._mss.grab(region)
-            return Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+            try:
+                region = self._region()
+                if region:
+                    shot = self._mss.grab(region)
+                    return Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+            except Exception:
+                pass
         return grab()
 
     def grab_small(self, size: tuple[int, int] = (160, 90)):
+        from PIL import Image
+        if self._mss is not None:
+            try:
+                region = self._region()
+                if region:
+                    shot = self._mss.grab(region)
+                    img = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+                    return img.resize(size)
+            except Exception:
+                pass
         img = self.grab().convert("RGB")
         return img.resize(size)
 
