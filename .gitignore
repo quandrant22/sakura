@@ -147,3 +147,9 @@ memory/persona/
 .temp_vbcable/
 desktop/debug/
 
+# Офисные документы и генераторы докладов
+*.docx
+*.pptx
+generate_doc.py
+
+
