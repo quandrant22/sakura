@@ -9,6 +9,10 @@
 множители громкости для встроенных <audio>/<video> (событие audio_duck).
 """
 from collections.abc import Callable
+import logging
+import os
+
+log = logging.getLogger("sakura.media.audio_session")
 
 ATTACK_MS = 150
 RELEASE_MS = 600
@@ -23,6 +27,13 @@ class AudioSession:
         self.voice = "idle"
         self.playing = {"video": False, "music": False}
         self._gains = {"video": 1.0, "music": 1.0}
+        self._windows_ducker = None
+        if os.name == "nt":
+            try:
+                from desktop.core.platform.windows_ducking import WindowsAudioDucker
+                self._windows_ducker = WindowsAudioDucker()
+            except Exception as e:
+                log.debug(f"[audio_session] WindowsAudioDucker не загружен: {e}")
 
     @property
     def gains(self) -> dict:
@@ -46,6 +57,11 @@ class AudioSession:
         """Состояние ядра: idle | listening | thinking | speaking."""
         self.voice = state
         self._update()
+        if self._windows_ducker is not None:
+            try:
+                self._windows_ducker.set_voice_state(state)
+            except Exception:
+                pass
 
     def set_playing(self, player: str, playing: bool):
         if player in self.playing:

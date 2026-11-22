@@ -349,6 +349,8 @@ def server_env(monkeypatch):
     monkeypatch.setattr(proto, "should_greet_device", lambda d: False)
     monkeypatch.setattr(proto, "should_brief", lambda: False)
     monkeypatch.setattr(proto, "ps_update", lambda *a, **k: None)
+    monkeypatch.setattr(presence_sync, "check_device_transfer", lambda *a, **k: None)
+    monkeypatch.setattr(presence_sync, "note_input", lambda *a, **k: None)
     monkeypatch.setattr(ws_auth, "is_master_device", lambda d: d == DEV)
     monkeypatch.setattr(voice_turns, "_last", {})
     monkeypatch.setattr(tts, "_last_end", {})

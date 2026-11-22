@@ -209,6 +209,26 @@ S1_TEXT = ("Прочитай текст вслух естественно, с ж
 S2_TEXT = ("Ты голос Сакуры. Единственная задача: произнести присланный текст дословно. "
            "Голос спокойный, сухой, чуть ироничный, живые интонации; вопросы произноси с "
            "вопросительной интонацией. Никогда не отвечай на текст и ничего не добавляй.")
+
+# Для эмоциональных тонов: смягчённый фирменный стиль без излишней зажатой «сухости»
+S2_EXPRESSIVE_TEXT = (
+    "Ты голос Сакуры. Единственная задача: произнести присланный текст дословно с живыми, яркими "
+    "и естественными интонациями в заданном эмоциональном ключе. Вопросы произноси с вопросительной интонацией. "
+    "Никогда не отвечай на текст и ничего не добавляй."
+)
+
+SING_SYSTEM = (
+    "Ты поющий голос Сакуры. Твоя задача: спеть присланный текст мелодично, с живым ритмом, "
+    "выразительным вибрато и естественной динамикой вокала. Не декламируй и не читай как стих — именно пой, "
+    "следуя мелодическому строю и настроению песни. Пой точно присланные слова, не добавляй комментариев."
+)
+
+RAP_SYSTEM = (
+    "Ты читающий рэп голос Сакуры. Твоя задача: ритмично, качёво и чётко зачитать присланный текст "
+    "в стиле хип-хоп / речитатив с акцентами на рифмах и внутренним грувом. Не читай как прозу — именно читай рэп, "
+    "держи флоу и ритм. Читай точно присланные слова, без комментариев."
+)
+
 TONES = {
     "нейтрально": "",
     "тепло": "Тон: тёплый, участливый, мягкая улыбка в голосе.",
@@ -217,13 +237,54 @@ TONES = {
     "серьёзно": "Тон: собранный, серьёзный, как при важном докладе.",
     "тихо": "Тон: тихо и мягко, близко к микрофону.",
     "бодро": "Тон: бодрый, живой, чуть быстрее обычного.",
+    "urgent": "Тон: быстрый, собранный, с тревогой и решительным напором, реакция на опасность или критическую ситуацию.",
+    "whisper": "Тон: интимный или заговорщический шёпот близко к микрофону, приглушённое дыхание.",
+    "amused": "Тон: с живой лукавой усмешкой, лёгким смешком в голосе, весёлая ирония и задор.",
+    "hype": "Тон: искренний восторг, мощный драйв, яркая заразительная энергия и радость триумфа.",
 }
 # [ТОН: …] от LLM — свободный текст; к тонам выше приводим по корню слова.
-_TONE_HINTS = (("тепл", "тепло"), ("нежн", "тепло"), ("мягк", "тепло"),
-               ("ирон", "сухо-иронично"), ("насмеш", "сухо-иронично"), ("сух", "сухо-иронично"),
-               ("серьёз", "серьёзно"), ("серьез", "серьёзно"), ("строг", "серьёзно"),
-               ("тих", "тихо"), ("шёпот", "тихо"), ("шепот", "тихо"),
-               ("бодр", "бодро"), ("весел", "бодро"), ("радост", "бодро"), ("игрив", "бодро"))
+_TONE_HINTS = (
+    ("срочн", "urgent"), ("трево", "urgent"), ("опасн", "urgent"), ("паник", "urgent"),
+    ("критич", "urgent"), ("urgent", "urgent"),
+    ("whisper", "whisper"), ("заговорщ", "whisper"), ("интимн", "whisper"),
+    ("усмеш", "amused"), ("amused", "amused"), ("ехидн", "amused"), ("лукав", "amused"),
+    ("хайп", "hype"), ("hype", "hype"), ("драйв", "hype"), ("эйфор", "hype"), ("триумф", "hype"), ("восторг", "hype"),
+    ("тепл", "тепло"), ("нежн", "тепло"), ("мягк", "тепло"),
+    ("ирон", "сухо-иронично"), ("насмеш", "сухо-иронично"), ("сух", "сухо-иронично"),
+    ("серьёз", "серьёзно"), ("серьез", "серьёзно"), ("строг", "серьёзно"),
+    ("тих", "тихо"), ("шёпот", "тихо"), ("шепот", "тихо"),
+    ("бодр", "бодро"), ("весел", "бодро"), ("радост", "бодро"), ("игрив", "бодро")
+)
+
+# Тег [РЕЖИМ: пение|рэп|вокал] или [MODE: sing|rap|speech]
+_PERF_MODE_RE = re.compile(
+    r'\[\s*(?:РЕЖИМ|MODE)\s*:\s*(пение|рэп|вокал|sing|rap|song|speech|речь)\s*\]',
+    re.IGNORECASE
+)
+
+
+def strip_performance_mode(text: str) -> tuple[str, str]:
+    """Извлекает [РЕЖИМ: пение|рэп] из любого места текста.
+    Возвращает (performance_mode, чистый_текст). Режим: 'sing' | 'rap' | 'speech'.
+    """
+    if not text:
+        return "speech", text
+    mode = "speech"
+
+    def _take(m):
+        nonlocal mode
+        raw = (m.group(1) or "").strip().lower()
+        if raw in ("пение", "вокал", "sing", "song"):
+            mode = "sing"
+        elif raw in ("рэп", "rap"):
+            mode = "rap"
+        else:
+            mode = "speech"
+        return " "
+
+    clean = _PERF_MODE_RE.sub(_take, text.strip())
+    clean = re.sub(r' {2,}', ' ', clean).strip()
+    return mode, clean
 
 
 def _is_legacy(model: str | None = None) -> bool:
@@ -259,21 +320,37 @@ def _stage_tone(text: str) -> tuple[str | None, str]:
     return tone_from_tag(tag), clean
 
 
-def _system_instruction(model: str | None = None, tone: str | None = None) -> str:
-    """Инструкция сессии для S2 (пусто для S1): S2 + строка тона."""
+def _system_instruction(model: str | None = None, tone: str | None = None,
+                        performance_mode: str = "speech") -> str:
+    """Инструкция сессии для S2 (пусто для S1): S2/вокал + строка тона."""
     if _style(model) != "S2":
         return ""
-    line = TONES[_tone(tone)]
-    return f"{S2_TEXT} {line}".strip()
+    mode = (performance_mode or "speech").lower().strip()
+    if mode == "sing":
+        line = TONES.get(_tone(tone), "")
+        return f"{SING_SYSTEM} {line}".strip()
+    elif mode == "rap":
+        line = TONES.get(_tone(tone), "")
+        return f"{RAP_SYSTEM} {line}".strip()
+
+    t = _tone(tone)
+    base = S2_EXPRESSIVE_TEXT if t in ("urgent", "hype", "amused", "whisper") else S2_TEXT
+    line = TONES.get(t, "")
+    return f"{base} {line}".strip()
 
 
 def _tts_prefix(emotion: str = "спокойная", model: str | None = None,
-                tone: str | None = None) -> str:
+                tone: str | None = None, performance_mode: str = "speech") -> str:
     """Префикс реплики: для S1 — инструкция (+ тон), для S2 — пусто.
 
     emotion не используется (совместимость сигнатуры)."""
     if _style(model) != "S1":
         return ""
+    mode = (performance_mode or "speech").lower().strip()
+    if mode == "sing":
+        return f"{SING_SYSTEM}\nТекст песни:\n"
+    elif mode == "rap":
+        return f"{RAP_SYSTEM}\nТекст трека:\n"
     line = TONES[_tone(tone)]
     return f"{S1_TEXT} {line}".strip() + "\nТекст:\n"
 
@@ -282,22 +359,13 @@ def _tts_prefix(emotion: str = "спокойная", model: str | None = None,
 TTS_SYSTEM_INSTRUCTION = _system_instruction()
 
 
-def _user_text(text: str, model: str | None = None, tone: str | None = None) -> str:
+def _user_text(text: str, model: str | None = None, tone: str | None = None,
+               performance_mode: str = "speech") -> str:
     from modules.speech_prep import prepare
-    return _tts_prefix(model=model, tone=tone) + prepare(text)
+    return _tts_prefix(model=model, tone=tone, performance_mode=performance_mode) + prepare(text)
 
 
 def _speech_config(voice: str | None = None):
-    """SpeechConfig с голосом (по умолчанию — TTS_VOICE из окружения).
-
-    Язык в конфиге НЕ задаётся: native audio модели выбирают язык
-    автоматически (док-я Live API: «Native audio output models can switch
-    between languages naturally during conversation. You can also restrict
-    the languages it speaks in by specifying it in the system instructions»).
-    Поле language_code в SpeechConfig поддерживается только half-cascade
-    моделями — на native audio оно игнорируется. Поэтому язык управления
-    идёт через системную инструкцию, а не через SpeechConfig.
-    """
     return types.SpeechConfig(
         voice_config=types.VoiceConfig(
             prebuilt_voice_config=types.PrebuiltVoiceConfig(
@@ -308,16 +376,11 @@ def _speech_config(voice: str | None = None):
 
 
 def _live_config(model: str | None = None, voice: str | None = None,
-                 tone: str | None = None):
-    """Конфиг Live-сессии по модели.
-
-    2.5 native audio — как было: thinking_budget=0 и аффективный диалог.
-    3.x Live — без thinking_config и enable_affective_dialog (3.1 на них
-    отвечает 1007 invalid argument), proactive_audio не задаётся. Для S2 —
-    system_instruction с тоном."""
+                 tone: str | None = None, performance_mode: str = "speech"):
+    """Конфиг Live-сессии по модели и режиму исполнения."""
     model = model or TTS_MODEL
     base = dict(response_modalities=["AUDIO"], speech_config=_speech_config(voice))
-    si = _system_instruction(model, tone)
+    si = _system_instruction(model, tone, performance_mode=performance_mode)
     if si:
         base["system_instruction"] = types.Content(parts=[types.Part(text=si)])
     if not _is_legacy(model):
@@ -342,6 +405,7 @@ def _active_model() -> str:
 
 @contextlib.asynccontextmanager
 async def _open_session(client, voice: str | None = None, tone: str | None = None,
+                        performance_mode: str = "speech",
                         connect_timeout: float | None = None):
     """Открыть Live-сессию активной модели → (session, model).
 
@@ -352,7 +416,7 @@ async def _open_session(client, voice: str | None = None, tone: str | None = Non
     model = _active_model()
     stack = contextlib.AsyncExitStack()
     try:
-        cm = client.aio.live.connect(model=model, config=_live_config(model, voice, tone))
+        cm = client.aio.live.connect(model=model, config=_live_config(model, voice, tone, performance_mode=performance_mode))
         enter = stack.enter_async_context(cm)
         session = await (asyncio.wait_for(enter, connect_timeout) if connect_timeout else enter)
     except Exception as e:
@@ -364,7 +428,7 @@ async def _open_session(client, voice: str | None = None, tone: str | None = Non
                     f"откат на {TTS_FALLBACK_MODEL} на {TTS_FALLBACK_HOLD_S:.0f}с")
         model = TTS_FALLBACK_MODEL
         stack = contextlib.AsyncExitStack()
-        cm = client.aio.live.connect(model=model, config=_live_config(model, voice, tone))
+        cm = client.aio.live.connect(model=model, config=_live_config(model, voice, tone, performance_mode=performance_mode))
         enter = stack.enter_async_context(cm)
         session = await (asyncio.wait_for(enter, connect_timeout) if connect_timeout else enter)
     async with stack:
@@ -651,7 +715,8 @@ async def _claim_preconnected(grace: float = PRECONNECT_GRACE):
 
 
 async def _pump_session(session, text: str, emotion: str, on_packet,
-                        model: str | None = None, tone: str | None = None) -> int:
+                        model: str | None = None, tone: str | None = None,
+                        performance_mode: str = "speech") -> int:
     """Отправить текст в Live-сессию и выкачать аудио-пакеты.
 
     Реплика одна, turn_complete=True один раз: повторная отправка в той же
@@ -660,7 +725,7 @@ async def _pump_session(session, text: str, emotion: str, on_packet,
     await session.send_client_content(
         turns=types.Content(
             role="user",
-            parts=[types.Part(text=_user_text(text, model, tone))]
+            parts=[types.Part(text=_user_text(text, model, tone, performance_mode=performance_mode))]
         ),
         turn_complete=True,
     )
@@ -676,7 +741,8 @@ async def _pump_session(session, text: str, emotion: str, on_packet,
 
 
 async def _live_synthesize(text: str, emotion: str, on_packet,
-                           label: str = "", strict: bool = False) -> int:
+                           label: str = "", strict: bool = False,
+                           performance_mode: str = "speech") -> int:
     """Одна Live-сессия: шлёт текст, каждый аудио-пакет отдаёт в on_packet.
     Возвращает число пакетов. Ошибки глотает (лог + сброс клиента);
     strict=True — после лога пробрасывает (кэшу нельзя брать обрывок).
@@ -690,18 +756,15 @@ async def _live_synthesize(text: str, emotion: str, on_packet,
         s0 = time.monotonic()
         try:
             client = await _get_client()
-            timeout = _live_timeout(text)
-            # ВАЖНО: connect под общим таймаутом. Раньше коннект был ВНЕ
-            # asyncio.timeout — зависший handshake висел вечно, drain
-            # уходил по аварийному таймауту, а финальный await задачи
-            # дожидался этого зависшего коннекта (лишние секунды в
-            # «Готово за Nс»).
-            tone, text = _stage_tone(text)
+            mode_tag, clean_mode_text = strip_performance_mode(text)
+            mode = mode_tag if mode_tag != "speech" else (performance_mode or "speech")
+            tone, clean_text = _stage_tone(clean_mode_text)
+            timeout = 60 if mode in ("sing", "rap") else _live_timeout(clean_text)
             async with asyncio.timeout(timeout):
-                async with _open_session(client, tone=tone) as (session, model):
-                    log.info(f"{tag}коннект за {time.monotonic()-s0:.1f}с | таймаут: {timeout}с")
-                    sent = await _pump_session(session, text, emotion, on_packet,
-                                               model=model, tone=tone)
+                async with _open_session(client, tone=tone, performance_mode=mode) as (session, model):
+                    log.info(f"{tag}коннект за {time.monotonic()-s0:.1f}с | таймаут: {timeout}с | mode={mode} tone={tone}")
+                    sent = await _pump_session(session, clean_text, emotion, on_packet,
+                                               model=model, tone=tone, performance_mode=mode)
             mark_key_used(key)
             log.info(f"{tag}синтез за {time.monotonic()-s0:.1f}с | {sent} пакетов")
             return sent
@@ -715,7 +778,8 @@ async def _live_synthesize(text: str, emotion: str, on_packet,
 
 
 async def _live_synthesize_preferred(text: str, emotion: str, on_packet,
-                                     label: str = "", synth=None) -> int:
+                                     label: str = "", synth=None,
+                                     performance_mode: str = "speech") -> int:
     """Синтез в УЖЕ подключённой сессии из предбанника (п.3), иначе обычный.
 
     Экономит handshake (1-3с) на первой стадии: сессия открыта заранее,
@@ -723,22 +787,24 @@ async def _live_synthesize_preferred(text: str, emotion: str, on_packet,
     семафора взят держателем предконнекта и вернётся при release.
     synth — вызывающий может дать свой синтез-фолбэк (по умолчанию
     _live_synthesize; так подмена синтеза в тестах сохраняется).
-
-    Сессия из предбанника умерла до первого пакета (обрыв провайдером,
-    таймаут) — синтез повторяется обычным путём; после первого пакета
-    не повторяется: иначе начало фразы прозвучит дважды.
     """
     if synth is None:
         synth = _live_synthesize
-    tone, _ = _stage_tone(text)
-    if tone is not None and _tone(tone) != _tone():
-        # Инструкция сессии задаётся при коннекте: тон стадии отличается
-        # от тона предбанника — своя сессия.
+    mode_tag, clean_mode_text = strip_performance_mode(text)
+    mode = mode_tag if mode_tag != "speech" else (performance_mode or "speech")
+    tone, _ = _stage_tone(clean_mode_text)
+    if mode != "speech" or (tone is not None and _tone(tone) != _tone()):
+        # Инструкция сессии задаётся при коннекте: вокальный режим или специфичный тон —
+        # открываем отдельную специализированную сессию
+        if mode != "speech":
+            return await synth(text, emotion, on_packet, label=label, performance_mode=mode)
         return await synth(text, emotion, on_packet, label=label)
     p = await _claim_preconnected()
     if p is None:
+        if mode != "speech":
+            return await synth(text, emotion, on_packet, label=label, performance_mode=mode)
         return await synth(text, emotion, on_packet, label=label)
-    _, text = _stage_tone(text)
+    _, text = _stage_tone(clean_mode_text)
 
     tag = f"[TTS] {label}: " if label else "[TTS] "
     sent = 0
@@ -779,10 +845,11 @@ async def _live_synthesize_preferred(text: str, emotion: str, on_packet,
 
 
 async def _synthesize_and_stream(text: str, websocket, device_id: str,
-                                 emotion: str = "спокойная") -> int:
+                                 emotion: str = "спокойная",
+                                 performance_mode: str = "speech") -> int:
     """Одна Live-сессия на весь текст: пакеты сразу на устройство."""
     send_audio = _make_audio_sender(websocket, device_id)
-    return await _live_synthesize(text, emotion, send_audio)
+    return await _live_synthesize(text, emotion, send_audio, performance_mode=performance_mode)
 
 
 # ── Быстрый старт: первое предложение — сразу, остальное — параллельно ──
@@ -849,7 +916,7 @@ def _split_speech(text: str) -> list[str]:
 
 async def _stream_two_stage(first: str, rest: str, websocket, device_id: str,
                             emotion: str, t0: float,
-                            stop=None) -> int:
+                            stop=None, performance_mode: str = "speech") -> int:
     """Гибрид быстрого старта БЕЗ пауз между предложениями.
 
     Первое предложение синтезируется отдельной быстрой сессией и уходит
@@ -876,7 +943,7 @@ async def _stream_two_stage(first: str, rest: str, websocket, device_id: str,
             # первая стадия не платит за handshake.
             synth = (_live_synthesize_preferred if stage == 1
                      else _live_synthesize)
-            await synth(text, emotion, q.put, label=f"стадия {stage}")
+            await synth(text, emotion, q.put, label=f"стадия {stage}", performance_mode=performance_mode)
         finally:
             await q.put(None)
 
@@ -1028,6 +1095,7 @@ async def stream_tts_to_device(
     stop=None,
     listen: float | None = None,
     reply_kind: str | None = "template",
+    performance_mode: str = "speech",
 ):
     """Единая точка входа озвучки (голос и все фоновые пути).
 
@@ -1061,6 +1129,8 @@ async def stream_tts_to_device(
     if stop is None:
         stop = lambda: tts_stop_requested(device_id)
 
+    mode_from_tag, text = strip_performance_mode(text)
+    mode = mode_from_tag if mode_from_tag != "speech" else (performance_mode or "speech")
     _, text = _extract_tone_tag(text)
 
     text = _clean_tts_text(text)
@@ -1073,10 +1143,17 @@ async def stream_tts_to_device(
     parts = [] if is_short_reply(text) else glue_first(_split_speech(text))
     sent = 0
     if len(parts) <= 1:
-        sent = await _synthesize_and_stream(text, websocket, device_id, emotion)
+        if mode != "speech":
+            sent = await _synthesize_and_stream(text, websocket, device_id, emotion, performance_mode=mode)
+        else:
+            sent = await _synthesize_and_stream(text, websocket, device_id, emotion)
     else:
-        sent = await _stream_two_stage(
-            parts[0], " ".join(parts[1:]), websocket, device_id, emotion, t0, stop)
+        if mode != "speech":
+            sent = await _stream_two_stage(
+                parts[0], " ".join(parts[1:]), websocket, device_id, emotion, t0, stop, performance_mode=mode)
+        else:
+            sent = await _stream_two_stage(
+                parts[0], " ".join(parts[1:]), websocket, device_id, emotion, t0, stop)
     if reply_kind:
         await send_spoken_reply(text, websocket, device_id, reply_kind)
     await _send_end(websocket, device_id, listen=listen)

@@ -112,6 +112,75 @@ def decode_binary_chunk(data: bytes):
     return data[4:], struct.unpack("<I", data[:4])[0]
 
 
+# ── Студийный Voice DSP (чистый numpy, <0.1 мс на чанк) ─────────────
+_HPF_KERNEL_24K = None
+
+
+def _get_hpf_kernel(sample_rate: int = 24000, cutoff: float = 80.0):
+    import numpy as np
+    # Окно Hamming для среза ~80 Гц (длительность ~12.5 мс = 301 сэмпл при 24 кГц)
+    window_len = int(round(sample_rate / cutoff))
+    if window_len % 2 == 0:
+        window_len += 1
+    w = np.hamming(window_len)
+    w /= np.sum(w)
+    return w.astype(np.float32)
+
+
+def apply_voice_dsp(pcm: bytes, sample_rate: int = 24000) -> bytes:
+    """Мягкий voice-chain:
+    1) High-Pass FIR (~80 Гц) — отсекает низкочастотный гул и взрывные согласные (< 0.1 мс)
+    2) RMS Leveling — мягкий подтяг тихого шёпота Сакуры, чтобы был разборчив поверх игр
+    3) tanh soft-clipper / limiter — плавное насыщение громких эмоций/вокала без клиппинга
+    """
+    global _HPF_KERNEL_24K
+    if not pcm or np is None:
+        return pcm
+    try:
+        if _HPF_KERNEL_24K is None or sample_rate != 24000:
+            _HPF_KERNEL_24K = _get_hpf_kernel(sample_rate, 80.0)
+
+        samples = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
+        if len(samples) < len(_HPF_KERNEL_24K):
+            return pcm
+
+        # 1. HPF 80 Hz FIR (samples - moving_average(samples))
+        lp = np.convolve(samples, _HPF_KERNEL_24K, mode="same")
+        filtered = samples - lp
+
+        # 2. RMS Leveling
+        rms = np.sqrt(np.mean(filtered**2) + 1e-9)
+        target_rms = 0.12  # ~ -18 dBFS
+        makeup_gain = np.clip(target_rms / max(rms, 0.03), 0.95, 2.2)
+        boosted = filtered * makeup_gain
+
+        # 3. tanh soft-clipper / limiter (плавное ограничение)
+        compressed = np.tanh(boosted * 1.05) / 1.05
+        return np.clip(np.round(compressed * 32767.0), -32768, 32767).astype(np.int16).tobytes()
+    except Exception as e:
+        log.debug(f"[voice] DSP ошибка: {e}")
+        return pcm
+
+
+def _fade_out_pcm(pcm_bytes: bytearray, samples_count: int, channels: int = 1) -> bytes:
+    """Применяет плавный линейный fade-out на samples_count сэмплов для устранения щелчков."""
+    if not pcm_bytes or np is None:
+        return b""
+    total_bytes = min(len(pcm_bytes), samples_count * channels * 2)
+    total_bytes = (total_bytes // (channels * 2)) * (channels * 2)
+    if total_bytes <= 0:
+        return b""
+    arr = np.frombuffer(pcm_bytes[:total_bytes], dtype=np.int16).astype(np.float32)
+    num_frames = total_bytes // (channels * 2)
+    ramp = np.linspace(1.0, 0.0, num_frames, dtype=np.float32)
+    if channels == 1:
+        arr = arr * ramp
+    else:
+        ramp_stereo = np.repeat(ramp, channels)
+        arr = arr * ramp_stereo
+    return np.clip(np.round(arr), -32768, 32767).astype(np.int16).tobytes()
+
+
 class Player:
     """
     Простой потоковый плеер без jitter buffer.
@@ -136,13 +205,15 @@ class Player:
         self._stream = None
         self._stream_lock = threading.Lock()
         self.last_feed_ts = 0.0   # time.monotonic() последнего feed/feed_binary
-        # Предзаполнение: старт звука, когда накоплено PLAYER_PREROLL_MS
+        # Предзаполнение: старт звука, когда накоплено PLAYER_PREROLL_MS (45 мс)
         # (или пришёл tts_end, или прошло _PREROLL_MAX_WAIT с первого чанка)
-        self._preroll_bytes = int(getattr(config, "PLAYER_PREROLL_MS", 0) * rate / 1000) * 2
+        self._preroll_bytes = int(getattr(config, "PLAYER_PREROLL_MS", 45) * rate / 1000) * 2
         self._cable_stream = None
         self._cable_lock = threading.Lock()
         self._cable_buf = bytearray()
         self._last_cable_retry = 0.0
+        self._current_device_id = None
+        self._resuming_from_underrun = False
         self._reset_response()
         self._open_stream()
         # Виртуальный кабель открывает сторожевой поток, а не конструктор:
@@ -153,6 +224,11 @@ class Player:
     def _open_stream(self):
         dev_id, name = find_output_device()
         with self._stream_lock:
+            if self._stream and getattr(self._stream, "active", False):
+                if getattr(self, "_current_device_id", "unset") == dev_id:
+                    # Устройство не менялось и поток активен — не переоткрываем, сохраняя активность BT-наушников
+                    return
+            self._current_device_id = dev_id
             if self._stream:
                 try:
                     self._stream.stop()
@@ -277,17 +353,39 @@ class Player:
         with self._lock:
             n = 0
             if not self._started and self._buf:
-                # Ждём предзаполнения (по умолчанию выключено)
+                # Ждём предзаполнения (PLAYER_PREROLL_MS = 45мс)
                 if (len(self._buf) >= self._preroll_bytes or self._ended
                         or time.monotonic() - self._first_chunk_ts >= _PREROLL_MAX_WAIT):
                     self._started = True
             if self._started:
                 n = min(need, len(self._buf))
                 if n:
-                    outdata[:n] = bytes(self._buf[:n])
+                    chunk = bytes(self._buf[:n])
                     del self._buf[:n]
+                    # Если была пауза/underrun и звук возобновляется — плавный micro fade-in (3-4 мс)
+                    if getattr(self, "_resuming_from_underrun", False) and n >= 96 and np is not None:
+                        try:
+                            fade_len = min(n // 2, 96)
+                            arr = np.frombuffer(chunk, dtype=np.int16).astype(np.float32)
+                            arr[:fade_len] *= np.linspace(0.0, 1.0, fade_len, dtype=np.float32)
+                            chunk = np.clip(np.round(arr), -32768, 32767).astype(np.int16).tobytes()
+                        except Exception:
+                            pass
+                        self._resuming_from_underrun = False
+                    outdata[:n] = chunk
                 if n < need and not self._ended:
-                    # Звук шёл, а данных не хватило — разрыв
+                    # Звук шёл, а данных не хватило — разрыв (underrun)
+                    # Применяем micro fade-out (3-4 мс) к хвосту outdata[:n] перед тишиной
+                    if n >= 96 and np is not None:
+                        try:
+                            fade_len = min(n // 2, 96)
+                            tail_arr = np.frombuffer(outdata[n - fade_len * 2:n], dtype=np.int16).astype(np.float32)
+                            tail_arr *= np.linspace(1.0, 0.0, fade_len, dtype=np.float32)
+                            outdata[n - fade_len * 2:n] = np.clip(np.round(tail_arr), -32768, 32767).astype(np.int16).tobytes()
+                        except Exception:
+                            pass
+                    self._resuming_from_underrun = True
+
                     if self._ur_cur == 0:
                         self._ur_count += 1
                     self._ur_cur += need - n
@@ -295,6 +393,7 @@ class Player:
                     self._ur_max = max(self._ur_max, self._ur_cur)
                 elif n == need:
                     self._ur_cur = 0
+                    self._resuming_from_underrun = False
                 if self._ended and not self._buf:
                     self._finish_response()
         if n < need:
@@ -308,6 +407,8 @@ class Player:
         rate = int(rate) if rate else self._rate
         if rate != self._rate:
             pcm = resample_pcm16(pcm, rate, self._rate)
+        # Применяем лёгкий студийный DSP voice-chain (HPF 80Hz + RMS leveling + soft limiter)
+        pcm = apply_voice_dsp(pcm, self._rate)
         with self._lock:
             if not self._format_logged:
                 self._format_logged = True
@@ -362,10 +463,21 @@ class Player:
                 self._finish_response()
 
     def interrupt(self):
-        """Баржинг — очищаем буфер."""
+        """Баржинг — плавный fade-out на 8–10 мс перед сбросом, чтобы убрать щелчки."""
         with self._lock:
+            fade_samples = int(self._rate * 0.010)
+            faded_main = _fade_out_pcm(self._buf, fade_samples, channels=1)
             self._buf.clear()
+            if faded_main:
+                self._buf.extend(faded_main)
+
+            fade_cable_samples = int(48000 * 0.010)
+            faded_cable = _fade_out_pcm(self._cable_buf, fade_cable_samples, channels=2)
             self._cable_buf.clear()
+            if faded_cable:
+                self._cable_buf.extend(faded_cable)
+
+            self._ended = True
             self._finish_response()
 
     def buffer_bytes(self) -> int:

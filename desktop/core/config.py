@@ -74,8 +74,8 @@ VOLUME_STEP = int(os.getenv("VOLUME_STEP", "10"))
 PREV_RESTART_THRESHOLD_S = float(os.getenv("PREV_RESTART_THRESHOLD_S", "3.0"))
 PREV_DOUBLE_GAP_MS = int(os.getenv("PREV_DOUBLE_GAP_MS", "250"))
 
-# Предзаполнение плеера, мс звука до старта (0 — выключено)
-PLAYER_PREROLL_MS = int(os.getenv("PLAYER_PREROLL_MS", "0"))
+# Предзаполнение плеера, мс звука до старта (45 мс — микро-джиттер буфер)
+PLAYER_PREROLL_MS = int(os.getenv("PLAYER_PREROLL_MS", "45"))
 
 # Yandex SpeechKit (TTS) — опционально
 YANDEX_API_KEY   = os.getenv("YANDEX_API_KEY", "")
@@ -134,6 +134,14 @@ VOSK_MODEL_PATH = _find_model("vosk-model-small-ru-0.22")
 WAKE_WORDS      = ("сакура", "сакуру", "сакуре", "сакурой", "сакур", "sakura")
 # Перебивание голосом («стоп» во время озвучки): BARGE_IN=0 в .env — выключить (U7).
 BARGE_IN        = os.getenv("BARGE_IN", "1").strip().lower() not in ("0", "false", "no", "off")
+# Режим наушников (Headphones Mode): короткий хвост _TTS_TAIL (0.1с) и естественный Barge-in по VAD
+HEADPHONES_MODE = os.getenv("HEADPHONES_MODE", "1").strip().lower() not in ("0", "false", "no", "off")
+# Порог VAD для естественного перебивания во время речи Сакуры (повышен от ложных срабатываний)
+VAD_BARGE_IN_THRESHOLD  = float(os.getenv("VAD_BARGE_IN_THRESHOLD", "0.65"))
+# Сколько кадров непрерывной речи (кадр 32мс) нужно для подтверждения barge-in (~250 мс)
+VAD_BARGE_IN_FRAMES     = int(os.getenv("VAD_BARGE_IN_FRAMES", "8"))
+# Длительность пре-ролл кольцевого буфера микрофона для подстановки в начало фразы, мс
+VAD_BARGE_IN_PREROLL_MS = int(os.getenv("VAD_BARGE_IN_PREROLL_MS", "400"))
 
 # ── Vosk STT (фолбэк, если GigaAM недоступен) ────────────────────────
 VOSK_STT_MODEL  = os.getenv("VOSK_STT_MODEL", "vosk-model-small-ru-0.22")
@@ -161,11 +169,11 @@ WAKE_BLOCK      = 1024   # блок цикла вейк-ворда: 64 мс зв
 MAX_UTTER_SEC   = float(os.getenv("MAX_UTTER_SEC", "12.0"))
 FOLLOWUP_SEC    = 4.0
 VAD_THRESHOLD   = 0.45     # Снижен — ловит тихую речь в тихой комнате
-VAD_END_SILENCE = 1.0      # Возврат к 1.0 — стабильнее для разговора
+VAD_END_SILENCE = float(os.getenv("VAD_END_SILENCE", "0.75"))      # Быстрый отклик разговора
 VAD_START_TIMEOUT = 2.0
 # Короткая фраза («сделай потише») — конец по укороченной тишине:
 # речь от начала VAD до последнего голосового кадра < VAD_SHORT_UTTER_SEC
-VAD_END_SILENCE_SHORT = float(os.getenv("VAD_END_SILENCE_SHORT", "0.7"))
+VAD_END_SILENCE_SHORT = float(os.getenv("VAD_END_SILENCE_SHORT", "0.55"))
 VAD_SHORT_UTTER_SEC   = float(os.getenv("VAD_SHORT_UTTER_SEC", "1.5"))
 
 # ── Распознавание речи (备用 — не используется, основное через Vosk) ───
@@ -193,6 +201,16 @@ MUSIC_FOLDERS = [p.strip() for p in os.getenv("MUSIC_FOLDERS", "").split(";") if
 VIDEO_FOLDERS = [p.strip() for p in os.getenv("VIDEO_FOLDERS", "").split(";") if p.strip()]
 CROSSFADE_S = float(os.getenv("CROSSFADE_S", "0"))          # плавный переход между треками, с
 PLAYER_DUCK_PCT = int(os.getenv("PLAYER_DUCK_PCT", "30"))   # громкость плееров, пока Сакура слушает/говорит
+# ── Внешний Windows Audio Ducking (pycaw) ───────────────────────────
+DUCK_MUSIC_FACTOR = float(os.getenv("DUCK_MUSIC_FACTOR", "0.30"))  # до 30% громкости музыки
+DUCK_GAME_FACTOR  = float(os.getenv("DUCK_GAME_FACTOR", "0.55"))   # до 55% громкости игры
+DUCK_ATTACK_MS    = int(os.getenv("DUCK_ATTACK_MS", "120"))
+DUCK_RELEASE_MS   = int(os.getenv("DUCK_RELEASE_MS", "450"))
+DUCK_EXCLUDE_PROCESSES = tuple(
+    p.strip().lower()
+    for p in os.getenv("DUCK_EXCLUDE_PROCESSES", "discord.exe,telegram.exe,slack.exe,zoom.exe,teams.exe").split(",")
+    if p.strip()
+)
 YOUTUBE_MODE = os.getenv("YOUTUBE_MODE", "embedded").strip().lower()  # embedded | remote
 YOUTUBE_PROXY = os.getenv("YOUTUBE_PROXY", "").strip()      # прокси только для плеера YouTube
 # Не задано — встроенная Яндекс.Музыка включается сама, как только есть YANDEX_MUSIC_TOKEN.

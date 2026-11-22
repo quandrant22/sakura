@@ -740,6 +740,9 @@ class Hearing(threading.Thread):
                 log.error(f"SpeechRecognizer не создался: {e}")
                 self.recognizer = None
 
+    def _tts_tail(self) -> float:
+        return 0.1 if getattr(config, "HEADPHONES_MODE", True) else _TTS_TAIL
+
     def _tts_active(self) -> bool:
         """Озвучка идёт: в буфере плеера есть звук ИЛИ агент в speaking (пауза между чанками)."""
         return self.agent.player.is_playing() or getattr(self.agent, "_state", "") == "speaking"
@@ -748,7 +751,7 @@ class Hearing(threading.Thread):
         """Глушить ли микрофон сейчас; продлевает хвост, пока озвучка идёт."""
         now = time.monotonic() if now is None else now
         if self._tts_active():
-            self._mute_until = now + _TTS_TAIL
+            self._mute_until = now + self._tts_tail()
             return True
         return now < self._mute_until
 
@@ -829,6 +832,13 @@ class Hearing(threading.Thread):
             return dropped
 
         log.info("Слух включён. Жду «Сакура…»")
+        import collections
+        preroll_bytes_limit = int(config.MIC_RATE * 2 * (getattr(config, "VAD_BARGE_IN_PREROLL_MS", 400) / 1000.0))
+        preroll_blocks = collections.deque()
+        preroll_cur_bytes = 0
+        consecutive_barge_frames = 0
+        barge_accum_frames = []
+
         try:
             with sd.RawInputStream(samplerate=config.MIC_RATE, channels=1,
                                    dtype="int16", blocksize=config.WAKE_BLOCK) as stream:
@@ -838,11 +848,64 @@ class Hearing(threading.Thread):
                     if self.tts_muted():
                         wake = _fresh_wake()
                         if self.mic_enabled and config.BARGE_IN and self._tts_active():
-                            # Только итог фразы (не partial) и с уверенностью по слову — U7.
+                            # 1. Стоп-слово ("стоп", "хватит", "замолчи", "тихо")
                             if stop_rec.AcceptWaveform(data) and VT.is_stop(stop_rec.Result()):
                                 stop_rec.Reset()
+                                preroll_blocks.clear()
+                                preroll_cur_bytes = 0
+                                consecutive_barge_frames = 0
+                                barge_accum_frames.clear()
                                 self._barge_in()
+                                continue
+
+                            # 2. Естественное перебивание по Silero VAD (в режиме наушников)
+                            if getattr(config, "HEADPHONES_MODE", True) and self.vad:
+                                preroll_blocks.append(data)
+                                preroll_cur_bytes += len(data)
+                                while preroll_cur_bytes > preroll_bytes_limit and preroll_blocks:
+                                    preroll_cur_bytes -= len(preroll_blocks.popleft())
+
+                                frame_len = SileroVAD.FRAME * 2
+                                for offset in range(0, len(data), frame_len):
+                                    frame = data[offset:offset + frame_len]
+                                    if len(frame) == frame_len:
+                                        prob = self.vad.speech_prob(frame)
+                                        if prob >= getattr(config, "VAD_BARGE_IN_THRESHOLD", 0.65):
+                                            consecutive_barge_frames += 1
+                                            barge_accum_frames.append(frame)
+                                        else:
+                                            consecutive_barge_frames = max(0, consecutive_barge_frames - 1)
+                                            if consecutive_barge_frames == 0:
+                                                barge_accum_frames.clear()
+
+                                if consecutive_barge_frames >= getattr(config, "VAD_BARGE_IN_FRAMES", 8):
+                                    log.info("[hearing] Естественный Barge-in VAD! Обнаружена речь пользователя во время реплики Сакуры.")
+                                    self.agent.player.interrupt()
+                                    self._mute_until = 0.0
+                                    stop_rec.Reset()
+                                    consecutive_barge_frames = 0
+
+                                    initial_pcm = bytearray(b"".join(preroll_blocks))
+                                    preroll_blocks.clear()
+                                    preroll_cur_bytes = 0
+                                    barge_accum_frames.clear()
+
+                                    self._timeline_sequence += 1
+                                    timeline = {
+                                        "id": self._timeline_sequence,
+                                        "wake": time.monotonic(),
+                                        "barge_in": True,
+                                    }
+                                    log.info("[timeline] id=%s phase=natural_barge_in (пре-ролл %d байт)", timeline["id"], len(initial_pcm))
+                                    self._capture(stream, timeline=timeline, initial_pcm=initial_pcm)
+                                    _drain(stream)
+                                    wake = _fresh_wake()
                         continue
+                    else:
+                        consecutive_barge_frames = 0
+                        barge_accum_frames.clear()
+                        preroll_blocks.clear()
+                        preroll_cur_bytes = 0
                     stop_rec.Reset()
 
                     if not self.mic_enabled:
@@ -917,19 +980,21 @@ class Hearing(threading.Thread):
         except Exception:  # noqa: BLE001
             pass
 
-    def _capture(self, stream, timeline: dict | None = None):
+    def _capture(self, stream, timeline: dict | None = None, initial_pcm: bytes | bytearray | None = None):
         self.agent.set_state("listening")
         self.vad.reset()
-        pcm       = bytearray()
-        speaking  = False
+        pcm       = bytearray(initial_pcm) if initial_pcm else bytearray()
+        speaking  = bool(initial_pcm)
         silence   = 0.0
-        speech_t0 = speech_t1 = 0.0   # начало VAD и последний голосовой кадр
-        start     = time.monotonic()
+        now_ts    = time.monotonic()
+        speech_t0 = now_ts if speaking else 0.0   # начало VAD и последний голосовой кадр
+        speech_t1 = now_ts if speaking else 0.0
+        start     = now_ts
         frame_dur = SileroVAD.FRAME / config.MIC_RATE
 
         while True:
             if self._tts_active():
-                self._mute_until = time.monotonic() + _TTS_TAIL
+                self._mute_until = time.monotonic() + self._tts_tail()
                 # Ответ уже звучит (агент в speaking) — его состояние не перебиваем.
                 if getattr(self.agent, "_state", "") != "speaking":
                     self.agent.set_state("idle")
@@ -1008,11 +1073,103 @@ class Hearing(threading.Thread):
             log.info(f"[bookmark] {content[:60]}")
             return
 
+        if self._maybe_scrap_mechanic_command(text):
+            return
         if self._maybe_game_mode(text):
             return
         self._update_dialog(text)
         self.agent.submit_user_text(text, timeline=timeline)
         return True
+
+    def _maybe_scrap_mechanic_command(self, text: str) -> bool:
+        low = text.lower()
+        # Проверяем, содержит ли фраза ключевые действия для Scrap Mechanic
+        has_sm_intent = any(k in low for k in (
+            "к вещам", "к рюкзаку", "к лифту", "отхиль", "восстанови хп", "похиль",
+            "бессмертие", "режим бога", "годмод", "убей ботов", "убей врагов",
+            "зачисти комнату", "где мои вещи", "где рюкзак", "где вещи",
+            "куда идти к лифту", "где лифт"
+        ))
+        if not has_sm_intent:
+            return False
+
+        from desktop.core.game_hud.telemetry.registry import get_telemetry_provider
+        prov = get_telemetry_provider("scrapmechanic.exe")
+        if not prov:
+            return False
+
+        # 1. Телепорт к рюкзаку / вещам
+        if any(k in low for k in ("телепортируй к вещам", "телепортируй к рюкзаку", "тп к вещам", "тп к рюкзаку", "телепорт к вещам", "телепорт к рюкзаку")):
+            prov.tp_to_bag()
+            self.agent.bus.emit("sakura_text", text="Телепортирую тебя прямо к твоим вещам!", kind="command")
+            self.agent.set_state("idle")
+            log.info("[scrap_mechanic] Голосовая команда: tp_to_bag")
+            return True
+
+        # 2. Телепорт к лифту
+        if any(k in low for k in ("телепортируй к лифту", "тп к лифту", "телепорт к лифту")):
+            prov.tp_to_elevator()
+            self.agent.bus.emit("sakura_text", text="Телепортирую к ближайшему лифту склада!", kind="command")
+            self.agent.set_state("idle")
+            log.info("[scrap_mechanic] Голосовая команда: tp_to_elevator")
+            return True
+
+        # 3. Отхиль меня / восстанови хп
+        if any(k in low for k in ("отхиль", "восстанови хп", "полечи", "вылечи", "похиль", "восстанови здоровье")):
+            prov.heal()
+            self.agent.bus.emit("sakura_text", text="Восстановила твоё здоровье и все показатели!", kind="command")
+            self.agent.set_state("idle")
+            log.info("[scrap_mechanic] Голосовая команда: heal")
+            return True
+
+        # 4. Включи / выключи бессмертие
+        if any(k in low for k in ("включи бессмертие", "включи режим бога", "включи годмод")):
+            prov.godmode(True)
+            self.agent.bus.emit("sakura_text", text="Бессмертие включено!", kind="command")
+            self.agent.set_state("idle")
+            log.info("[scrap_mechanic] Голосовая команда: godmode_on")
+            return True
+
+        if any(k in low for k in ("выключи бессмертие", "отключи бессмертие", "выключи режим бога", "отключи режим бога", "выключи годмод")):
+            prov.godmode(False)
+            self.agent.bus.emit("sakura_text", text="Бессмертие выключено!", kind="command")
+            self.agent.set_state("idle")
+            log.info("[scrap_mechanic] Голосовая команда: godmode_off")
+            return True
+
+        # 5. Убей ботов / зачисти комнату
+        if any(k in low for k in ("убей ботов", "убей врагов", "зачисти комнату", "зачисти ботов", "убей всех ботов")):
+            prov.kill_nearby_bots()
+            self.agent.bus.emit("sakura_text", text="Уничтожаю всех роботов поблизости!", kind="command")
+            self.agent.set_state("idle")
+            log.info("[scrap_mechanic] Голосовая команда: kill_nearby_bots")
+            return True
+
+        # 6. Навигация к вещам
+        if any(k in low for k in ("где мои вещи", "где мой рюкзак", "где вещи", "где рюкзак")):
+            st = prov.get_state()
+            if st and st.metrics.get("bag_nav"):
+                nav = st.metrics["bag_nav"]
+                self.agent.bus.emit("sakura_text", text=f"Твой рюкзак: {nav}.", kind="command")
+            else:
+                self.agent.bus.emit("sakura_text", text="Я пока не вижу твоих потерянных вещей в этом мире.", kind="command")
+            self.agent.set_state("idle")
+            log.info("[scrap_mechanic] Голосовой навигатор: bag")
+            return True
+
+        # 7. Навигация к лифту
+        if any(k in low for k in ("куда идти к лифту", "где лифт", "где выход", "куда к лифту", "где ближайший лифт")):
+            st = prov.get_state()
+            if st and st.metrics.get("elevator_nav"):
+                nav = st.metrics["elevator_nav"]
+                self.agent.bus.emit("sakura_text", text=f"Ближайший лифт склада: {nav}.", kind="command")
+            else:
+                self.agent.bus.emit("sakura_text", text="Лифтов на текущем этаже склада не найдено.", kind="command")
+            self.agent.set_state("idle")
+            log.info("[scrap_mechanic] Голосовой навигатор: elevator")
+            return True
+
+        return False
 
     def _maybe_game_mode(self, text: str) -> bool:
         import difflib
