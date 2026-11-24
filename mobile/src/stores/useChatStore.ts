@@ -60,25 +60,114 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
     });
 
-    sakuraClient.on<any>('reply', (payload) => {
-      if (payload?.text) {
-        set({ lastReply: String(payload.text) });
-        const hasHistoryMsg = get().messages.some(
-          (m) => m.role === 'assistant' && m.text === payload.text && Date.now() / 1000 - m.ts < 5
+    sakuraClient.on<any>('reply_chunk', (payload) => {
+      const delta = typeof payload?.text === 'string' ? payload.text : '';
+      if (!delta) return;
+      const turnId: string | null = payload?.turn_id ?? null;
+      const streamId = turnId ? `stream_${turnId}` : 'stream_live';
+
+      set((state) => {
+        const idx = state.messages.findIndex(
+          (m) =>
+            m.id === streamId ||
+            (m.role === 'assistant' && m.streaming && (!turnId || m.turn_id === turnId))
         );
-        if (!hasHistoryMsg) {
-          get().addMessage({
-            id: `reply_${Date.now()}`,
-            ts: Date.now() / 1000,
-            role: 'assistant',
-            text: String(payload.text),
-            kind: payload.kind,
-          });
+        const speakEnabled = usePhoneSettingsStore.getState().voiceRepliesEnabled;
+        if (idx >= 0) {
+          const prev = state.messages[idx];
+          const updatedText = prev.text + delta;
+          const next = state.messages.map((m, i) =>
+            i === idx ? { ...m, text: updatedText, turn_id: turnId ?? m.turn_id, streaming: true } : m
+          );
+          return {
+            messages: next,
+            lastReply: updatedText,
+            sakuraState: speakEnabled ? state.sakuraState : 'thinking',
+          };
         }
-        if (!usePhoneSettingsStore.getState().voiceRepliesEnabled) {
-          set({ sakuraState: 'idle' });
+        const msg: Message = {
+          id: streamId,
+          ts: Date.now() / 1000,
+          role: 'assistant',
+          text: delta,
+          kind: 'ack',
+          turn_id: turnId,
+          streaming: true,
+        };
+        // Используем llm kind
+        msg.kind = undefined;
+        return {
+          messages: [...state.messages, msg],
+          lastReply: delta,
+          sakuraState: speakEnabled ? state.sakuraState : 'thinking',
+        };
+      });
+    });
+
+    sakuraClient.on<any>('reply', (payload) => {
+      if (!payload?.text) return;
+      const text = String(payload.text);
+      const turnId: string | null = payload.turn_id ?? null;
+      const kind = payload.kind;
+      const speakEnabled = usePhoneSettingsStore.getState().voiceRepliesEnabled;
+
+      set((state) => {
+        const streamIdx = state.messages.findIndex(
+          (m) =>
+            m.role === 'assistant' &&
+            ((turnId && (m.id === `stream_${turnId}` || m.id === `reply_${turnId}` || m.turn_id === turnId)) ||
+              m.streaming)
+        );
+
+        if (streamIdx >= 0) {
+          const updated = state.messages.map((m, i) =>
+            i === streamIdx
+              ? {
+                  ...m,
+                  id: turnId ? `reply_${turnId}` : m.id,
+                  text,
+                  kind: kind ?? m.kind,
+                  turn_id: turnId ?? m.turn_id,
+                  streaming: false,
+                }
+              : m
+          );
+          return {
+            messages: updated,
+            lastReply: text,
+            sakuraState: speakEnabled ? state.sakuraState : 'idle',
+          };
         }
-      }
+
+        const now = Date.now() / 1000;
+        const already = state.messages.some(
+          (m) =>
+            m.role === 'assistant' &&
+            ((turnId && m.turn_id === turnId && m.text === text) ||
+              (m.text === text && Math.abs(now - m.ts) < 15))
+        );
+        if (already) {
+          return {
+            lastReply: text,
+            sakuraState: speakEnabled ? state.sakuraState : 'idle',
+          };
+        }
+
+        const msg: Message = {
+          id: turnId ? `reply_${turnId}` : `reply_${Date.now()}`,
+          ts: payload.ts || now,
+          role: 'assistant',
+          text,
+          kind,
+          turn_id: turnId,
+          streaming: false,
+        };
+        return {
+          messages: [...state.messages, msg],
+          lastReply: text,
+          sakuraState: speakEnabled ? 'speaking' : 'idle',
+        };
+      });
     });
 
     sakuraClient.on<any>('tts_chunk', (payload) => {
@@ -90,6 +179,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     sakuraClient.on<any>('tts_end', () => {
       const s = usePhoneSettingsStore.getState();
+      set((state) =>
+        state.messages.some((m) => m.streaming)
+          ? { messages: state.messages.map((m) => (m.streaming ? { ...m, streaming: false } : m)) }
+          : state
+      );
       void ttsPlayer.finishTurn({
         enabled: s.voiceRepliesEnabled,
         speed: s.ttsSpeed,
@@ -202,27 +296,51 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const exists = state.messages.some((m) => m.id === message.id);
       if (exists) return state;
 
-      // Replace optimistic pending message if same user text just arrived from server
-      const filtered =
-        message.role === 'user'
-          ? state.messages.filter(
-              (m) => !(m.pending && m.role === 'user' && m.text === message.text)
-            )
-          : state.messages;
+      // Replace optimistic pending user message
+      if (message.role === 'user') {
+        const pendingIdx = state.messages.findIndex(
+          (m) => m.pending && m.role === 'user' && m.text === message.text
+        );
+        const nextMsgs =
+          pendingIdx >= 0
+            ? state.messages.map((m, i) => (i === pendingIdx ? { ...message, pending: false } : m))
+            : [...state.messages, message];
+        return { messages: nextMsgs };
+      }
 
-      const isAssist = message.role === 'assistant';
-      const speakEnabled = usePhoneSettingsStore.getState().voiceRepliesEnabled;
-      const nextState: SakuraState = isAssist
-        ? speakEnabled
-          ? 'speaking'
-          : 'idle'
-        : state.sakuraState;
+      // Replace temporary stream_*/reply_* assistant bubble instead of duplicating it!
+      if (message.role === 'assistant') {
+        const msgTurnId = message.turn_id;
+        const msgTs = message.ts || Date.now() / 1000;
+        const dupIdx = state.messages.findIndex((m) => {
+          if (m.role !== 'assistant') return false;
+          const isLocalTemp = m.id.startsWith('stream_') || m.id.startsWith('reply_') || Boolean(m.streaming);
+          if (msgTurnId && m.turn_id && m.turn_id === msgTurnId && isLocalTemp) {
+            return true;
+          }
+          if (isLocalTemp && (m.text === message.text || message.text.startsWith(m.text.slice(0, 24)))) {
+            return Math.abs(msgTs - m.ts) < 30;
+          }
+          return m.text === message.text && Math.abs(msgTs - m.ts) < 15;
+        });
 
-      return {
-        messages: [...filtered, message],
-        lastReply: isAssist ? message.text : state.lastReply,
-        sakuraState: nextState,
-      };
+        const nextMsgs =
+          dupIdx >= 0
+            ? state.messages.map((m, i) =>
+                i === dupIdx ? { ...message, streaming: false } : m
+              )
+            : [...state.messages, { ...message, streaming: false }];
+
+        return {
+          messages: nextMsgs,
+          lastReply: message.text,
+          sakuraState: usePhoneSettingsStore.getState().voiceRepliesEnabled
+            ? state.sakuraState
+            : 'idle',
+        };
+      }
+
+      return { messages: [...state.messages, message] };
     });
   },
 

@@ -59,7 +59,7 @@ function ActionLine({ m }: { m: Message }) {
 /** Удаление сообщения из истории: значок при наведении → «Удалить?» Да/Нет. */
 function DeleteControl({ m, onDelete }: { m: Message; onDelete?(id: string): void }) {
   const [ask, setAsk] = useState(false);
-  if (!onDelete || m.pending || m.id.startsWith("local-")) return null;
+  if (!onDelete || m.pending || m.streaming || m.id.startsWith("local-") || m.id.startsWith("stream-")) return null;
   return ask ? (
     <span className="ml-2 inline-flex items-center gap-1 text-warn">Удалить?
       <button type="button" onClick={() => { setAsk(false); onDelete(m.id); }} className="underline">Да</button>
@@ -109,7 +109,10 @@ function Bubble({ m, onDelete }: { m: Message; onDelete?(id: string): void }) {
         {m.kind === "voice_only" ? (
           <p className="flex items-center gap-1.5 italic text-ink-dim"><Volume2 size={14} /> {m.text}</p>
         ) : (
-          <p className="whitespace-pre-wrap break-words">{m.text}</p>
+          <p className="whitespace-pre-wrap break-words">
+            {m.text}
+            {m.streaming ? <span className="ml-0.5 inline-block animate-pulse text-accent">▍</span> : null}
+          </p>
         )}
         <div className="mt-1 text-right text-[11px] text-ink-dim">{label && `${label} · `}{timeHM(m.ts)}
           <DeleteControl m={m} onDelete={onDelete} /></div>
@@ -161,7 +164,7 @@ export function Chat({ onCollapse }: { onCollapse(): void }) {
   useEffect(() => {
     const el = listRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [chat.data.length]);
+  }, [chat.data.length, chat.data.at(-1)?.text]);
 
   const submit = (e?: FormEvent) => {
     e?.preventDefault();

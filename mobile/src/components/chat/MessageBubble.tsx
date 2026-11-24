@@ -93,6 +93,11 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
       <View style={styles.assistantBubble}>
         <View style={styles.assistantHeader}>
           <Text style={styles.authorTitle}>Sakura</Text>
+          {message.streaming && (
+            <View style={styles.chipAccent}>
+              <Text style={styles.chipAccentText}>печатает…</Text>
+            </View>
+          )}
           {message.kind === 'proactive' && (
             <View style={styles.chipAccent}>
               <Text style={styles.chipAccentText}>проактивно</Text>
@@ -105,7 +110,10 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
             <Text style={styles.voiceOnlyText}>{message.text}</Text>
           </View>
         ) : (
-          <Text style={styles.messageText}>{message.text}</Text>
+          <Text style={styles.messageText}>
+            {message.text}
+            {message.streaming ? ' ▍' : ''}
+          </Text>
         )}
         <View style={styles.metaRow}>
           {label ? <Text style={styles.metaText}>{label} ·</Text> : null}

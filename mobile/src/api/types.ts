@@ -26,7 +26,9 @@ export interface Message {
   device?: string;
   source?: 'mic' | 'ui' | 'e2e' | 'api' | 'server' | 'system';
   kind?: 'ack' | 'template' | 'error' | 'proactive' | 'command' | 'voice_only';
+  turn_id?: string | null;
   pending?: boolean;
+  streaming?: boolean;
   transcription?: string;
 }
 

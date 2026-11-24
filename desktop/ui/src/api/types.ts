@@ -12,6 +12,8 @@ export interface Message {
   device: string;
   /** только локально: сообщение отправлено и ждёт эха от сервера */
   pending?: boolean;
+  /** потоковый ввод ответа в реальном времени */
+  streaming?: boolean;
   /** Откуда сообщение: mic — голос, ui — окно чата, e2e — автоматическая проверка, api — другой клиент, server — ответ. */
   source?: "mic" | "ui" | "e2e" | "api" | "server" | "system";
   /** Вид реплики Сакуры: llm — ответ модели, ack/template — быстрый, error, proactive,
@@ -87,6 +89,7 @@ export type CoreEvent =
   | { type: "connection"; server: "online" | "offline"; proto: number | null }
   | { type: "state"; value: CoreState; level?: number }
   | { type: "transcript"; text: string; final: boolean }
+  | { type: "reply_chunk"; text: string; turn_id?: string | null }
   | { type: "chat_message"; message: Message }
   | { type: "devices"; devices: Device[] }
   | { type: "device_update"; device: Device }

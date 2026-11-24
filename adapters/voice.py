@@ -23,6 +23,7 @@ from typing import AsyncIterator, Optional
 
 from sakura_core import budget
 from sakura_core import llm as _llm
+from sakura_core import voice_turns
 from modules.tts_server import (
     MIN_FIRST_CHUNK,
     SINGLE_MAX_CHARS,
@@ -40,6 +41,73 @@ log = logging.getLogger("sakura.voice")
 _SENT_END = re.compile(r"(?<=[.!?…])\s+")
 _NL_WS = re.compile(r"\s*\n\s*")
 _EMOTION_LINE = re.compile(r"^EMOTION:\s*(.+?)\s*$", re.MULTILINE)
+_TONE_TAG_RE = re.compile(r"^\s*\[(?:ТОН|TONE)\s*:[^\]]*\]\s*", re.IGNORECASE)
+
+
+class _ReplyStreamer:
+    """Потоковая отправка текстовых дельт (reply_chunk) без служебных тегов."""
+
+    def __init__(self, websocket, device_id: str | None, gate: Optional[VoiceGate]) -> None:
+        self.ws = websocket
+        self.device_id = device_id or "laptop"
+        self.gate = gate
+        self._header_buf = ""
+        self._header_done = False
+        self._pending = ""
+        self._last_sent = 0.0
+        self._total_sent = 0
+        self._lock = asyncio.Lock()
+
+    def feed(self, tok: str) -> None:
+        if not tok:
+            return
+        if not self._header_done:
+            self._header_buf += tok
+            s = self._header_buf.lstrip()
+            if not s:
+                return
+            upper = s.upper()
+            if ("EMOTION".startswith(upper[:7]) or upper.startswith("EMOTION:")) and "\n" not in self._header_buf:
+                return
+            after_emotion = _EMOTION_LINE.sub("", self._header_buf).lstrip()
+            if not after_emotion:
+                # Всё ещё ждём заголовок или следующий токен после EMOTION:...\n
+                self._header_buf = after_emotion
+                return
+            if after_emotion.startswith("[") and "]" not in after_emotion and len(after_emotion) < 40:
+                self._header_buf = after_emotion
+                return
+            clean = _TONE_TAG_RE.sub("", after_emotion).lstrip()
+            self._header_done = True
+            self._header_buf = ""
+            if clean:
+                self._pending += clean
+            return
+        self._pending += tok
+
+    async def flush(self, *, force: bool = False) -> None:
+        if self.ws is None:
+            return
+        if self.gate is not None and not self.gate.opened:
+            return
+        async with self._lock:
+            if not self._header_done and force and self._header_buf:
+                clean = _EMOTION_LINE.sub("", self._header_buf)
+                clean = _TONE_TAG_RE.sub("", clean).lstrip()
+                self._header_done = True
+                self._header_buf = ""
+                if clean:
+                    self._pending += clean
+            if not self._pending:
+                return
+            now = time.monotonic()
+            if not force and len(self._pending) < 18 and (now - self._last_sent) < 0.05:
+                return
+            chunk = self._pending
+            self._pending = ""
+            self._last_sent = now
+            self._total_sent += len(chunk)
+            await voice_turns.send_reply_delta(self.ws, self.device_id, chunk)
 
 
 def fit_to_limit(parts: list[str], sentence: str, limit: int) -> str | None:
@@ -175,6 +243,8 @@ async def stream_llm_to_tts(
     max_chars = config.VOICE_MAX_CHARS
     changed = asyncio.Event()          # новая стадия или конец стрима
     stream_done = False
+    silent = voice_turns.is_silent()
+    text_streamer = _ReplyStreamer(websocket, device_id, gate)
 
     async def _produce(text: str, q: asyncio.Queue, stage: int) -> None:
         try:
@@ -195,6 +265,8 @@ async def stream_llm_to_tts(
             await q.put(None)
 
     def _new_stage(text: str) -> None:
+        if silent:
+            return
         q: asyncio.Queue = asyncio.Queue()
         queues.append(q)
         if len(queues) == 1:
@@ -236,6 +308,9 @@ async def stream_llm_to_tts(
         Ждёт шлюз: до вердикта «не команда» готовый звук копится в
         очередях стадий (в памяти)."""
         await _open_gate()
+        await text_streamer.flush(force=True)
+        if silent:
+            return
         i = 0
         while True:
             if i < len(queues):
@@ -277,7 +352,10 @@ async def stream_llm_to_tts(
             if first:
                 first = False
                 turn_timing.mark("first_token")
+            text_streamer.feed(tok)
+            await text_streamer.flush(force=False)
             yield tok
+        await text_streamer.flush(force=True)
 
     sender = asyncio.create_task(_sender())
     try:
@@ -351,14 +429,15 @@ async def stream_llm_to_tts(
                 # Вердикта ещё нет: команда → задача отменена здесь же,
                 # буфер выброшен, TTS не вызван.
                 await gate.wait_open()
-            first, _, rest = clean.partition(". ")
-            if rest.strip():
-                await _stream_two_stage(first.strip() + ".", rest.strip(), websocket,
-                                        device_id, emotion, t0, stop=stop)
-            elif websocket:
-                await _live_synthesize_preferred(
-                    clean, emotion, _make_audio_sender(websocket, device_id),
-                    synth=_live_synthesize)
+            if not silent:
+                first, _, rest = clean.partition(". ")
+                if rest.strip():
+                    await _stream_two_stage(first.strip() + ".", rest.strip(), websocket,
+                                            device_id, emotion, t0, stop=stop)
+                elif websocket:
+                    await _live_synthesize_preferred(
+                        clean, emotion, _make_audio_sender(websocket, device_id),
+                        synth=_live_synthesize)
             return clean, emotion
 
         stream_done = True

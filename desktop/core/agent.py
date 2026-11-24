@@ -308,6 +308,11 @@ class Agent:
         self.bus.emit("user_text", text=text, source=source)
         self._set_state("thinking")
 
+        # Перехват локальных команд для Scrap Mechanic (если игра запущена)
+        if hasattr(self, "hearing") and self.hearing and hasattr(self.hearing, "_maybe_scrap_mechanic_command"):
+            if self.hearing._maybe_scrap_mechanic_command(text):
+                return
+
         loop = getattr(self, "_loop", None)
         # Перехват любых просьб нарисовать что-либо на экране (Screen Ink) — без нравоучений и морали
         from desktop.core.ink import resolve_drawing_request
@@ -628,6 +633,12 @@ class Agent:
                         # kind (llm|ack|template|error|proactive), turn_id, ts — когда сервер их шлёт.
                         self.bus.emit("sakura_text", text=text, kind=data.get("kind"),
                                       turn_id=data.get("turn_id"), ts=data.get("ts"))
+
+                elif kind == "reply_chunk":
+                    chunk = data.get("text") or ""
+                    if chunk:
+                        self.bus.emit("sakura_text_delta", text=chunk,
+                                      turn_id=data.get("turn_id"))
 
                 elif kind == "mood_update":
                     params = data.get("params", {})

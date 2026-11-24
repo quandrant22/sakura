@@ -186,6 +186,9 @@ class CoreService:
         elif event == "sakura_text":
             self.chat.reply(data.get("text", ""), kind=data.get("kind"), turn_id=data.get("turn_id"),
                             ts=data.get("ts"))
+        elif event == "sakura_text_delta":
+            self._emit({"type": "reply_chunk", "text": data.get("text", ""),
+                        "turn_id": data.get("turn_id")})
         elif event == "command_result":
             self.chat.command(data.get("detail", ""), data.get("status", "failed"), data.get("action", ""))
         elif event == "tts_end":

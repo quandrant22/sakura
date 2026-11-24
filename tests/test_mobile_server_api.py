@@ -185,3 +185,40 @@ def test_proto_v2_lists_new_private_mobile_requests():
     for kind in ("remote_command", "widgets_data", "voice_audio"):
         assert proto_v2.is_v2(kind)
         assert proto_v2.is_private(kind)
+
+
+def test_reply_streamer_emits_deltas_and_strips_emotion():
+    from adapters.voice import VoiceGate, _ReplyStreamer
+
+    ws = _FakeWS()
+
+    async def run():
+        gate = VoiceGate()
+        streamer = _ReplyStreamer(ws, "phone", gate)
+        tok = voice_turns._current.set(
+            voice_turns.Turn(turn_id="t_stream", device_id="phone", ws=ws, speak=False)
+        )
+        try:
+            with patch("modules.ws_auth.is_master_device", return_value=True):
+                streamer.feed("EMOTION: радость\n")
+                streamer.feed("[ТОН: тепло] ")
+                streamer.feed("Привет, братик! ")
+                await streamer.flush(force=True)
+                # Пока шлюз закрыт — ничего не ушло
+                assert ws.sent == []
+
+                gate.open()
+                await streamer.flush(force=True)
+                assert len(ws.sent) == 1
+                assert ws.sent[0]["type"] == "reply_chunk"
+                assert ws.sent[0]["turn_id"] == "t_stream"
+                assert ws.sent[0]["text"] == "Привет, братик! "
+
+                streamer.feed("Как дела?")
+                await streamer.flush(force=True)
+                assert len(ws.sent) == 2
+                assert ws.sent[1]["text"] == "Как дела?"
+        finally:
+            voice_turns._current.reset(tok)
+
+    asyncio.run(run())

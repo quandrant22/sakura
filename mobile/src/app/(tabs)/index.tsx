@@ -183,7 +183,7 @@ export default function CoreHubScreen() {
                   <Text style={[styles.replyBadge, { color: accent }]}>Последний ответ</Text>
                   <Text style={styles.replyLink}>Открыть чат →</Text>
                 </View>
-                <Text style={styles.replyPreviewText} numberOfLines={3}>
+                <Text style={styles.replyPreviewText} numberOfLines={5}>
                   {lastReply}
                 </Text>
               </GlassCard>

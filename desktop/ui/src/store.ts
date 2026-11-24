@@ -235,10 +235,64 @@ export function createAppStore(client: CoreClient) {
         case "game_mode":
           set({ gameMode: Boolean((ev as { on: boolean }).on) });
           break;
+        case "reply_chunk": {
+          const rc = ev as { text?: string; turn_id?: string | null };
+          const delta = typeof rc.text === "string" ? rc.text : "";
+          if (!delta) break;
+          const turnId = rc.turn_id ?? null;
+          const streamId = turnId ? `stream-${turnId}` : "stream-cur";
+          const msgs = s.chat.data;
+          const idx = msgs.findIndex(
+            (x) => x.id === streamId || (x.role === "assistant" && x.streaming && (!turnId || x.turn_id === turnId)),
+          );
+          if (idx >= 0) {
+            const next = msgs.map((x, i) =>
+              i === idx ? { ...x, text: x.text + delta, turn_id: turnId ?? x.turn_id, streaming: true } : x,
+            );
+            set({ chat: { ...s.chat, data: next, status: s.chat.status === "idle" ? "ready" : s.chat.status } });
+            break;
+          }
+          const stub: Message = {
+            id: streamId,
+            ts: Date.now() / 1000,
+            role: "assistant",
+            text: delta,
+            channel: "voice",
+            device: "",
+            source: "server",
+            kind: "llm",
+            turn_id: turnId,
+            streaming: true,
+          };
+          set({
+            chat: {
+              ...s.chat,
+              data: insertInTurn(msgs, stub),
+              status: s.chat.status === "idle" ? "ready" : s.chat.status,
+            },
+          });
+          break;
+        }
         case "chat_message": {
           const m = (ev as { message: Message }).message;
           const msgs = s.chat.data;
           if (msgs.some((x) => x.id === m.id || isSameReply(x, m))) break;
+          // Заменяем потоковый черновик финальным сообщением из журнала или убираем дубль.
+          const streamIdx = m.role === "assistant"
+            ? msgs.findIndex(
+                (x) =>
+                  x.role === "assistant" &&
+                  Boolean(x.streaming) &&
+                  ((m.turn_id && x.turn_id === m.turn_id) ||
+                    m.text === x.text ||
+                    m.text.startsWith(x.text.slice(0, 20))),
+              )
+            : -1;
+          if (streamIdx >= 0) {
+            const next = msgs.map((x, i) => (i === streamIdx ? { ...m, streaming: false } : x));
+            set({ chat: { ...s.chat, data: next, status: s.chat.status === "idle" ? "ready" : s.chat.status } });
+            break;
+          }
           // Эхо своего сообщения от сервера заменяет локальный «ожидающий» пузырь.
           const pendingIdx = m.role === "user" ? msgs.findIndex((x) => x.pending && x.text === m.text) : -1;
           const next = pendingIdx >= 0 ? msgs.map((x, i) => (i === pendingIdx ? m : x)) : insertInTurn(msgs, m);

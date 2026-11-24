@@ -177,6 +177,24 @@ async def send_reply(websocket, device_id: str, text: str, kind: str = "llm") ->
     return True
 
 
+async def send_reply_delta(websocket, device_id: str, delta: str) -> bool:
+    """Потоковый кусочек текста ответа (type=reply_chunk) для живого вывода в UI."""
+    if not delta or websocket is None or is_cancelled():
+        return False
+    from modules.ws_auth import is_master_device
+    if not is_master_device(device_id):
+        return False
+    import json
+    try:
+        await websocket.send(json.dumps(tag({
+            "type": "reply_chunk", "device_id": device_id, "text": delta,
+        })))
+    except Exception as e:
+        log.debug(f"[turn] reply_chunk не отправлен: {type(e).__name__}: {e}")
+        return False
+    return True
+
+
 async def broadcast_reply(text: str, kind: str = "proactive") -> int:
     """reply всем подключённым master-устройствам (проактивные сообщения).
     Возвращает, скольким ушло."""
