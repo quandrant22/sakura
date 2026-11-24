@@ -1,0 +1,29 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.sakurawake'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.sakurawake"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_1_8
+    targetCompatibility JavaVersion.VERSION_1_8
+  }
+}
+
+repositories {
+  mavenCentral()
+}
+
+dependencies {
+  implementation 'com.alphacephei:vosk-android:0.3.47'
+  implementation 'net.java.dev.jna:jna:5.13.0@aar'
+}

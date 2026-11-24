@@ -12,6 +12,8 @@
       "icon": "./assets/expo.icon"
     },
     "android": {
+      "package": "ru.sakura.mobile",
+      "versionCode": 1,
       "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "android.permission.POST_NOTIFICATIONS",

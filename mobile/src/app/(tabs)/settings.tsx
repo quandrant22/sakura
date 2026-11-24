@@ -261,8 +261,8 @@ export default function SettingsScreen() {
             )}
 
             {renderToggle(
-              'Голосовой режим (Hands-Free)',
-              'Крупная сфера на весь экран при входе в Сакуру',
+              'Вейк-ворд «Сакура» (Hands-Free)',
+              'Оффлайн-распознавание слова «Сакура» с автозаписью команды в APK',
               settings.handsFreeMode,
               (v) => toggleSetting('handsFreeMode', v)
             )}

@@ -61,6 +61,7 @@ export interface MusicCollectionView {
 interface MusicState {
   account: YandexAccountInfo | null;
   queue: YandexTrack[];
+  originalQueue: YandexTrack[];
   currentIndex: number;
   currentTrack: YandexTrack | null;
   likedIds: Record<string, true>;
@@ -87,6 +88,7 @@ interface MusicState {
   cachedMap: Record<string, CachedTrackEntry>;
   cachingIds: Record<string, boolean>;
   batchProgress: { done: number; total: number } | null;
+  cancelBatchCache: () => void;
   isPlaying: boolean;
   isLoading: boolean;
   isWaveMode: boolean;
@@ -142,6 +144,7 @@ let activePlayer: AudioPlayer | null = null;
 let statusSub: { remove: () => void } | null = null;
 let lockScreenAttached = false;
 let notifPermAsked = false;
+let batchAbortFlag = false;
 let finishedTrackKey: string | null = null;
 
 function withLikedFlag(list: YandexTrack[], likedIds: Record<string, true>): YandexTrack[] {
@@ -151,6 +154,15 @@ function withLikedFlag(list: YandexTrack[], likedIds: Record<string, true>): Yan
 
 function patchTrackLiked(list: YandexTrack[], trackId: string, liked: boolean): YandexTrack[] {
   return list.map((t) => (t.id === trackId ? { ...t, liked } : t));
+}
+
+function shuffleTracks(list: YandexTrack[]): YandexTrack[] {
+  const out = [...list];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
 }
 
 async function ensureAudioSetup() {
@@ -307,6 +319,7 @@ export const useMusicStore = create<MusicState>((set, get) => {
   return {
     account: null,
     queue: [],
+    originalQueue: [],
     currentIndex: -1,
     currentTrack: null,
     likedIds: {},
@@ -377,14 +390,22 @@ export const useMusicStore = create<MusicState>((set, get) => {
       }
     },
 
+    cancelBatchCache: () => {
+      batchAbortFlag = true;
+      set({ batchProgress: null });
+    },
+
     cacheTrackList: async (list: YandexTrack[]) => {
       if (Platform.OS === 'web') return;
       const missing = list.filter((t) => !get().cachedMap[t.id]);
       if (missing.length === 0) return;
 
+      batchAbortFlag = false;
       set({ batchProgress: { done: 0, total: missing.length } });
       for (let i = 0; i < missing.length; i++) {
+        if (batchAbortFlag) break;
         await get().cacheTrack(missing[i]);
+        if (batchAbortFlag) break;
         set({ batchProgress: { done: i + 1, total: missing.length } });
       }
       set({ batchProgress: null });
@@ -666,19 +687,32 @@ export const useMusicStore = create<MusicState>((set, get) => {
     },
 
     playFromList: async (tracks: YandexTrack[], index: number, waveMode = false) => {
-      set({ queue: withLikedFlag(tracks, get().likedIds), isWaveMode: waveMode });
+      const hydrated = withLikedFlag(tracks, get().likedIds);
+      if (get().shuffleEnabled && !waveMode && hydrated.length > 1) {
+        const safeIdx = index >= 0 && index < hydrated.length ? index : 0;
+        const picked = hydrated[safeIdx];
+        const rest = hydrated.filter((_, i) => i !== safeIdx);
+        set({
+          originalQueue: hydrated,
+          queue: [picked, ...shuffleTracks(rest)],
+          isWaveMode: false,
+        });
+        await playAt(0);
+        return;
+      }
+      set({ originalQueue: hydrated, queue: hydrated, isWaveMode: waveMode });
       await playAt(index);
     },
 
     playShuffled: async (tracks: YandexTrack[]) => {
       if (tracks.length === 0) return;
       const hydrated = withLikedFlag(tracks, get().likedIds);
-      const shuffled = [...hydrated];
-      for (let i = shuffled.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-      }
-      set({ queue: shuffled, isWaveMode: false, shuffleEnabled: true });
+      set({
+        originalQueue: hydrated,
+        queue: shuffleTracks(hydrated),
+        isWaveMode: false,
+        shuffleEnabled: true,
+      });
       await playAt(0);
     },
 
@@ -711,7 +745,7 @@ export const useMusicStore = create<MusicState>((set, get) => {
     },
 
     nextTrack: async () => {
-      const { currentIndex, queue, currentTrack, isWaveMode, positionMs, shuffleEnabled, repeatMode, activeStationId } =
+      const { currentIndex, queue, currentTrack, isWaveMode, positionMs, repeatMode, activeStationId } =
         get();
       const token = usePhoneSettingsStore.getState().yandexToken.trim();
       if (isWaveMode && currentTrack && token) {
@@ -723,12 +757,6 @@ export const useMusicStore = create<MusicState>((set, get) => {
           Math.round(positionMs / 1000),
           activeStationId
         );
-      }
-      if (shuffleEnabled && !isWaveMode && queue.length > 1) {
-        let nextIdx = Math.floor(Math.random() * queue.length);
-        if (nextIdx === currentIndex) nextIdx = (nextIdx + 1) % queue.length;
-        await playAt(nextIdx);
-        return;
       }
       if (currentIndex + 1 < queue.length) {
         await playAt(currentIndex + 1);
@@ -766,7 +794,31 @@ export const useMusicStore = create<MusicState>((set, get) => {
     },
 
     toggleShuffle: () => {
-      set((s) => ({ shuffleEnabled: !s.shuffleEnabled }));
+      set((s) => {
+        const nextShuffle = !s.shuffleEnabled;
+        if (s.queue.length <= 1) {
+          return { shuffleEnabled: nextShuffle };
+        }
+        const cur = s.currentTrack || s.queue[s.currentIndex] || null;
+        if (nextShuffle) {
+          const base = s.originalQueue.length > 0 ? s.originalQueue : s.queue;
+          const rest = cur ? s.queue.filter((t) => t.id !== cur.id) : s.queue;
+          const shuffled = cur ? [cur, ...shuffleTracks(rest)] : shuffleTracks(rest);
+          return {
+            shuffleEnabled: true,
+            originalQueue: base,
+            queue: shuffled,
+            currentIndex: cur ? 0 : -1,
+          };
+        }
+        const restored = s.originalQueue.length > 0 ? s.originalQueue : s.queue;
+        const idx = cur ? Math.max(0, restored.findIndex((t) => t.id === cur.id)) : s.currentIndex;
+        return {
+          shuffleEnabled: false,
+          queue: restored,
+          currentIndex: idx,
+        };
+      });
     },
 
     cycleRepeat: () => {

@@ -6,6 +6,7 @@
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import {
+  Ear,
   KeyRound,
   Mic,
   Volume2,
@@ -21,6 +22,7 @@ import { GlassCard } from '../../components/ui/GlassCard';
 import { CORE_STATE_STYLE, SakuraColors } from '../../constants/colors';
 import { SakuraFonts } from '../../constants/fonts';
 import { useVoiceRecorder } from '../../hooks/useVoiceRecorder';
+import { useWakeControlStore } from '../../hooks/useWakeControlStore';
 import { useChatStore } from '../../stores/useChatStore';
 import { useConnectionStore } from '../../stores/useConnectionStore';
 import { useMusicStore } from '../../stores/useMusicStore';
@@ -40,6 +42,7 @@ export default function CoreHubScreen() {
   const settings = usePhoneSettingsStore();
   const { loadCache } = useMusicStore();
   const { isRecording, micError, startRecording, stopAndSend } = useVoiceRecorder();
+  const wakeStatus = useWakeControlStore((s) => s.wakeStatus);
 
   const accent = ACCENT_THEMES[settings.accentTheme].accent;
   const isConnected = linkState === 'connected';
@@ -71,6 +74,11 @@ export default function CoreHubScreen() {
     void settings.update({ voiceRepliesEnabled: !settings.voiceRepliesEnabled });
   };
 
+  const toggleWakeWord = () => {
+    haptic();
+    void settings.update({ handsFreeMode: !settings.handsFreeMode });
+  };
+
   const dotColor = isConnected
     ? linkInfo.secure
       ? SakuraColors.online
@@ -95,33 +103,69 @@ export default function CoreHubScreen() {
           </Text>
         </View>
 
-        <Pressable
-          style={({ pressed }) => [
-            styles.pillBtn,
-            !settings.voiceRepliesEnabled && {
-              borderColor: SakuraColors.lineStrong,
-              backgroundColor: SakuraColors.panel,
-            },
-            settings.voiceRepliesEnabled && {
-              borderColor: accent + '66',
-              backgroundColor: accent + '1C',
-            },
-            pressed && { opacity: 0.78 },
-          ]}
-          onPress={toggleVoiceMode}>
-          {settings.voiceRepliesEnabled ? (
-            <Volume2 size={14} color={accent} />
-          ) : (
-            <VolumeX size={14} color={SakuraColors.inkDim} />
-          )}
-          <Text
-            style={[
-              styles.pillBtnText,
-              { color: settings.voiceRepliesEnabled ? accent : SakuraColors.inkDim },
-            ]}>
-            {settings.voiceRepliesEnabled ? 'Голос' : 'Текст'}
-          </Text>
-        </Pressable>
+        <View style={{ flexDirection: 'row', gap: 6 }}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.pillBtn,
+              !settings.handsFreeMode
+                ? { borderColor: SakuraColors.lineStrong, backgroundColor: SakuraColors.panel }
+                : { borderColor: SakuraColors.cyan + '66', backgroundColor: 'rgba(92,225,255,0.16)' },
+              pressed && { opacity: 0.78 },
+            ]}
+            onPress={toggleWakeWord}>
+            <Ear
+              size={14}
+              color={
+                wakeStatus === 'listening'
+                  ? SakuraColors.online
+                  : settings.handsFreeMode
+                  ? SakuraColors.cyan
+                  : SakuraColors.inkDim
+              }
+            />
+            <Text
+              style={[
+                styles.pillBtnText,
+                {
+                  color: settings.handsFreeMode ? SakuraColors.cyan : SakuraColors.inkDim,
+                },
+              ]}>
+              {wakeStatus === 'listening'
+                ? 'Сакура'
+                : wakeStatus === 'unsupported'
+                ? 'Вейк APK'
+                : 'Вейк'}
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [
+              styles.pillBtn,
+              !settings.voiceRepliesEnabled && {
+                borderColor: SakuraColors.lineStrong,
+                backgroundColor: SakuraColors.panel,
+              },
+              settings.voiceRepliesEnabled && {
+                borderColor: accent + '66',
+                backgroundColor: accent + '1C',
+              },
+              pressed && { opacity: 0.78 },
+            ]}
+            onPress={toggleVoiceMode}>
+            {settings.voiceRepliesEnabled ? (
+              <Volume2 size={14} color={accent} />
+            ) : (
+              <VolumeX size={14} color={SakuraColors.inkDim} />
+            )}
+            <Text
+              style={[
+                styles.pillBtnText,
+                { color: settings.voiceRepliesEnabled ? accent : SakuraColors.inkDim },
+              ]}>
+              {settings.voiceRepliesEnabled ? 'Голос' : 'Текст'}
+            </Text>
+          </Pressable>
+        </View>
       </View>
 
       {/* Баннер статуса связи */}
@@ -172,7 +216,9 @@ export default function CoreHubScreen() {
               {micError
                 ? micError
                 : isConnected
-                ? status?.quote || status?.context || 'Готова к диалогу и командам'
+                ? wakeStatus === 'listening'
+                  ? 'Скажи «Сакура», чтобы задать вопрос…'
+                  : status?.quote || status?.context || 'Готова к диалогу и командам'
                 : needsPairing
                 ? 'Спарь телефон во вкладке Настройки'
                 : 'Подключаюсь к серверу Сакуры…'}

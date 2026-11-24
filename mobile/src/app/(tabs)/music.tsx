@@ -133,6 +133,7 @@ export default function MusicScreen() {
     cacheTrack,
     cacheTrackList,
     cacheAllLiked,
+    cancelBatchCache,
     purgeUnlikedCache,
     removeCached,
     clearCache,
@@ -657,6 +658,15 @@ export default function MusicScreen() {
                   <Text style={styles.batchText}>
                     Кэширую лайки: {batchProgress.done} / {batchProgress.total}…
                   </Text>
+                  <Pressable
+                    hitSlop={8}
+                    onPress={() => {
+                      haptic();
+                      cancelBatchCache();
+                    }}
+                    style={styles.stopBatchBtn}>
+                    <Text style={styles.stopBatchText}>Стоп</Text>
+                  </Pressable>
                 </View>
               ) : (
                 <>
@@ -1149,9 +1159,23 @@ const styles = StyleSheet.create({
     borderColor: SakuraColors.line,
   },
   batchText: {
+    flex: 1,
     fontSize: 12,
     fontWeight: '600',
     color: SakuraColors.ink,
+  },
+  stopBatchBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 82, 119, 0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 82, 119, 0.4)',
+  },
+  stopBatchText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: SakuraColors.error,
   },
   sectionSubHeader: {
     fontFamily: SakuraFonts.displayMedium,

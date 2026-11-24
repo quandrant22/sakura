@@ -38,6 +38,8 @@ yarn-error.*
 
 example
 
-# generated native folders
+# generated native folders & local wake model binary assets
 /ios
 /android
+/modules/sakura-wake/android/src/main/assets/
+/*.apk

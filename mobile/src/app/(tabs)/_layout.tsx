@@ -15,6 +15,7 @@ import { Keyboard, Platform, Pressable, StyleSheet, Text, View } from 'react-nat
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MiniPlayer } from '../../components/music/MiniPlayer';
 import { SakuraColors } from '../../constants/colors';
+import { useWakeWordRunner } from '../../hooks/useWakeWord';
 import { ACCENT_THEMES, usePhoneSettingsStore } from '../../stores/usePhoneSettingsStore';
 
 const VISIBLE_TABS = new Set(['index', 'chat', 'widgets', 'music', 'settings']);
@@ -99,6 +100,8 @@ export default function TabLayout() {
   const accentId = usePhoneSettingsStore((s) => s.accentTheme);
   const loadSettings = usePhoneSettingsStore((s) => s.load);
   const accent = ACCENT_THEMES[accentId].accent;
+
+  useWakeWordRunner();
 
   useEffect(() => {
     void loadSettings();
