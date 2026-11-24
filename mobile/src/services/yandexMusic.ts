@@ -12,7 +12,9 @@ export interface YandexTrack {
   id: string;
   title: string;
   artist: string;
+  artistId?: string;
   album?: string;
+  albumId?: string;
   durationMs: number;
   coverUrl: string | null;
   liked?: boolean;
@@ -34,6 +36,30 @@ export interface YandexPlaylist {
   ownerUid: number;
 }
 
+export interface YandexAlbum {
+  id: string;
+  title: string;
+  artist: string;
+  year?: number;
+  trackCount: number;
+  coverUrl: string | null;
+}
+
+export interface YandexArtist {
+  id: string;
+  name: string;
+  coverUrl: string | null;
+}
+
+export interface YandexStation {
+  id: string;
+  name: string;
+  coverUrl: string | null;
+}
+
+export type WaveMood = 'all' | 'active' | 'fun' | 'calm' | 'sad';
+export type WaveDiversity = 'default' | 'favorite' | 'discover' | 'popular';
+
 function headers(token: string): Record<string, string> {
   return {
     Authorization: `OAuth ${token.trim()}`,
@@ -51,19 +77,45 @@ function formatCover(uri?: string | null, size = '400x400'): string | null {
 function mapTrack(raw: any, batchId?: string): YandexTrack | null {
   const t = raw?.track || raw;
   if (!t || !t.id) return null;
-  const artists = Array.isArray(t.artists)
-    ? t.artists.map((a: any) => a?.name).filter(Boolean).join(', ')
-    : '';
-  const coverUri = t.coverUri || t.albums?.[0]?.coverUri || t.ogImage;
+  const artistsArr = Array.isArray(t.artists) ? t.artists : [];
+  const artists = artistsArr.map((a: any) => a?.name).filter(Boolean).join(', ');
+  const firstAlbum = t.albums?.[0];
+  const coverUri = t.coverUri || firstAlbum?.coverUri || t.ogImage;
   return {
     id: String(t.id),
     title: String(t.title || 'Без названия'),
     artist: artists || 'Неизвестный исполнитель',
-    album: t.albums?.[0]?.title,
+    artistId: artistsArr[0]?.id ? String(artistsArr[0].id) : undefined,
+    album: firstAlbum?.title,
+    albumId: firstAlbum?.id ? String(firstAlbum.id) : undefined,
     durationMs: Number(t.durationMs || 0),
     coverUrl: formatCover(coverUri),
     liked: Boolean(raw?.liked ?? t.liked),
     batchId,
+  };
+}
+
+function mapAlbum(raw: any): YandexAlbum | null {
+  if (!raw || !raw.id) return null;
+  const artists = Array.isArray(raw.artists)
+    ? raw.artists.map((a: any) => a?.name).filter(Boolean).join(', ')
+    : '';
+  return {
+    id: String(raw.id),
+    title: String(raw.title || 'Альбом'),
+    artist: artists || 'Исполнитель',
+    year: typeof raw.year === 'number' ? raw.year : undefined,
+    trackCount: Number(raw.trackCount || 0),
+    coverUrl: formatCover(raw.coverUri || raw.ogImage),
+  };
+}
+
+function mapArtist(raw: any): YandexArtist | null {
+  if (!raw || !raw.id) return null;
+  return {
+    id: String(raw.id),
+    name: String(raw.name || 'Исполнитель'),
+    coverUrl: formatCover(raw.cover?.uri || raw.ogImage),
   };
 }
 
@@ -101,16 +153,65 @@ export async function checkYandexAccount(token: string): Promise<YandexAccountIn
   };
 }
 
-export async function getMyWaveTracks(token: string, queueId?: string): Promise<YandexTrack[]> {
+export async function getStationTracks(
+  token: string,
+  stationId = 'user:onyourwave',
+  queueId?: string
+): Promise<YandexTrack[]> {
   const q = queueId ? `?queue=${encodeURIComponent(queueId)}` : '';
-  const res = await fetch(`${API_BASE}/rotor/station/user:onyourwave/tracks${q}`, {
+  const res = await fetch(`${API_BASE}/rotor/station/${encodeURIComponent(stationId)}/tracks${q}`, {
     headers: headers(token),
   });
-  if (!res.ok) throw new Error(`Моя волна недоступна (${res.status})`);
+  if (!res.ok) throw new Error(`Волна недоступна (${res.status})`);
   const json = await res.json();
   const batchId = json?.result?.batchId;
   const seq = json?.result?.sequence || [];
   return seq.map((item: any) => mapTrack(item, batchId)).filter(Boolean) as YandexTrack[];
+}
+
+export async function getMyWaveTracks(token: string, queueId?: string): Promise<YandexTrack[]> {
+  return getStationTracks(token, 'user:onyourwave', queueId);
+}
+
+export async function setWaveSettings(
+  token: string,
+  moodEnergy: WaveMood,
+  diversity: WaveDiversity
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/rotor/station/user:onyourwave/settings2`, {
+    method: 'POST',
+    headers: {
+      ...headers(token),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ moodEnergy, diversity }),
+  });
+  if (!res.ok) throw new Error(`Не удалось обновить Мою волну (${res.status})`);
+}
+
+export async function getRotorStations(token: string): Promise<YandexStation[]> {
+  const res = await fetch(`${API_BASE}/rotor/stations/list`, { headers: headers(token) });
+  if (!res.ok) throw new Error(`Станции недоступны (${res.status})`);
+  const json = await res.json();
+  const list: any[] = Array.isArray(json?.result) ? json.result : [];
+  return list
+    .filter((x) => x?.station?.id?.type && x?.station?.id?.tag)
+    .slice(0, 30)
+    .map((x) => ({
+      id: `${x.station.id.type}:${x.station.id.tag}`,
+      name: String(x.station.name || x.station.id.tag),
+      coverUrl: formatCover(x.station.fullImageUrl || x.station.icon?.imageUrl || null),
+    }));
+}
+
+export async function getLikedTrackIds(token: string, uid: number): Promise<string[]> {
+  const likesRes = await fetch(`${API_BASE}/users/${uid}/likes/tracks`, {
+    headers: headers(token),
+  });
+  if (!likesRes.ok) throw new Error(`Не удалось загрузить лайки (${likesRes.status})`);
+  const likesJson = await likesRes.json();
+  const rawList: any[] = likesJson?.result?.library?.tracks || [];
+  return rawList.map((x) => String(x.id)).filter(Boolean);
 }
 
 export async function getLikedTracks(
@@ -130,11 +231,23 @@ export async function getLikedTracks(
 
   if (ids.length === 0) return [];
 
+  const firstBatchIds = ids.slice(0, 60);
+  const firstTracks = (await fetchTracksByIds(token, firstBatchIds)).map((t) => ({
+    ...t,
+    liked: true,
+  }));
+  const all: YandexTrack[] = [...firstTracks];
+  onProgress?.([...all], ids.length);
+
   const CHUNK = 250;
-  const all: YandexTrack[] = [];
-  for (let i = 0; i < ids.length; i += CHUNK) {
-    const chunk = await fetchTracksByIds(token, ids.slice(i, i + CHUNK));
-    for (const tr of chunk) {
+  for (let i = 60; i < ids.length; i += CHUNK * 2) {
+    const slice1 = ids.slice(i, i + CHUNK);
+    const slice2 = ids.slice(i + CHUNK, i + CHUNK * 2);
+    const [b1, b2] = await Promise.all([
+      fetchTracksByIds(token, slice1),
+      slice2.length > 0 ? fetchTracksByIds(token, slice2) : Promise.resolve([]),
+    ]);
+    for (const tr of [...b1, ...b2]) {
       all.push({ ...tr, liked: true });
     }
     onProgress?.([...all], ids.length);
@@ -229,6 +342,87 @@ export async function searchYandexTracks(token: string, query: string): Promise<
   return results.map((t) => mapTrack(t)).filter(Boolean) as YandexTrack[];
 }
 
+export async function searchYandexAll(
+  token: string,
+  query: string
+): Promise<{
+  tracks: YandexTrack[];
+  albums: YandexAlbum[];
+  artists: YandexArtist[];
+}> {
+  const q = query.trim();
+  if (!q) return { tracks: [], albums: [], artists: [] };
+  const url = `${API_BASE}/search?text=${encodeURIComponent(q)}&page=0&type=all`;
+  const res = await fetch(url, { headers: headers(token) });
+  if (!res.ok) throw new Error(`Ошибка поиска (${res.status})`);
+  const json = await res.json();
+  const r = json?.result || {};
+  return {
+    tracks: (r.tracks?.results || []).map((t: any) => mapTrack(t)).filter(Boolean) as YandexTrack[],
+    albums: (r.albums?.results || []).map((a: any) => mapAlbum(a)).filter(Boolean) as YandexAlbum[],
+    artists: (r.artists?.results || []).map((a: any) => mapArtist(a)).filter(Boolean) as YandexArtist[],
+  };
+}
+
+export async function getChartTracks(token: string): Promise<YandexTrack[]> {
+  const res = await fetch(`${API_BASE}/landing3/chart`, { headers: headers(token) });
+  if (!res.ok) throw new Error(`Чарт недоступен (${res.status})`);
+  const json = await res.json();
+  const list: any[] = json?.result?.chart?.tracks || [];
+  return list.map((item) => mapTrack(item)).filter(Boolean) as YandexTrack[];
+}
+
+export async function getAlbumTracks(
+  token: string,
+  albumId: string
+): Promise<{ album: YandexAlbum | null; tracks: YandexTrack[] }> {
+  const res = await fetch(`${API_BASE}/albums/${albumId}/with-tracks`, { headers: headers(token) });
+  if (!res.ok) throw new Error(`Альбом недоступен (${res.status})`);
+  const json = await res.json();
+  const raw = json?.result;
+  const album = mapAlbum(raw);
+  const volumes: any[][] = raw?.volumes || [];
+  const tracks: YandexTrack[] = [];
+  for (const vol of volumes) {
+    if (!Array.isArray(vol)) continue;
+    for (const item of vol) {
+      const mapped = mapTrack(item);
+      if (mapped) tracks.push(mapped);
+    }
+  }
+  return { album, tracks };
+}
+
+export async function getArtistTracks(token: string, artistId: string): Promise<YandexTrack[]> {
+  const res = await fetch(`${API_BASE}/artists/${artistId}/tracks?page=0&page-size=40`, {
+    headers: headers(token),
+  });
+  if (!res.ok) throw new Error(`Треки исполнителя недоступны (${res.status})`);
+  const json = await res.json();
+  const list: any[] = json?.result?.tracks || [];
+  return list.map((t) => mapTrack(t)).filter(Boolean) as YandexTrack[];
+}
+
+export async function getLikedArtists(token: string, uid: number): Promise<YandexArtist[]> {
+  const res = await fetch(`${API_BASE}/users/${uid}/likes/artists`, { headers: headers(token) });
+  if (!res.ok) return [];
+  const json = await res.json();
+  const list: any[] = Array.isArray(json?.result) ? json.result : [];
+  return list.map((a) => mapArtist(a)).filter(Boolean) as YandexArtist[];
+}
+
+export async function getTrackLyrics(token: string, trackId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${API_BASE}/tracks/${trackId}/supplement`, { headers: headers(token) });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const text = json?.result?.lyrics?.fullLyrics;
+    return typeof text === 'string' && text.trim() ? text.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getTrackStreamUrl(
   token: string,
   trackId: string,
@@ -302,14 +496,15 @@ export async function setTrackLike(
 
 export async function sendWaveFeedback(
   token: string,
-  type: 'trackStarted' | 'trackFinished' | 'skip',
+  type: 'trackStarted' | 'trackFinished' | 'skip' | 'dislike',
   trackId: string,
   batchId?: string,
-  totalPlayedSeconds = 0
+  totalPlayedSeconds = 0,
+  stationId = 'user:onyourwave'
 ): Promise<void> {
   try {
     const q = batchId ? `?batch-id=${encodeURIComponent(batchId)}` : '';
-    await fetch(`${API_BASE}/rotor/station/user:onyourwave/feedback${q}`, {
+    await fetch(`${API_BASE}/rotor/station/${encodeURIComponent(stationId)}/feedback${q}`, {
       method: 'POST',
       headers: {
         ...headers(token),

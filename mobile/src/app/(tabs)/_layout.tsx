@@ -37,9 +37,11 @@ function CustomTabBar({ state, descriptors, navigation, accent }: any) {
 
   if (keyboardOpen) return null;
 
+  const activeRouteName = state.routes[state.index]?.name;
+
   return (
     <View style={[styles.tabDock, { paddingBottom: Math.max(insets.bottom, 8) }]}>
-      <MiniPlayer />
+      {activeRouteName !== 'music' && <MiniPlayer />}
       <View style={styles.pillBar}>
         {state.routes.map((route: any, index: number) => {
           if (!VISIBLE_TABS.has(route.name)) return null;

@@ -353,10 +353,10 @@ export default function SettingsScreen() {
             )}
 
             {renderToggle(
-              'Автокэш прослушанных треков',
-              'Сохранять каждый сыгранный трек в локальную память без лимита объёма',
-              settings.autoCacheMusic,
-              (v) => toggleSetting('autoCacheMusic', v)
+              'Кэшировать только при лайке',
+              'Автозагрузка обычных треков отключена — сохраняются лишь отмеченные ❤',
+              settings.autoCacheLikedOnly,
+              (v) => toggleSetting('autoCacheLikedOnly', v)
             )}
 
             <View style={styles.toggleRow}>

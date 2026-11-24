@@ -13,6 +13,13 @@
     },
     "android": {
       "softwareKeyboardLayoutMode": "resize",
+      "permissions": [
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "android.permission.WAKE_LOCK",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -35,7 +42,13 @@
           "imageWidth": 76
         }
       ],
-      "expo-audio"
+      [
+        "expo-audio",
+        {
+          "enableBackgroundPlayback": true,
+          "enableBackgroundRecording": true
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

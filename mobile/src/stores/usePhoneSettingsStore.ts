@@ -44,7 +44,7 @@ export interface PhoneSettings {
   // Яндекс.Музыка
   yandexToken: string;
   yandexHighQuality: boolean;
-  autoCacheMusic: boolean;
+  autoCacheLikedOnly: boolean;
 
   // Внешний вид
   accentTheme: AccentThemeId;
@@ -67,7 +67,7 @@ export const DEFAULT_PHONE_SETTINGS: PhoneSettings = {
 
   yandexToken: DEFAULT_YANDEX_TOKEN,
   yandexHighQuality: true,
-  autoCacheMusic: true,
+  autoCacheLikedOnly: false,
 
   accentTheme: 'sakura',
   showQuickPrompts: true,
@@ -118,7 +118,7 @@ export const usePhoneSettingsStore = create<PhoneSettingsState>((set, get) => ({
       confirmPowerActions: cur.confirmPowerActions,
       yandexToken: cur.yandexToken,
       yandexHighQuality: cur.yandexHighQuality,
-      autoCacheMusic: cur.autoCacheMusic,
+      autoCacheLikedOnly: cur.autoCacheLikedOnly,
       accentTheme: cur.accentTheme,
       showQuickPrompts: cur.showQuickPrompts,
     };

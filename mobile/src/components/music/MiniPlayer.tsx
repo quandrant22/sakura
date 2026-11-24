@@ -21,6 +21,7 @@ export const MiniPlayer: React.FC = () => {
     togglePlayPause,
     nextTrack,
     toggleCurrentLike,
+    setFullPlayerOpen,
   } = useMusicStore();
   const accentId = usePhoneSettingsStore((s) => s.accentTheme);
   const accent = ACCENT_THEMES[accentId].accent;
@@ -38,7 +39,10 @@ export const MiniPlayer: React.FC = () => {
         { borderColor: accent + '38' },
         pressed && { opacity: 0.92 },
       ]}
-      onPress={() => router.push('/(tabs)/music' as any)}>
+      onPress={() => {
+        router.push('/(tabs)/music' as any);
+        setFullPlayerOpen(true);
+      }}>
       <View style={styles.row}>
         {currentTrack.coverUrl ? (
           <Image source={{ uri: currentTrack.coverUrl }} style={styles.cover} />
