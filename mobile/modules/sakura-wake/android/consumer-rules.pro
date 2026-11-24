@@ -1,0 +1,7 @@
+-dontwarn java.awt.**
+-dontwarn java.beans.**
+-keep class com.sun.jna.** { *; }
+-keepclassmembers class * extends com.sun.jna.Structure { <fields>; }
+-keep class * implements com.sun.jna.Callback { *; }
+-keep class org.vosk.** { *; }
+-keep class expo.modules.sakurawake.** { *; }
