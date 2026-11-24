@@ -123,6 +123,12 @@ export default function DevicesScreen() {
             {item.stats.ram !== null && item.stats.ram !== undefined && (
               <Text style={styles.statItem}>RAM {item.stats.ram}%</Text>
             )}
+            {item.stats.gpu !== null && item.stats.gpu !== undefined && (
+              <Text style={styles.statItem}>
+                GPU {item.stats.gpu}%
+                {item.stats.gpu_temp != null ? ` · ${Math.round(item.stats.gpu_temp)}°C` : ''}
+              </Text>
+            )}
           </View>
         )}
       </GlassCard>

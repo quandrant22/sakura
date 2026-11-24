@@ -36,6 +36,7 @@ log = logging.getLogger(__name__)
 
 QUOTES_FILE = Path(__file__).resolve().parent.parent / "data" / "quotes.json"
 STATS_KEYS = ("cpu", "ram", "gpu", "battery", "charging", "wifi", "signal")
+OPTIONAL_STATS_KEYS = ("gpu_temp", "vram", "gpu_name")
 # device_update по нагрузке — при скачке не меньше этого или раз в минуту.
 LOAD_STEP = 10
 PUSH_EVERY_S = 60.0
@@ -82,6 +83,10 @@ def _stats(system_info: dict | None) -> dict:
         if k == "charging" and v is None and "plugged" in si:
             v = si.get("plugged")
         out[k] = v
+    for k in OPTIONAL_STATS_KEYS:
+        v = si.get(k)
+        if v is not None:
+            out[k] = v
     if not any(v is not None for v in out.values()):
         return {}
     return out
@@ -160,6 +165,11 @@ def _significant(old: dict | None, new: dict) -> bool:
             return True
         if a is not None and b is not None and abs(float(a) - float(b)) >= LOAD_STEP:
             return True
+    ta, tb = os_.get("gpu_temp"), ns.get("gpu_temp")
+    if (ta is None) != (tb is None):
+        return True
+    if ta is not None and tb is not None and abs(float(ta) - float(tb)) >= 5:
+        return True
     return False
 
 

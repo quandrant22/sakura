@@ -34,6 +34,9 @@ export interface DeviceStats {
   cpu?: number | null;
   ram?: number | null;
   gpu?: number | null;
+  gpu_temp?: number | null;
+  vram?: number | null;
+  gpu_name?: string | null;
   battery?: number | null;
   charging?: boolean | null;
   wifi?: string | null;

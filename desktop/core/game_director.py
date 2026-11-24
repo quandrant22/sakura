@@ -166,7 +166,17 @@ class GameDirector:
         if self._detect is not None:
             return self._detect()
         from desktop.core.game_detect import foreground_game
-        return foreground_game(self._get("game_processes", []) or [], self._get("game_not_processes", []) or [])
+        gpu = None
+        try:
+            from desktop.core.gpu_stats import get_gpu_stats
+            gpu = get_gpu_stats().get("gpu")
+        except Exception:
+            pass
+        return foreground_game(
+            self._get("game_processes", []) or [],
+            self._get("game_not_processes", []) or [],
+            gpu=gpu,
+        )
 
     def set_manual_mode(self, on: bool):
         """Ручное включение/выключение режима компаньона (по кнопке или голосовой команде)."""

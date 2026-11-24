@@ -390,6 +390,32 @@ export default function WidgetsAndRemoteScreen() {
                   </View>
                   <Text style={styles.barVal}>{activePc.stats.ram ?? '—'}%</Text>
                 </View>
+                <View style={styles.barRow}>
+                  <Text style={styles.barLabel}>GPU</Text>
+                  <View style={styles.barBg}>
+                    <View
+                      style={[
+                        styles.barFill,
+                        {
+                          width: `${Math.min(100, activePc.stats.gpu ?? 0)}%`,
+                          backgroundColor: (activePc.stats.gpu ?? 0) >= 85 ? SakuraColors.warn : '#C084FC',
+                        },
+                      ]}
+                    />
+                  </View>
+                  <Text style={styles.barVal}>
+                    {activePc.stats.gpu !== null && activePc.stats.gpu !== undefined
+                      ? `${activePc.stats.gpu}%`
+                      : '—'}
+                  </Text>
+                </View>
+                {activePc.stats.gpu_temp != null || activePc.stats.vram != null ? (
+                  <Text style={styles.widgetMuted} numberOfLines={1}>
+                    {activePc.stats.gpu_temp != null ? `${Math.round(activePc.stats.gpu_temp)}°C` : ''}
+                    {activePc.stats.gpu_temp != null && activePc.stats.vram != null ? ' · ' : ''}
+                    {activePc.stats.vram != null ? `VRAM ${Math.round(activePc.stats.vram)}%` : ''}
+                  </Text>
+                ) : null}
               </View>
             ) : (
               <Text style={styles.widgetMuted}>ПК не в сети или данные не переданы</Text>

@@ -134,6 +134,25 @@ def test_proto_devices_exposes_active_and_track():
     assert d["track"]["artist"] == "Miku"
 
 
+def test_proto_devices_preserves_gpu_telemetry():
+    stats = proto_devices._stats({
+        "cpu": 25,
+        "ram": 48,
+        "gpu": 63,
+        "gpu_temp": 61.0,
+        "vram": 44.5,
+        "gpu_name": "NVIDIA GeForce RTX 4060",
+    })
+    assert stats["gpu"] == 63
+    assert stats["gpu_temp"] == 61.0
+    assert stats["vram"] == 44.5
+    assert stats["gpu_name"] == "NVIDIA GeForce RTX 4060"
+    assert proto_devices._significant(
+        {"stats": {"cpu": 25, "ram": 48, "gpu": 10}},
+        {"stats": {"cpu": 25, "ram": 48, "gpu": 63}},
+    ) is True
+
+
 def test_voice_audio_transcribes_and_starts_silent_turn():
     import sakura_core.chat_hooks
     import sakura_core.llm

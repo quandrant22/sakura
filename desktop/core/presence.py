@@ -285,14 +285,28 @@ def _collect_system_info() -> dict:
         except Exception:
             pass
 
+        # GPU (NVIDIA NVML / Windows PDH)
+        gpu_data = {}
+        try:
+            from desktop.core.gpu_stats import get_gpu_stats
+            gpu_data = get_gpu_stats()
+        except Exception:
+            gpu_data = {}
+
+        if gpu_data.get("gpu_temp") is not None:
+            gpu_temp = gpu_data["gpu_temp"]
+
         return {
-            "cpu":         cpu,
-            "ram":         ram,
-            "battery":     battery,
-            "plugged":     plugged,
-            "cpu_temp":    round(cpu_temp, 1) if cpu_temp else None,
-            "gpu_temp":    round(gpu_temp, 1) if gpu_temp else None,
-            "disk_free":   round(disk_free_gb, 1) if disk_free_gb is not None else None,
+            "cpu":          cpu,
+            "ram":          ram,
+            "gpu":          gpu_data.get("gpu"),
+            "vram":         gpu_data.get("vram"),
+            "gpu_name":     gpu_data.get("gpu_name"),
+            "battery":      battery,
+            "plugged":      plugged,
+            "cpu_temp":     round(cpu_temp, 1) if cpu_temp else None,
+            "gpu_temp":     round(gpu_temp, 1) if gpu_temp else None,
+            "disk_free":    round(disk_free_gb, 1) if disk_free_gb is not None else None,
         }
 
     except ImportError:

@@ -26,6 +26,11 @@ def get_system_info() -> dict:
         if batt is not None:
             info["battery"] = int(batt.percent)
             info["plugged"] = bool(batt.power_plugged)
+        from desktop.core.gpu_stats import get_gpu_stats
+        gpu_data = get_gpu_stats()
+        for key in ("gpu", "gpu_temp", "vram", "gpu_name"):
+            if gpu_data.get(key) is not None:
+                info[key] = gpu_data[key]
     except Exception:
         pass
     return info
