@@ -52,6 +52,7 @@ export class SakuraClient {
   private pushListeners = new Map<string, Set<PushListener>>();
   private linkListeners = new Set<LinkListener>();
   private serverKeyListeners = new Set<(newPubB64: string, newFp: string) => void>();
+  private deviceIdListeners = new Set<(deviceId: string) => void>();
   private linkInfo: LinkInfo = {
     state: 'disconnected',
     secure: false,
@@ -87,6 +88,11 @@ export class SakuraClient {
   public onServerKeyRotated(listener: (newPubB64: string, newFp: string) => void): () => void {
     this.serverKeyListeners.add(listener);
     return () => this.serverKeyListeners.delete(listener);
+  }
+
+  public onDeviceIdAssigned(listener: (deviceId: string) => void): () => void {
+    this.deviceIdListeners.add(listener);
+    return () => this.deviceIdListeners.delete(listener);
   }
 
   public on<T = any>(type: string, listener: (data: T) => void): () => void {
@@ -427,6 +433,15 @@ export class SakuraClient {
 
     if (msg.type === 'registered') {
       if (msg.proto >= 2) {
+        const assignedId = typeof msg.device_id === 'string' ? msg.device_id.trim() : '';
+        if (assignedId && assignedId !== this.config.deviceId) {
+          this.config.deviceId = assignedId;
+          for (const cb of this.deviceIdListeners) {
+            try {
+              cb(assignedId);
+            } catch {}
+          }
+        }
         const isNoise = Boolean(this.noiseWs);
         this.setLinkInfo({
           state: 'connected',

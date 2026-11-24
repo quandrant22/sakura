@@ -26,13 +26,17 @@ class DeviceRegistry:
         self._lock = threading.RLock()
         data = read_json(path, {"devices": []})
         self._devices: list[dict] = list(data.get("devices") or [])
+        self._revoked_pubs: dict[str, float] = dict(data.get("revoked_pubs") or {})
 
     @classmethod
     def open(cls, secure_dir: str, clock=time.time) -> DeviceRegistry:
         return cls(os.path.join(secure_dir, "devices.json"), clock)
 
     def _save(self) -> None:
-        write_json_600(self.path, {"devices": self._devices})
+        payload: dict = {"devices": self._devices}
+        if self._revoked_pubs:
+            payload["revoked_pubs"] = self._revoked_pubs
+        write_json_600(self.path, payload)
 
     def list(self) -> list[dict]:
         with self._lock:
@@ -53,7 +57,7 @@ class DeviceRegistry:
 
     def _free_id(self, hint: str) -> str:
         base = _ID_SAFE.sub("", (hint or "").lower())[:32] or "device"
-        taken = {d["id"] for d in self._devices}
+        taken = {d["id"] for d in self._devices if not d.get("revoked")}
         if base not in taken:
             return base
         i = 2
@@ -63,15 +67,33 @@ class DeviceRegistry:
 
     def add(self, pub: bytes, *, name: str, kind: str = "pc", id_hint: str = "") -> dict:
         """Новое устройство (после спаривания). Повтор того же ключа —
-        прежняя запись (снимается отзыв не делается: отозванный ключ не
-        возвращается спариванием — нужна новая пара ключей)."""
+        прежняя запись (снятие отзыва не делается: отозванный ключ не
+        возвращается спариванием — нужна новая пара ключей). После отзыва
+        сам id освобождается для нового ключа (без накопления phone2/phone3),
+        а прежний публичный ключ остаётся заблокированным в revoked_pubs."""
         with self._lock:
             key = b64(pub)
             for d in self._devices:
                 if d["pub"] == key:
                     return dict(d)
-            dev = {"id": self._free_id(id_hint or name), "name": (name or "устройство")[:40],
-                   "kind": kind if kind in ("pc", "phone", "tablet", "headphones", "other") else "other",
+            clean_name = (name or "устройство")[:40]
+            clean_kind = kind if kind in ("pc", "phone", "tablet", "headphones", "other") else "other"
+            if key in self._revoked_pubs:
+                ts = self._revoked_pubs[key]
+                return {"id": _ID_SAFE.sub("", (id_hint or name or "").lower())[:32] or "device",
+                        "name": clean_name, "kind": clean_kind,
+                        "pub": key, "fp": fingerprint(pub),
+                        "created": ts, "last_seen": None, "revoked": ts}
+            dev_id = self._free_id(id_hint or name)
+            kept = []
+            for d in self._devices:
+                if d["id"] == dev_id and d.get("revoked"):
+                    self._revoked_pubs[d["pub"]] = d["revoked"]
+                else:
+                    kept.append(d)
+            self._devices = kept
+            dev = {"id": dev_id, "name": clean_name,
+                   "kind": clean_kind,
                    "pub": key, "fp": fingerprint(pub), "created": self._clock(),
                    "last_seen": None, "revoked": None}
             self._devices.append(dev)

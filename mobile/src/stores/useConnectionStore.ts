@@ -68,6 +68,13 @@ export const useConnectionStore = create<ConnectionState>((set, get) => {
     ]);
   });
 
+  sakuraClient.onDeviceIdAssigned(async (assignedId) => {
+    if (assignedId && assignedId !== get().deviceId) {
+      set({ deviceId: assignedId });
+      await safeStorage.setItem(KEY_DEVICE_ID, assignedId);
+    }
+  });
+
   return {
     linkState: 'disconnected',
     linkInfo: sakuraClient.getLinkInfo(),
@@ -163,7 +170,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => {
         const res = await sakuraClient.pair({
           fallbackUrl: currentUrl,
           uriOrWords,
-          existingDevicePrivB64: get().devicePrivB64,
+          existingDevicePrivB64: get().linkState === 'connected' ? get().devicePrivB64 : null,
           deviceIdHint: 'phone',
           deviceName: deviceName || 'Телефон',
         });

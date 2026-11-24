@@ -349,6 +349,21 @@ def test_registry_ids_and_revoke(tmp_path):
     assert reg.add(generate_keypair()[1], name="", id_hint="")["id"] == "device"
 
 
+def test_registry_reuses_revoked_id_without_unrevoking_old_key(tmp_path):
+    reg = DeviceRegistry.open(str(tmp_path))
+    old_pub = generate_keypair()[1]
+    new_pub = generate_keypair()[1]
+    assert reg.add(old_pub, name="Телефон", id_hint="phone", kind="phone")["id"] == "phone"
+    assert reg.revoke("phone")
+    repaired = reg.add(new_pub, name="Телефон", id_hint="phone", kind="phone")
+    assert repaired["id"] == "phone" and not repaired["revoked"]
+    assert reg.by_pub(new_pub)["id"] == "phone"
+    assert reg.by_pub(old_pub) is None
+    assert reg.add(old_pub, name="Телефон", id_hint="phone")["revoked"]
+    assert [d["id"] for d in reg.list()].count("phone") == 1
+    assert DeviceRegistry.open(str(tmp_path)).add(old_pub, name="Телефон", id_hint="phone")["revoked"]
+
+
 def test_pairing_manager_rules():
     t = [0.0]
     pm = PairingManager(clock=lambda: t[0])
