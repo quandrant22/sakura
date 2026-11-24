@@ -4,7 +4,7 @@
  */
 
 import * as Haptics from 'expo-haptics';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import {
   KeyRound,
   MessageCircleHeart,
@@ -13,7 +13,7 @@ import {
   VolumeX,
   WifiOff,
 } from 'lucide-react-native';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   FlatList,
   Keyboard,
@@ -64,6 +64,14 @@ export default function ChatScreen() {
   useEffect(() => {
     bindEvents();
   }, [bindEvents]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (isConnected) {
+        void loadHistory();
+      }
+    }, [isConnected, loadHistory])
+  );
 
   const lastMsgText = messages[messages.length - 1]?.text;
 

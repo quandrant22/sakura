@@ -606,6 +606,18 @@ export class SakuraClient {
 
   // --- Convenience API Methods (Protocol v2) ---
 
+  public async sendChatMessage(
+    text: string,
+    clientMsgId: string,
+    speak = true
+  ): Promise<{ id?: string | null; client_msg_id?: string | null }> {
+    return this.call<{ id?: string | null; client_msg_id?: string | null }>('chat_send', {
+      text,
+      client_msg_id: clientMsgId,
+      speak,
+    });
+  }
+
   public async sendVoiceCommand(
     text: string,
     channel: 'text' | 'voice' = 'text',

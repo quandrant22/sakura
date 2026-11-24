@@ -17,11 +17,14 @@ import {
   checkYandexAccount,
   getLikedTracks,
   getMyWaveTracks,
+  getPlaylistTracks,
   getTrackStreamUrl,
+  getUserPlaylists,
   searchYandexTracks,
   sendWaveFeedback,
   setTrackLike,
   YandexAccountInfo,
+  YandexPlaylist,
   YandexTrack,
 } from '../services/yandexMusic';
 import { usePhoneSettingsStore } from './usePhoneSettingsStore';
@@ -32,6 +35,12 @@ interface MusicState {
   currentIndex: number;
   currentTrack: YandexTrack | null;
   likedTracks: YandexTrack[];
+  likedTotal: number;
+  playlists: YandexPlaylist[];
+  selectedPlaylist: YandexPlaylist | null;
+  playlistTracks: YandexTrack[];
+  loadingPlaylists: boolean;
+  loadingPlaylistTracks: boolean;
   searchResults: YandexTrack[];
   cachedMap: Record<string, CachedTrackEntry>;
   cachingIds: Record<string, boolean>;
@@ -45,12 +54,16 @@ interface MusicState {
 
   loadCache: () => Promise<void>;
   cacheTrack: (track: YandexTrack) => Promise<void>;
+  cacheTrackList: (tracks: YandexTrack[]) => Promise<void>;
   cacheAllLiked: () => Promise<void>;
   removeCached: (trackId: string) => Promise<void>;
   clearCache: () => Promise<void>;
   verifyAccount: (tokenOverride?: string) => Promise<YandexAccountInfo>;
   startMyWave: () => Promise<void>;
-  loadLiked: () => Promise<void>;
+  loadLiked: (force?: boolean) => Promise<void>;
+  loadPlaylists: (force?: boolean) => Promise<void>;
+  openPlaylist: (playlist: YandexPlaylist) => Promise<void>;
+  closePlaylist: () => void;
   search: (query: string) => Promise<void>;
   playFromList: (tracks: YandexTrack[], index: number, waveMode?: boolean) => Promise<void>;
   togglePlayPause: () => Promise<void>;
@@ -189,7 +202,11 @@ export const useMusicStore = create<MusicState>((set, get) => {
         getMyWaveTracks(token, track.id)
           .then((more) => {
             if (more.length > 0) {
-              set((s) => ({ queue: [...s.queue, ...more] }));
+              set((s) => {
+                const seen = new Set(s.queue.map((t) => t.id));
+                const fresh = more.filter((t) => !seen.has(t.id));
+                return fresh.length > 0 ? { queue: [...s.queue, ...fresh] } : s;
+              });
             }
           })
           .catch(() => {});
@@ -203,12 +220,29 @@ export const useMusicStore = create<MusicState>((set, get) => {
     }
   }
 
+  async function ensureAccount(): Promise<{ token: string; acc: YandexAccountInfo }> {
+    const token = usePhoneSettingsStore.getState().yandexToken.trim();
+    if (!token) throw new Error('Добавь YANDEX_MUSIC_TOKEN в Настройках');
+    let acc = get().account;
+    if (!acc) {
+      acc = await checkYandexAccount(token);
+      set({ account: acc });
+    }
+    return { token, acc };
+  }
+
   return {
     account: null,
     queue: [],
     currentIndex: -1,
     currentTrack: null,
     likedTracks: [],
+    likedTotal: 0,
+    playlists: [],
+    selectedPlaylist: null,
+    playlistTracks: [],
+    loadingPlaylists: false,
+    loadingPlaylistTracks: false,
     searchResults: [],
     cachedMap: {},
     cachingIds: {},
@@ -251,12 +285,8 @@ export const useMusicStore = create<MusicState>((set, get) => {
       }
     },
 
-    cacheAllLiked: async () => {
+    cacheTrackList: async (list: YandexTrack[]) => {
       if (Platform.OS === 'web') return;
-      if (get().likedTracks.length === 0) {
-        await get().loadLiked();
-      }
-      const list = get().likedTracks;
       const missing = list.filter((t) => !get().cachedMap[t.id]);
       if (missing.length === 0) return;
 
@@ -266,6 +296,14 @@ export const useMusicStore = create<MusicState>((set, get) => {
         set({ batchProgress: { done: i + 1, total: missing.length } });
       }
       set({ batchProgress: null });
+    },
+
+    cacheAllLiked: async () => {
+      if (Platform.OS === 'web') return;
+      if (get().likedTracks.length === 0) {
+        await get().loadLiked();
+      }
+      await get().cacheTrackList(get().likedTracks);
     },
 
     removeCached: async (trackId: string) => {
@@ -304,20 +342,52 @@ export const useMusicStore = create<MusicState>((set, get) => {
       }
     },
 
-    loadLiked: async () => {
-      const token = usePhoneSettingsStore.getState().yandexToken.trim();
+    loadLiked: async (force = false) => {
+      if (!force && get().likedTracks.length > 0) return;
       set({ isLoading: true, error: null });
       try {
-        let acc = get().account;
-        if (!acc) {
-          acc = await checkYandexAccount(token);
-          set({ account: acc });
-        }
-        const liked = await getLikedTracks(token, acc.uid);
-        set({ likedTracks: liked, isLoading: false });
+        const { token, acc } = await ensureAccount();
+        const liked = await getLikedTracks(token, acc.uid, (partial, totalCount) => {
+          set({ likedTracks: partial, likedTotal: totalCount, isLoading: false });
+        });
+        set({ likedTracks: liked, likedTotal: liked.length, isLoading: false });
       } catch (e: any) {
         set({ isLoading: false, error: e?.message || 'Ошибка загрузки медиатеки' });
       }
+    },
+
+    loadPlaylists: async (force = false) => {
+      if (!force && get().playlists.length > 0) return;
+      set({ loadingPlaylists: true, error: null });
+      try {
+        const { token, acc } = await ensureAccount();
+        const playlists = await getUserPlaylists(token, acc.uid);
+        set({ playlists, loadingPlaylists: false });
+      } catch (e: any) {
+        set({ loadingPlaylists: false, error: e?.message || 'Ошибка загрузки плейлистов' });
+      }
+    },
+
+    openPlaylist: async (playlist: YandexPlaylist) => {
+      set({ selectedPlaylist: playlist, playlistTracks: [], loadingPlaylistTracks: true, error: null });
+      try {
+        const { token, acc } = await ensureAccount();
+        const owner = playlist.ownerUid || acc.uid;
+        const tracks = await getPlaylistTracks(token, owner, playlist.kind, (partial) => {
+          if (get().selectedPlaylist?.kind === playlist.kind) {
+            set({ playlistTracks: partial });
+          }
+        });
+        if (get().selectedPlaylist?.kind === playlist.kind) {
+          set({ playlistTracks: tracks, loadingPlaylistTracks: false });
+        }
+      } catch (e: any) {
+        set({ loadingPlaylistTracks: false, error: e?.message || 'Ошибка открытия плейлиста' });
+      }
+    },
+
+    closePlaylist: () => {
+      set({ selectedPlaylist: null, playlistTracks: [], loadingPlaylistTracks: false });
     },
 
     search: async (query: string) => {
@@ -373,6 +443,19 @@ export const useMusicStore = create<MusicState>((set, get) => {
       if (currentIndex + 1 < queue.length) {
         await playAt(currentIndex + 1);
       } else if (isWaveMode) {
+        if (token && currentTrack) {
+          try {
+            const more = await getMyWaveTracks(token, currentTrack.id);
+            const seen = new Set(queue.map((t) => t.id));
+            const fresh = more.filter((t) => !seen.has(t.id));
+            if (fresh.length > 0) {
+              const startAt = queue.length;
+              set({ queue: [...queue, ...fresh] });
+              await playAt(startAt);
+              return;
+            }
+          } catch {}
+        }
         await get().startMyWave();
       }
     },

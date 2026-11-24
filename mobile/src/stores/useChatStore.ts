@@ -3,12 +3,38 @@
  * and TTS audio chunk playback.
  */
 
+import { AppState } from 'react-native';
 import { create } from 'zustand';
 import { sakuraClient } from '../api/client';
 import { Message, SakuraState, SakuraStatus } from '../api/types';
 import { ttsPlayer } from '../services/ttsPlayer';
 import { useMusicStore } from './useMusicStore';
 import { usePhoneSettingsStore } from './usePhoneSettingsStore';
+
+function mergeHistoryWithLocal(serverHistory: Message[], current: Message[]): Message[] {
+  const serverIds = new Set(serverHistory.map((m) => m.id));
+  const serverCmids = new Set(serverHistory.map((m) => m.client_msg_id).filter(Boolean));
+  const serverTurnIds = new Set(
+    serverHistory.filter((m) => m.role === 'assistant' && m.turn_id).map((m) => m.turn_id)
+  );
+  const nowSec = Date.now() / 1000;
+
+  const trailingLocal = current.filter((m) => {
+    if (serverIds.has(m.id)) return false;
+    if (m.client_msg_id && serverCmids.has(m.client_msg_id)) return false;
+    if (m.role === 'assistant' && m.turn_id && serverTurnIds.has(m.turn_id)) return false;
+    if (m.streaming) return true;
+    if (m.pending) {
+      const matched = serverHistory.some(
+        (s) => s.role === 'user' && s.text === m.text && Math.abs((s.ts || nowSec) - m.ts) < 90
+      );
+      return !matched;
+    }
+    return false;
+  });
+
+  return [...serverHistory, ...trailingLocal];
+}
 
 interface ChatState {
   messages: Message[];
@@ -217,21 +243,28 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
     });
 
+    AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active' && sakuraClient.getStatus() === 'connected') {
+        void get().loadHistory();
+      }
+    });
+
     set({ bound: true });
   },
 
   loadHistory: async () => {
+    if (sakuraClient.getStatus() !== 'connected') return;
     if (get().isLoadingHistory) return;
     set({ isLoadingHistory: true });
     try {
       const history = await sakuraClient.getHistory(50);
       const lastAssist = [...history].reverse().find((m) => m.role === 'assistant');
-      set({
-        messages: history,
-        lastReply: lastAssist?.text || get().lastReply,
+      set((state) => ({
+        messages: mergeHistoryWithLocal(history, state.messages),
+        lastReply: lastAssist?.text || state.lastReply,
         historyLoaded: true,
         isLoadingHistory: false,
-      });
+      }));
     } catch {
       set({ isLoadingHistory: false });
     }
@@ -243,14 +276,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const speak = usePhoneSettingsStore.getState().voiceRepliesEnabled;
     const effectiveChannel = speak ? channel : 'text';
+    const clientMsgId = `mob_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
     const tempUserMsg: Message = {
-      id: `local_${Date.now()}`,
+      id: `local_${clientMsgId}`,
       ts: Date.now() / 1000,
       role: 'user',
       text: trimmed,
       channel: effectiveChannel,
       device: 'phone',
+      client_msg_id: clientMsgId,
       pending: true,
     };
 
@@ -261,6 +296,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }));
 
     try {
+      if (effectiveChannel === 'text') {
+        try {
+          const ack = await sakuraClient.sendChatMessage(trimmed, clientMsgId, speak);
+          if (ack?.id) {
+            set((state) => ({
+              messages: state.messages.map((m) =>
+                m.client_msg_id === clientMsgId ? { ...m, id: String(ack.id), pending: false } : m
+              ),
+            }));
+          }
+          return;
+        } catch (err: any) {
+          if (err?.code && err.code !== 'unsupported' && err.code !== 'timeout') {
+            throw err;
+          }
+        }
+      }
       await sakuraClient.sendVoiceCommand(trimmed, effectiveChannel, speak);
     } catch (e) {
       console.warn('[useChatStore] Failed to send message:', e);
@@ -299,7 +351,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // Replace optimistic pending user message
       if (message.role === 'user') {
         const pendingIdx = state.messages.findIndex(
-          (m) => m.pending && m.role === 'user' && m.text === message.text
+          (m) =>
+            (message.client_msg_id && m.client_msg_id === message.client_msg_id) ||
+            (m.pending && m.role === 'user' && m.text === message.text)
         );
         const nextMsgs =
           pendingIdx >= 0

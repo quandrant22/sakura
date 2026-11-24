@@ -16,6 +16,8 @@ interface MessageBubbleProps {
 function sourceLabel(m: Message): string {
   if (m.role === 'system') return 'система';
   if (m.channel === 'telegram') return 'Telegram';
+  if (m.channel === 'proactive' || m.kind === 'proactive') return 'проактивно';
+  if (m.device && m.device !== 'phone' && m.device !== 'telegram') return m.device.toUpperCase();
   if (m.channel === 'voice' || m.source === 'mic') return 'микрофон';
   return '';
 }

@@ -26,6 +26,14 @@ export interface YandexAccountInfo {
   hasPlus: boolean;
 }
 
+export interface YandexPlaylist {
+  kind: number;
+  title: string;
+  trackCount: number;
+  coverUrl: string | null;
+  ownerUid: number;
+}
+
 function headers(token: string): Record<string, string> {
   return {
     Authorization: `OAuth ${token.trim()}`,
@@ -41,8 +49,8 @@ function formatCover(uri?: string | null, size = '400x400'): string | null {
 }
 
 function mapTrack(raw: any, batchId?: string): YandexTrack | null {
-  if (!raw || !raw.id) return null;
-  const t = raw.track || raw;
+  const t = raw?.track || raw;
+  if (!t || !t.id) return null;
   const artists = Array.isArray(t.artists)
     ? t.artists.map((a: any) => a?.name).filter(Boolean).join(', ')
     : '';
@@ -54,8 +62,26 @@ function mapTrack(raw: any, batchId?: string): YandexTrack | null {
     album: t.albums?.[0]?.title,
     durationMs: Number(t.durationMs || 0),
     coverUrl: formatCover(coverUri),
+    liked: Boolean(raw?.liked ?? t.liked),
     batchId,
   };
+}
+
+async function fetchTracksByIds(token: string, ids: string[]): Promise<YandexTrack[]> {
+  if (ids.length === 0) return [];
+  const body = new URLSearchParams({ 'track-ids': ids.join(',') }).toString();
+  const tracksRes = await fetch(`${API_BASE}/tracks`, {
+    method: 'POST',
+    headers: {
+      ...headers(token),
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body,
+  });
+  if (!tracksRes.ok) throw new Error(`Ошибка загрузки треков (${tracksRes.status})`);
+  const tracksJson = await tracksRes.json();
+  const list: any[] = tracksJson?.result || [];
+  return list.map((t) => mapTrack(t)).filter(Boolean) as YandexTrack[];
 }
 
 export async function checkYandexAccount(token: string): Promise<YandexAccountInfo> {
@@ -90,7 +116,7 @@ export async function getMyWaveTracks(token: string, queueId?: string): Promise<
 export async function getLikedTracks(
   token: string,
   uid: number,
-  limit = 40
+  onProgress?: (tracks: YandexTrack[], totalCount: number) => void
 ): Promise<YandexTrack[]> {
   const likesRes = await fetch(`${API_BASE}/users/${uid}/likes/tracks`, {
     headers: headers(token),
@@ -99,31 +125,97 @@ export async function getLikedTracks(
   const likesJson = await likesRes.json();
   const rawList: any[] = likesJson?.result?.library?.tracks || [];
   const ids = rawList
-    .slice(0, limit)
     .map((x) => (x.albumId ? `${x.id}:${x.albumId}` : String(x.id)))
     .filter(Boolean);
 
   if (ids.length === 0) return [];
 
-  const body = new URLSearchParams({ 'track-ids': ids.join(',') }).toString();
-  const tracksRes = await fetch(`${API_BASE}/tracks`, {
-    method: 'POST',
-    headers: {
-      ...headers(token),
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body,
+  const CHUNK = 250;
+  const all: YandexTrack[] = [];
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const chunk = await fetchTracksByIds(token, ids.slice(i, i + CHUNK));
+    for (const tr of chunk) {
+      all.push({ ...tr, liked: true });
+    }
+    onProgress?.([...all], ids.length);
+  }
+  return all;
+}
+
+export async function getUserPlaylists(token: string, uid: number): Promise<YandexPlaylist[]> {
+  const res = await fetch(`${API_BASE}/users/${uid}/playlists/list`, {
+    headers: headers(token),
   });
-  if (!tracksRes.ok) throw new Error(`Ошибка загрузки треков (${tracksRes.status})`);
-  const tracksJson = await tracksRes.json();
-  const list: any[] = tracksJson?.result || [];
-  return list
-    .map((t) => {
-      const mapped = mapTrack(t);
-      if (mapped) mapped.liked = true;
-      return mapped;
-    })
-    .filter(Boolean) as YandexTrack[];
+  if (!res.ok) throw new Error(`Не удалось загрузить плейлисты (${res.status})`);
+  const json = await res.json();
+  const rawList: any[] = Array.isArray(json?.result) ? json.result : [];
+  return rawList
+    .filter((pl) => pl && typeof pl.kind === 'number')
+    .map((pl) => {
+      const coverUri = pl.cover?.uri || pl.ogImage || pl.cover?.itemsUri?.[0] || null;
+      return {
+        kind: Number(pl.kind),
+        title: String(pl.title || 'Плейлист'),
+        trackCount: Number(pl.trackCount || 0),
+        coverUrl: formatCover(coverUri),
+        ownerUid: Number(pl.owner?.uid || uid),
+      };
+    });
+}
+
+export async function getPlaylistTracks(
+  token: string,
+  uid: number,
+  kind: number,
+  onProgress?: (tracks: YandexTrack[], totalCount: number) => void
+): Promise<YandexTrack[]> {
+  const res = await fetch(`${API_BASE}/users/${uid}/playlists/${kind}`, {
+    headers: headers(token),
+  });
+  if (!res.ok) throw new Error(`Не удалось открыть плейлист (${res.status})`);
+  const json = await res.json();
+  const items: any[] = json?.result?.tracks || [];
+  if (items.length === 0) return [];
+
+  const resolved: (YandexTrack | null)[] = items.map((item) =>
+    item?.track ? mapTrack(item) : null
+  );
+  const missingIndices: number[] = [];
+  const missingIds: string[] = [];
+  for (let i = 0; i < items.length; i++) {
+    if (!resolved[i] && items[i]?.id) {
+      missingIndices.push(i);
+      missingIds.push(
+        items[i].albumId ? `${items[i].id}:${items[i].albumId}` : String(items[i].id)
+      );
+    }
+  }
+
+  const readyNow = resolved.filter(Boolean) as YandexTrack[];
+  if (missingIds.length === 0) {
+    onProgress?.(readyNow, items.length);
+    return readyNow;
+  }
+  if (readyNow.length > 0) {
+    onProgress?.(readyNow, items.length);
+  }
+
+  const CHUNK = 250;
+  const byId = new Map<string, YandexTrack>();
+  for (let i = 0; i < missingIds.length; i += CHUNK) {
+    const chunk = await fetchTracksByIds(token, missingIds.slice(i, i + CHUNK));
+    for (const tr of chunk) {
+      byId.set(tr.id, tr);
+    }
+  }
+  for (let k = 0; k < missingIndices.length; k++) {
+    const idx = missingIndices[k];
+    const fetched = byId.get(String(items[idx].id));
+    if (fetched) resolved[idx] = fetched;
+  }
+  const finalOut = resolved.filter(Boolean) as YandexTrack[];
+  onProgress?.(finalOut, items.length);
+  return finalOut;
 }
 
 export async function searchYandexTracks(token: string, query: string): Promise<YandexTrack[]> {

@@ -3,7 +3,7 @@
  */
 
 import * as Haptics from 'expo-haptics';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import {
   Brain,
   CalendarDays,
@@ -63,7 +63,7 @@ export default function WidgetsAndRemoteScreen() {
   // Целевой ПК для пульта
   const pcs = devices.filter((d) => d.kind === 'pc');
   const [selectedTarget, setSelectedTarget] = useState<string>('pc');
-  const [remoteToast, setRemoteToast] = useState<string | null>(null);
+  const [remoteError, setRemoteError] = useState<string | null>(null);
 
   // Быстрая заметка в память
   const [noteText, setNoteText] = useState('');
@@ -81,6 +81,13 @@ export default function WidgetsAndRemoteScreen() {
       setWidgetsData(data);
     } catch {}
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void fetchDevices();
+      void loadWidgets();
+    }, [fetchDevices, loadWidgets])
+  );
 
   useEffect(() => {
     let active = true;
@@ -138,14 +145,13 @@ export default function WidgetsAndRemoteScreen() {
   const execRemote = async (action: string, label: string, isPower = false) => {
     const run = async () => {
       haptic(isPower);
-      setRemoteToast(`Отправка «${label}» на ${targetId}…`);
+      setRemoteError(null);
       try {
-        const res = await sakuraClient.sendRemoteCommand(targetId, action, '', true);
-        setRemoteToast(res?.detail || `${label} → отправлено на ${targetId}`);
+        await sakuraClient.sendRemoteCommand(targetId, action, '', true);
       } catch (e: any) {
-        setRemoteToast(`Ошибка: ${e?.message || 'не удалось выполнить'}`);
+        setRemoteError(e?.message || 'Не удалось выполнить команду');
+        setTimeout(() => setRemoteError(null), 3500);
       }
-      setTimeout(() => setRemoteToast(null), 3500);
     };
 
     if (isPower && settings.confirmPowerActions && Platform.OS !== 'web') {
@@ -165,8 +171,6 @@ export default function WidgetsAndRemoteScreen() {
     haptic();
     void sendMessage(`Запомни: ${t}`, 'text');
     setNoteText('');
-    setRemoteToast('Заметка отправлена в память Сакуры');
-    setTimeout(() => setRemoteToast(null), 3000);
   };
 
   const formatTimer = (sec: number) => {
@@ -197,10 +201,10 @@ export default function WidgetsAndRemoteScreen() {
           }>
         <View style={styles.pageHeader}>
           <Text style={styles.screenTitle}>Пульт и Виджеты</Text>
-          {remoteToast && (
-            <View style={[styles.toastChip, { borderColor: accent + '66' }]}>
-              <Text style={[styles.toastText, { color: accent }]} numberOfLines={1}>
-                {remoteToast}
+          {remoteError && (
+            <View style={[styles.toastChip, { borderColor: SakuraColors.error + '88' }]}>
+              <Text style={[styles.toastText, { color: SakuraColors.error }]} numberOfLines={1}>
+                {remoteError}
               </Text>
             </View>
           )}

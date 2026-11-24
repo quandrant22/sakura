@@ -22,10 +22,12 @@ export interface Message {
   ts: number;
   role: Role;
   text: string;
-  channel?: Channel;
+  channel?: Channel | 'proactive';
   device?: string;
   source?: 'mic' | 'ui' | 'e2e' | 'api' | 'server' | 'system';
   kind?: 'ack' | 'template' | 'error' | 'proactive' | 'command' | 'voice_only';
+  client_msg_id?: string;
+  reply_to?: string;
   turn_id?: string | null;
   pending?: boolean;
   streaming?: boolean;

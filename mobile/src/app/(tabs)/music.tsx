@@ -4,11 +4,14 @@
 
 import * as Haptics from 'expo-haptics';
 import {
+  ArrowLeft,
   CheckCircle2,
+  ChevronRight,
   Disc3,
   Download,
   HardDrive,
   Heart,
+  ListMusic,
   Pause,
   Play,
   Radio,
@@ -26,6 +29,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -35,17 +39,23 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { GlassCard } from '../../components/ui/GlassCard';
 import { SakuraColors } from '../../constants/colors';
 import { SakuraFonts } from '../../constants/fonts';
-import { YandexTrack } from '../../services/yandexMusic';
+import { YandexPlaylist, YandexTrack } from '../../services/yandexMusic';
 import { useMusicStore } from '../../stores/useMusicStore';
 import { ACCENT_THEMES, usePhoneSettingsStore } from '../../stores/usePhoneSettingsStore';
 
-type MusicTab = 'wave' | 'liked' | 'search' | 'cache';
+type MusicTab = 'wave' | 'liked' | 'playlists' | 'search' | 'cache';
 
 export default function MusicScreen() {
   const {
     queue,
     currentTrack,
     likedTracks,
+    likedTotal,
+    playlists,
+    selectedPlaylist,
+    playlistTracks,
+    loadingPlaylists,
+    loadingPlaylistTracks,
     searchResults,
     cachedMap,
     cachingIds,
@@ -58,6 +68,9 @@ export default function MusicScreen() {
     loadCache,
     startMyWave,
     loadLiked,
+    loadPlaylists,
+    openPlaylist,
+    closePlaylist,
     search,
     playFromList,
     togglePlayPause,
@@ -65,6 +78,7 @@ export default function MusicScreen() {
     prevTrack,
     toggleCurrentLike,
     cacheTrack,
+    cacheTrackList,
     cacheAllLiked,
     removeCached,
     clearCache,
@@ -83,8 +97,10 @@ export default function MusicScreen() {
   useEffect(() => {
     if (tab === 'liked' && likedTracks.length === 0) {
       void loadLiked();
+    } else if (tab === 'playlists' && playlists.length === 0) {
+      void loadPlaylists();
     }
-  }, [tab, likedTracks.length, loadLiked]);
+  }, [tab, likedTracks.length, playlists.length, loadLiked, loadPlaylists]);
 
   const haptic = () => {
     if (!settings.hapticsEnabled) return;
@@ -103,6 +119,8 @@ export default function MusicScreen() {
       ? queue
       : tab === 'liked'
       ? likedTracks
+      : tab === 'playlists'
+      ? playlistTracks
       : tab === 'cache'
       ? cachedTracks
       : searchResults;
@@ -297,38 +315,53 @@ export default function MusicScreen() {
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-        {/* Сегментный переключатель разделов (4 вкладки) */}
-        <View style={styles.tabsRow}>
-          {[
-            { id: 'wave' as MusicTab, label: 'Волна' },
-            { id: 'liked' as MusicTab, label: 'Лайки' },
-            { id: 'search' as MusicTab, label: 'Поиск' },
-            {
-              id: 'cache' as MusicTab,
-              label: cachedTracks.length > 0 ? `Кэш (${cachedTracks.length})` : 'Кэш',
-            },
-          ].map((item) => {
-            const active = tab === item.id;
-            return (
-              <Pressable
-                key={item.id}
-                style={[
-                  styles.segmentBtn,
-                  active && { backgroundColor: accent + '24', borderColor: accent },
-                ]}
-                onPress={() => {
-                  haptic();
-                  setTab(item.id);
-                  if (item.id === 'wave' && queue.length === 0) {
-                    void startMyWave();
-                  }
-                }}>
-                <Text style={[styles.segmentText, active && { color: accent }]} numberOfLines={1}>
-                  {item.label}
-                </Text>
-              </Pressable>
-            );
-          })}
+        {/* Сегментный переключатель разделов (5 вкладок) */}
+        <View style={styles.tabsRowWrap}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.tabsRow}>
+            {[
+              { id: 'wave' as MusicTab, label: 'Волна' },
+              {
+                id: 'liked' as MusicTab,
+                label:
+                  likedTotal > 0 || likedTracks.length > 0
+                    ? `Лайки (${likedTotal || likedTracks.length})`
+                    : 'Лайки',
+              },
+              {
+                id: 'playlists' as MusicTab,
+                label: playlists.length > 0 ? `Плейлисты (${playlists.length})` : 'Плейлисты',
+              },
+              { id: 'search' as MusicTab, label: 'Поиск' },
+              {
+                id: 'cache' as MusicTab,
+                label: cachedTracks.length > 0 ? `Кэш (${cachedTracks.length})` : 'Кэш',
+              },
+            ].map((item) => {
+              const active = tab === item.id;
+              return (
+                <Pressable
+                  key={item.id}
+                  style={[
+                    styles.segmentBtn,
+                    active && { backgroundColor: accent + '24', borderColor: accent },
+                  ]}
+                  onPress={() => {
+                    haptic();
+                    setTab(item.id);
+                    if (item.id === 'wave' && queue.length === 0) {
+                      void startMyWave();
+                    }
+                  }}>
+                  <Text style={[styles.segmentText, active && { color: accent }]} numberOfLines={1}>
+                    {item.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
         </View>
 
         {tab === 'search' && (
@@ -349,65 +382,158 @@ export default function MusicScreen() {
           </View>
         )}
 
-        {/* Панель управления оффлайн-кэшем на вкладках Лайки / Кэш */}
-        {(tab === 'liked' || tab === 'cache') && Platform.OS !== 'web' && (
-          <View style={styles.cacheActionsRow}>
-            {batchProgress ? (
-              <View style={styles.batchBanner}>
-                <ActivityIndicator size="small" color={accent} />
-                <Text style={styles.batchText}>
-                  Кэширую лайки: {batchProgress.done} / {batchProgress.total}…
-                </Text>
-              </View>
-            ) : (
+        {/* Шапка выбранного плейлиста */}
+        {tab === 'playlists' && selectedPlaylist && (
+          <View style={styles.playlistHeaderBar}>
+            <Pressable
+              style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.7 }]}
+              onPress={() => {
+                haptic();
+                closePlaylist();
+              }}>
+              <ArrowLeft size={16} color={SakuraColors.ink} />
+            </Pressable>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.playlistHeaderTitle} numberOfLines={1}>
+                {selectedPlaylist.title}
+              </Text>
+              <Text style={styles.playlistHeaderSub}>
+                {playlistTracks.length || selectedPlaylist.trackCount} треков
+              </Text>
+            </View>
+            {playlistTracks.length > 0 && (
               <Pressable
-                style={({ pressed }) => [
-                  styles.cacheActionBtn,
-                  { borderColor: accent + '55', backgroundColor: accent + '14' },
-                  pressed && { opacity: 0.75 },
-                ]}
+                style={[styles.miniPillBtn, { borderColor: accent + '55', backgroundColor: accent + '1C' }]}
                 onPress={() => {
                   haptic();
-                  void cacheAllLiked();
+                  void playFromList(playlistTracks, 0, false);
                 }}>
-                <Download size={14} color={accent} />
-                <Text style={[styles.cacheActionText, { color: accent }]}>Скачать лайки в кэш</Text>
+                <Play size={13} color={accent} />
+                <Text style={[styles.miniPillText, { color: accent }]}>Играть</Text>
               </Pressable>
             )}
-
-            {tab === 'cache' && cachedTracks.length > 0 && !batchProgress && (
+            {Platform.OS !== 'web' && playlistTracks.length > 0 && !batchProgress && (
               <Pressable
-                style={({ pressed }) => [styles.clearCacheBtn, pressed && { opacity: 0.75 }]}
-                onPress={confirmClearCache}>
-                <Trash2 size={14} color={SakuraColors.error} />
-                <Text style={[styles.cacheActionText, { color: SakuraColors.error }]}>Очистить</Text>
+                style={[styles.miniPillBtn, { borderColor: SakuraColors.lineStrong }]}
+                onPress={() => {
+                  haptic();
+                  void cacheTrackList(playlistTracks);
+                }}>
+                <Download size={13} color={SakuraColors.ink} />
+                <Text style={[styles.miniPillText, { color: SakuraColors.ink }]}>Кэш</Text>
               </Pressable>
             )}
           </View>
         )}
 
-        <FlatList
-          data={listData}
-          keyExtractor={(item) => item.id}
-          renderItem={renderTrack}
-          keyboardShouldPersistTaps="handled"
-          contentContainerStyle={styles.listContent}
-          ListEmptyComponent={
-            <View style={styles.emptyBox}>
-              <Text style={styles.emptyText}>
-                {isLoading
-                  ? 'Загрузка треков…'
-                  : tab === 'wave'
-                  ? 'Нажми «Включить Мою волну» сверху'
-                  : tab === 'liked'
-                  ? 'Любимые треки появятся здесь'
-                  : tab === 'cache'
-                  ? 'Кэш пуст — слушай треки или нажми «Скачать лайки»'
-                  : 'Введи запрос и нажми Поиск'}
-              </Text>
+        {/* Панель управления оффлайн-кэшем на вкладках Лайки / Кэш (и прогресс плейлиста) */}
+        {(tab === 'liked' || tab === 'cache' || (tab === 'playlists' && batchProgress)) &&
+          Platform.OS !== 'web' && (
+            <View style={styles.cacheActionsRow}>
+              {batchProgress ? (
+                <View style={styles.batchBanner}>
+                  <ActivityIndicator size="small" color={accent} />
+                  <Text style={styles.batchText}>
+                    Кэширую треки: {batchProgress.done} / {batchProgress.total}…
+                  </Text>
+                </View>
+              ) : (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.cacheActionBtn,
+                    { borderColor: accent + '55', backgroundColor: accent + '14' },
+                    pressed && { opacity: 0.75 },
+                  ]}
+                  onPress={() => {
+                    haptic();
+                    void cacheAllLiked();
+                  }}>
+                  <Download size={14} color={accent} />
+                  <Text style={[styles.cacheActionText, { color: accent }]}>
+                    {likedTracks.length > 0
+                      ? `Скачать лайки (${likedTracks.length})`
+                      : 'Скачать лайки в кэш'}
+                  </Text>
+                </Pressable>
+              )}
+
+              {tab === 'cache' && cachedTracks.length > 0 && !batchProgress && (
+                <Pressable
+                  style={({ pressed }) => [styles.clearCacheBtn, pressed && { opacity: 0.75 }]}
+                  onPress={confirmClearCache}>
+                  <Trash2 size={14} color={SakuraColors.error} />
+                  <Text style={[styles.cacheActionText, { color: SakuraColors.error }]}>Очистить</Text>
+                </Pressable>
+              )}
             </View>
-          }
-        />
+          )}
+
+        {tab === 'playlists' && !selectedPlaylist ? (
+          <FlatList<YandexPlaylist>
+            data={playlists}
+            keyExtractor={(pl) => `${pl.ownerUid}_${pl.kind}`}
+            renderItem={({ item: pl }) => (
+              <Pressable
+                style={({ pressed }) => [styles.trackRow, pressed && { opacity: 0.82 }]}
+                onPress={() => {
+                  haptic();
+                  void openPlaylist(pl);
+                }}>
+                {pl.coverUrl ? (
+                  <Image source={{ uri: pl.coverUrl }} style={styles.trackCover} />
+                ) : (
+                  <View style={[styles.trackCover, styles.coverStub]}>
+                    <ListMusic size={20} color={accent} />
+                  </View>
+                )}
+                <View style={styles.trackMeta}>
+                  <Text style={styles.trackTitle} numberOfLines={1}>
+                    {pl.title}
+                  </Text>
+                  <Text style={styles.playlistCount}>{pl.trackCount} ТРЕКОВ</Text>
+                </View>
+                <ChevronRight size={18} color={SakuraColors.inkDim} />
+              </Pressable>
+            )}
+            contentContainerStyle={styles.listContent}
+            ListEmptyComponent={
+              <View style={styles.emptyBox}>
+                <Text style={styles.emptyText}>
+                  {loadingPlaylists ? 'Загрузка плейлистов…' : 'Плейлисты не найдены'}
+                </Text>
+              </View>
+            }
+          />
+        ) : (
+          <FlatList
+            data={listData}
+            keyExtractor={(item, idx) => `${item.id}_${idx}`}
+            renderItem={renderTrack}
+            initialNumToRender={18}
+            maxToRenderPerBatch={24}
+            windowSize={7}
+            removeClippedSubviews={Platform.OS === 'android'}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.listContent}
+            ListEmptyComponent={
+              <View style={styles.emptyBox}>
+                <Text style={styles.emptyText}>
+                  {isLoading || loadingPlaylistTracks
+                    ? 'Загрузка треков…'
+                    : tab === 'wave'
+                    ? 'Нажми «Включить Мою волну» сверху'
+                    : tab === 'liked'
+                    ? 'Любимые треки появятся здесь'
+                    : tab === 'playlists'
+                    ? 'В этом плейлисте пока нет треков'
+                    : tab === 'cache'
+                    ? 'Кэш пуст — слушай треки или нажми «Скачать лайки»'
+                    : 'Введи запрос и нажми Поиск'}
+                </Text>
+              </View>
+            }
+          />
+        )}
       </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -545,19 +671,21 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     paddingHorizontal: 4,
   },
-  tabsRow: {
-    flexDirection: 'row',
-    padding: 4,
+  tabsRowWrap: {
     borderRadius: 16,
     backgroundColor: 'rgba(18, 14, 28, 0.85)',
     borderWidth: 1,
     borderColor: SakuraColors.lineStrong,
+    overflow: 'hidden',
+  },
+  tabsRow: {
+    flexDirection: 'row',
+    padding: 4,
     gap: 4,
   },
   segmentBtn: {
-    flex: 1,
     paddingVertical: 8,
-    paddingHorizontal: 4,
+    paddingHorizontal: 12,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'transparent',
@@ -567,6 +695,55 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: SakuraColors.inkDim,
+  },
+  playlistHeaderBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRadius: 14,
+    backgroundColor: SakuraColors.panel,
+    borderWidth: 1,
+    borderColor: SakuraColors.lineStrong,
+  },
+  backBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: SakuraColors.panel2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  playlistHeaderTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: SakuraColors.ink,
+  },
+  playlistHeaderSub: {
+    fontFamily: SakuraFonts.displayMedium,
+    fontSize: 10,
+    color: SakuraColors.textMuted,
+  },
+  miniPillBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 10,
+    borderWidth: 1,
+    backgroundColor: SakuraColors.panel2,
+  },
+  miniPillText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  playlistCount: {
+    fontFamily: SakuraFonts.displayMedium,
+    fontSize: 10,
+    color: SakuraColors.textMuted,
+    letterSpacing: 0.4,
   },
   searchBox: {
     flexDirection: 'row',
