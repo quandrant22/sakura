@@ -132,6 +132,40 @@ def _chain_path(chain, contents) -> str:
     return "chat"
 
 
+async def transcribe_audio(audio_bytes: bytes, mime_type: str = "audio/mp4") -> str:
+    """Расшифровывает голосовую команду из аудио-байтов через мультимодальный Gemini."""
+    if not audio_bytes:
+        return ""
+    from google.genai import types as _t
+    prompt = (
+        "Точно расшифруй речь из аудио как одну команду или фразу без комментариев, "
+        "кавычек, тегов и пояснений. Если слышна только тишина или шум — верни пустую строку."
+    )
+    contents = [
+        _t.Content(
+            role="user",
+            parts=[
+                _t.Part.from_bytes(data=audio_bytes, mime_type=mime_type or "audio/mp4"),
+                _t.Part(text=prompt),
+            ],
+        )
+    ]
+    chain = tuple(m for m in config.VOICE_MODEL_CHAIN if "gemma" not in m.lower())
+    if not chain:
+        chain = tuple(m for m in config.MODEL_CHAIN if "gemma" not in m.lower()) or (config.FALLBACK_MODEL,)
+    raw = await generate(
+        contents,
+        model=chain[0],
+        max_tokens=200,
+        temperature=0.0,
+        timeout=15.0,
+        safety=False,
+        thinking=False,
+        chain=chain,
+    )
+    return (raw or "").strip().strip('"\'«»')
+
+
 def _chain_for_request(history_limit: int, save_history: bool):
     if not save_history:
         caller = inspect.stack()[2].function

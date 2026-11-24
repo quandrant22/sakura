@@ -528,6 +528,38 @@
   "app.launch": [
    "switch_to_app",
    "fortnite"
+  ],
+  "scrap_mechanic.tp_bag": [
+   "sm:tp_bag",
+   ""
+  ],
+  "scrap_mechanic.tp_elevator": [
+   "sm:tp_elevator",
+   ""
+  ],
+  "scrap_mechanic.heal": [
+   "sm:heal",
+   ""
+  ],
+  "scrap_mechanic.godmode_on": [
+   "sm:godmode_on",
+   ""
+  ],
+  "scrap_mechanic.godmode_off": [
+   "sm:godmode_off",
+   ""
+  ],
+  "scrap_mechanic.kill_bots": [
+   "sm:kill_bots",
+   ""
+  ],
+  "scrap_mechanic.where_bag": [
+   "sm:nav_bag",
+   ""
+  ],
+  "scrap_mechanic.where_elevator": [
+   "sm:nav_elevator",
+   ""
   ]
  }
 }

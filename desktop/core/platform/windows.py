@@ -434,6 +434,29 @@ class WindowsPlatform(make_stub("windows")):
                     return p
         return None
 
+    def epic_manifest_dir(self) -> str | None:
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Epic Games\EpicGamesLauncher") as key:
+                return os.path.join(winreg.QueryValueEx(key, "AppDataPath")[0], "Manifests")
+        except Exception:
+            return None
+
+    def enable_dpi_awareness(self) -> bool:
+        if sys.platform != "win32":
+            return True
+        for setter in (
+            lambda: ctypes.windll.user32.SetProcessDpiAwarenessContext(-4),
+            lambda: ctypes.windll.shcore.SetProcessDpiAwareness(2),
+            lambda: ctypes.windll.user32.SetProcessDPIAware(),
+        ):
+            try:
+                setter()
+                return True
+            except Exception:
+                continue
+        return False
+
     def open_path(self, target: str) -> bool:
         try:
             os.startfile(target)  # программа по умолчанию для файла / URL

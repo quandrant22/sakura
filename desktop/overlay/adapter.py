@@ -52,8 +52,14 @@ def _import_legacy_overlay():
     agent_dir = os.path.join(repo, "agent")
     if agent_dir not in sys.path:
         sys.path.insert(0, agent_dir)
-    sys.modules.setdefault("config", desktop_config)
-    from ui.overlay import Overlay
+    prev_config = sys.modules.get("config")
+    if prev_config is None or not hasattr(prev_config, "OVERLAY_PANEL_ALPHA"):
+        sys.modules["config"] = desktop_config
+    try:
+        from ui.overlay import Overlay
+    finally:
+        if prev_config is not None and prev_config is not sys.modules.get("config") and "ui.overlay" not in sys.modules:
+            sys.modules["config"] = prev_config
     return Overlay
 
 

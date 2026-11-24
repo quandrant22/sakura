@@ -75,7 +75,8 @@ def test_lazy_imports_resolve():
         nodes = lazy_imports(tree)
         # These are separate applications, not importable VPS modules.
         # desktop/ — клиент на ПК (Windows-зависимости, свой CI desktop-ci), DECISIONS U1.
-        if relative.parts[0] in {"agent", "desktop"} or relative.parts[:2] == ("docs", "experimental"):
+        # site/tools — оффлайн-генераторы документации/графики с опциональными инструментами (fontTools).
+        if relative.parts[0] in {"agent", "desktop"} or relative.parts[:2] in {("docs", "experimental"), ("site", "tools")}:
             unavailable.extend(f"{relative}:{n.lineno}" for n in nodes)
             continue
         package = ".".join(relative.parts[:-1])

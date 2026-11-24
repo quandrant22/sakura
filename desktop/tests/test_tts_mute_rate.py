@@ -21,7 +21,8 @@ def test_muted_while_speaking_even_with_empty_buffer():
     assert h.tts_muted(now=100.0)
 
 
-def test_mute_tail_700ms_after_speech():
+def test_mute_tail_700ms_after_speech(monkeypatch):
+    monkeypatch.setattr(hearing_mod.config, "HEADPHONES_MODE", False)
     h = _hearing(state="speaking", playing=True)
     assert h.tts_muted(now=100.0)
     h.agent._state = "idle"

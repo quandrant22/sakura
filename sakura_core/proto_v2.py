@@ -38,14 +38,18 @@ V2_REQUESTS = frozenset({
     "memory_list", "memory_search", "memory_update", "memory_delete",
     "profile_get", "profile_set",
     "browser_step", "browser.resume",
+    "remote_command", "widgets_data", "voice_audio",
 })
 
 Handler = Callable[[object, dict, dict], Awaitable[dict | None]]
 
-# Приватные классы (чат, история, память, профиль, кадры browser agent):
+# Приватные классы (чат, история, память, профиль, кадры browser agent, телефон):
 # только secure-соединение (docs/security/PROTOCOL.md §5.1). Второй рубеж
 # после adapters/ws.
-PRIVATE_PREFIXES = ("chat_", "history_", "memory_", "profile_", "secure_", "browser")
+PRIVATE_PREFIXES = (
+    "chat_", "history_", "memory_", "profile_", "secure_", "browser",
+    "remote_", "widgets_", "voice_",
+)
 
 
 def is_private(kind: str | None) -> bool:
@@ -189,6 +193,7 @@ def _load_portions() -> None:
     from sakura_core import proto_memory  # noqa: F401
     from sakura_core import proto_profile  # noqa: F401
     from sakura_core import proto_scenarios  # noqa: F401
+    from sakura_core import proto_mobile  # noqa: F401
     from sakura_core import browser_step  # noqa: F401
 
 

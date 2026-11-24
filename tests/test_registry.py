@@ -64,8 +64,9 @@ def test_load_returns_131_declarations(registry):
     # этап 3 NLU: youtube.open («открой/включи ютуб») → 141.
     # feat/yandex-music-full: 24 действия встроенной Яндекс.Музыки → 165,
     # system.volume_up/down (общая громкость отдельно от музыки) → 167,
-    # app.launch («запусти игру …») → 168.
-    assert len(registry) == 168
+    # app.launch («запусти игру …») → 168,
+    # scrap_mechanic.* (8 команд телеметрии и навигации) → 176.
+    assert len(registry) == 176
 
 
 def test_validate_passes_on_real_registry(registry):

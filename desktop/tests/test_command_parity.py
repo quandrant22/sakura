@@ -32,7 +32,7 @@ EXPECTED_DOMAINS = {"browser": 10, "app": 3, "close_window": 1, "ext": 2, "game_
                     "music": 45, "system": 7, "open": 1, "screenshot": 1, "youtube": 13,
                     "kettle": 5, "files": 6, "window": 7, "power": 3, "process": 2, "clipboard": 3,
                     "display": 2, "audio": 1, "net": 2, "keys": 3, "ui": 4, "computer": 1,
-                    "companion": 8}
+                    "companion": 8, "scrap_mechanic": 8}
 
 
 class FakeWS:
@@ -107,6 +107,16 @@ def _patch_hands_side_effects(monkeypatch) -> list:
     monkeypatch.setattr(features, "get_call_mode_manager", lambda: SimpleNamespace(enable=lambda: calls.append(("features.call_mode_enable", ())), disable=lambda: calls.append(("features.call_mode_disable", ()))))
     monkeypatch.setattr(features, "get_watch_along_manager", lambda: SimpleNamespace(start=lambda a: calls.append(("features.watch_along_start", (a,))), stop=lambda: calls.append(("features.watch_along_stop", ()))))
     monkeypatch.setattr(features, "get_husk_manager", lambda: SimpleNamespace(stats=SimpleNamespace(format_progress=lambda: (calls.append(("features.husk_status", ())), "прогресс")[1])))
+    from desktop.core.game_hud.telemetry import registry as telemetry_registry
+    fake_sm = SimpleNamespace(
+        tp_to_bag=lambda: calls.append(("sm.tp_to_bag", ())),
+        tp_to_elevator=lambda: calls.append(("sm.tp_to_elevator", ())),
+        heal=lambda: calls.append(("sm.heal", ())),
+        godmode=lambda on: calls.append(("sm.godmode", (on,))),
+        kill_nearby_bots=lambda: calls.append(("sm.kill_nearby_bots", ())),
+        get_state=lambda: (calls.append(("sm.get_state", ())), SimpleNamespace(metrics={"bag_nav": "10м", "elevator_nav": "20м"}))[1],
+    )
+    monkeypatch.setattr(telemetry_registry, "get_telemetry_provider", lambda game: fake_sm)
     return calls
 
 
@@ -123,7 +133,7 @@ def _agent(calls):
 
 
 def test_registry_has_62_agent_actions_and_wire_for_each():
-    assert len(AGENT_CAPS) == 132
+    assert len(AGENT_CAPS) == 140
     assert dict(Counter(c["id"].split(".")[0] for c in AGENT_CAPS)) == EXPECTED_DOMAINS
     assert sorted(WIRE) == sorted(c["id"] for c in AGENT_CAPS)
 

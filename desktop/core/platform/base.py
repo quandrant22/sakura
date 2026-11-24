@@ -149,6 +149,14 @@ class Platform(ABC):
         """Папка установки Steam (для сканирования игр) или None."""
 
     @abstractmethod
+    def epic_manifest_dir(self) -> str | None:
+        """Папка манифестов Epic Games Launcher или None."""
+
+    @abstractmethod
+    def enable_dpi_awareness(self) -> bool:
+        """Включить Per-Monitor DPI awareness для процесса; False если недоступно."""
+
+    @abstractmethod
     def open_path(self, target: str) -> bool:
         """Открыть файл, ярлык, URL или программу средствами ОС."""
 
