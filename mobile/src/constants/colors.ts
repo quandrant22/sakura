@@ -1,60 +1,63 @@
 /**
- * Палитра «Сакура-ночь» (синхронизирована с desktop/docs/UI.md и desktop/ui/src/index.css).
+ * Палитра «Sakura Noir Luxe» (глубокий ночной обсидиан, стеклянные поверхности и неоновый шелк).
  */
 
 import { SakuraState } from '../api/types';
 
 export const SakuraColors = {
-  // Основные фоны («Сакура-ночь»)
-  bg: '#0a0610',
-  bgDeep: '#0a0610',
-  bar: '#0a0610',
-  panel: '#14101c',
-  panel2: '#1d1628',
-  bgCard: '#14101c',
-  bgCardHover: '#1d1628',
-  bgInput: '#1d1628',
+  // Основные фоны
+  bg: '#06040B',
+  bgDeep: '#040208',
+  bar: '#0B0814',
+  panel: 'rgba(20, 15, 32, 0.78)',
+  panelSolid: '#140F20',
+  panel2: 'rgba(30, 23, 46, 0.88)',
+  panel2Solid: '#1E172E',
+  bgCard: 'rgba(20, 15, 32, 0.78)',
+  bgCardHover: 'rgba(32, 24, 50, 0.9)',
+  bgInput: '#161124',
 
-  // Границы и разделители
-  line: 'rgba(255, 255, 255, 0.07)',
-  lineStrong: 'rgba(255, 255, 255, 0.12)',
-  borderSubtle: 'rgba(255, 255, 255, 0.07)',
-  borderAccent: 'rgba(255, 106, 227, 0.35)',
-  borderFocus: 'rgba(79, 216, 255, 0.45)',
+  // Границы и блики стекла
+  line: 'rgba(255, 255, 255, 0.08)',
+  lineStrong: 'rgba(255, 255, 255, 0.14)',
+  glassHighlight: 'rgba(255, 255, 255, 0.17)',
+  borderSubtle: 'rgba(255, 255, 255, 0.08)',
+  borderAccent: 'rgba(255, 106, 227, 0.42)',
+  borderFocus: 'rgba(79, 216, 255, 0.55)',
 
   // Акценты бренда
   accent: '#FF6AE3',
   accentDeep: '#3E0074',
   accentSoft: 'rgba(255, 106, 227, 0.16)',
-  accentBubble: 'rgba(255, 106, 227, 0.08)',
+  accentBubble: 'rgba(255, 106, 227, 0.09)',
   pink: '#FF6AE3',
-  pinkLight: '#FF7EB9',
+  pinkLight: '#FF8AC8',
   pinkMuted: 'rgba(255, 106, 227, 0.16)',
   pinkGlow: 'rgba(255, 106, 227, 0.35)',
 
-  // Состояния и вспомогательные цвета
-  cyan: '#4FD8FF',
-  cyanMuted: 'rgba(79, 216, 255, 0.14)',
-  purple: '#3E0074',
-  purpleMuted: 'rgba(62, 0, 116, 0.35)',
-  gold: '#FFCF6B',
+  // Состояния и дополнительные цвета
+  cyan: '#5CE1FF',
+  cyanMuted: 'rgba(92, 225, 255, 0.14)',
+  purple: '#4B1696',
+  purpleMuted: 'rgba(75, 22, 150, 0.38)',
+  gold: '#FFD373',
 
   // Статусы
-  online: '#3ddc97',
-  onlineSoft: 'rgba(61, 220, 151, 0.14)',
-  warn: '#ffb84d',
-  warnSoft: 'rgba(255, 184, 77, 0.14)',
-  connecting: '#FFCF6B',
-  error: '#ff5c7c',
-  errorSoft: 'rgba(255, 92, 124, 0.14)',
-  offline: '#6B6475',
+  online: '#3EE5A2',
+  onlineSoft: 'rgba(62, 229, 162, 0.14)',
+  warn: '#FFBD59',
+  warnSoft: 'rgba(255, 189, 89, 0.14)',
+  connecting: '#FFD373',
+  error: '#FF5C82',
+  errorSoft: 'rgba(255, 92, 130, 0.15)',
+  offline: '#706782',
 
   // Типографика
-  ink: '#f1e9f5',
-  inkDim: '#9b8fa8',
-  textPrimary: '#f1e9f5',
-  textSecondary: '#9b8fa8',
-  textMuted: '#6B6475',
+  ink: '#F8F4FF',
+  inkDim: '#A69BB8',
+  textPrimary: '#F8F4FF',
+  textSecondary: '#A69BB8',
+  textMuted: '#6D6380',
   textAccent: '#FF6AE3',
 } as const;
 
@@ -67,9 +70,9 @@ export interface CoreStateTheme {
 }
 
 export const CORE_STATE_STYLE: Record<SakuraState | 'offline', CoreStateTheme> = {
-  idle: { color: '#FF6AE3', deep: '#3E0074', glow: 'rgba(255,106,227,0.35)', kana: '待機中', label: 'Онлайн' },
-  listening: { color: '#4FD8FF', deep: '#1B2A8F', glow: 'rgba(79,216,255,0.45)', kana: '聴取中', label: 'Слушаю' },
-  thinking: { color: '#FFCF6B', deep: '#6B1F7A', glow: 'rgba(255,207,107,0.40)', kana: '思考中', label: 'Думаю' },
-  speaking: { color: '#FF7EB9', deep: '#5A0F8C', glow: 'rgba(255,126,185,0.50)', kana: '発話中', label: 'Говорю' },
-  offline: { color: '#6B6475', deep: '#1D1628', glow: 'rgba(107,100,117,0.20)', kana: '切断', label: 'Нет связи' },
+  idle: { color: '#FF6AE3', deep: '#3E0074', glow: 'rgba(255,106,227,0.38)', kana: '待機中', label: 'Онлайн' },
+  listening: { color: '#5CE1FF', deep: '#1A2D9C', glow: 'rgba(92,225,255,0.48)', kana: '聴取中', label: 'Слушаю' },
+  thinking: { color: '#FFD373', deep: '#742282', glow: 'rgba(255,211,115,0.42)', kana: '思考中', label: 'Думаю' },
+  speaking: { color: '#FF8AC8', deep: '#621299', glow: 'rgba(255,138,200,0.52)', kana: '発話中', label: 'Говорю' },
+  offline: { color: '#706782', deep: '#1D1628', glow: 'rgba(112,103,130,0.22)', kana: '切断', label: 'Нет связи' },
 };

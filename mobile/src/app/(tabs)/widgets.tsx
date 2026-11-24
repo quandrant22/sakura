@@ -27,6 +27,7 @@ import {
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
   RefreshControl,
@@ -185,11 +186,15 @@ export default function WidgetsAndRemoteScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl refreshing={devLoading} onRefresh={onRefreshAll} tintColor={accent} />
-        }>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl refreshing={devLoading} onRefresh={onRefreshAll} tintColor={accent} />
+          }>
         <View style={styles.pageHeader}>
           <Text style={styles.screenTitle}>Пульт и Виджеты</Text>
           {remoteToast && (
@@ -478,10 +483,13 @@ export default function WidgetsAndRemoteScreen() {
             <TextInput
               style={styles.noteInput}
               placeholder="Что запомнить Сакуре?…"
-              placeholderTextColor={SakuraColors.textMuted}
+              placeholderTextColor="rgba(248, 244, 255, 0.42)"
+              selectionColor={accent}
+              cursorColor={accent}
               value={noteText}
               onChangeText={setNoteText}
               onSubmitEditing={handleSaveQuickNote}
+              underlineColorAndroid="transparent"
             />
             <Pressable
               style={[styles.noteAddBtn, { backgroundColor: accent }]}
@@ -528,6 +536,7 @@ export default function WidgetsAndRemoteScreen() {
           )}
         </GlassCard>
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -535,7 +544,7 @@ export default function WidgetsAndRemoteScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: SakuraColors.bg,
+    backgroundColor: 'transparent',
   },
   scrollContent: {
     padding: 14,
@@ -777,14 +786,14 @@ const styles = StyleSheet.create({
   },
   noteInput: {
     flex: 1,
-    backgroundColor: SakuraColors.panel2,
-    color: SakuraColors.ink,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    fontSize: 13.5,
-    borderWidth: 1,
-    borderColor: SakuraColors.line,
+    backgroundColor: SakuraColors.bgInput,
+    color: '#FFFFFF',
+    borderRadius: 14,
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+    fontSize: 14,
+    borderWidth: 1.2,
+    borderColor: SakuraColors.lineStrong,
   },
   noteAddBtn: {
     width: 42,

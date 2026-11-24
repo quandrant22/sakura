@@ -1,6 +1,6 @@
 /**
- * Главный экран «Ядро Сакуры» — чистая сфера присутствия, последний ответ
- * и голосовой ввод без дублирования кнопок нижней панели.
+ * Главный экран «Ядро Сакуры» — живое присутствие класса флагмана:
+ * стеклянная верхняя консоль, квантовое Ядро, превью последнего ответа и тактильный Voice Dock.
  */
 
 import * as Haptics from 'expo-haptics';
@@ -83,11 +83,12 @@ export default function CoreHubScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
-      {/* Компактная шапка Ядра */}
+      {/* Парящая стеклянная шапка */}
       <View style={styles.topBar}>
-        <View style={styles.brandGroup}>
-          <SakuraLogo size={22} />
+        <View style={styles.brandChip}>
+          <SakuraLogo size={20} />
           <Text style={styles.brandText}>SAKURA</Text>
+          <View style={styles.dividerV} />
           <View style={[styles.statusDot, { backgroundColor: dotColor }]} />
           <Text style={styles.stateMicro}>
             {isConnected ? stateTheme.label : linkState === 'connecting' ? 'Связь…' : 'Оффлайн'}
@@ -99,13 +100,13 @@ export default function CoreHubScreen() {
             styles.pillBtn,
             !settings.voiceRepliesEnabled && {
               borderColor: SakuraColors.lineStrong,
-              backgroundColor: SakuraColors.panel2,
+              backgroundColor: SakuraColors.panel,
             },
             settings.voiceRepliesEnabled && {
-              borderColor: accent + '55',
-              backgroundColor: accent + '18',
+              borderColor: accent + '66',
+              backgroundColor: accent + '1C',
             },
-            pressed && { opacity: 0.75 },
+            pressed && { opacity: 0.78 },
           ]}
           onPress={toggleVoiceMode}>
           {settings.voiceRepliesEnabled ? (
@@ -158,30 +159,34 @@ export default function CoreHubScreen() {
         </Pressable>
       )}
 
-      {/* Чистая сцена Ядра: сфера + последний ответ + одна кнопка голоса */}
+      {/* Сцена Ядра */}
       <View style={styles.coreStage}>
         <View style={styles.orbCenter}>
-          <SakuraCore state={visualState} size={224} />
-          <Text style={[styles.orbKana, { color: stateTheme.color }]}>{stateTheme.kana}</Text>
-          <Text style={styles.orbTitle}>{isRecording ? 'Слушаю тебя…' : stateTheme.label}</Text>
-          <Text style={styles.orbQuote} numberOfLines={2}>
-            {micError
-              ? micError
-              : isConnected
-              ? status?.quote || status?.context || 'Удерживай микрофон для голосовой команды'
-              : needsPairing
-              ? 'Спарь телефон во вкладке Настройки'
-              : 'Подключаюсь к серверу Сакуры…'}
-          </Text>
+          <SakuraCore state={visualState} size={244} />
+          <View style={styles.coreMeta}>
+            <Text style={[styles.orbKana, { color: stateTheme.color }]}>{stateTheme.kana}</Text>
+            <Text style={styles.orbTitle}>
+              {isRecording ? 'Слушаю тебя…' : stateTheme.label}
+            </Text>
+            <Text style={styles.orbQuote} numberOfLines={2}>
+              {micError
+                ? micError
+                : isConnected
+                ? status?.quote || status?.context || 'Готова к диалогу и командам'
+                : needsPairing
+                ? 'Спарь телефон во вкладке Настройки'
+                : 'Подключаюсь к серверу Сакуры…'}
+            </Text>
+          </View>
         </View>
 
         <View style={styles.bottomZone}>
           {lastReply ? (
             <Pressable onPress={() => router.push('/(tabs)/chat' as any)}>
-              <GlassCard style={styles.replyPreviewCard}>
+              <GlassCard style={[styles.replyPreviewCard, { borderLeftColor: accent }]} accent="pink">
                 <View style={styles.replyHeader}>
                   <Text style={[styles.replyBadge, { color: accent }]}>Последний ответ</Text>
-                  <Text style={styles.replyLink}>Открыть чат →</Text>
+                  <Text style={styles.replyLink}>В чат →</Text>
                 </View>
                 <Text style={styles.replyPreviewText} numberOfLines={5}>
                   {lastReply}
@@ -200,19 +205,30 @@ export default function CoreHubScreen() {
             }}
             disabled={!isConnected || isSending}
             style={({ pressed }) => [
-              styles.pttBtn,
+              styles.pttOuter,
               {
-                borderColor: isRecording ? accent : accent + '55',
-                backgroundColor: isRecording ? accent : accent + '1C',
-                opacity: !isConnected ? 0.45 : pressed ? 0.9 : 1,
+                borderColor: isRecording ? SakuraColors.cyan : accent + '66',
+                backgroundColor: isRecording ? 'rgba(92, 225, 255, 0.2)' : 'rgba(20, 14, 34, 0.88)',
+                shadowColor: isRecording ? SakuraColors.cyan : accent,
+                opacity: !isConnected ? 0.45 : pressed ? 0.92 : 1,
+                transform: [{ scale: pressed || isRecording ? 0.985 : 1 }],
               },
             ]}>
-            <Mic size={22} color={isRecording ? '#fff' : accent} />
-            <Text style={[styles.pttText, isRecording && { color: '#fff' }]}>
+            <View
+              style={[
+                styles.pttIconWrap,
+                {
+                  backgroundColor: isRecording ? SakuraColors.cyan : accent + '26',
+                  borderColor: isRecording ? SakuraColors.cyan : accent + '55',
+                },
+              ]}>
+              <Mic size={20} color={isRecording ? '#06040B' : accent} />
+            </View>
+            <Text style={styles.pttText}>
               {isRecording
                 ? 'Говори… отпусти чтобы отправить'
                 : isSending
-                ? 'Думаю…'
+                ? 'Сакура думает…'
                 : 'Удерживай, чтобы сказать'}
             </Text>
           </Pressable>
@@ -225,27 +241,38 @@ export default function CoreHubScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: SakuraColors.bg,
+    backgroundColor: 'transparent',
   },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: SakuraColors.line,
+    paddingTop: 10,
+    paddingBottom: 6,
   },
-  brandGroup: {
+  brandChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: 'rgba(20, 15, 32, 0.78)',
+    borderWidth: 1,
+    borderColor: SakuraColors.lineStrong,
+    borderTopColor: SakuraColors.glassHighlight,
   },
   brandText: {
     fontFamily: SakuraFonts.displayExtra,
-    fontSize: 15,
+    fontSize: 13.5,
     color: SakuraColors.ink,
     letterSpacing: 2.2,
+  },
+  dividerV: {
+    width: 1,
+    height: 12,
+    backgroundColor: SakuraColors.lineStrong,
   },
   statusDot: {
     width: 7,
@@ -253,21 +280,22 @@ const styles = StyleSheet.create({
     borderRadius: 3.5,
   },
   stateMicro: {
-    fontSize: 12,
+    fontSize: 11.5,
     color: SakuraColors.inkDim,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   pillBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderRadius: 999,
     borderWidth: 1,
+    borderTopColor: SakuraColors.glassHighlight,
   },
   pillBtnText: {
-    fontSize: 11.5,
+    fontSize: 12,
     fontWeight: '700',
   },
   banner: {
@@ -275,10 +303,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     marginHorizontal: 14,
-    marginTop: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
+    marginTop: 6,
+    paddingHorizontal: 13,
+    paddingVertical: 9,
+    borderRadius: 14,
     borderWidth: 1,
   },
   bannerPairing: {
@@ -287,7 +315,7 @@ const styles = StyleSheet.create({
   },
   bannerWarn: {
     backgroundColor: SakuraColors.warnSoft,
-    borderColor: 'rgba(255, 184, 77, 0.35)',
+    borderColor: 'rgba(255, 189, 89, 0.38)',
   },
   bannerText: {
     flex: 1,
@@ -297,40 +325,45 @@ const styles = StyleSheet.create({
   coreStage: {
     flex: 1,
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 18,
+    paddingHorizontal: 14,
+    paddingTop: 6,
+    paddingBottom: 14,
   },
   orbCenter: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+  },
+  coreMeta: {
+    alignItems: 'center',
+    gap: 5,
+    marginTop: -6,
   },
   orbKana: {
     fontSize: 12,
     fontWeight: '700',
-    letterSpacing: 3,
-    marginTop: 4,
+    letterSpacing: 4,
   },
   orbTitle: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '800',
     color: SakuraColors.ink,
+    letterSpacing: -0.3,
   },
   orbQuote: {
     fontSize: 13,
     color: SakuraColors.inkDim,
     textAlign: 'center',
-    maxWidth: '88%',
-    lineHeight: 18,
+    maxWidth: '86%',
+    lineHeight: 19,
   },
   bottomZone: {
     gap: 12,
   },
   replyPreviewCard: {
     gap: 6,
-    paddingVertical: 12,
+    paddingVertical: 13,
+    borderLeftWidth: 2.5,
   },
   replyHeader: {
     flexDirection: 'row',
@@ -338,10 +371,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   replyBadge: {
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 0.8,
+    letterSpacing: 1.1,
   },
   replyLink: {
     fontSize: 11.5,
@@ -349,23 +382,35 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   replyPreviewText: {
-    fontSize: 13.5,
-    lineHeight: 19,
+    fontSize: 14,
+    lineHeight: 20,
     color: SakuraColors.ink,
   },
-  pttBtn: {
-    width: '100%',
+  pttOuter: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
-    paddingVertical: 15,
+    gap: 12,
+    paddingVertical: 12,
     paddingHorizontal: 18,
-    borderRadius: 20,
-    borderWidth: 1.5,
+    borderRadius: 24,
+    borderWidth: 1.2,
+    borderTopColor: SakuraColors.glassHighlight,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.32,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  pttIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   pttText: {
-    fontSize: 14,
+    fontSize: 14.5,
     fontWeight: '700',
     color: SakuraColors.ink,
   },

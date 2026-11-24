@@ -235,9 +235,9 @@ export default function SettingsScreen() {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}>
-        <ScrollView contentContainerStyle={styles.scrollContent}>
+        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.scrollContent}>
           <Text style={styles.screenTitle}>Настройки телефона</Text>
 
           {/* 1. Голос и режим ответов (Голос / Только текст) */}
@@ -668,7 +668,7 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: SakuraColors.bg,
+    backgroundColor: 'transparent',
   },
   keyboardView: {
     flex: 1,
@@ -886,16 +886,16 @@ const styles = StyleSheet.create({
     borderColor: SakuraColors.line,
   },
   inputMultiline: {
-    backgroundColor: SakuraColors.panel2,
-    color: SakuraColors.ink,
-    borderRadius: 12,
+    backgroundColor: SakuraColors.bgInput,
+    color: '#FFFFFF',
+    borderRadius: 14,
     paddingHorizontal: 13,
-    paddingVertical: 10,
-    fontSize: 13,
+    paddingVertical: 11,
+    fontSize: 13.5,
     minHeight: 58,
     textAlignVertical: 'top',
-    borderWidth: 1,
-    borderColor: SakuraColors.line,
+    borderWidth: 1.2,
+    borderColor: SakuraColors.lineStrong,
   },
   errorText: {
     fontSize: 12,

@@ -23,6 +23,7 @@ import {
   Alert,
   FlatList,
   Image,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
   StyleSheet,
@@ -189,6 +190,9 @@ export default function MusicScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <View style={styles.container}>
         <View style={styles.headerRow}>
           <Text style={styles.screenTitle}>Яндекс.Музыка</Text>
@@ -333,11 +337,14 @@ export default function MusicScreen() {
             <TextInput
               style={styles.searchInput}
               placeholder="Трек, исполнитель или альбом…"
-              placeholderTextColor={SakuraColors.textMuted}
+              placeholderTextColor="rgba(248, 244, 255, 0.42)"
+              selectionColor={accent}
+              cursorColor={accent}
               value={query}
               onChangeText={setQuery}
               onSubmitEditing={() => void search(query)}
               returnKeyType="search"
+              underlineColorAndroid="transparent"
             />
           </View>
         )}
@@ -383,6 +390,7 @@ export default function MusicScreen() {
           data={listData}
           keyExtractor={(item) => item.id}
           renderItem={renderTrack}
+          keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={
             <View style={styles.emptyBox}>
@@ -401,6 +409,7 @@ export default function MusicScreen() {
           }
         />
       </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -408,7 +417,7 @@ export default function MusicScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: SakuraColors.bg,
+    backgroundColor: 'transparent',
   },
   container: {
     flex: 1,
@@ -538,16 +547,20 @@ const styles = StyleSheet.create({
   },
   tabsRow: {
     flexDirection: 'row',
-    gap: 6,
+    padding: 4,
+    borderRadius: 16,
+    backgroundColor: 'rgba(18, 14, 28, 0.85)',
+    borderWidth: 1,
+    borderColor: SakuraColors.lineStrong,
+    gap: 4,
   },
   segmentBtn: {
     flex: 1,
     paddingVertical: 8,
     paddingHorizontal: 4,
     borderRadius: 12,
-    backgroundColor: SakuraColors.panel,
     borderWidth: 1,
-    borderColor: SakuraColors.line,
+    borderColor: 'transparent',
     alignItems: 'center',
   },
   segmentText: {
@@ -559,17 +572,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    backgroundColor: SakuraColors.panel2,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: SakuraColors.line,
+    backgroundColor: SakuraColors.bgInput,
+    borderRadius: 14,
+    paddingHorizontal: 13,
+    borderWidth: 1.2,
+    borderColor: SakuraColors.lineStrong,
   },
   searchInput: {
     flex: 1,
-    color: SakuraColors.ink,
-    paddingVertical: 9,
-    fontSize: 14,
+    color: '#FFFFFF',
+    paddingVertical: 10,
+    fontSize: 14.5,
   },
   cacheActionsRow: {
     flexDirection: 'row',

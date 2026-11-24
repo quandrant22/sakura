@@ -10,8 +10,8 @@ import {
   Radio,
   SlidersHorizontal,
 } from 'lucide-react-native';
-import React, { useEffect } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Keyboard, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MiniPlayer } from '../../components/music/MiniPlayer';
 import { SakuraColors } from '../../constants/colors';
@@ -22,11 +22,25 @@ const VISIBLE_TABS = new Set(['index', 'chat', 'widgets', 'music', 'settings']);
 function CustomTabBar({ state, descriptors, navigation, accent }: any) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+
+  useEffect(() => {
+    const showEv = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEv = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const s1 = Keyboard.addListener(showEv, () => setKeyboardOpen(true));
+    const s2 = Keyboard.addListener(hideEv, () => setKeyboardOpen(false));
+    return () => {
+      s1.remove();
+      s2.remove();
+    };
+  }, []);
+
+  if (keyboardOpen) return null;
 
   return (
-    <View style={[styles.tabDock, { paddingBottom: Math.max(insets.bottom, 6) }]}>
+    <View style={[styles.tabDock, { paddingBottom: Math.max(insets.bottom, 8) }]}>
       <MiniPlayer />
-      <View style={styles.tabRow}>
+      <View style={styles.pillBar}>
         {state.routes.map((route: any, index: number) => {
           if (!VISIBLE_TABS.has(route.name)) return null;
           const { options } = descriptors[route.key];
@@ -58,9 +72,19 @@ function CustomTabBar({ state, descriptors, navigation, accent }: any) {
               accessibilityRole="button"
               accessibilityState={isFocused ? { selected: true } : {}}
               onPress={onPress}
-              style={styles.tabItem}>
-              {options.tabBarIcon ? options.tabBarIcon({ focused: isFocused, color, size: 22 }) : null}
-              <Text style={[styles.tabLabel, { color }]}>{label}</Text>
+              style={({ pressed }) => [styles.tabItem, pressed && { opacity: 0.75 }]}>
+              <View
+                style={[
+                  styles.iconPill,
+                  isFocused && { backgroundColor: accent + '20', borderColor: accent + '44' },
+                ]}>
+                {options.tabBarIcon
+                  ? options.tabBarIcon({ focused: isFocused, color, size: 21 })
+                  : null}
+              </View>
+              <Text style={[styles.tabLabel, { color }, isFocused && { fontWeight: '700' }]}>
+                {label}
+              </Text>
             </Pressable>
           );
         })}
@@ -128,22 +152,38 @@ export default function TabLayout() {
 
 const styles = StyleSheet.create({
   tabDock: {
-    backgroundColor: SakuraColors.bg,
-    borderTopWidth: 1,
-    borderTopColor: SakuraColors.line,
+    backgroundColor: 'transparent',
+    paddingTop: 2,
   },
-  tabRow: {
+  pillBar: {
     flexDirection: 'row',
-    height: 56,
-    alignItems: 'center',
-    justifyContent: 'space-around',
+    marginHorizontal: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 7,
+    borderRadius: 24,
+    backgroundColor: 'rgba(15, 11, 24, 0.94)',
+    borderWidth: 1,
+    borderColor: SakuraColors.lineStrong,
+    borderTopColor: SakuraColors.glassHighlight,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.55,
+    shadowRadius: 20,
+    elevation: 14,
   },
   tabItem: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 3,
-    paddingVertical: 4,
+    paddingVertical: 2,
+  },
+  iconPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
   tabLabel: {
     fontSize: 10.5,
