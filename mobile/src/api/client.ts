@@ -221,6 +221,15 @@ export class SakuraClient {
               });
               return;
             }
+            if (code === 4000) {
+              this.setLinkInfo({
+                state: 'disconnected',
+                transport: null,
+                secure: false,
+                reason: 'Открыта другая сессия (заменено)',
+              });
+              return;
+            }
             if (!this.intentionalClose) {
               this.setLinkInfo({
                 state: 'disconnected',
@@ -313,6 +322,16 @@ export class SakuraClient {
           transport: null,
           secure: false,
           reason: 'Неверный токен доступа (4401)',
+        });
+        return;
+      }
+
+      if (event.code === 4000) {
+        this.setLinkInfo({
+          state: 'disconnected',
+          transport: null,
+          secure: false,
+          reason: 'Открыта другая сессия (заменено)',
         });
         return;
       }
@@ -725,4 +744,11 @@ export class SakuraClient {
   }
 }
 
+const globalObj = globalThis as { __sakuraActiveClient?: SakuraClient };
+if (globalObj.__sakuraActiveClient) {
+  try {
+    globalObj.__sakuraActiveClient.disconnect();
+  } catch {}
+}
 export const sakuraClient = new SakuraClient();
+globalObj.__sakuraActiveClient = sakuraClient;

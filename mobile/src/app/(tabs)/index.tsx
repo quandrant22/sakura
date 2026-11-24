@@ -1,23 +1,19 @@
 /**
- * Главный экран «Ядро Сакуры» — живая сфера присутствия, последний ответ,
- * настоящий Hold-to-Talk микрофон и быстрые действия (без ленты чата).
+ * Главный экран «Ядро Сакуры» — чистая сфера присутствия, последний ответ
+ * и голосовой ввод без дублирования кнопок нижней панели.
  */
 
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import {
-  CalendarDays,
-  Disc3,
   KeyRound,
-  MessageCircleHeart,
   Mic,
-  SlidersHorizontal,
   Volume2,
   VolumeX,
   WifiOff,
 } from 'lucide-react-native';
 import React, { useEffect } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CoreVisualState, SakuraCore } from '../../components/core/SakuraCore';
 import { SakuraLogo } from '../../components/core/SakuraLogo';
@@ -32,7 +28,8 @@ import { ACCENT_THEMES, usePhoneSettingsStore } from '../../stores/usePhoneSetti
 
 export default function CoreHubScreen() {
   const router = useRouter();
-  const { linkState, linkInfo, init: initConnection } = useConnectionStore();
+  const { linkState, linkInfo, init: initConnection, connect, serverUrl, token } =
+    useConnectionStore();
   const {
     lastReply,
     sakuraState,
@@ -41,7 +38,7 @@ export default function CoreHubScreen() {
     bindEvents,
   } = useChatStore();
   const settings = usePhoneSettingsStore();
-  const { startMyWave, loadCache } = useMusicStore();
+  const { loadCache } = useMusicStore();
   const { isRecording, micError, startRecording, stopAndSend } = useVoiceRecorder();
 
   const accent = ACCENT_THEMES[settings.accentTheme].accent;
@@ -82,6 +79,8 @@ export default function CoreHubScreen() {
     ? SakuraColors.gold
     : SakuraColors.warn;
 
+  const isReplaced = linkInfo.reason?.includes('заменено') || linkInfo.reason?.includes('сессия');
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       {/* Компактная шапка Ядра */}
@@ -95,44 +94,33 @@ export default function CoreHubScreen() {
           </Text>
         </View>
 
-        <View style={styles.headerActions}>
-          <Pressable
-            style={({ pressed }) => [
-              styles.pillBtn,
-              !settings.voiceRepliesEnabled && {
-                borderColor: SakuraColors.lineStrong,
-                backgroundColor: SakuraColors.panel2,
-              },
-              settings.voiceRepliesEnabled && {
-                borderColor: accent + '55',
-                backgroundColor: accent + '18',
-              },
-              pressed && { opacity: 0.75 },
-            ]}
-            onPress={toggleVoiceMode}>
-            {settings.voiceRepliesEnabled ? (
-              <Volume2 size={14} color={accent} />
-            ) : (
-              <VolumeX size={14} color={SakuraColors.inkDim} />
-            )}
-            <Text
-              style={[
-                styles.pillBtnText,
-                { color: settings.voiceRepliesEnabled ? accent : SakuraColors.inkDim },
-              ]}>
-              {settings.voiceRepliesEnabled ? 'Голос' : 'Текст'}
-            </Text>
-          </Pressable>
-
-          <Pressable
-            style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.7 }]}
-            onPress={() => {
-              haptic();
-              router.push('/(tabs)/chat' as any);
-            }}>
-            <MessageCircleHeart size={16} color={accent} />
-          </Pressable>
-        </View>
+        <Pressable
+          style={({ pressed }) => [
+            styles.pillBtn,
+            !settings.voiceRepliesEnabled && {
+              borderColor: SakuraColors.lineStrong,
+              backgroundColor: SakuraColors.panel2,
+            },
+            settings.voiceRepliesEnabled && {
+              borderColor: accent + '55',
+              backgroundColor: accent + '18',
+            },
+            pressed && { opacity: 0.75 },
+          ]}
+          onPress={toggleVoiceMode}>
+          {settings.voiceRepliesEnabled ? (
+            <Volume2 size={14} color={accent} />
+          ) : (
+            <VolumeX size={14} color={SakuraColors.inkDim} />
+          )}
+          <Text
+            style={[
+              styles.pillBtnText,
+              { color: settings.voiceRepliesEnabled ? accent : SakuraColors.inkDim },
+            ]}>
+            {settings.voiceRepliesEnabled ? 'Голос' : 'Текст'}
+          </Text>
+        </Pressable>
       </View>
 
       {/* Баннер статуса связи */}
@@ -143,7 +131,13 @@ export default function CoreHubScreen() {
             needsPairing ? styles.bannerPairing : styles.bannerWarn,
             pressed && { opacity: 0.85 },
           ]}
-          onPress={() => router.push('/(tabs)/settings' as any)}>
+          onPress={() => {
+            if (isReplaced) {
+              void connect(serverUrl, token);
+            } else {
+              router.push('/(tabs)/settings' as any);
+            }
+          }}>
           {needsPairing ? (
             <KeyRound size={14} color={accent} />
           ) : (
@@ -157,52 +151,45 @@ export default function CoreHubScreen() {
             numberOfLines={1}>
             {needsPairing
               ? 'Нужно спаривание (/pair в Telegram) →'
+              : isReplaced
+              ? 'Сессия заменена · Нажми чтобы вернуть связь'
               : linkInfo.reason || 'Нет связи · Настройки →'}
           </Text>
         </Pressable>
       )}
 
-      <ScrollView
-        contentContainerStyle={styles.coreScroll}
-        showsVerticalScrollIndicator={false}>
-        {/* Центральное Ядро Сакуры */}
-        <Pressable
-          style={styles.orbCenter}
-          onPress={() => {
-            haptic();
-            router.push('/(tabs)/chat' as any);
-          }}>
-          <SakuraCore state={visualState} size={208} />
+      {/* Чистая сцена Ядра: сфера + последний ответ + одна кнопка голоса */}
+      <View style={styles.coreStage}>
+        <View style={styles.orbCenter}>
+          <SakuraCore state={visualState} size={224} />
           <Text style={[styles.orbKana, { color: stateTheme.color }]}>{stateTheme.kana}</Text>
           <Text style={styles.orbTitle}>{isRecording ? 'Слушаю тебя…' : stateTheme.label}</Text>
           <Text style={styles.orbQuote} numberOfLines={2}>
             {micError
               ? micError
               : isConnected
-              ? status?.quote || status?.context || 'Удерживай микрофон для команды голосом'
+              ? status?.quote || status?.context || 'Удерживай микрофон для голосовой команды'
               : needsPairing
               ? 'Спарь телефон во вкладке Настройки'
               : 'Подключаюсь к серверу Сакуры…'}
           </Text>
-        </Pressable>
+        </View>
 
-        {/* Последний ответ Сакуры (превью вместо полной ленты) */}
-        {lastReply ? (
-          <Pressable onPress={() => router.push('/(tabs)/chat' as any)}>
-            <GlassCard style={styles.replyPreviewCard}>
-              <View style={styles.replyHeader}>
-                <Text style={[styles.replyBadge, { color: accent }]}>Последний ответ</Text>
-                <Text style={styles.replyLink}>Весь чат →</Text>
-              </View>
-              <Text style={styles.replyPreviewText} numberOfLines={3}>
-                {lastReply}
-              </Text>
-            </GlassCard>
-          </Pressable>
-        ) : null}
+        <View style={styles.bottomZone}>
+          {lastReply ? (
+            <Pressable onPress={() => router.push('/(tabs)/chat' as any)}>
+              <GlassCard style={styles.replyPreviewCard}>
+                <View style={styles.replyHeader}>
+                  <Text style={[styles.replyBadge, { color: accent }]}>Последний ответ</Text>
+                  <Text style={styles.replyLink}>Открыть чат →</Text>
+                </View>
+                <Text style={styles.replyPreviewText} numberOfLines={3}>
+                  {lastReply}
+                </Text>
+              </GlassCard>
+            </Pressable>
+          ) : null}
 
-        {/* Главная кнопка удержания голоса */}
-        <View style={styles.voiceDock}>
           <Pressable
             onPressIn={() => {
               haptic(true);
@@ -230,51 +217,7 @@ export default function CoreHubScreen() {
             </Text>
           </Pressable>
         </View>
-
-        {/* Быстрые действия ядра */}
-        <View style={styles.quickGrid}>
-          <Pressable
-            style={({ pressed }) => [styles.quickTile, pressed && { opacity: 0.75 }]}
-            onPress={() => {
-              haptic();
-              void startMyWave();
-              router.push('/(tabs)/music' as any);
-            }}>
-            <Disc3 size={18} color="#FFCC00" />
-            <Text style={styles.quickTileText}>Моя волна</Text>
-          </Pressable>
-
-          <Pressable
-            style={({ pressed }) => [styles.quickTile, pressed && { opacity: 0.75 }]}
-            onPress={() => {
-              haptic();
-              router.push('/(tabs)/widgets' as any);
-            }}>
-            <CalendarDays size={18} color={accent} />
-            <Text style={styles.quickTileText}>Виджеты</Text>
-          </Pressable>
-
-          <Pressable
-            style={({ pressed }) => [styles.quickTile, pressed && { opacity: 0.75 }]}
-            onPress={() => {
-              haptic();
-              router.push('/(tabs)/widgets' as any);
-            }}>
-            <SlidersHorizontal size={18} color={SakuraColors.cyan} />
-            <Text style={styles.quickTileText}>Пульт</Text>
-          </Pressable>
-
-          <Pressable
-            style={({ pressed }) => [styles.quickTile, pressed && { opacity: 0.75 }]}
-            onPress={() => {
-              haptic();
-              router.push('/(tabs)/chat' as any);
-            }}>
-            <MessageCircleHeart size={18} color="#C084FC" />
-            <Text style={styles.quickTileText}>Чат</Text>
-          </Pressable>
-        </View>
-      </ScrollView>
+      </View>
     </SafeAreaView>
   );
 }
@@ -314,11 +257,6 @@ const styles = StyleSheet.create({
     color: SakuraColors.inkDim,
     fontWeight: '500',
   },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
   pillBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -331,16 +269,6 @@ const styles = StyleSheet.create({
   pillBtnText: {
     fontSize: 11.5,
     fontWeight: '700',
-  },
-  iconBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: SakuraColors.panel,
-    borderWidth: 1,
-    borderColor: SakuraColors.line,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   banner: {
     flexDirection: 'row',
@@ -366,19 +294,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-  coreScroll: {
-    flexGrow: 1,
+  coreStage: {
+    flex: 1,
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: 18,
-    paddingBottom: 20,
-    gap: 14,
+    paddingTop: 12,
+    paddingBottom: 18,
   },
   orbCenter: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: 8,
   },
   orbKana: {
     fontSize: 12,
@@ -397,6 +324,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     maxWidth: '88%',
     lineHeight: 18,
+  },
+  bottomZone: {
+    gap: 12,
   },
   replyPreviewCard: {
     gap: 6,
@@ -423,9 +353,6 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     color: SakuraColors.ink,
   },
-  voiceDock: {
-    alignItems: 'center',
-  },
   pttBtn: {
     width: '100%',
     flexDirection: 'row',
@@ -441,26 +368,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: SakuraColors.ink,
-  },
-  quickGrid: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  quickTile: {
-    flex: 1,
-    backgroundColor: SakuraColors.panel,
-    borderRadius: 15,
-    borderWidth: 1,
-    borderColor: SakuraColors.line,
-    paddingVertical: 12,
-    paddingHorizontal: 6,
-    alignItems: 'center',
-    gap: 6,
-  },
-  quickTileText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: SakuraColors.ink,
-    textAlign: 'center',
   },
 });

@@ -53,6 +53,8 @@ interface ConnectionState {
 
 sakuraClient.setTelemetryProvider(getDeviceTelemetry);
 
+let initInFlight: Promise<void> | null = null;
+
 export const useConnectionStore = create<ConnectionState>((set, get) => {
   sakuraClient.onLinkState((linkState, linkInfo) => {
     set({ linkState, linkInfo });
@@ -83,49 +85,55 @@ export const useConnectionStore = create<ConnectionState>((set, get) => {
 
     init: async () => {
       if (get().isInitialized) return;
-      try {
-        const [savedUrl, savedToken, savedId, savedPriv, savedDevFp, savedSrvPub, savedSrvFp] =
-          await Promise.all([
-            safeStorage.getItem(KEY_URL),
-            safeStorage.getItem(KEY_TOKEN),
-            safeStorage.getItem(KEY_DEVICE_ID),
-            safeStorage.getItem(KEY_DEVICE_PRIV),
-            safeStorage.getItem(KEY_DEVICE_FP),
-            safeStorage.getItem(KEY_SERVER_PUB),
-            safeStorage.getItem(KEY_SERVER_FP),
-          ]);
+      if (initInFlight) return initInFlight;
+      initInFlight = (async () => {
+        try {
+          const [savedUrl, savedToken, savedId, savedPriv, savedDevFp, savedSrvPub, savedSrvFp] =
+            await Promise.all([
+              safeStorage.getItem(KEY_URL),
+              safeStorage.getItem(KEY_TOKEN),
+              safeStorage.getItem(KEY_DEVICE_ID),
+              safeStorage.getItem(KEY_DEVICE_PRIV),
+              safeStorage.getItem(KEY_DEVICE_FP),
+              safeStorage.getItem(KEY_SERVER_PUB),
+              safeStorage.getItem(KEY_SERVER_FP),
+            ]);
 
-        const serverUrl = savedUrl || DEFAULT_SERVER_URL;
-        const token = savedToken || DEFAULT_WS_TOKEN;
-        const deviceId = savedId || 'phone';
-        const devicePrivB64 = savedPriv || null;
-        const deviceFp = savedDevFp || null;
-        const serverPubB64 = savedSrvPub || null;
-        const serverFp = savedSrvFp || null;
-        const isPaired = Boolean(devicePrivB64 && serverPubB64);
+          const serverUrl = savedUrl || DEFAULT_SERVER_URL;
+          const token = savedToken || DEFAULT_WS_TOKEN;
+          const deviceId = savedId || 'phone';
+          const devicePrivB64 = savedPriv || null;
+          const deviceFp = savedDevFp || null;
+          const serverPubB64 = savedSrvPub || null;
+          const serverFp = savedSrvFp || null;
+          const isPaired = Boolean(devicePrivB64 && serverPubB64);
 
-        set({
-          serverUrl,
-          token,
-          deviceId,
-          devicePrivB64,
-          deviceFp,
-          serverPubB64,
-          serverFp,
-          isPaired,
-          isInitialized: true,
-        });
+          set({
+            serverUrl,
+            token,
+            deviceId,
+            devicePrivB64,
+            deviceFp,
+            serverPubB64,
+            serverFp,
+            isPaired,
+            isInitialized: true,
+          });
 
-        sakuraClient.connect({
-          url: serverUrl,
-          token,
-          deviceId,
-          devicePrivB64,
-          serverPubB64,
-        });
-      } catch (e: any) {
-        set({ isInitialized: true, error: e?.message || 'Ошибка чтения хранилища' });
-      }
+          sakuraClient.connect({
+            url: serverUrl,
+            token,
+            deviceId,
+            devicePrivB64,
+            serverPubB64,
+          });
+        } catch (e: any) {
+          set({ isInitialized: true, error: e?.message || 'Ошибка чтения хранилища' });
+        } finally {
+          initInFlight = null;
+        }
+      })();
+      return initInFlight;
     },
 
     connect: async (url: string, token: string) => {

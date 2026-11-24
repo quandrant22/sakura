@@ -260,6 +260,7 @@ export interface SecureSessionHandlers {
 export class NoiseSocket {
   public readonly channel: SecureChannel;
   public readonly session: string | null;
+  private closedNotified = false;
 
   constructor(
     private ws: WebSocket,
@@ -270,6 +271,12 @@ export class NoiseSocket {
     this.channel = channel;
     this.session = session;
     this.attachTransportHandlers();
+  }
+
+  private notifyClose(code: number, reason: string): void {
+    if (this.closedNotified) return;
+    this.closedNotified = true;
+    this.handlers.onClose(code, reason);
   }
 
   private attachTransportHandlers(): void {
@@ -306,10 +313,10 @@ export class NoiseSocket {
         } else if (inner === InnerType.CLOSE) {
           const code = data.length >= 2 ? new DataView(data.buffer, data.byteOffset).getUint16(0, false) : 1000;
           const reason = data.length > 2 ? utf8Decode.decode(data.subarray(2)) : '';
+          this.notifyClose(code, CLOSE_TEXT[code] || reason);
           try {
             this.ws.close(code, reason);
           } catch {}
-          this.handlers.onClose(code, CLOSE_TEXT[code] || reason);
         }
       }
     };
@@ -320,7 +327,7 @@ export class NoiseSocket {
 
     this.ws.onclose = (ev: WebSocketCloseEvent) => {
       const code = ev.code ?? 1000;
-      this.handlers.onClose(code, CLOSE_TEXT[code] || ev.reason || '');
+      this.notifyClose(code, CLOSE_TEXT[code] || ev.reason || '');
     };
   }
 
