@@ -30,17 +30,21 @@ import { ACCENT_THEMES, usePhoneSettingsStore } from '../../stores/usePhoneSetti
 
 export default function CoreHubScreen() {
   const router = useRouter();
-  const { linkState, linkInfo, init: initConnection, connect, serverUrl, token } =
-    useConnectionStore();
-  const {
-    lastReply,
-    sakuraState,
-    status,
-    isSending,
-    bindEvents,
-  } = useChatStore();
+  const linkState = useConnectionStore((s) => s.linkState);
+  const linkInfo = useConnectionStore((s) => s.linkInfo);
+  const initConnection = useConnectionStore((s) => s.init);
+  const connect = useConnectionStore((s) => s.connect);
+  const serverUrl = useConnectionStore((s) => s.serverUrl);
+  const token = useConnectionStore((s) => s.token);
+
+  const lastReply = useChatStore((s) => s.lastReply);
+  const sakuraState = useChatStore((s) => s.sakuraState);
+  const status = useChatStore((s) => s.status);
+  const isSending = useChatStore((s) => s.isSending);
+  const bindEvents = useChatStore((s) => s.bindEvents);
+
   const settings = usePhoneSettingsStore();
-  const { loadCache } = useMusicStore();
+  const loadCache = useMusicStore((s) => s.loadCache);
   const { isRecording, micError, startRecording, stopAndSend } = useVoiceRecorder();
   const wakeStatus = useWakeControlStore((s) => s.wakeStatus);
 

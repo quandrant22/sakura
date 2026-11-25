@@ -3,7 +3,7 @@
  */
 
 import { CheckCheck, Clock3, Mic, Volume2, Zap } from 'lucide-react-native';
-import React from 'react';
+import React, { memo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Message } from '../../api/types';
 import { SakuraColors } from '../../constants/colors';
@@ -22,7 +22,7 @@ function sourceLabel(m: Message): string {
   return '';
 }
 
-export const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
+const MessageBubbleBase: React.FC<MessageBubbleProps> = ({ message }) => {
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
   const label = sourceLabel(message);
@@ -125,6 +125,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
     </View>
   );
 };
+
+export const MessageBubble = memo(MessageBubbleBase);
 
 const styles = StyleSheet.create({
   userRow: {

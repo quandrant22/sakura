@@ -1,5 +1,6 @@
 /**
- * Music Store — встроенный плеер Яндекс.Музыки на базе expo-audio + постоянный дисковый кэш треков.
+ * Music Store — встроенный плеер Яндекс.Музыки на базе expo-audio + нативный Media3-сервис
+ * (переключение треков + кнопка Лайка на экране блокировки и в шторке) + дисковый кэш.
  */
 
 import {
@@ -11,12 +12,19 @@ import {
 import { Platform } from 'react-native';
 import { create } from 'zustand';
 import {
+  addMediaActionListener,
+  clearNativeMediaState,
+  updateNativeMediaState,
+} from '../../modules/sakura-wake';
+import {
   CachedTrackEntry,
   cacheTrackToDisk,
   clearAllMusicCache,
   getCachedTrackUri,
+  loadLibrarySnapshot,
   loadMusicCacheIndex,
   removeCachedTrack,
+  saveLibrarySnapshot,
 } from '../services/musicCache';
 import {
   checkYandexAccount,
@@ -44,6 +52,7 @@ import {
   YandexStation,
   YandexTrack,
 } from '../services/yandexMusic';
+import { useMusicProgressStore } from './useMusicProgressStore';
 import { usePhoneSettingsStore } from './usePhoneSettingsStore';
 
 export type RepeatMode = 'off' | 'all' | 'one';
@@ -94,8 +103,6 @@ interface MusicState {
   isWaveMode: boolean;
   shuffleEnabled: boolean;
   repeatMode: RepeatMode;
-  positionMs: number;
-  durationMs: number;
   lyricsText: string | null;
   lyricsLoading: boolean;
   lyricsOpen: boolean;
@@ -142,10 +149,16 @@ interface MusicState {
 
 let activePlayer: AudioPlayer | null = null;
 let statusSub: { remove: () => void } | null = null;
+let mediaActionSub: { remove: () => void } | null = null;
 let lockScreenAttached = false;
 let notifPermAsked = false;
 let batchAbortFlag = false;
 let finishedTrackKey: string | null = null;
+let playReqSeq = 0;
+let lastNativeTrackId = '';
+let lastNativeDurationMs = 0;
+let lastNativePlaying: boolean | null = null;
+let lastNativeLiked: boolean | null = null;
 
 function withLikedFlag(list: YandexTrack[], likedIds: Record<string, true>): YandexTrack[] {
   if (list.length === 0) return list;
@@ -153,7 +166,16 @@ function withLikedFlag(list: YandexTrack[], likedIds: Record<string, true>): Yan
 }
 
 function patchTrackLiked(list: YandexTrack[], trackId: string, liked: boolean): YandexTrack[] {
-  return list.map((t) => (t.id === trackId ? { ...t, liked } : t));
+  if (list.length === 0) return list;
+  let changed = false;
+  const next = list.map((t) => {
+    if (t.id === trackId && Boolean(t.liked) !== liked) {
+      changed = true;
+      return { ...t, liked };
+    }
+    return t;
+  });
+  return changed ? next : list;
 }
 
 function shuffleTracks(list: YandexTrack[]): YandexTrack[] {
@@ -163,6 +185,18 @@ function shuffleTracks(list: YandexTrack[]): YandexTrack[] {
     [out[i], out[j]] = [out[j], out[i]];
   }
   return out;
+}
+
+function formatOfflineError(e: any, hasFallbackData: boolean): string {
+  const msg = String(e?.message || '');
+  if (
+    msg.includes('UnknownHostException') ||
+    msg.includes('Network request failed') ||
+    msg.includes('Unable to resolve host')
+  ) {
+    return hasFallbackData ? 'Нет сети · показан локальный кэш' : 'Нет подключения к интернету';
+  }
+  return msg || 'Ошибка загрузки';
 }
 
 async function ensureAudioSetup() {
@@ -182,7 +216,84 @@ async function ensureAudioSetup() {
 }
 
 export const useMusicStore = create<MusicState>((set, get) => {
+  function syncNativeMedia(posOverrideMs?: number, playingOverride?: boolean) {
+    if (Platform.OS !== 'android') return;
+    const s = get();
+    const cur = s.currentTrack;
+    if (!cur) {
+      lastNativeTrackId = '';
+      clearNativeMediaState();
+      return;
+    }
+    const prog = useMusicProgressStore.getState();
+    const dur = prog.durationMs || cur.durationMs || 0;
+    const pos = posOverrideMs ?? prog.positionMs ?? 0;
+    const isPlaying = playingOverride ?? s.isPlaying;
+    const isLiked = Boolean(s.likedIds[cur.id] ?? cur.liked);
+    const hasPrev = s.queue.length > 0;
+    const hasNext =
+      s.currentIndex + 1 < s.queue.length || s.isWaveMode || s.repeatMode === 'all';
+
+    lastNativeTrackId = cur.id;
+    lastNativeDurationMs = dur;
+    lastNativePlaying = isPlaying;
+    lastNativeLiked = isLiked;
+
+    updateNativeMediaState({
+      trackId: cur.id,
+      title: cur.title,
+      artist: cur.artist,
+      album: cur.album || 'Яндекс.Музыка',
+      artworkUrl: cur.coverUrl,
+      durationMs: dur,
+      positionMs: pos,
+      isPlaying,
+      isLiked,
+      hasPrev,
+      hasNext,
+    });
+  }
+
+  function ensureNativeControlsBound() {
+    if (Platform.OS !== 'android' || mediaActionSub) return;
+    mediaActionSub = addMediaActionListener((ev) => {
+      switch (ev.action) {
+        case 'play':
+          if (activePlayer && !activePlayer.playing) {
+            activePlayer.play();
+            set({ isPlaying: true });
+            syncNativeMedia(undefined, true);
+          } else if (!activePlayer) {
+            void get().togglePlayPause();
+          }
+          break;
+        case 'pause':
+          if (activePlayer && activePlayer.playing) {
+            activePlayer.pause();
+            set({ isPlaying: false });
+            syncNativeMedia(undefined, false);
+          }
+          break;
+        case 'next':
+          void get().nextTrack();
+          break;
+        case 'previous':
+          void get().prevTrack();
+          break;
+        case 'toggle_like':
+          void get().toggleCurrentLike();
+          break;
+        case 'seek':
+          if (typeof ev.positionMs === 'number') {
+            void get().seekTo(ev.positionMs);
+          }
+          break;
+      }
+    });
+  }
+
   async function playAt(index: number) {
+    const reqId = ++playReqSeq;
     const { queue, isWaveMode, activeStationId, likedIds, repeatMode } = get();
     if (index < 0 || index >= queue.length) return;
     const rawTrack = queue[index];
@@ -198,15 +309,16 @@ export const useMusicStore = create<MusicState>((set, get) => {
       currentIndex: index,
       currentTrack: track,
       isLoading: true,
-      positionMs: 0,
-      durationMs: track.durationMs || 0,
       error: null,
     });
+    useMusicProgressStore.setState({ positionMs: 0, durationMs: track.durationMs || 0 });
+    ensureNativeControlsBound();
+    syncNativeMedia(0, false);
 
     try {
       await ensureAudioSetup();
+      if (reqId !== playReqSeq) return;
 
-      // 1. Сначала проверяем постоянный дисковый кэш (без автозагрузки обычных треков!)
       let playUri = await getCachedTrackUri(track.id);
       if (!playUri) {
         if (!token) {
@@ -214,6 +326,7 @@ export const useMusicStore = create<MusicState>((set, get) => {
         }
         playUri = await getTrackStreamUrl(token, track.id, settings.yandexHighQuality);
       }
+      if (reqId !== playReqSeq) return;
 
       const lockMeta = {
         title: track.title,
@@ -225,30 +338,45 @@ export const useMusicStore = create<MusicState>((set, get) => {
       if (!activePlayer) {
         activePlayer = createAudioPlayer(
           { uri: playUri },
-          { updateInterval: 400, keepAudioSessionActive: true }
+          { updateInterval: 450, keepAudioSessionActive: true }
         );
         lockScreenAttached = false;
         statusSub = activePlayer.addListener('playbackStatusUpdate', (status) => {
-          const cur = get().currentTrack;
-          set({
-            isPlaying: status.playing,
-            isLoading: status.isBuffering && !status.playing,
-            positionMs: Math.round((status.currentTime || 0) * 1000),
-            durationMs: Math.round((status.duration || 0) * 1000) || cur?.durationMs || 0,
-          });
-          if (status.didJustFinish && cur && get().repeatMode !== 'one') {
-            const key = `${cur.id}_${get().currentIndex}`;
+          const st = get();
+          const cur = st.currentTrack;
+          const nextPos = Math.round((status.currentTime || 0) * 1000);
+          const nextDur = Math.round((status.duration || 0) * 1000) || cur?.durationMs || 0;
+          useMusicProgressStore.setState({ positionMs: nextPos, durationMs: nextDur });
+
+          const nextPlaying = Boolean(status.playing);
+          const nextLoading = Boolean(status.isBuffering && !status.playing);
+          if (st.isPlaying !== nextPlaying || st.isLoading !== nextLoading) {
+            set({ isPlaying: nextPlaying, isLoading: nextLoading });
+          }
+
+          if (
+            Platform.OS === 'android' &&
+            cur &&
+            (lastNativeTrackId !== cur.id ||
+              lastNativePlaying !== nextPlaying ||
+              Math.abs(lastNativeDurationMs - nextDur) > 1500)
+          ) {
+            syncNativeMedia(nextPos, nextPlaying);
+          }
+
+          if (status.didJustFinish && cur && st.repeatMode !== 'one') {
+            const key = `${cur.id}_${st.currentIndex}`;
             if (finishedTrackKey !== key) {
               finishedTrackKey = key;
               const tk = usePhoneSettingsStore.getState().yandexToken.trim();
-              if (get().isWaveMode && tk) {
+              if (st.isWaveMode && tk) {
                 void sendWaveFeedback(
                   tk,
                   'trackFinished',
                   cur.id,
                   cur.batchId,
                   Math.round((cur.durationMs || 0) / 1000),
-                  get().activeStationId
+                  st.activeStationId
                 );
               }
               void get().nextTrack();
@@ -259,24 +387,28 @@ export const useMusicStore = create<MusicState>((set, get) => {
         activePlayer.replace({ uri: playUri });
       }
 
+      if (reqId !== playReqSeq) return;
       activePlayer.loop = repeatMode === 'one';
 
-      try {
-        if (!lockScreenAttached) {
-          activePlayer.setActiveForLockScreen(true, lockMeta, {
-            showSeekForward: true,
-            showSeekBackward: true,
-            seekForwardIntervalSeconds: 15,
-            seekBackwardIntervalSeconds: 15,
-          });
-          lockScreenAttached = true;
-        } else {
-          activePlayer.updateLockScreenMetadata(lockMeta);
-        }
-      } catch {}
+      if (Platform.OS !== 'android') {
+        try {
+          if (!lockScreenAttached) {
+            activePlayer.setActiveForLockScreen(true, lockMeta, {
+              showSeekForward: true,
+              showSeekBackward: true,
+              seekForwardIntervalSeconds: 15,
+              seekBackwardIntervalSeconds: 15,
+            });
+            lockScreenAttached = true;
+          } else {
+            activePlayer.updateLockScreenMetadata(lockMeta);
+          }
+        } catch {}
+      }
 
       activePlayer.play();
       set({ isPlaying: true, isLoading: false });
+      syncNativeMedia(0, true);
 
       if (isWaveMode && token) {
         void sendWaveFeedback(token, 'trackStarted', track.id, track.batchId, 0, activeStationId);
@@ -297,11 +429,13 @@ export const useMusicStore = create<MusicState>((set, get) => {
           .catch(() => {});
       }
     } catch (e: any) {
+      if (reqId !== playReqSeq) return;
       set({
         isLoading: false,
         isPlaying: false,
-        error: e?.message || 'Не удалось воспроизвести трек',
+        error: formatOfflineError(e, false),
       });
+      syncNativeMedia(0, false);
     }
   }
 
@@ -351,8 +485,6 @@ export const useMusicStore = create<MusicState>((set, get) => {
     isWaveMode: false,
     shuffleEnabled: false,
     repeatMode: 'off',
-    positionMs: 0,
-    durationMs: 0,
     lyricsText: null,
     lyricsLoading: false,
     lyricsOpen: false,
@@ -360,8 +492,22 @@ export const useMusicStore = create<MusicState>((set, get) => {
     error: null,
 
     loadCache: async () => {
-      const map = await loadMusicCacheIndex();
-      set({ cachedMap: map });
+      const [map, snap] = await Promise.all([loadMusicCacheIndex(), loadLibrarySnapshot()]);
+      set((s) => {
+        const patch: Partial<MusicState> = { cachedMap: map };
+        if (snap && snap.likedTracks.length > 0 && s.likedTracks.length === 0) {
+          const idMap: Record<string, true> = { ...s.likedIds };
+          for (const t of snap.likedTracks) idMap[t.id] = true;
+          patch.likedTracks = snap.likedTracks;
+          patch.likedTotal = snap.likedTotal || snap.likedTracks.length;
+          patch.likedIds = idMap;
+          patch.likedIdsLoaded = true;
+        }
+        if (snap && snap.playlists.length > 0 && s.playlists.length === 0) {
+          patch.playlists = snap.playlists;
+        }
+        return patch;
+      });
     },
 
     cacheTrack: async (track: YandexTrack) => {
@@ -380,7 +526,7 @@ export const useMusicStore = create<MusicState>((set, get) => {
           set((s) => ({ cachedMap: { ...s.cachedMap, [track.id]: entry } }));
         }
       } catch (e: any) {
-        set({ error: e?.message || 'Ошибка загрузки трека в кэш' });
+        set({ error: formatOfflineError(e, false) });
       } finally {
         set((s) => {
           const next = { ...s.cachingIds };
@@ -449,7 +595,7 @@ export const useMusicStore = create<MusicState>((set, get) => {
         set({ account, isLoading: false });
         return account;
       } catch (e: any) {
-        set({ isLoading: false, error: e?.message || 'Ошибка проверки токена' });
+        set({ isLoading: false, error: formatOfflineError(e, false) });
         throw e;
       }
     },
@@ -478,7 +624,8 @@ export const useMusicStore = create<MusicState>((set, get) => {
 
     startMyWave: async (stationId?: string, stationName?: string) => {
       const sid = stationId || get().activeStationId || 'user:onyourwave';
-      const sname = stationName || (sid === 'user:onyourwave' ? 'Моя волна' : get().activeStationName);
+      const sname =
+        stationName || (sid === 'user:onyourwave' ? 'Моя волна' : get().activeStationName);
       const token = usePhoneSettingsStore.getState().yandexToken.trim();
       set({ isLoading: true, error: null, activeStationId: sid, activeStationName: sname });
       try {
@@ -486,10 +633,10 @@ export const useMusicStore = create<MusicState>((set, get) => {
         const raw = await getStationTracks(token, sid);
         if (raw.length === 0) throw new Error('Волна не вернула треков');
         const tracks = withLikedFlag(raw, get().likedIds);
-        set({ queue: tracks, isWaveMode: true });
+        set({ queue: tracks, originalQueue: tracks, shuffleEnabled: false, isWaveMode: true });
         await playAt(0);
       } catch (e: any) {
-        set({ isLoading: false, error: e?.message || 'Ошибка Моей волны' });
+        set({ isLoading: false, error: formatOfflineError(e, false) });
       }
     },
 
@@ -500,7 +647,7 @@ export const useMusicStore = create<MusicState>((set, get) => {
         await setWaveSettings(token, mood, diversity);
         await get().startMyWave('user:onyourwave', 'Моя волна');
       } catch (e: any) {
-        set({ isLoading: false, error: e?.message || 'Ошибка настройки волны' });
+        set({ isLoading: false, error: formatOfflineError(e, false) });
       }
     },
 
@@ -530,6 +677,18 @@ export const useMusicStore = create<MusicState>((set, get) => {
 
     loadLiked: async (force = false) => {
       if (!force && (get().likedTracks.length > 0 || get().loadingLiked)) return;
+      const snap = await loadLibrarySnapshot();
+      if (snap && snap.likedTracks.length > 0 && get().likedTracks.length === 0) {
+        const idMap: Record<string, true> = { ...get().likedIds };
+        for (const t of snap.likedTracks) idMap[t.id] = true;
+        set({
+          likedTracks: snap.likedTracks,
+          likedTotal: snap.likedTotal || snap.likedTracks.length,
+          likedIds: idMap,
+          likedIdsLoaded: true,
+        });
+      }
+
       set({ loadingLiked: true, error: null });
       try {
         const { token, acc } = await ensureAccount();
@@ -553,25 +712,41 @@ export const useMusicStore = create<MusicState>((set, get) => {
           likedIdsLoaded: true,
           loadingLiked: false,
         });
+        void saveLibrarySnapshot({ likedTracks: liked, likedTotal: liked.length });
       } catch (e: any) {
-        set({ loadingLiked: false, error: e?.message || 'Ошибка загрузки медиатеки' });
+        const hasLocal = get().likedTracks.length > 0;
+        set({
+          loadingLiked: false,
+          error: formatOfflineError(e, hasLocal),
+        });
       }
     },
 
     loadPlaylists: async (force = false) => {
       if (!force && get().playlists.length > 0) return;
+      const snap = await loadLibrarySnapshot();
+      if (snap && snap.playlists.length > 0 && get().playlists.length === 0) {
+        set({ playlists: snap.playlists });
+      }
       set({ loadingPlaylists: true, error: null });
       try {
         const { token, acc } = await ensureAccount();
         const playlists = await getUserPlaylists(token, acc.uid);
         set({ playlists, loadingPlaylists: false });
+        void saveLibrarySnapshot({ playlists });
       } catch (e: any) {
-        set({ loadingPlaylists: false, error: e?.message || 'Ошибка загрузки плейлистов' });
+        const hasLocal = get().playlists.length > 0;
+        set({ loadingPlaylists: false, error: formatOfflineError(e, hasLocal) });
       }
     },
 
     openPlaylist: async (playlist: YandexPlaylist) => {
-      set({ selectedPlaylist: playlist, playlistTracks: [], loadingPlaylistTracks: true, error: null });
+      set({
+        selectedPlaylist: playlist,
+        playlistTracks: [],
+        loadingPlaylistTracks: true,
+        error: null,
+      });
       try {
         void get().ensureLikedIds();
         const { token, acc } = await ensureAccount();
@@ -582,10 +757,13 @@ export const useMusicStore = create<MusicState>((set, get) => {
           }
         });
         if (get().selectedPlaylist?.kind === playlist.kind) {
-          set({ playlistTracks: withLikedFlag(tracks, get().likedIds), loadingPlaylistTracks: false });
+          set({
+            playlistTracks: withLikedFlag(tracks, get().likedIds),
+            loadingPlaylistTracks: false,
+          });
         }
       } catch (e: any) {
-        set({ loadingPlaylistTracks: false, error: e?.message || 'Ошибка открытия плейлиста' });
+        set({ loadingPlaylistTracks: false, error: formatOfflineError(e, false) });
       }
     },
 
@@ -610,7 +788,7 @@ export const useMusicStore = create<MusicState>((set, get) => {
           isLoading: false,
         });
       } catch (e: any) {
-        set({ isLoading: false, error: e?.message || 'Ошибка поиска' });
+        set({ isLoading: false, error: formatOfflineError(e, false) });
       }
     },
 
@@ -642,8 +820,10 @@ export const useMusicStore = create<MusicState>((set, get) => {
         });
       } catch (e: any) {
         set((s) => ({
-          selectedCollection: s.selectedCollection ? { ...s.selectedCollection, loading: false } : null,
-          error: e?.message || 'Ошибка открытия альбома',
+          selectedCollection: s.selectedCollection
+            ? { ...s.selectedCollection, loading: false }
+            : null,
+          error: formatOfflineError(e, false),
         }));
       }
     },
@@ -676,8 +856,10 @@ export const useMusicStore = create<MusicState>((set, get) => {
         });
       } catch (e: any) {
         set((s) => ({
-          selectedCollection: s.selectedCollection ? { ...s.selectedCollection, loading: false } : null,
-          error: e?.message || 'Ошибка загрузки треков исполнителя',
+          selectedCollection: s.selectedCollection
+            ? { ...s.selectedCollection, loading: false }
+            : null,
+          error: formatOfflineError(e, false),
         }));
       }
     },
@@ -728,15 +910,18 @@ export const useMusicStore = create<MusicState>((set, get) => {
       if (activePlayer.playing) {
         activePlayer.pause();
         set({ isPlaying: false });
+        syncNativeMedia(undefined, false);
       } else {
         activePlayer.play();
         set({ isPlaying: true });
+        syncNativeMedia(undefined, true);
       }
     },
 
     seekTo: async (ms: number) => {
       const clamped = Math.max(0, ms);
-      set({ positionMs: clamped });
+      useMusicProgressStore.setState({ positionMs: clamped });
+      syncNativeMedia(clamped);
       if (activePlayer) {
         try {
           await activePlayer.seekTo(clamped / 1000);
@@ -745,8 +930,9 @@ export const useMusicStore = create<MusicState>((set, get) => {
     },
 
     nextTrack: async () => {
-      const { currentIndex, queue, currentTrack, isWaveMode, positionMs, repeatMode, activeStationId } =
+      const { currentIndex, queue, currentTrack, isWaveMode, repeatMode, activeStationId } =
         get();
+      const positionMs = useMusicProgressStore.getState().positionMs;
       const token = usePhoneSettingsStore.getState().yandexToken.trim();
       if (isWaveMode && currentTrack && token) {
         void sendWaveFeedback(
@@ -781,7 +967,8 @@ export const useMusicStore = create<MusicState>((set, get) => {
     },
 
     prevTrack: async () => {
-      const { currentIndex, positionMs, queue, repeatMode } = get();
+      const { currentIndex, queue, repeatMode } = get();
+      const positionMs = useMusicProgressStore.getState().positionMs;
       if (positionMs > 3500 && activePlayer) {
         await get().seekTo(0);
         return;
@@ -790,6 +977,8 @@ export const useMusicStore = create<MusicState>((set, get) => {
         await playAt(currentIndex - 1);
       } else if (repeatMode === 'all' && queue.length > 0) {
         await playAt(queue.length - 1);
+      } else if (activePlayer) {
+        await get().seekTo(0);
       }
     },
 
@@ -829,11 +1018,11 @@ export const useMusicStore = create<MusicState>((set, get) => {
         }
         return { repeatMode: next };
       });
+      syncNativeMedia();
     },
 
     toggleTrackLike: async (track: YandexTrack) => {
       try {
-        const { token, acc } = await ensureAccount();
         const prevLiked = Boolean(get().likedIds[track.id] ?? track.liked);
         const nextLiked = !prevLiked;
 
@@ -872,13 +1061,21 @@ export const useMusicStore = create<MusicState>((set, get) => {
           };
         });
 
+        if (get().currentTrack?.id === track.id) {
+          if (lastNativeLiked !== nextLiked) {
+            syncNativeMedia();
+          }
+        }
+
+        const { token, acc } = await ensureAccount();
         await setTrackLike(token, acc.uid, track.id, nextLiked);
+        void saveLibrarySnapshot({ likedTracks: get().likedTracks, likedTotal: get().likedTotal });
 
         if (nextLiked && usePhoneSettingsStore.getState().autoCacheLikedOnly) {
           void get().cacheTrack({ ...track, liked: true });
         }
       } catch (e: any) {
-        set({ error: e?.message || 'Не удалось обновить лайк' });
+        set({ error: formatOfflineError(e, false) });
       }
     },
 
@@ -888,8 +1085,9 @@ export const useMusicStore = create<MusicState>((set, get) => {
     },
 
     dislikeCurrentTrack: async () => {
-      const { currentTrack, isWaveMode, activeStationId, positionMs } = get();
+      const { currentTrack, isWaveMode, activeStationId } = get();
       if (!currentTrack) return;
+      const positionMs = useMusicProgressStore.getState().positionMs;
       const token = usePhoneSettingsStore.getState().yandexToken.trim();
       if (isWaveMode && token) {
         void sendWaveFeedback(
@@ -935,10 +1133,15 @@ export const useMusicStore = create<MusicState>((set, get) => {
 
 export function disposeMusicPlayer() {
   try {
+    mediaActionSub?.remove();
+    mediaActionSub = null;
     statusSub?.remove();
     statusSub = null;
     lockScreenAttached = false;
     activePlayer?.remove();
     activePlayer = null;
+    if (Platform.OS === 'android') {
+      clearNativeMediaState();
+    }
   } catch {}
 }

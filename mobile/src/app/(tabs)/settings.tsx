@@ -23,6 +23,7 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
+  PermissionsAndroid,
   Platform,
   Pressable,
   ScrollView,
@@ -33,6 +34,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { showPopupNotification } from '../../../modules/sakura-wake';
 import { normalizeWords } from '../../api/secure/pairing';
 import { GlassCard } from '../../components/ui/GlassCard';
 import { SakuraColors } from '../../constants/colors';
@@ -421,9 +423,39 @@ export default function SettingsScreen() {
 
             {renderToggle(
               'Уведомления Сакуры',
-              'Проактивные напоминания и статусы',
+              'Всплывающие напоминания, брифинги и ответы в фоне',
               settings.notificationsEnabled,
               (v) => toggleSetting('notificationsEnabled', v)
+            )}
+            {Platform.OS === 'android' && (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.secondaryActionBtn,
+                  { marginTop: 4 },
+                  pressed && styles.pressed,
+                ]}
+                onPress={async () => {
+                  hapticTap();
+                  if (Number(Platform.Version) >= 33) {
+                    await PermissionsAndroid.request(
+                      PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
+                    ).catch(() => {});
+                  }
+                  const ok = showPopupNotification(
+                    'Сакура',
+                    'Всплывающие уведомления настроены и работают ✨',
+                    '(tabs)/chat',
+                    'sakura_test_popup'
+                  );
+                  if (!ok) {
+                    Alert.alert(
+                      'Разрешение не выдано',
+                      'Разрешите уведомления в настройках Android для Sakura Mobile.'
+                    );
+                  }
+                }}>
+                <Text style={styles.secondaryActionText}>Проверить всплывающее уведомление</Text>
+              </Pressable>
             )}
           </GlassCard>
 

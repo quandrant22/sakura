@@ -11,12 +11,13 @@ import {
   SlidersHorizontal,
 } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
-import { Keyboard, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Keyboard, PermissionsAndroid, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MiniPlayer } from '../../components/music/MiniPlayer';
 import { SakuraColors } from '../../constants/colors';
 import { useWakeWordRunner } from '../../hooks/useWakeWord';
 import { ACCENT_THEMES, usePhoneSettingsStore } from '../../stores/usePhoneSettingsStore';
+import { setActiveTabRoute } from '../../utils/activeRoute';
 
 const VISIBLE_TABS = new Set(['index', 'chat', 'widgets', 'music', 'settings']);
 
@@ -39,6 +40,7 @@ function CustomTabBar({ state, descriptors, navigation, accent }: any) {
   if (keyboardOpen) return null;
 
   const activeRouteName = state.routes[state.index]?.name;
+  setActiveTabRoute(activeRouteName || 'index');
 
   return (
     <View style={[styles.tabDock, { paddingBottom: Math.max(insets.bottom, 8) }]}>
@@ -105,12 +107,15 @@ export default function TabLayout() {
 
   useEffect(() => {
     void loadSettings();
+    if (Platform.OS === 'android' && Number(Platform.Version) >= 33) {
+      void PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS).catch(() => {});
+    }
   }, [loadSettings]);
 
   return (
     <Tabs
       tabBar={(props) => <CustomTabBar {...props} accent={accent} />}
-      screenOptions={{ headerShown: false }}>
+      screenOptions={{ headerShown: false, lazy: true, freezeOnBlur: true }}>
       <Tabs.Screen
         name="index"
         options={{

@@ -51,11 +51,22 @@ import { useScenariosStore } from '../../stores/useScenariosStore';
 
 export default function WidgetsAndRemoteScreen() {
   const router = useRouter();
-  const { devices, isLoading: devLoading, bindEvents: bindDev, fetchDevices } = useDevicesStore();
-  const { scenarios, runningScenarioId, bindEvents: bindScen, fetchScenarios, runScenario } =
-    useScenariosStore();
-  const { total: memoryTotal, fetchMemories } = useMemoryStore();
-  const { status, sendMessage } = useChatStore();
+  const devices = useDevicesStore((s) => s.devices);
+  const devLoading = useDevicesStore((s) => s.isLoading);
+  const bindDev = useDevicesStore((s) => s.bindEvents);
+  const fetchDevices = useDevicesStore((s) => s.fetchDevices);
+
+  const scenarios = useScenariosStore((s) => s.scenarios);
+  const runningScenarioId = useScenariosStore((s) => s.runningScenarioId);
+  const bindScen = useScenariosStore((s) => s.bindEvents);
+  const fetchScenarios = useScenariosStore((s) => s.fetchScenarios);
+  const runScenario = useScenariosStore((s) => s.runScenario);
+
+  const memoryTotal = useMemoryStore((s) => s.total);
+  const fetchMemories = useMemoryStore((s) => s.fetchMemories);
+
+  const status = useChatStore((s) => s.status);
+  const sendMessage = useChatStore((s) => s.sendMessage);
   const settings = usePhoneSettingsStore();
 
   const accent = ACCENT_THEMES[settings.accentTheme].accent;

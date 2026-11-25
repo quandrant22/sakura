@@ -1,10 +1,11 @@
 /**
- * Music Screen — полноценная Яндекс.Музыка в стиле Noir Luxe с плеером снизу,
- * всеми 2000+ лайками, Моей волной с настройками, плейлистами, чартом, поиском и кэшем.
+ * Music Screen — высокопроизводительная Яндекс.Музыка в стиле Noir Luxe:
+ * getItemLayout + React.memo строки + expo-image кэш + изоляция прогресс-бара,
+ * все 2000+ лайков с оффлайн-снапшотом, Моя волна, плейлисты, чарт, поиск и кэш.
  */
 
-import { requestNotificationPermissionsAsync } from 'expo-audio';
 import * as Haptics from 'expo-haptics';
+import { Image } from 'expo-image';
 import {
   ArrowLeft,
   CheckCircle2,
@@ -25,12 +26,11 @@ import {
   Trash2,
   User,
 } from 'lucide-react-native';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
-  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -50,10 +50,15 @@ import {
   YandexPlaylist,
   YandexTrack,
 } from '../../services/yandexMusic';
+import { useMusicProgressStore } from '../../stores/useMusicProgressStore';
 import { useMusicStore } from '../../stores/useMusicStore';
 import { ACCENT_THEMES, usePhoneSettingsStore } from '../../stores/usePhoneSettingsStore';
 
 type MusicTab = 'wave' | 'liked' | 'playlists' | 'search' | 'cache';
+
+const TRACK_ROW_HEIGHT = 64;
+const TRACK_ROW_GAP = 7;
+const TRACK_ROW_STRIDE = TRACK_ROW_HEIGHT + TRACK_ROW_GAP;
 
 const MOOD_OPTIONS: { id: WaveMood; label: string }[] = [
   { id: 'all', label: 'Любое' },
@@ -77,71 +82,211 @@ function fmtTime(ms: number): string {
   return `${m}:${rem}`;
 }
 
-export default function MusicScreen() {
-  const {
-    queue,
-    currentTrack,
-    likedIds,
-    likedTracks,
-    likedTotal,
-    loadingLiked,
-    playlists,
-    selectedPlaylist,
-    playlistTracks,
-    loadingPlaylists,
-    loadingPlaylistTracks,
-    chartTracks,
-    loadingChart,
-    stations,
-    activeStationId,
-    activeStationName,
-    waveMood,
-    waveDiversity,
-    searchResults,
-    searchAlbums,
-    searchArtists,
-    selectedCollection,
-    cachedMap,
-    cachingIds,
-    batchProgress,
-    isPlaying,
-    isLoading,
-    positionMs,
-    durationMs,
-    error,
-    loadCache,
-    ensureLikedIds,
-    startMyWave,
-    setWaveMix,
-    loadStations,
-    loadChart,
-    loadLiked,
-    loadPlaylists,
-    openPlaylist,
-    closePlaylist,
-    search,
-    openAlbum,
-    openArtist,
-    closeCollection,
-    playFromList,
-    playShuffled,
-    togglePlayPause,
-    nextTrack,
-    prevTrack,
-    toggleTrackLike,
-    toggleCurrentLike,
-    cacheTrack,
-    cacheTrackList,
-    cacheAllLiked,
-    cancelBatchCache,
-    purgeUnlikedCache,
-    removeCached,
-    clearCache,
-    setFullPlayerOpen,
-  } = useMusicStore();
+function BottomProgressLineBase({
+  accent,
+  fallbackDurationMs,
+}: {
+  accent: string;
+  fallbackDurationMs: number;
+}) {
+  const positionMs = useMusicProgressStore((s) => s.positionMs);
+  const durationMs = useMusicProgressStore((s) => s.durationMs) || fallbackDurationMs;
+  const progressPct =
+    durationMs > 0 ? Math.min(100, Math.max(0, (positionMs / durationMs) * 100)) : 0;
 
-  const settings = usePhoneSettingsStore();
-  const accent = ACCENT_THEMES[settings.accentTheme].accent;
+  return (
+    <View style={styles.progressBg}>
+      <View
+        style={[styles.progressFill, { width: `${progressPct}%`, backgroundColor: accent }]}
+      />
+    </View>
+  );
+}
+const BottomProgressLine = memo(BottomProgressLineBase);
+
+function BottomTimeLabelBase({
+  artist,
+  fallbackDurationMs,
+}: {
+  artist: string;
+  fallbackDurationMs: number;
+}) {
+  const positionMs = useMusicProgressStore((s) => s.positionMs);
+  const durationMs = useMusicProgressStore((s) => s.durationMs) || fallbackDurationMs;
+  return (
+    <Text style={styles.playerArtist} numberOfLines={1}>
+      {artist} · {fmtTime(positionMs)} / {fmtTime(durationMs)}
+    </Text>
+  );
+}
+const BottomTimeLabel = memo(BottomTimeLabelBase);
+
+interface TrackRowProps {
+  item: YandexTrack;
+  index: number;
+  isCurrent: boolean;
+  isCached: boolean;
+  isCaching: boolean;
+  isLiked: boolean;
+  accent: string;
+  onPress: (index: number) => void;
+  onToggleLike: (track: YandexTrack) => void;
+  onToggleCache: (track: YandexTrack, isCached: boolean, isCaching: boolean) => void;
+}
+
+function TrackRowBase({
+  item,
+  index,
+  isCurrent,
+  isCached,
+  isCaching,
+  isLiked,
+  accent,
+  onPress,
+  onToggleLike,
+  onToggleCache,
+}: TrackRowProps) {
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        styles.trackRow,
+        isCurrent && { backgroundColor: accent + '1A', borderColor: accent + '60' },
+        pressed && { opacity: 0.8 },
+      ]}
+      onPress={() => onPress(index)}>
+      {item.coverUrl ? (
+        <Image
+          source={{ uri: item.coverUrl }}
+          style={styles.trackCover}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          recyclingKey={item.id}
+        />
+      ) : (
+        <View style={[styles.trackCover, styles.coverStub]}>
+          <Disc3 size={18} color={SakuraColors.inkDim} />
+        </View>
+      )}
+
+      <View style={styles.trackMeta}>
+        <Text style={[styles.trackTitle, isCurrent && { color: accent }]} numberOfLines={1}>
+          {item.title}
+        </Text>
+        <Text style={styles.trackArtist} numberOfLines={1}>
+          {item.artist}
+          {isCached ? ' · оффлайн' : ''}
+        </Text>
+      </View>
+
+      <Text style={styles.trackDur}>{fmtTime(item.durationMs)}</Text>
+
+      <Pressable
+        hitSlop={8}
+        style={styles.rowActionBtn}
+        onPress={(e) => {
+          e.stopPropagation();
+          onToggleLike(item);
+        }}>
+        <Heart
+          size={17}
+          color={isLiked ? accent : SakuraColors.inkDim}
+          fill={isLiked ? accent : 'transparent'}
+        />
+      </Pressable>
+
+      {Platform.OS !== 'web' && (
+        <Pressable
+          hitSlop={8}
+          style={styles.rowActionBtn}
+          onPress={(e) => {
+            e.stopPropagation();
+            onToggleCache(item, isCached, isCaching);
+          }}>
+          {isCaching ? (
+            <ActivityIndicator size="small" color={accent} />
+          ) : isCached ? (
+            <CheckCircle2 size={17} color={SakuraColors.online} />
+          ) : (
+            <Download size={17} color={SakuraColors.inkDim} />
+          )}
+        </Pressable>
+      )}
+    </Pressable>
+  );
+}
+const TrackRow = memo(TrackRowBase);
+
+const TRACK_KEY_EXTRACTOR = (item: YandexTrack, idx: number) => `${item.id}_${idx}`;
+const PLAYLIST_KEY_EXTRACTOR = (pl: YandexPlaylist) => `${pl.ownerUid}_${pl.kind}`;
+const GET_TRACK_LAYOUT = (_: ArrayLike<YandexTrack> | null | undefined, index: number) => ({
+  length: TRACK_ROW_HEIGHT,
+  offset: TRACK_ROW_STRIDE * index,
+  index,
+});
+
+export default function MusicScreen() {
+  const queue = useMusicStore((s) => s.queue);
+  const currentTrack = useMusicStore((s) => s.currentTrack);
+  const likedIds = useMusicStore((s) => s.likedIds);
+  const likedTracks = useMusicStore((s) => s.likedTracks);
+  const likedTotal = useMusicStore((s) => s.likedTotal);
+  const loadingLiked = useMusicStore((s) => s.loadingLiked);
+  const playlists = useMusicStore((s) => s.playlists);
+  const selectedPlaylist = useMusicStore((s) => s.selectedPlaylist);
+  const playlistTracks = useMusicStore((s) => s.playlistTracks);
+  const loadingPlaylists = useMusicStore((s) => s.loadingPlaylists);
+  const loadingPlaylistTracks = useMusicStore((s) => s.loadingPlaylistTracks);
+  const chartTracks = useMusicStore((s) => s.chartTracks);
+  const loadingChart = useMusicStore((s) => s.loadingChart);
+  const stations = useMusicStore((s) => s.stations);
+  const activeStationId = useMusicStore((s) => s.activeStationId);
+  const activeStationName = useMusicStore((s) => s.activeStationName);
+  const waveMood = useMusicStore((s) => s.waveMood);
+  const waveDiversity = useMusicStore((s) => s.waveDiversity);
+  const searchResults = useMusicStore((s) => s.searchResults);
+  const searchAlbums = useMusicStore((s) => s.searchAlbums);
+  const searchArtists = useMusicStore((s) => s.searchArtists);
+  const selectedCollection = useMusicStore((s) => s.selectedCollection);
+  const cachedMap = useMusicStore((s) => s.cachedMap);
+  const cachingIds = useMusicStore((s) => s.cachingIds);
+  const batchProgress = useMusicStore((s) => s.batchProgress);
+  const isPlaying = useMusicStore((s) => s.isPlaying);
+  const isLoading = useMusicStore((s) => s.isLoading);
+  const error = useMusicStore((s) => s.error);
+
+  const loadCache = useMusicStore((s) => s.loadCache);
+  const ensureLikedIds = useMusicStore((s) => s.ensureLikedIds);
+  const startMyWave = useMusicStore((s) => s.startMyWave);
+  const setWaveMix = useMusicStore((s) => s.setWaveMix);
+  const loadStations = useMusicStore((s) => s.loadStations);
+  const loadChart = useMusicStore((s) => s.loadChart);
+  const loadLiked = useMusicStore((s) => s.loadLiked);
+  const loadPlaylists = useMusicStore((s) => s.loadPlaylists);
+  const openPlaylist = useMusicStore((s) => s.openPlaylist);
+  const closePlaylist = useMusicStore((s) => s.closePlaylist);
+  const search = useMusicStore((s) => s.search);
+  const openAlbum = useMusicStore((s) => s.openAlbum);
+  const openArtist = useMusicStore((s) => s.openArtist);
+  const closeCollection = useMusicStore((s) => s.closeCollection);
+  const playFromList = useMusicStore((s) => s.playFromList);
+  const playShuffled = useMusicStore((s) => s.playShuffled);
+  const togglePlayPause = useMusicStore((s) => s.togglePlayPause);
+  const nextTrack = useMusicStore((s) => s.nextTrack);
+  const prevTrack = useMusicStore((s) => s.prevTrack);
+  const toggleTrackLike = useMusicStore((s) => s.toggleTrackLike);
+  const toggleCurrentLike = useMusicStore((s) => s.toggleCurrentLike);
+  const cacheTrack = useMusicStore((s) => s.cacheTrack);
+  const cacheTrackList = useMusicStore((s) => s.cacheTrackList);
+  const cacheAllLiked = useMusicStore((s) => s.cacheAllLiked);
+  const cancelBatchCache = useMusicStore((s) => s.cancelBatchCache);
+  const purgeUnlikedCache = useMusicStore((s) => s.purgeUnlikedCache);
+  const removeCached = useMusicStore((s) => s.removeCached);
+  const clearCache = useMusicStore((s) => s.clearCache);
+  const setFullPlayerOpen = useMusicStore((s) => s.setFullPlayerOpen);
+
+  const accentTheme = usePhoneSettingsStore((s) => s.accentTheme);
+  const hapticsEnabled = usePhoneSettingsStore((s) => s.hapticsEnabled);
+  const accent = ACCENT_THEMES[accentTheme].accent;
 
   const [tab, setTab] = useState<MusicTab>('liked');
   const [query, setQuery] = useState('');
@@ -150,9 +295,6 @@ export default function MusicScreen() {
   useEffect(() => {
     void loadCache();
     void ensureLikedIds();
-    if (Platform.OS === 'android') {
-      void requestNotificationPermissionsAsync().catch(() => {});
-    }
   }, [loadCache, ensureLikedIds]);
 
   useEffect(() => {
@@ -178,21 +320,27 @@ export default function MusicScreen() {
     loadChart,
   ]);
 
-  const haptic = () => {
-    if (!settings.hapticsEnabled) return;
+  const haptic = useCallback(() => {
+    if (!hapticsEnabled) return;
     try {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {}
-  };
+  }, [hapticsEnabled]);
 
-  const cachedEntries = Object.values(cachedMap).sort((a, b) => b.cachedAt - a.cachedAt);
-  const cachedTracks = cachedEntries.map((e) => ({
-    ...e.track,
-    liked: Boolean(likedIds[e.track.id] ?? e.track.liked),
-  }));
-  const unlikedCachedCount = cachedTracks.filter((t) => !likedIds[t.id]).length;
-  const totalBytes = cachedEntries.reduce((acc, e) => acc + (e.sizeBytes || 0), 0);
-  const totalMb = (totalBytes / (1024 * 1024)).toFixed(1);
+  const { cachedTracks, unlikedCachedCount, totalMb } = useMemo(() => {
+    const entries = Object.values(cachedMap).sort((a, b) => b.cachedAt - a.cachedAt);
+    const tracks: YandexTrack[] = entries.map((e) => ({
+      ...e.track,
+      liked: Boolean(likedIds[e.track.id] ?? e.track.liked),
+    }));
+    const unliked = entries.filter((e) => !likedIds[e.track.id]).length;
+    const bytes = entries.reduce((acc, e) => acc + (e.sizeBytes || 0), 0);
+    return {
+      cachedTracks: tracks,
+      unlikedCachedCount: unliked,
+      totalMb: (bytes / (1024 * 1024)).toFixed(1),
+    };
+  }, [cachedMap, likedIds]);
 
   const filteredLiked = useMemo(() => {
     const q = likesFilter.trim().toLowerCase();
@@ -225,10 +373,39 @@ export default function MusicScreen() {
     chartTracks,
   ]);
 
-  const progressPct =
-    durationMs > 0 ? Math.min(100, Math.max(0, (positionMs / durationMs) * 100)) : 0;
+  const listDataRef = useRef(listData);
+  const tabRef = useRef(tab);
+  useEffect(() => {
+    listDataRef.current = listData;
+    tabRef.current = tab;
+  }, [listData, tab]);
 
-  const confirmClearCache = () => {
+  const handlePressTrack = useCallback(
+    (index: number) => {
+      haptic();
+      void playFromList(listDataRef.current, index, tabRef.current === 'wave');
+    },
+    [haptic, playFromList]
+  );
+
+  const handleToggleLike = useCallback(
+    (track: YandexTrack) => {
+      haptic();
+      void toggleTrackLike(track);
+    },
+    [haptic, toggleTrackLike]
+  );
+
+  const handleToggleCache = useCallback(
+    (track: YandexTrack, isCached: boolean, isCaching: boolean) => {
+      haptic();
+      if (isCached) void removeCached(track.id);
+      else if (!isCaching) void cacheTrack(track);
+    },
+    [haptic, removeCached, cacheTrack]
+  );
+
+  const confirmClearCache = useCallback(() => {
     if (Platform.OS === 'web') {
       void clearCache();
       return;
@@ -237,82 +414,69 @@ export default function MusicScreen() {
       { text: 'Отмена', style: 'cancel' },
       { text: 'Очистить', style: 'destructive', onPress: () => void clearCache() },
     ]);
-  };
+  }, [cachedTracks.length, totalMb, clearCache]);
 
-  const renderTrack = ({ item, index }: { item: YandexTrack; index: number }) => {
-    const isCurrent = currentTrack?.id === item.id;
-    const isCached = Boolean(cachedMap[item.id]);
-    const isCaching = Boolean(cachingIds[item.id]);
-    const isLiked = Boolean(likedIds[item.id] ?? item.liked);
+  const currentTrackId = currentTrack?.id;
 
-    return (
+  const renderTrack = useCallback(
+    ({ item, index }: { item: YandexTrack; index: number }) => (
+      <TrackRow
+        item={item}
+        index={index}
+        isCurrent={currentTrackId === item.id}
+        isCached={Boolean(cachedMap[item.id])}
+        isCaching={Boolean(cachingIds[item.id])}
+        isLiked={Boolean(likedIds[item.id] ?? item.liked)}
+        accent={accent}
+        onPress={handlePressTrack}
+        onToggleLike={handleToggleLike}
+        onToggleCache={handleToggleCache}
+      />
+    ),
+    [
+      currentTrackId,
+      cachedMap,
+      cachingIds,
+      likedIds,
+      accent,
+      handlePressTrack,
+      handleToggleLike,
+      handleToggleCache,
+    ]
+  );
+
+  const renderPlaylist = useCallback(
+    ({ item: pl }: { item: YandexPlaylist }) => (
       <Pressable
-        style={({ pressed }) => [
-          styles.trackRow,
-          isCurrent && { backgroundColor: accent + '1A', borderColor: accent + '60' },
-          pressed && { opacity: 0.8 },
-        ]}
+        style={({ pressed }) => [styles.trackRow, pressed && { opacity: 0.82 }]}
         onPress={() => {
           haptic();
-          void playFromList(listData, index, tab === 'wave');
+          void openPlaylist(pl);
         }}>
-        {item.coverUrl ? (
-          <Image source={{ uri: item.coverUrl }} style={styles.trackCover} />
+        {pl.coverUrl ? (
+          <Image
+            source={{ uri: pl.coverUrl }}
+            style={styles.trackCover}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            recyclingKey={`pl_${pl.kind}`}
+          />
         ) : (
           <View style={[styles.trackCover, styles.coverStub]}>
-            <Disc3 size={18} color={SakuraColors.inkDim} />
+            <ListMusic size={20} color={accent} />
           </View>
         )}
-
         <View style={styles.trackMeta}>
-          <Text style={[styles.trackTitle, isCurrent && { color: accent }]} numberOfLines={1}>
-            {item.title}
+          <Text style={styles.trackTitle} numberOfLines={1}>
+            {pl.title}
           </Text>
-          <Text style={styles.trackArtist} numberOfLines={1}>
-            {item.artist}
-            {isCached ? ' · оффлайн' : ''}
-          </Text>
+          <Text style={styles.playlistCount}>{pl.trackCount} ТРЕКОВ</Text>
         </View>
-
-        <Text style={styles.trackDur}>{fmtTime(item.durationMs)}</Text>
-
-        <Pressable
-          hitSlop={8}
-          style={styles.rowActionBtn}
-          onPress={(e) => {
-            e.stopPropagation();
-            haptic();
-            void toggleTrackLike(item);
-          }}>
-          <Heart
-            size={17}
-            color={isLiked ? accent : SakuraColors.inkDim}
-            fill={isLiked ? accent : 'transparent'}
-          />
-        </Pressable>
-
-        {Platform.OS !== 'web' && (
-          <Pressable
-            hitSlop={8}
-            style={styles.rowActionBtn}
-            onPress={(e) => {
-              e.stopPropagation();
-              haptic();
-              if (isCached) void removeCached(item.id);
-              else if (!isCaching) void cacheTrack(item);
-            }}>
-            {isCaching ? (
-              <ActivityIndicator size="small" color={accent} />
-            ) : isCached ? (
-              <CheckCircle2 size={17} color={SakuraColors.online} />
-            ) : (
-              <Download size={17} color={SakuraColors.inkDim} />
-            )}
-          </Pressable>
-        )}
+        <ChevronRight size={18} color={SakuraColors.inkDim} />
       </Pressable>
-    );
-  };
+    ),
+    [accent, haptic, openPlaylist]
+  );
 
   const renderCollectionBar = (
     title: string,
@@ -377,7 +541,6 @@ export default function MusicScreen() {
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.container}>
-          {/* Компактная шапка */}
           <View style={styles.headerRow}>
             <Text style={styles.screenTitle}>Яндекс.Музыка</Text>
             {cachedTracks.length > 0 && (
@@ -392,7 +555,6 @@ export default function MusicScreen() {
 
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-          {/* Верхний переключатель разделов */}
           <View style={styles.tabsRowWrap}>
             <ScrollView
               horizontal
@@ -443,14 +605,14 @@ export default function MusicScreen() {
             </ScrollView>
           </View>
 
-          {/* Настройки Моей волны и Станций */}
           {tab === 'wave' && (
             <View style={styles.waveControlsBox}>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.chipStrip}>
-                <View style={[styles.chipPill, { borderColor: accent + '66', backgroundColor: accent + '16' }]}>
+                <View
+                  style={[styles.chipPill, { borderColor: accent + '66', backgroundColor: accent + '16' }]}>
                   <Sparkles size={12} color={accent} />
                   <Text style={[styles.chipText, { color: accent }]}>{activeStationName}</Text>
                 </View>
@@ -459,7 +621,10 @@ export default function MusicScreen() {
                   return (
                     <Pressable
                       key={m.id}
-                      style={[styles.chipPill, active && { borderColor: accent, backgroundColor: accent + '24' }]}
+                      style={[
+                        styles.chipPill,
+                        active && { borderColor: accent, backgroundColor: accent + '24' },
+                      ]}
                       onPress={() => {
                         haptic();
                         void setWaveMix(m.id, waveDiversity);
@@ -473,12 +638,20 @@ export default function MusicScreen() {
                   return (
                     <Pressable
                       key={d.id}
-                      style={[styles.chipPill, active && { borderColor: SakuraColors.cyan, backgroundColor: 'rgba(79,216,255,0.16)' }]}
+                      style={[
+                        styles.chipPill,
+                        active && {
+                          borderColor: SakuraColors.cyan,
+                          backgroundColor: 'rgba(79,216,255,0.16)',
+                        },
+                      ]}
                       onPress={() => {
                         haptic();
                         void setWaveMix(waveMood, d.id);
                       }}>
-                      <Text style={[styles.chipText, active && { color: SakuraColors.cyan }]}>{d.label}</Text>
+                      <Text style={[styles.chipText, active && { color: SakuraColors.cyan }]}>
+                        {d.label}
+                      </Text>
                     </Pressable>
                   );
                 })}
@@ -494,7 +667,10 @@ export default function MusicScreen() {
                     return (
                       <Pressable
                         key={st.id}
-                        style={[styles.stationPill, active && { borderColor: accent, backgroundColor: accent + '20' }]}
+                        style={[
+                          styles.stationPill,
+                          active && { borderColor: accent, backgroundColor: accent + '20' },
+                        ]}
                         onPress={() => {
                           haptic();
                           void startMyWave(st.id, st.name);
@@ -511,7 +687,6 @@ export default function MusicScreen() {
             </View>
           )}
 
-          {/* Панель Лайков: фильтр + Играть / Перемешать / Скачать лайки */}
           {tab === 'liked' && (
             <View style={styles.likesToolbar}>
               <View style={styles.searchBox}>
@@ -563,7 +738,6 @@ export default function MusicScreen() {
             </View>
           )}
 
-          {/* Поиск / Чарт / Альбомы / Исполнители */}
           {tab === 'search' && !selectedCollection && (
             <View style={styles.searchBox}>
               <Search size={16} color={SakuraColors.inkDim} />
@@ -600,7 +774,12 @@ export default function MusicScreen() {
                         void openArtist(ar);
                       }}>
                       {ar.coverUrl ? (
-                        <Image source={{ uri: ar.coverUrl }} style={styles.entityAvatar} />
+                        <Image
+                          source={{ uri: ar.coverUrl }}
+                          style={styles.entityAvatar}
+                          contentFit="cover"
+                          cachePolicy="memory-disk"
+                        />
                       ) : (
                         <User size={14} color={accent} />
                       )}
@@ -618,7 +797,12 @@ export default function MusicScreen() {
                         void openAlbum(al);
                       }}>
                       {al.coverUrl ? (
-                        <Image source={{ uri: al.coverUrl }} style={styles.entityThumb} />
+                        <Image
+                          source={{ uri: al.coverUrl }}
+                          style={styles.entityThumb}
+                          contentFit="cover"
+                          cachePolicy="memory-disk"
+                        />
                       ) : (
                         <Disc3 size={14} color={SakuraColors.cyan} />
                       )}
@@ -649,7 +833,6 @@ export default function MusicScreen() {
               closePlaylist
             )}
 
-          {/* Прогресс кэширования + Управление только лайкнутыми в Кэше */}
           {(batchProgress || (tab === 'cache' && Platform.OS !== 'web')) && (
             <View style={styles.cacheActionsRow}>
               {batchProgress ? (
@@ -680,13 +863,17 @@ export default function MusicScreen() {
                       void cacheAllLiked();
                     }}>
                     <Download size={14} color={accent} />
-                    <Text style={[styles.cacheActionText, { color: accent }]}>
-                      Скачать лайки
-                    </Text>
+                    <Text style={[styles.cacheActionText, { color: accent }]}>Скачать лайки</Text>
                   </Pressable>
                   {unlikedCachedCount > 0 && (
                     <Pressable
-                      style={[styles.clearCacheBtn, { borderColor: SakuraColors.warn + '66', backgroundColor: 'rgba(255,180,60,0.12)' }]}
+                      style={[
+                        styles.clearCacheBtn,
+                        {
+                          borderColor: SakuraColors.warn + '66',
+                          backgroundColor: 'rgba(255,180,60,0.12)',
+                        },
+                      ]}
                       onPress={() => {
                         haptic();
                         void purgeUnlikedCache();
@@ -706,35 +893,16 @@ export default function MusicScreen() {
             </View>
           )}
 
-          {/* Основная прокручиваемая область */}
           <View style={{ flex: 1 }}>
             {tab === 'playlists' && !selectedPlaylist ? (
               <FlatList<YandexPlaylist>
                 data={playlists}
-                keyExtractor={(pl) => `${pl.ownerUid}_${pl.kind}`}
-                renderItem={({ item: pl }) => (
-                  <Pressable
-                    style={({ pressed }) => [styles.trackRow, pressed && { opacity: 0.82 }]}
-                    onPress={() => {
-                      haptic();
-                      void openPlaylist(pl);
-                    }}>
-                    {pl.coverUrl ? (
-                      <Image source={{ uri: pl.coverUrl }} style={styles.trackCover} />
-                    ) : (
-                      <View style={[styles.trackCover, styles.coverStub]}>
-                        <ListMusic size={20} color={accent} />
-                      </View>
-                    )}
-                    <View style={styles.trackMeta}>
-                      <Text style={styles.trackTitle} numberOfLines={1}>
-                        {pl.title}
-                      </Text>
-                      <Text style={styles.playlistCount}>{pl.trackCount} ТРЕКОВ</Text>
-                    </View>
-                    <ChevronRight size={18} color={SakuraColors.inkDim} />
-                  </Pressable>
-                )}
+                keyExtractor={PLAYLIST_KEY_EXTRACTOR}
+                renderItem={renderPlaylist}
+                initialNumToRender={12}
+                maxToRenderPerBatch={10}
+                windowSize={5}
+                removeClippedSubviews={Platform.OS === 'android'}
                 contentContainerStyle={styles.listContent}
                 ListEmptyComponent={
                   <View style={styles.emptyBox}>
@@ -747,11 +915,13 @@ export default function MusicScreen() {
             ) : (
               <FlatList
                 data={listData}
-                keyExtractor={(item, idx) => `${item.id}_${idx}`}
+                keyExtractor={TRACK_KEY_EXTRACTOR}
                 renderItem={renderTrack}
-                initialNumToRender={18}
-                maxToRenderPerBatch={24}
-                windowSize={7}
+                getItemLayout={GET_TRACK_LAYOUT}
+                initialNumToRender={12}
+                maxToRenderPerBatch={10}
+                updateCellsBatchingPeriod={24}
+                windowSize={5}
                 removeClippedSubviews={Platform.OS === 'android'}
                 keyboardShouldPersistTaps="handled"
                 contentContainerStyle={styles.listContent}
@@ -785,7 +955,6 @@ export default function MusicScreen() {
             )}
           </View>
 
-          {/* НИЖНИЙ ЗАКРЕПЛЁННЫЙ ПЛЕЕР (как в Яндекс.Музыке / Spotify) */}
           {currentTrack ? (
             <Pressable
               style={[styles.bottomPlayer, { borderColor: accent + '48' }]}
@@ -793,15 +962,17 @@ export default function MusicScreen() {
                 haptic();
                 setFullPlayerOpen(true);
               }}>
-              <View style={styles.progressBg}>
-                <View
-                  style={[styles.progressFill, { width: `${progressPct}%`, backgroundColor: accent }]}
-                />
-              </View>
+              <BottomProgressLine accent={accent} fallbackDurationMs={currentTrack.durationMs} />
 
               <View style={styles.bottomPlayerRow}>
                 {currentTrack.coverUrl ? (
-                  <Image source={{ uri: currentTrack.coverUrl }} style={styles.miniCover} />
+                  <Image
+                    source={{ uri: currentTrack.coverUrl }}
+                    style={styles.miniCover}
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
+                    transition={120}
+                  />
                 ) : (
                   <View style={[styles.miniCover, styles.coverStub]}>
                     <Disc3 size={20} color={accent} />
@@ -812,10 +983,10 @@ export default function MusicScreen() {
                   <Text style={styles.playerTitle} numberOfLines={1}>
                     {currentTrack.title}
                   </Text>
-                  <Text style={styles.playerArtist} numberOfLines={1}>
-                    {currentTrack.artist} · {fmtTime(positionMs)} /{' '}
-                    {fmtTime(durationMs || currentTrack.durationMs)}
-                  </Text>
+                  <BottomTimeLabel
+                    artist={currentTrack.artist}
+                    fallbackDurationMs={currentTrack.durationMs}
+                  />
                 </View>
 
                 <Pressable
@@ -1186,14 +1357,15 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   listContent: {
-    gap: 7,
     paddingBottom: 10,
   },
   trackRow: {
+    height: TRACK_ROW_HEIGHT,
+    marginBottom: TRACK_ROW_GAP,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 9,
-    padding: 9,
+    paddingHorizontal: 9,
     borderRadius: 13,
     backgroundColor: SakuraColors.panel,
     borderWidth: 1,
@@ -1246,11 +1418,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderTopColor: SakuraColors.glassHighlight,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.45,
-    shadowRadius: 16,
-    elevation: 12,
+    ...(Platform.OS === 'android'
+      ? { elevation: 6 }
+      : {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: 0.45,
+          shadowRadius: 16,
+        }),
   },
   progressBg: {
     height: 3,

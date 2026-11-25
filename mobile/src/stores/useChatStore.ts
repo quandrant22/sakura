@@ -3,13 +3,35 @@
  * and TTS audio chunk playback.
  */
 
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import { create } from 'zustand';
+import { showPopupNotification } from '../../modules/sakura-wake';
 import { sakuraClient } from '../api/client';
 import { Message, SakuraState, SakuraStatus } from '../api/types';
 import { ttsPlayer } from '../services/ttsPlayer';
+import { getActiveTabRoute } from '../utils/activeRoute';
 import { useMusicStore } from './useMusicStore';
 import { usePhoneSettingsStore } from './usePhoneSettingsStore';
+
+let lastPopupKey = '';
+let lastPopupAt = 0;
+
+function maybeNotifyPopup(title: string, body: string, tag?: string, forceWhenNotChat = false) {
+  if (Platform.OS !== 'android') return;
+  if (!usePhoneSettingsStore.getState().notificationsEnabled) return;
+  const clean = (body || '').trim();
+  if (!clean) return;
+  const isBg = AppState.currentState !== 'active';
+  const awayFromChat = getActiveTabRoute() !== 'chat';
+  if (!isBg && !(forceWhenNotChat && awayFromChat)) return;
+
+  const key = tag || clean.slice(0, 64);
+  const now = Date.now();
+  if (key === lastPopupKey && now - lastPopupAt < 10000) return;
+  lastPopupKey = key;
+  lastPopupAt = now;
+  showPopupNotification(title, clean, '(tabs)/chat', tag || 'sakura_msg');
+}
 
 function mergeHistoryWithLocal(serverHistory: Message[], current: Message[]): Message[] {
   const serverIds = new Set(serverHistory.map((m) => m.id));
@@ -83,6 +105,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
     sakuraClient.on<any>('chat_message', (payload) => {
       if (payload?.message) {
         get().addMessage(payload.message);
+        if (payload.message.role === 'assistant' && payload.message.text) {
+          const tId = payload.message.turn_id ? `turn_${payload.message.turn_id}` : undefined;
+          maybeNotifyPopup('Сакура', String(payload.message.text), tId, payload.message.kind === 'proactive');
+        }
+      }
+    });
+
+    sakuraClient.on<any>('notification', (payload) => {
+      const body = String(payload?.body || payload?.text || payload?.message || '').trim();
+      const title = String(payload?.title || 'Сакура').trim();
+      if (body) {
+        maybeNotifyPopup(title, body, undefined, true);
       }
     });
 
@@ -136,6 +170,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const turnId: string | null = payload.turn_id ?? null;
       const kind = payload.kind;
       const speakEnabled = usePhoneSettingsStore.getState().voiceRepliesEnabled;
+      maybeNotifyPopup(
+        kind === 'proactive' ? 'Сакура · напоминание' : 'Сакура',
+        text,
+        turnId ? `turn_${turnId}` : undefined,
+        kind === 'proactive'
+      );
 
       set((state) => {
         const streamIdx = state.messages.findIndex(

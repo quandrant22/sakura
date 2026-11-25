@@ -2,8 +2,8 @@
  * GlassCard — матовая стеклянная карточка с верхним спекулярным бликом и мягкой глубиной.
  */
 
-import React from 'react';
-import { StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
+import React, { memo } from 'react';
+import { Platform, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { SakuraColors } from '../../constants/colors';
 
 interface GlassCardProps {
@@ -12,28 +12,30 @@ interface GlassCardProps {
   accent?: 'pink' | 'cyan' | 'warn' | 'none';
 }
 
-export const GlassCard: React.FC<GlassCardProps> = ({ children, style, accent = 'none' }) => {
-  const accentStyle =
-    accent === 'pink'
-      ? {
-          borderColor: SakuraColors.borderAccent,
-          borderTopColor: 'rgba(255, 160, 240, 0.32)',
-          shadowColor: SakuraColors.pink,
-          shadowOpacity: 0.18,
-        }
-      : accent === 'cyan'
-      ? {
-          borderColor: SakuraColors.borderFocus,
-          borderTopColor: 'rgba(130, 235, 255, 0.3)',
-          shadowColor: SakuraColors.cyan,
-          shadowOpacity: 0.16,
-        }
-      : accent === 'warn'
-      ? { borderColor: 'rgba(255, 189, 89, 0.42)' }
-      : null;
-
-  return <View style={[styles.card, accentStyle, style]}>{children}</View>;
+const ACCENT_STYLES: Record<NonNullable<GlassCardProps['accent']>, ViewStyle | null> = {
+  pink: {
+    borderColor: SakuraColors.borderAccent,
+    borderTopColor: 'rgba(255, 160, 240, 0.32)',
+    shadowColor: SakuraColors.pink,
+    shadowOpacity: Platform.OS === 'android' ? 0 : 0.18,
+  },
+  cyan: {
+    borderColor: SakuraColors.borderFocus,
+    borderTopColor: 'rgba(130, 235, 255, 0.3)',
+    shadowColor: SakuraColors.cyan,
+    shadowOpacity: Platform.OS === 'android' ? 0 : 0.16,
+  },
+  warn: {
+    borderColor: 'rgba(255, 189, 89, 0.42)',
+  },
+  none: null,
 };
+
+const GlassCardBase: React.FC<GlassCardProps> = ({ children, style, accent = 'none' }) => (
+  <View style={[styles.card, ACCENT_STYLES[accent], style]}>{children}</View>
+);
+
+export const GlassCard = memo(GlassCardBase);
 
 const styles = StyleSheet.create({
   card: {
@@ -43,10 +45,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: SakuraColors.line,
     borderTopColor: SakuraColors.glassHighlight,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-    elevation: 8,
+    ...(Platform.OS === 'android'
+      ? { elevation: 2 }
+      : {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 10 },
+          shadowOpacity: 0.5,
+          shadowRadius: 20,
+        }),
   },
 });

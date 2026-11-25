@@ -1,9 +1,10 @@
 /**
  * FullPlayerModal — полноэкранный плеер Яндекс.Музыки (снизу-вверх)
- * с перемоткой (seekbar), текстом песни, лайком, дизлайком волны, shuffle/repeat и кэшем.
+ * с плавным перетягиваемым seekbar, текстом песни, лайком, дизлайком волны, shuffle/repeat и кэшем.
  */
 
 import * as Haptics from 'expo-haptics';
+import { Image } from 'expo-image';
 import {
   CheckCircle2,
   ChevronDown,
@@ -21,10 +22,9 @@ import {
   ThumbsDown,
   X,
 } from 'lucide-react-native';
-import React, { useState } from 'react';
+import React, { memo, useState } from 'react';
 import {
   ActivityIndicator,
-  Image,
   LayoutChangeEvent,
   Modal,
   Platform,
@@ -37,6 +37,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SakuraColors } from '../../constants/colors';
 import { SakuraFonts } from '../../constants/fonts';
+import { useMusicProgressStore } from '../../stores/useMusicProgressStore';
 import { useMusicStore } from '../../stores/useMusicStore';
 import { ACCENT_THEMES, usePhoneSettingsStore } from '../../stores/usePhoneSettingsStore';
 
@@ -47,66 +48,121 @@ function fmtTime(ms: number): string {
   return `${m}:${rem}`;
 }
 
-export const FullPlayerModal: React.FC = () => {
-  const {
-    currentTrack,
-    currentIndex,
-    queue,
-    cachedMap,
-    cachingIds,
-    isPlaying,
-    isLoading,
-    isWaveMode,
-    activeStationName,
-    shuffleEnabled,
-    repeatMode,
-    positionMs,
-    durationMs,
-    lyricsOpen,
-    lyricsLoading,
-    lyricsText,
-    fullPlayerOpen,
-    setFullPlayerOpen,
-    togglePlayPause,
-    seekTo,
-    nextTrack,
-    prevTrack,
-    toggleShuffle,
-    cycleRepeat,
-    toggleCurrentLike,
-    dislikeCurrentTrack,
-    cacheTrack,
-    removeCached,
-    openLyrics,
-    closeLyrics,
-    playFromList,
-  } = useMusicStore();
+interface SeekSectionProps {
+  accent: string;
+  fallbackDurationMs: number;
+  isCached: boolean;
+  onSeek: (ms: number) => Promise<void>;
+  haptic: () => void;
+}
 
-  const settings = usePhoneSettingsStore();
-  const accent = ACCENT_THEMES[settings.accentTheme].accent;
+function FullSeekSectionBase({
+  accent,
+  fallbackDurationMs,
+  isCached,
+  onSeek,
+  haptic,
+}: SeekSectionProps) {
+  const positionMs = useMusicProgressStore((s) => s.positionMs);
+  const storeDurationMs = useMusicProgressStore((s) => s.durationMs);
   const [barWidth, setBarWidth] = useState(1);
+  const [dragMs, setDragMs] = useState<number | null>(null);
 
-  if (!currentTrack) return null;
+  const totalMs = storeDurationMs || fallbackDurationMs || 1;
+  const shownMs = dragMs !== null ? dragMs : positionMs;
+  const pct = Math.min(100, Math.max(0, (shownMs / totalMs) * 100));
 
-  const totalMs = durationMs || currentTrack.durationMs || 1;
-  const pct = Math.min(100, Math.max(0, (positionMs / totalMs) * 100));
-  const isCached = Boolean(cachedMap[currentTrack.id]);
-  const isCaching = Boolean(cachingIds[currentTrack.id]);
+  const ratioToMs = (x: number) => {
+    if (typeof x !== 'number' || barWidth <= 0) return 0;
+    const ratio = Math.min(1, Math.max(0, x / barWidth));
+    return Math.round(ratio * totalMs);
+  };
+
+  return (
+    <View style={styles.seekSection}>
+      <View
+        onLayout={(e: LayoutChangeEvent) => setBarWidth(e.nativeEvent.layout.width || 1)}
+        onStartShouldSetResponder={() => true}
+        onMoveShouldSetResponder={() => true}
+        onResponderGrant={(e) => setDragMs(ratioToMs(e.nativeEvent.locationX))}
+        onResponderMove={(e) => setDragMs(ratioToMs(e.nativeEvent.locationX))}
+        onResponderRelease={(e) => {
+          const target = ratioToMs(e.nativeEvent.locationX);
+          setDragMs(null);
+          haptic();
+          void onSeek(target);
+        }}
+        onResponderTerminate={() => setDragMs(null)}
+        style={styles.seekHitbox}>
+        <View style={styles.seekTrack}>
+          <View style={[styles.seekFill, { width: `${pct}%`, backgroundColor: accent }]} />
+          <View
+            style={[
+              styles.seekThumb,
+              { left: `${pct}%`, backgroundColor: '#fff', borderColor: accent },
+            ]}
+          />
+        </View>
+      </View>
+      <View style={styles.timeRow}>
+        <Text style={styles.timeText}>{fmtTime(shownMs)}</Text>
+        <Text style={styles.timeText}>
+          {isCached ? 'ОФФЛАЙН · ' : ''}
+          {fmtTime(totalMs)}
+        </Text>
+      </View>
+    </View>
+  );
+}
+const FullSeekSection = memo(FullSeekSectionBase);
+
+function FullPlayerModalBase() {
+  const fullPlayerOpen = useMusicStore((s) => s.fullPlayerOpen);
+  const currentTrack = useMusicStore((s) => s.currentTrack);
+  const currentIndex = useMusicStore((s) => s.currentIndex);
+  const queue = useMusicStore((s) => s.queue);
+  const isPlaying = useMusicStore((s) => s.isPlaying);
+  const isLoading = useMusicStore((s) => s.isLoading);
+  const isWaveMode = useMusicStore((s) => s.isWaveMode);
+  const activeStationName = useMusicStore((s) => s.activeStationName);
+  const shuffleEnabled = useMusicStore((s) => s.shuffleEnabled);
+  const repeatMode = useMusicStore((s) => s.repeatMode);
+  const lyricsOpen = useMusicStore((s) => s.lyricsOpen);
+  const lyricsLoading = useMusicStore((s) => s.lyricsLoading);
+  const lyricsText = useMusicStore((s) => s.lyricsText);
+  const isCached = useMusicStore((s) =>
+    s.currentTrack ? Boolean(s.cachedMap[s.currentTrack.id]) : false
+  );
+  const isCaching = useMusicStore((s) =>
+    s.currentTrack ? Boolean(s.cachingIds[s.currentTrack.id]) : false
+  );
+
+  const setFullPlayerOpen = useMusicStore((s) => s.setFullPlayerOpen);
+  const togglePlayPause = useMusicStore((s) => s.togglePlayPause);
+  const seekTo = useMusicStore((s) => s.seekTo);
+  const nextTrack = useMusicStore((s) => s.nextTrack);
+  const prevTrack = useMusicStore((s) => s.prevTrack);
+  const toggleShuffle = useMusicStore((s) => s.toggleShuffle);
+  const cycleRepeat = useMusicStore((s) => s.cycleRepeat);
+  const toggleCurrentLike = useMusicStore((s) => s.toggleCurrentLike);
+  const dislikeCurrentTrack = useMusicStore((s) => s.dislikeCurrentTrack);
+  const cacheTrack = useMusicStore((s) => s.cacheTrack);
+  const removeCached = useMusicStore((s) => s.removeCached);
+  const openLyrics = useMusicStore((s) => s.openLyrics);
+  const closeLyrics = useMusicStore((s) => s.closeLyrics);
+  const playFromList = useMusicStore((s) => s.playFromList);
+
+  const accentTheme = usePhoneSettingsStore((s) => s.accentTheme);
+  const hapticsEnabled = usePhoneSettingsStore((s) => s.hapticsEnabled);
+  const accent = ACCENT_THEMES[accentTheme].accent;
+
+  if (!fullPlayerOpen || !currentTrack) return null;
 
   const haptic = () => {
-    if (!settings.hapticsEnabled) return;
+    if (!hapticsEnabled) return;
     try {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {}
-  };
-
-  const handleSeekAt = (x: number, commit = true) => {
-    if (typeof x !== 'number' || barWidth <= 0) return;
-    const ratio = Math.min(1, Math.max(0, x / barWidth));
-    if (commit) {
-      haptic();
-      void seekTo(Math.round(ratio * totalMs));
-    }
   };
 
   return (
@@ -117,7 +173,6 @@ export const FullPlayerModal: React.FC = () => {
       onRequestClose={() => setFullPlayerOpen(false)}>
       <View style={styles.backdrop}>
         <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
-          {/* Верхняя шапка */}
           <View style={styles.topRow}>
             <Pressable
               style={styles.closeBtn}
@@ -148,14 +203,17 @@ export const FullPlayerModal: React.FC = () => {
           </View>
 
           <ScrollView
+            style={{ flex: 1 }}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.scrollBody}>
-            {/* Обложка */}
             <View style={[styles.coverWrap, { shadowColor: accent }]}>
               {currentTrack.coverUrl ? (
                 <Image
                   source={{ uri: currentTrack.coverUrl.replace('400x400', '600x600') }}
                   style={styles.cover}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  transition={160}
                 />
               ) : (
                 <View style={[styles.cover, styles.coverStub]}>
@@ -164,7 +222,6 @@ export const FullPlayerModal: React.FC = () => {
               )}
             </View>
 
-            {/* Название + Лайк */}
             <View style={styles.titleRow}>
               <View style={{ flex: 1, gap: 4 }}>
                 <Text style={styles.title} numberOfLines={2}>
@@ -189,35 +246,14 @@ export const FullPlayerModal: React.FC = () => {
               </Pressable>
             </View>
 
-            {/* Интерактивный Seekbar */}
-            <View style={styles.seekSection}>
-              <View
-                onLayout={(e: LayoutChangeEvent) => setBarWidth(e.nativeEvent.layout.width || 1)}
-                onStartShouldSetResponder={() => true}
-                onMoveShouldSetResponder={() => true}
-                onResponderRelease={(e) => handleSeekAt(e.nativeEvent.locationX, true)}
-                onResponderGrant={(e) => handleSeekAt(e.nativeEvent.locationX, false)}
-                style={styles.seekHitbox}>
-                <View style={styles.seekTrack}>
-                  <View style={[styles.seekFill, { width: `${pct}%`, backgroundColor: accent }]} />
-                  <View
-                    style={[
-                      styles.seekThumb,
-                      { left: `${pct}%`, backgroundColor: '#fff', borderColor: accent },
-                    ]}
-                  />
-                </View>
-              </View>
-              <View style={styles.timeRow}>
-                <Text style={styles.timeText}>{fmtTime(positionMs)}</Text>
-                <Text style={styles.timeText}>
-                  {isCached ? 'ОФФЛАЙН · ' : ''}
-                  {fmtTime(totalMs)}
-                </Text>
-              </View>
-            </View>
+            <FullSeekSection
+              accent={accent}
+              fallbackDurationMs={currentTrack.durationMs}
+              isCached={isCached}
+              onSeek={seekTo}
+              haptic={haptic}
+            />
 
-            {/* Основные кнопки управления */}
             <View style={styles.transportRow}>
               <Pressable
                 style={styles.sideCtrl}
@@ -225,10 +261,7 @@ export const FullPlayerModal: React.FC = () => {
                   haptic();
                   toggleShuffle();
                 }}>
-                <Shuffle
-                  size={20}
-                  color={shuffleEnabled ? accent : SakuraColors.inkDim}
-                />
+                <Shuffle size={20} color={shuffleEnabled ? accent : SakuraColors.inkDim} />
               </Pressable>
 
               <Pressable
@@ -281,7 +314,6 @@ export const FullPlayerModal: React.FC = () => {
               </Pressable>
             </View>
 
-            {/* Нижние действия: Дизлайк волны / Текст / Кэш */}
             <View style={styles.actionsStrip}>
               {isWaveMode && (
                 <Pressable
@@ -327,7 +359,6 @@ export const FullPlayerModal: React.FC = () => {
               )}
             </View>
 
-            {/* Ближайшая очередь */}
             {queue.length > 1 && (
               <View style={styles.queueBox}>
                 <Text style={styles.queueHeading}>
@@ -344,7 +375,12 @@ export const FullPlayerModal: React.FC = () => {
                         void playFromList(queue, idx, isWaveMode);
                       }}>
                       {tr.coverUrl ? (
-                        <Image source={{ uri: tr.coverUrl }} style={styles.qCover} />
+                        <Image
+                          source={{ uri: tr.coverUrl }}
+                          style={styles.qCover}
+                          contentFit="cover"
+                          cachePolicy="memory-disk"
+                        />
                       ) : (
                         <View style={[styles.qCover, styles.coverStub]}>
                           <Disc3 size={14} color={SakuraColors.inkDim} />
@@ -365,7 +401,6 @@ export const FullPlayerModal: React.FC = () => {
             )}
           </ScrollView>
 
-          {/* Модальное окно текста песни */}
           <Modal visible={lyricsOpen} transparent animationType="fade" onRequestClose={closeLyrics}>
             <View style={styles.lyricsOverlay}>
               <View style={styles.lyricsCard}>
@@ -391,7 +426,9 @@ export const FullPlayerModal: React.FC = () => {
       </View>
     </Modal>
   );
-};
+}
+
+export const FullPlayerModal = memo(FullPlayerModalBase);
 
 const styles = StyleSheet.create({
   backdrop: {
@@ -405,13 +442,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: 14,
+    paddingTop: 6,
+    paddingBottom: 8,
   },
   closeBtn: {
     width: 38,
     height: 38,
-    borderRadius: 19,
+    borderRadius: 12,
     backgroundColor: SakuraColors.panel,
     alignItems: 'center',
     justifyContent: 'center',
@@ -424,45 +462,42 @@ const styles = StyleSheet.create({
   sourceKicker: {
     fontFamily: SakuraFonts.displayMedium,
     fontSize: 10,
-    letterSpacing: 1.2,
+    letterSpacing: 1.1,
     color: SakuraColors.textMuted,
   },
   albumSub: {
     fontSize: 12,
     fontWeight: '600',
-    color: SakuraColors.ink,
-    marginTop: 2,
+    color: SakuraColors.inkDim,
+    marginTop: 1,
   },
   scrollBody: {
-    paddingHorizontal: 24,
-    paddingBottom: 30,
-    gap: 20,
+    paddingHorizontal: 22,
+    paddingBottom: 34,
+    gap: 18,
   },
   coverWrap: {
-    alignSelf: 'center',
+    alignItems: 'center',
     marginTop: 8,
-    borderRadius: 24,
     shadowOffset: { width: 0, height: 14 },
-    shadowOpacity: 0.38,
-    shadowRadius: 28,
-    elevation: 14,
+    shadowOpacity: 0.35,
+    shadowRadius: 24,
   },
   cover: {
-    width: 268,
-    height: 268,
+    width: 280,
+    height: 280,
     borderRadius: 24,
-    backgroundColor: SakuraColors.panel2Solid,
+    backgroundColor: 'rgba(255,255,255,0.06)',
   },
   coverStub: {
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: SakuraColors.line,
   },
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    marginTop: 4,
   },
   title: {
     fontSize: 21,
@@ -471,35 +506,42 @@ const styles = StyleSheet.create({
   },
   artist: {
     fontSize: 14.5,
-    fontWeight: '600',
     color: SakuraColors.inkDim,
+    fontWeight: '600',
   },
   heartBtn: {
-    padding: 8,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: SakuraColors.panel,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   seekSection: {
     gap: 6,
   },
   seekHitbox: {
-    paddingVertical: 12,
-  },
-  seekTrack: {
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    paddingVertical: 10,
     justifyContent: 'center',
   },
+  seekTrack: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    position: 'relative',
+  },
   seekFill: {
-    height: 5,
-    borderRadius: 3,
+    height: 4,
+    borderRadius: 2,
   },
   seekThumb: {
     position: 'absolute',
+    top: -5,
+    marginLeft: -7,
     width: 14,
     height: 14,
     borderRadius: 7,
     borderWidth: 2,
-    marginLeft: -7,
   },
   timeRow: {
     flexDirection: 'row',
@@ -507,18 +549,18 @@ const styles = StyleSheet.create({
   },
   timeText: {
     fontFamily: SakuraFonts.displayMedium,
-    fontSize: 10.5,
+    fontSize: 11,
     color: SakuraColors.textMuted,
   },
   transportRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
   },
   sideCtrl: {
-    width: 40,
-    height: 40,
+    width: 42,
+    height: 42,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -536,13 +578,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.45,
-    shadowRadius: 16,
-    elevation: 10,
+    shadowRadius: 14,
+    elevation: 8,
   },
   actionsStrip: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 10,
+    gap: 12,
   },
   actionChip: {
     flexDirection: 'row',
@@ -550,30 +592,31 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 14,
     paddingVertical: 9,
-    borderRadius: 14,
+    borderRadius: 999,
     backgroundColor: SakuraColors.panel,
     borderWidth: 1,
     borderColor: SakuraColors.line,
   },
   actionLabel: {
     fontSize: 12.5,
-    fontWeight: '700',
+    fontWeight: '600',
     color: SakuraColors.inkDim,
   },
   queueBox: {
+    marginTop: 6,
     gap: 8,
-    padding: 14,
-    borderRadius: 18,
     backgroundColor: SakuraColors.panel,
+    borderRadius: 18,
+    padding: 12,
     borderWidth: 1,
     borderColor: SakuraColors.line,
   },
   queueHeading: {
     fontFamily: SakuraFonts.displayMedium,
     fontSize: 10,
-    letterSpacing: 0.9,
+    letterSpacing: 1,
     color: SakuraColors.textMuted,
-    marginBottom: 4,
+    marginBottom: 2,
   },
   queueRow: {
     flexDirection: 'row',
@@ -585,10 +628,11 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.06)',
   },
   qTitle: {
-    fontSize: 13.5,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '700',
     color: SakuraColors.ink,
   },
   qArtist: {
@@ -597,39 +641,42 @@ const styles = StyleSheet.create({
   },
   lyricsOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(5, 3, 10, 0.85)',
-    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(6, 4, 12, 0.86)',
+    justifyContent: 'center',
+    padding: 18,
   },
   lyricsCard: {
-    height: '78%',
-    backgroundColor: '#130e20',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 20,
+    maxHeight: '82%',
+    borderRadius: 22,
+    backgroundColor: '#161024',
     borderWidth: 1,
     borderColor: SakuraColors.lineStrong,
+    padding: 18,
+    gap: 12,
   },
   lyricsHead: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: SakuraColors.line,
-    marginBottom: 12,
+    gap: 10,
   },
   lyricsTitle: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '800',
     color: SakuraColors.ink,
   },
   lyricsClose: {
-    padding: 6,
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: SakuraColors.panel,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   lyricsText: {
-    fontSize: 15.5,
-    lineHeight: 24,
+    fontSize: 15,
+    lineHeight: 23,
     color: SakuraColors.ink,
   },
 });

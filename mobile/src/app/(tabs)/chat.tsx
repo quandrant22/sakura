@@ -36,26 +36,30 @@ import { ACCENT_THEMES, usePhoneSettingsStore } from '../../stores/usePhoneSetti
 
 export default function ChatScreen() {
   const router = useRouter();
-  const { linkState, linkInfo } = useConnectionStore();
-  const {
-    messages,
-    sakuraState,
-    isSending,
-    isLoadingHistory,
-    bindEvents,
-    loadHistory,
-    sendMessage,
-  } = useChatStore();
-  const settings = usePhoneSettingsStore();
+  const linkState = useConnectionStore((s) => s.linkState);
+  const linkInfo = useConnectionStore((s) => s.linkInfo);
+  const messages = useChatStore((s) => s.messages);
+  const sakuraState = useChatStore((s) => s.sakuraState);
+  const isSending = useChatStore((s) => s.isSending);
+  const isLoadingHistory = useChatStore((s) => s.isLoadingHistory);
+  const bindEvents = useChatStore((s) => s.bindEvents);
+  const loadHistory = useChatStore((s) => s.loadHistory);
+  const sendMessage = useChatStore((s) => s.sendMessage);
+  const accentTheme = usePhoneSettingsStore((s) => s.accentTheme);
+  const voiceRepliesEnabled = usePhoneSettingsStore((s) => s.voiceRepliesEnabled);
+  const hapticsEnabled = usePhoneSettingsStore((s) => s.hapticsEnabled);
+  const showQuickPrompts = usePhoneSettingsStore((s) => s.showQuickPrompts);
+  const updateSettings = usePhoneSettingsStore((s) => s.update);
   const { isRecording, micError, startRecording, stopAndSend } = useVoiceRecorder();
 
   const flatListRef = useRef<FlatList>(null);
   const baseHeightRef = useRef(0);
   const currentHeightRef = useRef(0);
   const kbVisibleRef = useRef(false);
+  const scrollRafRef = useRef<number | null>(null);
   const [androidKbPad, setAndroidKbPad] = useState(0);
 
-  const accent = ACCENT_THEMES[settings.accentTheme].accent;
+  const accent = ACCENT_THEMES[accentTheme].accent;
   const isConnected = linkState === 'connected';
   const needsPairing = linkState === 'pairing_required';
   const visualState = isConnected ? (isRecording ? 'listening' : sakuraState) : 'offline';
@@ -73,15 +77,26 @@ export default function ChatScreen() {
     }, [isConnected, loadHistory])
   );
 
-  const lastMsgText = messages[messages.length - 1]?.text;
+  const lastMsg = messages[messages.length - 1];
+  const lastMsgText = lastMsg?.text;
+  const isStreamingLast = Boolean(lastMsg?.streaming);
 
   useEffect(() => {
-    if (messages.length > 0) {
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 60);
+    if (messages.length === 0) return;
+    if (scrollRafRef.current !== null) {
+      cancelAnimationFrame(scrollRafRef.current);
     }
-  }, [messages.length, lastMsgText]);
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      flatListRef.current?.scrollToEnd({ animated: !isStreamingLast });
+    });
+    return () => {
+      if (scrollRafRef.current !== null) {
+        cancelAnimationFrame(scrollRafRef.current);
+        scrollRafRef.current = null;
+      }
+    };
+  }, [messages.length, lastMsgText, isStreamingLast]);
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;
@@ -114,12 +129,18 @@ export default function ChatScreen() {
     }
   };
 
-  const haptic = () => {
-    if (!settings.hapticsEnabled) return;
+  const haptic = useCallback(() => {
+    if (!hapticsEnabled) return;
     try {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {}
-  };
+  }, [hapticsEnabled]);
+
+  const keyExtractor = useCallback((item: any) => item.id || String(item.ts), []);
+  const renderMessageItem = useCallback(
+    ({ item }: { item: any }) => <MessageBubble message={item} />,
+    []
+  );
 
   const chatBody = (
     <>
@@ -144,16 +165,16 @@ export default function ChatScreen() {
           <Pressable
             style={({ pressed }) => [
               styles.pillBtn,
-              settings.voiceRepliesEnabled
+              voiceRepliesEnabled
                 ? { borderColor: accent + '66', backgroundColor: accent + '1C' }
                 : { borderColor: SakuraColors.lineStrong, backgroundColor: SakuraColors.panel },
               pressed && { opacity: 0.78 },
             ]}
             onPress={() => {
               haptic();
-              void settings.update({ voiceRepliesEnabled: !settings.voiceRepliesEnabled });
+              void updateSettings({ voiceRepliesEnabled: !voiceRepliesEnabled });
             }}>
-            {settings.voiceRepliesEnabled ? (
+            {voiceRepliesEnabled ? (
               <Volume2 size={14} color={accent} />
             ) : (
               <VolumeX size={14} color={SakuraColors.inkDim} />
@@ -161,9 +182,9 @@ export default function ChatScreen() {
             <Text
               style={[
                 styles.pillText,
-                { color: settings.voiceRepliesEnabled ? accent : SakuraColors.inkDim },
+                { color: voiceRepliesEnabled ? accent : SakuraColors.inkDim },
               ]}>
-              {settings.voiceRepliesEnabled ? 'Голос' : 'Текст'}
+              {voiceRepliesEnabled ? 'Голос' : 'Текст'}
             </Text>
           </Pressable>
 
@@ -200,8 +221,13 @@ export default function ChatScreen() {
       <FlatList
         ref={flatListRef}
         data={messages}
-        keyExtractor={(item) => item.id || String(item.ts)}
-        renderItem={({ item }) => <MessageBubble message={item} />}
+        keyExtractor={keyExtractor}
+        renderItem={renderMessageItem}
+        initialNumToRender={16}
+        maxToRenderPerBatch={12}
+        updateCellsBatchingPeriod={28}
+        windowSize={7}
+        removeClippedSubviews={Platform.OS === 'android'}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
         contentContainerStyle={messages.length === 0 ? styles.emptyContainer : styles.listContent}
@@ -230,7 +256,7 @@ export default function ChatScreen() {
           void stopAndSend();
         }}
         isSending={isSending}
-        showPrompts={isConnected && settings.showQuickPrompts}
+        showPrompts={isConnected && showQuickPrompts}
       />
     </>
   );

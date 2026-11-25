@@ -7,6 +7,7 @@ import android.content.res.AssetManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.modules.Module
@@ -23,6 +24,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 private const val EVENT_WAKE = "onWakeWord"
 private const val EVENT_STATE = "onWakeState"
+private const val EVENT_MEDIA = "onMediaAction"
 private const val MODEL_ASSET_DIR = "vosk-model-small-ru-0.22"
 private const val SAMPLE_RATE = 16000
 
@@ -38,7 +40,16 @@ class SakuraWakeModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("SakuraWake")
 
-    Events(EVENT_WAKE, EVENT_STATE)
+    Events(EVENT_WAKE, EVENT_STATE, EVENT_MEDIA)
+
+    OnCreate {
+      SakuraNotifications.ensureChannels(ctx)
+      SakuraMediaBus.actionListener = { action, posMs ->
+        try {
+          sendEvent(EVENT_MEDIA, mapOf("action" to action, "positionMs" to posMs))
+        } catch (_: Exception) {}
+      }
+    }
 
     Function("isSupported") {
       try {
@@ -63,7 +74,49 @@ class SakuraWakeModule : Module() {
       true
     }
 
+    Function("showNotification") { title: String, body: String, route: String?, tag: String? ->
+      SakuraNotifications.showPopup(ctx, title, body, route, tag)
+    }
+
+    Function("updateMediaState") {
+      trackId: String,
+      title: String,
+      artist: String,
+      album: String,
+      artworkUrl: String?,
+      durationMs: Double,
+      positionMs: Double,
+      isPlaying: Boolean,
+      isLiked: Boolean,
+      hasPrev: Boolean,
+      hasNext: Boolean ->
+      SakuraMediaBus.update(
+        ctx,
+        SakuraMediaPayload(
+          trackId = trackId,
+          title = title,
+          artist = artist,
+          album = album,
+          artworkUrl = artworkUrl,
+          durationMs = durationMs.toLong().coerceAtLeast(0L),
+          positionMs = positionMs.toLong().coerceAtLeast(0L),
+          updatedAtElapsedMs = SystemClock.elapsedRealtime(),
+          isPlaying = isPlaying,
+          isLiked = isLiked,
+          hasPrev = hasPrev,
+          hasNext = hasNext,
+        )
+      )
+      true
+    }
+
+    Function("clearMediaState") {
+      SakuraMediaBus.clear(ctx)
+      true
+    }
+
     OnDestroy {
+      SakuraMediaBus.actionListener = null
       stopListening()
       synchronized(lock) {
         try {

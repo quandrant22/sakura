@@ -1,36 +1,56 @@
 /**
  * MiniPlayer — парящий стеклянный мини-плеер Яндекс.Музыки над нижней панелью табов.
+ * Прогресс-бар изолирован в отдельном подписчике useMusicProgressStore,
+ * чтобы остальной интерфейс не перерисовывался каждые 400 мс.
  */
 
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Disc3, Heart, Pause, Play, SkipForward } from 'lucide-react-native';
-import React from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { memo } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SakuraColors } from '../../constants/colors';
+import { useMusicProgressStore } from '../../stores/useMusicProgressStore';
 import { useMusicStore } from '../../stores/useMusicStore';
 import { ACCENT_THEMES, usePhoneSettingsStore } from '../../stores/usePhoneSettingsStore';
 
-export const MiniPlayer: React.FC = () => {
+function MiniProgressBarBase({
+  accent,
+  fallbackDurationMs,
+}: {
+  accent: string;
+  fallbackDurationMs: number;
+}) {
+  const positionMs = useMusicProgressStore((s) => s.positionMs);
+  const durationMs = useMusicProgressStore((s) => s.durationMs) || fallbackDurationMs;
+  const progressPct =
+    durationMs > 0 ? Math.min(100, Math.max(0, (positionMs / durationMs) * 100)) : 0;
+
+  return (
+    <View style={styles.progressTrack}>
+      <View
+        style={[styles.progressFill, { width: `${progressPct}%`, backgroundColor: accent }]}
+      />
+    </View>
+  );
+}
+const MiniProgressBar = memo(MiniProgressBarBase);
+
+function MiniPlayerBase() {
   const router = useRouter();
-  const {
-    currentTrack,
-    cachedMap,
-    isPlaying,
-    positionMs,
-    durationMs,
-    togglePlayPause,
-    nextTrack,
-    toggleCurrentLike,
-    setFullPlayerOpen,
-  } = useMusicStore();
+  const currentTrack = useMusicStore((s) => s.currentTrack);
+  const isPlaying = useMusicStore((s) => s.isPlaying);
+  const isOffline = useMusicStore((s) =>
+    s.currentTrack ? Boolean(s.cachedMap[s.currentTrack.id]) : false
+  );
+  const togglePlayPause = useMusicStore((s) => s.togglePlayPause);
+  const nextTrack = useMusicStore((s) => s.nextTrack);
+  const toggleCurrentLike = useMusicStore((s) => s.toggleCurrentLike);
+  const setFullPlayerOpen = useMusicStore((s) => s.setFullPlayerOpen);
   const accentId = usePhoneSettingsStore((s) => s.accentTheme);
   const accent = ACCENT_THEMES[accentId].accent;
 
   if (!currentTrack) return null;
-
-  const progressPct =
-    durationMs > 0 ? Math.min(100, Math.max(0, (positionMs / durationMs) * 100)) : 0;
-  const isOffline = Boolean(cachedMap[currentTrack.id]);
 
   return (
     <Pressable
@@ -45,7 +65,13 @@ export const MiniPlayer: React.FC = () => {
       }}>
       <View style={styles.row}>
         {currentTrack.coverUrl ? (
-          <Image source={{ uri: currentTrack.coverUrl }} style={styles.cover} />
+          <Image
+            source={{ uri: currentTrack.coverUrl }}
+            style={styles.cover}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            transition={120}
+          />
         ) : (
           <View style={[styles.cover, styles.coverPlaceholder]}>
             <Disc3 size={18} color={accent} />
@@ -103,14 +129,12 @@ export const MiniPlayer: React.FC = () => {
         </View>
       </View>
 
-      <View style={styles.progressTrack}>
-        <View
-          style={[styles.progressFill, { width: `${progressPct}%`, backgroundColor: accent }]}
-        />
-      </View>
+      <MiniProgressBar accent={accent} fallbackDurationMs={currentTrack.durationMs} />
     </Pressable>
   );
-};
+}
+
+export const MiniPlayer = memo(MiniPlayerBase);
 
 const styles = StyleSheet.create({
   wrapper: {
@@ -119,30 +143,22 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(22, 16, 36, 0.94)',
     borderRadius: 18,
     borderWidth: 1,
-    borderTopColor: SakuraColors.glassHighlight,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.45,
-    shadowRadius: 16,
-    elevation: 10,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
     paddingHorizontal: 10,
     paddingVertical: 8,
+    gap: 10,
   },
   cover: {
     width: 38,
     height: 38,
     borderRadius: 10,
-    backgroundColor: SakuraColors.panel2Solid,
+    backgroundColor: 'rgba(255,255,255,0.06)',
   },
   coverPlaceholder: {
-    borderWidth: 1,
-    borderColor: SakuraColors.line,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -151,34 +167,38 @@ const styles = StyleSheet.create({
     gap: 1,
   },
   title: {
-    color: SakuraColors.ink,
     fontSize: 13,
     fontWeight: '700',
+    color: SakuraColors.ink,
   },
   artist: {
-    color: SakuraColors.inkDim,
     fontSize: 11,
+    color: SakuraColors.inkDim,
   },
   controls: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
   iconBtn: {
-    padding: 5,
-  },
-  playBtn: {
     width: 32,
     height: 32,
-    borderRadius: 16,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  playBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
   },
   progressTrack: {
-    height: 2.5,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    height: 2,
+    backgroundColor: 'rgba(255,255,255,0.08)',
   },
   progressFill: {
-    height: 2.5,
+    height: 2,
   },
 });
