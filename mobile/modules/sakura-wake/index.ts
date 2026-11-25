@@ -36,19 +36,7 @@ interface SakuraWakeNative {
   start(phrases?: string[]): Promise<boolean>;
   stop(): Promise<boolean>;
   showNotification(title: string, body: string, route?: string | null, tag?: string | null): boolean;
-  updateMediaState(
-    trackId: string,
-    title: string,
-    artist: string,
-    album: string,
-    artworkUrl: string | null,
-    durationMs: number,
-    positionMs: number,
-    isPlaying: boolean,
-    isLiked: boolean,
-    hasPrev: boolean,
-    hasNext: boolean
-  ): boolean;
+  updateMediaState(payload: NativeMediaStatePayload): boolean;
   clearMediaState(): boolean;
   addListener(eventName: 'onWakeWord', listener: (ev: WakeWordEvent) => void): { remove: () => void };
   addListener(eventName: 'onWakeState', listener: (ev: WakeStateEvent) => void): { remove: () => void };
@@ -110,21 +98,7 @@ export function showPopupNotification(
 export function updateNativeMediaState(payload: NativeMediaStatePayload): boolean {
   if (!nativeWake || typeof nativeWake.updateMediaState !== 'function') return false;
   try {
-    return Boolean(
-      nativeWake.updateMediaState(
-        payload.trackId,
-        payload.title,
-        payload.artist,
-        payload.album,
-        payload.artworkUrl,
-        payload.durationMs,
-        payload.positionMs,
-        payload.isPlaying,
-        payload.isLiked,
-        payload.hasPrev,
-        payload.hasNext
-      )
-    );
+    return Boolean(nativeWake.updateMediaState(payload));
   } catch {
     return false;
   }

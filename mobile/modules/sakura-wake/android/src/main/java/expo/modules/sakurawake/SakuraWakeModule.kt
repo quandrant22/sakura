@@ -78,18 +78,18 @@ class SakuraWakeModule : Module() {
       SakuraNotifications.showPopup(ctx, title, body, route, tag)
     }
 
-    Function("updateMediaState") {
-      trackId: String,
-      title: String,
-      artist: String,
-      album: String,
-      artworkUrl: String?,
-      durationMs: Double,
-      positionMs: Double,
-      isPlaying: Boolean,
-      isLiked: Boolean,
-      hasPrev: Boolean,
-      hasNext: Boolean ->
+    Function("updateMediaState") { data: Map<String, Any?> ->
+      val trackId = (data["trackId"] as? String).orEmpty()
+      val title = (data["title"] as? String).orEmpty()
+      val artist = (data["artist"] as? String).orEmpty()
+      val album = (data["album"] as? String).orEmpty()
+      val artworkUrl = data["artworkUrl"] as? String
+      val durationMs = (data["durationMs"] as? Number)?.toLong()?.coerceAtLeast(0L) ?: 0L
+      val positionMs = (data["positionMs"] as? Number)?.toLong()?.coerceAtLeast(0L) ?: 0L
+      val isPlaying = data["isPlaying"] as? Boolean ?: false
+      val isLiked = data["isLiked"] as? Boolean ?: false
+      val hasPrev = data["hasPrev"] as? Boolean ?: false
+      val hasNext = data["hasNext"] as? Boolean ?: false
       SakuraMediaBus.update(
         ctx,
         SakuraMediaPayload(
@@ -98,8 +98,8 @@ class SakuraWakeModule : Module() {
           artist = artist,
           album = album,
           artworkUrl = artworkUrl,
-          durationMs = durationMs.toLong().coerceAtLeast(0L),
-          positionMs = positionMs.toLong().coerceAtLeast(0L),
+          durationMs = durationMs,
+          positionMs = positionMs,
           updatedAtElapsedMs = SystemClock.elapsedRealtime(),
           isPlaying = isPlaying,
           isLiked = isLiked,
