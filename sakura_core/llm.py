@@ -381,6 +381,7 @@ async def generate(contents, *, system: str = "", model: Optional[str] = None,
                    api_key: Optional[str] = None,
                    safety: bool = True, thinking: bool = True,
                    response_mime_type: Optional[str] = None,
+                   response_schema=None,
                    chain=None, audience: str = "master") -> str:
     """Generate with bounded retries and a single request-wide time budget."""
     models = _models_to_try(model, chain, contents)
@@ -434,6 +435,8 @@ async def generate(contents, *, system: str = "", model: Optional[str] = None,
                             cfg_kwargs["thinking_config"] = tc
                     if response_mime_type:
                         cfg_kwargs["response_mime_type"] = response_mime_type
+                    if response_schema is not None:
+                        cfg_kwargs["response_schema"] = response_schema
                     return c.models.generate_content(
                         model=m,
                         contents=contents,
@@ -970,29 +973,62 @@ async def classify_action(text: str, catalog: str, *, model: Optional[str] = Non
 # ── Структурированный разбор намерений (роутер, этап 3) ──────────────────
 
 INTENT_SYSTEM = (
-    "Ты — разбор намерений голосового ассистента Сакуры (стиль J.A.R.V.I.S.). "
-    "По фразе Мастера и контексту определи, какие действия из каталога нужно "
-    "выполнить ПРЯМО СЕЙЧАС и есть ли во фразе разговорная часть.\n\n"
-    "ПРАВИЛА:\n"
-    "1. Действие выбирай, только если Мастер прямо или косвенно просит его сейчас "
-    "(«тут слишком громко» → music.volume_down, «что там за окном?» → weather.now, "
-    "«что-то прохладно» при разговоре о чае → kettle.boil).\n"
-    "2. Несколько просьб в одной фразе — несколько действий в порядке произнесения "
-    "(«включи музыку и сделай погромче» → два действия).\n"
-    "3. Действий НЕТ, если Мастер рассказывает о прошлом или планах, жалуется, "
-    "рассуждает, задаёт вопрос самой Сакуре, цитирует чужие слова или использует "
-    "отрицание («не выключай», «не надо чайник»).\n"
-    "4. Отложенное время («через час», «в 23:00») для выключения, перезагрузки и сна "
-    "— НЕ действие: верни пустой список и chat=true.\n"
-    "5. chat=true, если кроме команд есть реплика, на которую нужно ответить словами "
-    "(рассказ, вопрос, просьба поговорить), или команд нет вовсе.\n"
-    "6. Параметр бери из фразы в нормализованном виде (число, название, город и день "
-    "для погоды: «Санкт-Петербург завтра»). Нет параметра — null.\n"
-    "7. Учитывай контекст: что играет, какое окно активно, о чём шла речь.\n\n"
-    "ФОРМАТ ОТВЕТА — строго одна строка JSON без пояснений и markdown:\n"
-    '{"actions":[{"id":"music.volume_down","param":null}],"chat":false}\n'
-    "Команд нет: {\"actions\":[],\"chat\":true}"
+    "Ты — модуль разбора намерений ассистента Сакуры (стиль J.A.R.V.I.S.). "
+    "Определи по фразе Мастера и контексту: нужно ли выполнить действие из "
+    "каталога ПРЯМО СЕЙЧАС, или это разговор.\n\n"
+    "ГЛАВНОЕ ПРАВИЛО (CHAT-FIRST ПРИ СОМНЕНИИ):\n"
+    "1. При ЛЮБОМ сомнении или неоднозначности НЕ выбирай действие: верни "
+    '{"actions":[],"chat":true,"confidence":0.95}.\n'
+    "2. Действие добавляй ТОЛЬКО если Мастер явно просит или подразумевает "
+    "выполнение этого действия прямо сейчас (уверенность >= 0.70).\n"
+    "3. Обязательно пустой actions[] и chat=true, если фраза — это:\n"
+    "   - обычная болтовня, бытовая жалоба или эмоция («что-то прохладно», «устал», «скучно»);\n"
+    "   - рассказ о прошлом, планы на будущее («вчера закрыл браузер», «завтра поставлю чайник»);\n"
+    "   - вопрос о возможностях/функциях («а ты умеешь ставить таймер?», «как работает поиск?»);\n"
+    "   - гипотеза, условие, шутка («если я сейчас закрою браузер…», «просто шучу»);\n"
+    "   - отрицание или отказ («не выключай музыку», «не надо открывать браузер»);\n"
+    "   - пересказ чужих слов («он попросил поставить таймер»);\n"
+    "   - отложенное выключение/перезагрузка/сон («выключи компьютер через час», «в 23:00»).\n"
+    "4. Несколько явных просьб в одной фразе — несколько действий в порядке произнесения.\n"
+    "5. chat=true, если кроме команды есть разговорная реплика (гибрид) или команд нет.\n"
+    "6. Параметр нормализуй (число, имя, город и день). Нет параметра — null.\n\n"
+    "ПРИМЕРЫ:\n"
+    '- «включи музыку и сделай погромче» → {"actions":[{"id":"open.app","param":null},{"id":"music.volume_up","param":null}],"chat":false,"confidence":0.98}\n'
+    '- «не выключай музыку» → {"actions":[],"chat":true,"confidence":0.99}\n'
+    '- «я вчера закрыл браузер» → {"actions":[],"chat":true,"confidence":0.99}\n'
+    '- «завтра поставлю чайник» → {"actions":[],"chat":true,"confidence":0.99}\n'
+    '- «а ты умеешь ставить таймер?» → {"actions":[],"chat":true,"confidence":0.98}\n'
+    '- «если я сейчас закрою браузер, вкладки сохранятся?» → {"actions":[],"chat":true,"confidence":0.99}\n'
+    '- «гугл хром опять завис, ужас» → {"actions":[],"chat":true,"confidence":0.95}\n'
+    '- «кстати поставь чайник, а я пока расскажу про день» → {"actions":[{"id":"kettle.boil","param":null}],"chat":true,"confidence":0.95}\n'
+    '- «тут слишком громко» (playing:music) → {"actions":[{"id":"music.volume_down","param":null}],"chat":false,"confidence":0.88}\n\n'
+    "ФОРМАТ ОТВЕТА — строго JSON по схеме:\n"
+    '{"actions":[{"id":"action.id","param":null}],"chat":false,"confidence":0.95}'
 )
+
+
+def _intent_response_schema():
+    """Structured Output схема для parse_intent() (поддерживается Gemini и Gemma)."""
+    from google.genai import types as _t
+    return _t.Schema(
+        type="OBJECT",
+        required=["actions", "chat", "confidence"],
+        properties={
+            "actions": _t.Schema(
+                type="ARRAY",
+                items=_t.Schema(
+                    type="OBJECT",
+                    required=["id"],
+                    properties={
+                        "id": _t.Schema(type="STRING"),
+                        "param": _t.Schema(type="STRING", nullable=True),
+                    },
+                ),
+            ),
+            "chat": _t.Schema(type="BOOLEAN"),
+            "confidence": _t.Schema(type="NUMBER"),
+        },
+    )
 
 
 def _intent_context_block(context: Optional[dict]) -> str:
@@ -1017,9 +1053,10 @@ def _intent_context_block(context: Optional[dict]) -> str:
 def _parse_intent_response(raw) -> IntentParse:
     """Ответ модели → IntentParse.
 
-    Принимает JSON-план, а также прежние формы классификатора («id | param»,
-    голый id, «null») — старые модели и заглушки отвечают ими. Пустой или
-    нестроковый ответ — LlmUnavailable: это сбой, а не вердикт «разговор».
+    Разбирает JSON {actions, chat, confidence}, а также строгую однострочную
+    форму legacy (domain.verb [| param] или null). Произвольная проза без JSON
+    и без валидного domain.verb считается разговором (actions=(), chat=True).
+    Пустой/нестроковый ответ → LlmUnavailable.
     """
     if not isinstance(raw, str) or not raw.strip():
         raise LlmUnavailable("пустой ответ модели")
@@ -1042,37 +1079,64 @@ def _parse_intent_response(raw) -> IntentParse:
                 if not isinstance(item, dict):
                     continue
                 action_id = str(item.get("id") or "").strip().lower()
-                if not _ID_RE.fullmatch(action_id) or action_id in ("null", "none"):
+                if not _ID_RE.fullmatch(action_id) or action_id in ("null", "none") or "." not in action_id:
                     continue
                 param = item.get("param")
                 param = None if param is None else str(param).strip()
                 if param is not None and param.lower() in ("", "null", "none"):
                     param = None
                 actions.append((action_id, param))
+            raw_conf = data.get("confidence", 1.0)
+            try:
+                conf = max(0.0, min(1.0, float(raw_conf)))
+            except (TypeError, ValueError):
+                conf = 1.0
             chat = bool(data.get("chat")) or not actions
-            return IntentParse(actions=tuple(actions[:4]), chat=chat)
-    action_id, param = _parse_classify_response(text)
-    if action_id:
-        return IntentParse(actions=((action_id, param),), chat=False)
+            return IntentParse(actions=tuple(actions[:4]), chat=chat, confidence=conf)
+
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    if len(lines) == 1:
+        line = lines[0].strip('`"\'')
+        low = line.lower().rstrip(".,;:")
+        if low in ("null", "none", "-"):
+            return IntentParse(actions=(), chat=True)
+        if "|" in line:
+            p_id, p_val = line.split("|", 1)
+            aid = p_id.strip().strip('`"\'').lower().rstrip(".,;:")
+            pval = p_val.strip().strip('`"\'')
+            if pval.lower() in ("", "null", "none"):
+                pval = None
+            if _ID_RE.fullmatch(aid) and "." in aid:
+                return IntentParse(actions=((aid, pval),), chat=False)
+        elif _ID_RE.fullmatch(low) and "." in low:
+            return IntentParse(actions=((low, None),), chat=False)
     return IntentParse(actions=(), chat=True)
 
 
 async def parse_intent(text: str, catalog: str, *, context: Optional[dict] = None,
-                       model: Optional[str] = None, timeout: float = 3.0,
+                       model: Optional[str] = None, chain=None, timeout: float = 3.0,
                        api_key: Optional[str] = None) -> IntentParse:
-    """Структурированный разбор намерений: план действий + флаг разговора.
+    """Структурированный разбор намерений: план действий + флаг разговора + confidence.
 
     Любой сбой (сеть, ключи, таймаут, пустой ответ) — LlmUnavailable.
-    Проверку id и параметров по реестру делает роутер.
+    Проверку id, confidence и параметров по реестру делает роутер.
     """
+    ctx_chain = (context or {}).get("_chain") if isinstance(context, dict) else None
+    use_chain = chain or ctx_chain or getattr(config, "INTENT_MODEL_CHAIN", None)
+    try:
+        schema = _intent_response_schema()
+    except Exception:
+        schema = None
     try:
         raw = await asyncio.wait_for(
             generate(
                 text,
                 system=(f"{INTENT_SYSTEM}\n\nКаталог действий:\n{catalog}"
                         f"{_intent_context_block(context)}"),
-                model=model, max_tokens=160, temperature=0.0, timeout=timeout,
-                api_key=api_key,
+                model=model, chain=use_chain, max_tokens=180, temperature=0.0,
+                timeout=timeout, api_key=api_key,
+                response_mime_type="application/json",
+                response_schema=schema,
             ),
             timeout=timeout + 0.5,
         )
@@ -1083,7 +1147,7 @@ async def parse_intent(text: str, catalog: str, *, context: Optional[dict] = Non
     return _parse_intent_response(raw)
 
 
-def make_llm_parse(*, model: Optional[str] = None, timeout: float = 3.0,
+def make_llm_parse(*, model: Optional[str] = None, chain=None, timeout: float = 3.0,
                    api_key: Optional[str] = None):
     """Замыкание-разбор для Router(llm_parse=...): (текст, каталог, контекст).
 
@@ -1092,7 +1156,7 @@ def make_llm_parse(*, model: Optional[str] = None, timeout: float = 3.0,
     """
     async def parse(text: str, catalog: str, context: Optional[dict] = None) -> IntentParse:
         return await parse_intent(text, catalog, context=context, model=model,
-                                  timeout=timeout, api_key=api_key)
+                                  chain=chain, timeout=timeout, api_key=api_key)
 
     return parse
 
@@ -1123,19 +1187,75 @@ def _strip_tone(text: str) -> str:
     return _st(text)[1]
 
 
+_TOOL_LEAK_KEYS = frozenset({"thought", "action", "action_input", "actions"})
+_FENCE_SPLIT_RE = re.compile(r"(```[\s\S]*?```)")
+
+
+def _strip_leaked_tool_json(segment: str) -> str:
+    """Удалить top-level JSON-объекты tool-call с сервисными ключами вне код-блоков."""
+    if not segment or "{" not in segment:
+        return segment
+    out: list[str] = []
+    idx = 0
+    n = len(segment)
+    while idx < n:
+        start = segment.find("{", idx)
+        if start == -1:
+            out.append(segment[idx:])
+            break
+        out.append(segment[idx:start])
+        depth = 0
+        in_str = False
+        esc = False
+        end = -1
+        for pos in range(start, n):
+            ch = segment[pos]
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = pos + 1
+                    break
+        if end == -1:
+            out.append(segment[start:])
+            break
+        candidate = segment[start:end]
+        stripped = False
+        try:
+            parsed = json.loads(candidate, strict=False)
+            if isinstance(parsed, dict) and (_TOOL_LEAK_KEYS & parsed.keys()):
+                stripped = True
+        except ValueError:
+            pass
+        if not stripped:
+            out.append(candidate)
+        idx = end
+    return "".join(out)
+
+
 def clean_reply(text: str) -> str:
+    """Убрать утечку внутренних JSON tool-call объектов вне markdown-блоков кода."""
     if not text:
         return ""
-    import re as _re
-    text = _re.sub(r'\{.*?\}', '', text, flags=_re.DOTALL).strip()
-    bad_keys = ('"thought"', '"action"', '"action_input"', 'dalle.text2im', '"text":', '"role":')
-    lines = [
-        l for l in text.split('\n')
-        if not any(k in l for k in bad_keys)
-        and not (l.strip().startswith('"') and l.strip().endswith('",'))
-        and l.strip() not in (',', '"')
+    parts = _FENCE_SPLIT_RE.split(text)
+    cleaned_parts = [
+        part if i % 2 == 1 else _strip_leaked_tool_json(part)
+        for i, part in enumerate(parts)
     ]
-    return '\n'.join(lines).strip()
+    joined = "".join(cleaned_parts)
+    joined = re.sub(r"\n{3,}", "\n\n", joined)
+    return joined.strip()
 
 
 # ── Сборка contents ──────────────────────────────────────────────────────
@@ -1255,9 +1375,10 @@ async def ask_gemini(
     _t_mono = __import__("time").monotonic
     _t0 = _t_mono()
 
-    full_system = await _build_system(query="", channel=channel)
+    full_system = await _build_system(query=user_message, channel=channel)
+    turn_extra_parts: list[str] = []
     if extra_system:
-        full_system += "\n\n" + extra_system
+        turn_extra_parts.append(extra_system)
     _t_build = _t_mono() - _t0
 
     try:
@@ -1312,10 +1433,10 @@ async def ask_gemini(
 
     url_ctx = await maybe_read_url(user_message)
     if url_ctx:
-        full_system += f"\n\n{url_ctx}"
+        turn_extra_parts.append(url_ctx)
 
     if search_facts:
-        full_system += facts_prompt(search_facts)
+        turn_extra_parts.append(facts_prompt(search_facts).strip())
     _t_ctx = _t_mono() - _t0
 
     key = get_active_key()
@@ -1323,8 +1444,11 @@ async def ask_gemini(
     _t_llm = None
     if not key:
         return "Мастер, все API ключи исчерпаны на сегодня."
-    contents = _build_contents(user_message, history_limit=history_limit,
-                               channel=channel)
+    turn_extra = "\n\n".join(p.strip() for p in turn_extra_parts if p and p.strip())
+    contents = _build_contents(
+        user_message, extra_system=turn_extra, history_limit=history_limit,
+        channel=channel,
+    )
     try:
         _t_prep = _t_mono() - _t0
         request_chain = chain or _chain_for_request(history_limit, save_history)
@@ -1476,9 +1600,6 @@ async def ask_gemini_voice(
                   if received_at is not None else "")
     log.info(f"[voice] _build_system за {_t_now-_t_build:.2f}с{_from_recv}")
 
-    contents  = _build_contents(
-        user_message, history_limit=config.VOICE_HISTORY_LIMIT, channel=channel
-    )
     emotion   = "neutral"
     full_text = ""
 
@@ -1499,10 +1620,16 @@ async def ask_gemini_voice(
     # С фактами из поиска промпт длиннее: потолок ответа 14 с вместо 8 (ход
     # целиком всё равно под сторожем TURN_TIMEOUT_S), факты для голоса — короче.
     llm_timeout = VOICE_SEARCH_TIMEOUT_S if search_facts else VOICE_LLM_TIMEOUT_S
+    voice_extra = ""
     if search_facts:
-        full_system += facts_prompt(search_facts[:VOICE_FACTS_MAX])
+        voice_extra = facts_prompt(search_facts[:VOICE_FACTS_MAX]).strip()
     elif search_needed:
         full_system += SEARCH_NOT_FOUND
+
+    contents = _build_contents(
+        user_message, extra_system=voice_extra,
+        history_limit=config.VOICE_HISTORY_LIMIT, channel=channel,
+    )
 
     try:
         if websocket:
@@ -1624,8 +1751,12 @@ async def maybe_read_url(text: str) -> str:
         return ""
     try:
         from modules.url_reader import process_url
+        from sakura_core.web_safety import wrap_untrusted_web_data
         content = await process_url(urls[0])
-        return f"СОДЕРЖИМОЕ ССЫЛКИ ({urls[0]}):\n{content}"
+        if not content:
+            return ""
+        wrapped = wrap_untrusted_web_data(content)
+        return f"СОДЕРЖИМОЕ ССЫЛКИ ({urls[0]}):\n{wrapped}"
     except Exception as e:
         log.error(f"URL reader error: {e}")
         return ""

@@ -638,8 +638,9 @@ class TestMusicAppRouter(unittest.TestCase):
         from tests.router_support import route_info as _hardcoded_match
         self.assertEqual(_hardcoded_match("лайкни трек")["action"], "music.like")
         self.assertEqual(_hardcoded_match("поставь лайк")["action"], "music.like")
-        self.assertEqual(_hardcoded_match("дизлайкни")["action"], "music.dislike")
-        self.assertEqual(_hardcoded_match("не нравится")["action"], "music.dislike")
+        self.assertEqual(_hardcoded_match("дизлайкни", context="playing:music")["action"], "music.dislike")
+        self.assertEqual(_hardcoded_match("не нравится", context="playing:music")["action"], "music.dislike")
+        self.assertIsNone(_hardcoded_match("не нравится"))
 
 
     def test_next_prev(self):

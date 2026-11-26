@@ -61,8 +61,43 @@ def _mentions(text: str, keys: tuple) -> bool:
     """Есть ли в запросе хоть одно из ключевых слов (подстрока, регистр не важен)."""
     t = (text or "").strip().lower()
     if not t:
-        return True
+        return False
     return any(k in t for k in keys)
+
+
+_TRIVIAL_RAG_REPLIES = frozenset({
+    "привет", "хай", "здарова", "ку", "доброе утро", "добрый день",
+    "добрый вечер", "спокойной ночи", "пока", "до завтра", "ок", "окей",
+    "ok", "да", "нет", "ага", "угу", "неа", "понял", "понятно", "ясно",
+    "хорошо", "ладно", "круто", "класс", "супер", "спасибо", "спс",
+    "благодарю", "пожалуйста", "извини", "прости", "бывает", "ничего",
+    "нормально", "норм", "как дела", "что нового", "что", "че", "чего",
+    "а", "ну", "мм", "хм", "лол", "кек", "хах", "ахах",
+})
+
+
+def should_run_semantic_rag(query: str) -> bool:
+    """Локальный гейт для удалённого embedding-поиска по памяти.
+
+    Тривиальные короткие реплики («ок», «да», «привет», «ага», «спасибо»,
+    или < 12 символов без вопроса/маркеров воспоминаний) не платят за
+    сетевой вызов эмбеддинга — им хватает быстрого _top_by_importance().
+    """
+    q = " ".join((query or "").strip().lower().split())
+    if not q:
+        return False
+    q_clean = q.rstrip("!?.,…:;\"'«»").strip()
+    if not q_clean or q_clean in _TRIVIAL_RAG_REPLIES:
+        return False
+    try:
+        from modules.memory_honesty import is_recall_query
+        if is_recall_query(q):
+            return True
+    except Exception:
+        pass
+    if len(q_clean) < 12 and "?" not in q:
+        return False
+    return True
 
 
 _JP_KEYS = ("японск", "нихонго", "кандзи", "хирагана", "катакана", "jlpt")
@@ -187,9 +222,11 @@ async def _build_system(
                 return _with_action_note(entry[0])
 
     _bs_t0 = _t.monotonic()
+    context_query = query or ""
+    rag_query = context_query if should_run_semantic_rag(context_query) else ""
     # Классификация пути — на входе: embed, посчитанный этой сборкой,
     # попадает в кэш и исказил бы тип пути после сборки.
-    _kind, _budget = _path_budget(query)
+    _kind, _budget = _path_budget(context_query)
 
     async def _block(label, fn, *args):
         try:
@@ -251,16 +288,16 @@ async def _build_system(
         return get_device_context()
 
     def _memory():
-        # query передаётся только если явно нужен семантический поиск.
-        # Без query — быстрый топ по hits, без сетевых вызовов.
+        # rag_query передаётся только когда гейт разрешает семантический поиск;
+        # для коротких/тривиальных реплик — быстрый топ по hits, без сети.
         from memory.db import get_memory_context as db_get_memory_context
         from modules.memory_honesty import enrich_memory_context
-        raw_mem = db_get_memory_context()
-        return enrich_memory_context(raw_mem, query) if raw_mem else ""
+        raw_mem = db_get_memory_context(rag_query)
+        return enrich_memory_context(raw_mem, context_query) if raw_mem else ""
 
     def _graph():
         from modules.graph import get_graph_context
-        return get_graph_context(query)
+        return get_graph_context(context_query)
     def _vps():
         from modules.vps_monitor import get_vps_context
         return get_vps_context()
@@ -299,7 +336,7 @@ async def _build_system(
 
     def _trigger():
         from modules.emotional_memory import get_trigger_hint
-        return get_trigger_hint(query)
+        return get_trigger_hint(context_query)
 
     def _narrative():
         from modules.sakura_narrative import get_narrative_hint
@@ -402,13 +439,13 @@ async def _build_system(
         _b("interests", _interests),
         _b("habits", _habits),
     ]
-    if _mentions(query, _JP_KEYS):
+    if _mentions(context_query, _JP_KEYS):
         tasks.append(_b("jp", _jp))
-    if _mentions(query, _APP_KEYS):
+    if _mentions(context_query, _APP_KEYS):
         tasks.append(_b("apps", _apps))
-    if _mentions(query, _CODE_KEYS):
+    if _mentions(context_query, _CODE_KEYS):
         tasks.append(_b("coding", _coding))
-    if _mentions(query, _FORTUNE_KEYS):
+    if _mentions(context_query, _FORTUNE_KEYS):
         tasks.append(_b("fortune", _fortune))
     if include_calendar:
         tasks.append(_b("calendar", _calendar))

@@ -107,14 +107,28 @@ def get_executor() -> Executor:
     return _executor
 
 
-def resolve_context(active_window: str = "", current_track: dict | None = None):
-    """Контекст для реестра: играющая музыка → активное окно.
+def _track_actively_playing(track: dict | None) -> bool:
+    """True только если музыка реально играет (не на паузе и не остановлена).
 
-    Приоритет playing:music первым: домен этапа 3 — музыка, и её действия
-    с context (громче/тише/перемотай) должны срабатывать, пока играет трек,
-    даже если Мастер смотрит в браузер.
+    Если поле status отсутствует целиком (наследие/старые юнит-фикстуры с
+    {"title": "..."}), считаем трек активным; если status задан явно
+    (например «пауза» / «stopped»), контекст playing:music НЕ выдаётся.
     """
-    if current_track:
+    if not track or not track.get("title"):
+        return False
+    status = str(track.get("status") or "").strip().lower()
+    if not status:
+        return True
+    return status in ("играет", "playing")
+
+
+def resolve_context(active_window: str = "", current_track: dict | None = None):
+    """Контекст для реестра: реально играющая музыка → активное окно.
+
+    Музыка на паузе НЕ даёт playing:music: управление уходит в window:youtube /
+    window:browser по активному окну.
+    """
+    if _track_actively_playing(current_track):
         return "playing:music"
     win = (active_window or "").lower()
     if "youtube" in win:
@@ -135,16 +149,19 @@ async def execute_decision(decision, *, device_ws, device_id, register_command,
         return False, None
     if get_handler(decision.action) is None:
         return False, None
+    payload = decision.pending_payload or {}
+    orig_text = payload.get("text") if decision.source == "session" else None
+    effective_param = decision.param if decision.param is not None else payload.get("param")
     ctx = ExecutionContext(device_ws=device_ws, device_id=device_id or "",
                            register_command=register_command,
-                           extra={"text": text or "",
-                                  "source": source,
+                           extra={"text": (orig_text or text or ""),
+                                  "source": source or payload.get("source"),
                                   # «да» из диалога подтверждения — исполнять
                                   # без повторного вопроса (executor).
                                   "confirmed": decision.source == "session",
-                                  "prepared_command": (decision.pending_payload or {}).get("command")})
+                                  "prepared_command": payload.get("command")})
     result = await get_executor().execute(decision.action, ctx,
-                                          param=decision.param)
+                                          param=effective_param)
     pending = get_router().session.pending
     if (pending is not None and pending.kind == "confirm"
             and pending.action == decision.action):
@@ -233,7 +250,7 @@ async def v3_fast_path(text, *, data, device_ws, device_id, register_command,
     if decision is None:
         router = get_router()
         if _accepts_dialog(router):
-            route_source["dialog"] = _dialog_context(data, device_id)
+            route_source["dialog"] = _dialog_context(data, device_id, source=source)
         decision = await router.route(text, context, on_llm=on_llm, **route_source)
     if on_command is not None and (decision.action or decision.reply is not None):
         await on_command()
@@ -339,11 +356,15 @@ def _accepts_dialog(router) -> bool:
         return False
 
 
-def _dialog_context(data, device_id) -> dict:
-    """Контекст хода для LLM-разбора: окно, трек, последние реплики.
+def _dialog_context(data, device_id, *, source: str | None = None) -> dict:
+    """Контекст хода для LLM-разбора: окно, трек, pending и последние реплики.
 
     Только дешёвые локальные чтения; любая ошибка — контекст просто беднее."""
     out: dict = {}
+    if source and source != "telegram":
+        import os as _os
+        if not _os.getenv("INTENT_MODEL_CHAIN", "").strip():
+            out["_chain"] = config.VOICE_MODEL_CHAIN
     try:
         window = (data or {}).get("active_window") or ""
         if window:
@@ -351,9 +372,25 @@ def _dialog_context(data, device_id) -> dict:
         from modules.state import device_track, prompt_track
         track = device_track(device_id) or prompt_track()
         if track and track.get("title"):
-            out["track"] = f"{track.get('artist', '')} — {track.get('title', '')}".strip(" —")
+            title_str = f"{track.get('artist', '')} — {track.get('title', '')}".strip(" —")
+            st_str = str(track.get("status") or "").strip()
+            if st_str and st_str.lower() not in ("играет", "playing"):
+                title_str = f"{title_str} ({st_str})"
+            out["track"] = title_str
     except Exception as e:
         log.debug(f"[v3] контекст разбора: {type(e).__name__}: {e}")
+    try:
+        pending = getattr(get_router().session, "pending", None)
+        if pending is not None:
+            parts = [pending.kind or "confirm"]
+            if pending.action:
+                parts.append(pending.action)
+            p_val = (pending.payload or {}).get("param")
+            if p_val:
+                parts.append(str(p_val))
+            out["pending"] = ": ".join(parts)
+    except Exception as e:
+        log.debug(f"[v3] контекст разбора (pending): {type(e).__name__}: {e}")
     try:
         from modules import chat_log
         messages, _ = chat_log.history(limit=4)
@@ -467,22 +504,19 @@ def _vision_intent(text: str, active_window: str | None):
 
 
 def confirms_via_executor(action: str | None) -> bool:
-    """«да» исполняется через Executor (команда с "confirmed": true), а не
-    старым путём execute_critical_action: действия управления компьютером."""
-    from capabilities.pc_control import EXECUTOR_CONFIRMED
-    return action in EXECUTOR_CONFIRMED
+    """Единый контур подтверждения: все v3-действия подтверждаются через Executor."""
+    return bool(action)
 
 
 async def handle_v3_confirm(text, *, source: str | None = None,
-                            on_execute, on_cancel, on_error=None,
+                            on_execute=None, on_cancel=None, on_error=None,
                             on_execute_decision=None):
     """Handle v3 session confirm/deny dialog.
 
     Returns True if the text was handled by the v3 session, False otherwise.
-    on_execute(action) — called when user confirms; should execute the action.
-    on_execute_decision(decision) — для действий управления компьютером
-    (confirms_via_executor): исполнить решение через execute_decision —
-    готовая команда из ожидания уходит с "confirmed": true.
+    on_execute_decision(decision) — единый путь исполнения подтверждённых v3-действий
+    через execute_decision(..., extra={"confirmed": True}) (и VPS, и агентских).
+    on_execute(action) — устаревший fallback для старых вызовов без on_execute_decision.
     on_cancel() — called when user denies.
     on_error(err) — called on exception (optional).
     """
@@ -500,13 +534,14 @@ async def handle_v3_confirm(text, *, source: str | None = None,
             return True
         if dec.verdict == "confirm" and dec.action:
             log.info(f"[confirm] принято: action={action} фраза={text!r}")
-            if on_execute_decision is not None and confirms_via_executor(dec.action):
+            if on_execute_decision is not None:
                 await on_execute_decision(dec)
-            else:
+            elif on_execute is not None:
                 await on_execute(dec.action)
         else:
             log.info(f"[confirm] отклонено: action={action} фраза={text!r}")
-            await on_cancel()
+            if on_cancel is not None:
+                await on_cancel()
         return True
     except Exception as e:
         if on_error:

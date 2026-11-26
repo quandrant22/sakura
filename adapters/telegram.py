@@ -200,6 +200,29 @@ async def device_control(message: Message):
 
 # ── Message handler (main) ─────────────────────────────────────
 
+def _active_device_window(dev_id: str | None) -> str:
+    """Последнее свежее active_window подключённого ПК-устройства для Telegram-пути."""
+    if not dev_id:
+        return ""
+    try:
+        from datetime import datetime
+        from modules.device_manager import load_devices
+        import modules.state as st
+        if dev_id not in getattr(st, "connected_devices", {}):
+            return ""
+        dev = (load_devices().get("devices") or {}).get(dev_id) or {}
+        if not dev.get("online"):
+            return ""
+        last_seen = dev.get("last_seen")
+        if last_seen:
+            age = (datetime.now() - datetime.strptime(last_seen, "%Y-%m-%d %H:%M:%S")).total_seconds()
+            if age > 120.0:
+                return ""
+        return str(dev.get("active_window") or "")
+    except Exception:
+        return ""
+
+
 @dp.message(F.text)
 async def handle_message(message: Message):
     _TG_ROUTER_SKIP = {"привет", "приветик", "здравствуй", "здаров", "ладно",
@@ -292,8 +315,13 @@ async def handle_message(message: Message):
     if await power_confirm.handle_answer(text, "telegram"):
         return
 
-    from sakura_core.bridge import handle_v3_confirm
+    from sakura_core.bridge import handle_v3_confirm, get_router as _v3_get_router
     from sakura_core.executor import execute_critical_action as _exec_crit
+    from adapters.ws import _register_command
+
+    def _tg_register_command(action: str, device: str) -> str:
+        return _register_command(action, device, source="telegram", chat_id=message.chat.id)
+
     async def _v3_on_execute(action):
         ws, dev = _get_active_ws()
         if ws:
@@ -303,15 +331,22 @@ async def handle_message(message: Message):
             await message.answer("Устройство отключилось, не могу выполнить.")
     async def _v3_on_execute_decision(dec):
         from sakura_core.bridge import execute_decision
-        from adapters.ws import _register_command
+        decl = _v3_get_router()._by_id.get(dec.action)
+        needs_agent = decl is None or decl.executor == "agent"
         ws, dev = _get_active_ws()
-        if not ws:
+        if needs_agent and not ws:
             await message.answer("Устройство отключилось, не могу выполнить.")
             return
-        await execute_decision(dec, device_ws=ws, device_id=dev,
-                               register_command=_register_command,
-                               text=text, source="telegram")
-        await message.answer("Отправила.")
+        ok, res = await execute_decision(
+            dec, device_ws=ws, device_id=dev or "tg",
+            register_command=_tg_register_command,
+            text=text, source="telegram",
+        )
+        if isinstance(res, tuple) and len(res) == 2 and isinstance(res[0], str):
+            if res[0]:
+                await message.answer(res[0])
+        elif ok:
+            await message.answer("Отправила.")
     async def _v3_on_cancel():
         await message.answer("Хорошо, отменила.")
     if await handle_v3_confirm(text, source="telegram",
@@ -376,9 +411,10 @@ async def handle_message(message: Message):
                                        channel="tg_private")
             await send_as_conversation(message.chat.id, _hybrid)
 
-        if await v3_fast_path(text, data={"active_window": ""},
+        _tg_win = _active_device_window(_laptop_dev)
+        if await v3_fast_path(text, data={"active_window": _tg_win},
                               device_ws=_laptop_ws, device_id=_laptop_dev,
-                              register_command=None, ack=message.answer,
+                              register_command=_tg_register_command, ack=message.answer,
                               resolve_reply=_tg_resolve_reply, on_chat=_v3_chat,
                               source="telegram"):
             return

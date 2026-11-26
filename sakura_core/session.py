@@ -131,7 +131,7 @@ class Session:
 
     def _expire(self) -> None:
         p = self._pending
-        if p is not None and p.until and time.monotonic() > p.until:
+        if p is not None and p.until is not None and time.monotonic() >= p.until:
             if p.kind == "confirm":
                 log.info(f"[confirm] истекло: action={p.action or 'unknown'}")
             self._pending = None

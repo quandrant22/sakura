@@ -171,6 +171,40 @@ def offline(persona: str) -> int:
     return 1 if fails or problems else 0
 
 
+def eval_router() -> int:
+    """Прогнать golden-корпус «команда vs разговор» через локальный Router."""
+    from sakura_core import bridge, registry
+    from sakura_core.router import Router
+    from tests.test_command_vs_chat import GOLDEN_COMMAND_VS_CHAT
+
+    registry.set_installed_apps(["браузер", "хром", "steam", "блокнот"])
+    try:
+        router = Router(declarations=bridge._declarations, llm_parse=None)
+        fp: list[tuple[str, str | None, tuple[str, ...]]] = []
+        fn: list[tuple[str, str | None, tuple[str, ...], tuple[str, ...]]] = []
+        for phrase, ctx, expected, _note in GOLDEN_COMMAND_VS_CHAT:
+            d = asyncio.run(router.route(phrase, ctx))
+            got = d.actions
+            if not expected and got:
+                fp.append((phrase, ctx, got))
+            elif expected and got != expected:
+                fn.append((phrase, ctx, expected, got))
+    finally:
+        registry.set_installed_apps([])
+
+    total = len(GOLDEN_COMMAND_VS_CHAT)
+    print(f"[eval-router] всего кейсов: {total}")
+    print(f"[eval-router] False Positives (разговор → команда): {len(fp)}")
+    for phrase, ctx, got in fp:
+        print(f"   FP: {phrase!r} (ctx={ctx}) -> {got}")
+    print(f"[eval-router] False Negatives / расхождения команд: {len(fn)}")
+    for phrase, ctx, exp, got in fn:
+        print(f"   FN: {phrase!r} (ctx={ctx}) ожидалось {exp}, получено {got}")
+    ok = not fp and not fn
+    print(f"[eval-router] итог: {'OK' if ok else 'FAIL'}")
+    return 0 if ok else 1
+
+
 # ── онлайн ──────────────────────────────────────────────────────────
 
 JUDGE = """Ты оцениваешь ответ голосовой помощницы-дворецкой Сакуры её хозяину (Мастеру).
@@ -297,6 +331,7 @@ def main():
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--offline", action="store_true")
     mode.add_argument("--online", action="store_true")
+    mode.add_argument("--eval-router", action="store_true")
     mode.add_argument("--summary", nargs="+", metavar="JSONL")
     ap.add_argument("--persona", choices=("current", "v2"), default="current")
     ap.add_argument("--profile", choices=("full", "light"), default="full",
@@ -313,6 +348,8 @@ def main():
         return 0
     if args.offline:
         return offline(args.persona)
+    if args.eval_router:
+        return eval_router()
     if not args.data_dir or os.path.realpath(args.data_dir) == os.path.realpath(args.keys_from):
         raise SystemExit("--online требует --data-dir с КОПИЕЙ данных (не боевой каталог)")
     return asyncio.run(online(args))

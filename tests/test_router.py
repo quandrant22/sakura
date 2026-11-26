@@ -82,7 +82,7 @@ def test_context_disambiguates_seek(make_router):
 
 def test_exact_beats_fuzzy(make_router):
     router, _ = make_router()
-    d = _run(router.route("НЕ НАРВИТСЯ ТРЕК" if False else "не нравится трек"))
+    d = _run(router.route("не нравится трек", "playing:music"))
     assert d.action == "music.dislike"
     assert d.source == "registry_exact"
 

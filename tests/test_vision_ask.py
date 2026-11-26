@@ -284,7 +284,7 @@ def test_ask_gemini_followup_searches_with_screen_subject(monkeypatch):
     from sakura_core.search.pipeline import Evidence
     seen.record(MASTER, "Scrap Mechanic", "режим выживания", "ask", now=time.monotonic(),
                 subject="Scrap Mechanic")
-    searched, systems = [], []
+    searched, systems, extras = [], [], []
 
     async def fake_build(query="", channel=None):
         return "SYSTEM"
@@ -303,7 +303,7 @@ def test_ask_gemini_followup_searches_with_screen_subject(monkeypatch):
     monkeypatch.setattr(llm, "_build_system", fake_build)
     monkeypatch.setattr(llm, "generate", fake_generate)
     monkeypatch.setattr(llm, "maybe_read_url", none)
-    monkeypatch.setattr(llm, "_build_contents", lambda *a, **k: [])
+    monkeypatch.setattr(llm, "_build_contents", lambda msg, extra_system="", **k: extras.append(extra_system) or [])
     monkeypatch.setattr(search, "run", fake_run)
     import modules.web_search as ws
     monkeypatch.setattr(ws, "needs_search", lambda t: False)
@@ -314,4 +314,6 @@ def test_ask_gemini_followup_searches_with_screen_subject(monkeypatch):
     assert reply.startswith("Почини станцию у торговца.")
     question, kw = searched[0]
     assert kw["channel"] == "text" and kw["hint"] == "Scrap Mechanic Делать по квесту «Механическая станция»."
-    assert "Scrap Mechanic" in systems[0] and "почините станцию" in systems[0]
+    assert "Scrap Mechanic" in systems[0]
+    assert "почините станцию" not in systems[0]
+    assert "почините станцию" in extras[0] and "<untrusted_web_data>" in extras[0]

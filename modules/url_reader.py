@@ -25,8 +25,9 @@ async def read_url(url: str) -> str:
             lines = [l.strip() for l in text.splitlines() if len(l.strip()) > 40]
             content = "\n".join(lines[:80])
 
+            from sakura_core.web_safety import wrap_untrusted_web_data
             result = f"Заголовок: {title}\n\n{content}"
-            return result[:4000]
+            return wrap_untrusted_web_data(result[:4000])
 
     except Exception as e:
         logging.error(f"URL read error: {e}")
@@ -121,7 +122,8 @@ with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         if not result_parts:
             return "Не смогла получить информацию о видео"
 
-        return "\n\n".join(result_parts)[:4000]
+        from sakura_core.web_safety import wrap_untrusted_web_data
+        return wrap_untrusted_web_data("\n\n".join(result_parts)[:4000])
 
     except Exception as e:
         logging.error(f"YouTube read error: {e}")

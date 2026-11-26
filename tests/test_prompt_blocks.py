@@ -71,9 +71,9 @@ class TestAppBlockGate(unittest.TestCase):
             with self.subTest(q=q):
                 self.assertIn(SENTINEL, self._prompt(q))
 
-    def test_empty_query_keeps_block(self):
-        """Текстовый путь query не передаёт — набор блоков не меняется."""
-        self.assertIn(SENTINEL, self._prompt(""))
+    def test_empty_query_drops_block(self):
+        """Пустой query не тянет тематический блок без нужды."""
+        self.assertNotIn(SENTINEL, self._prompt(""))
 
 
 class TestCodingBlockGate(unittest.TestCase):
@@ -91,8 +91,8 @@ class TestCodingBlockGate(unittest.TestCase):
             with self.subTest(q=q):
                 self.assertIn("КОДИНГ: У тебя есть доступ", self._prompt(q))
 
-    def test_empty_query_keeps_block(self):
-        self.assertIn("КОДИНГ: У тебя есть доступ", self._prompt(""))
+    def test_empty_query_drops_block(self):
+        self.assertNotIn("КОДИНГ: У тебя есть доступ", self._prompt(""))
 
 
 class TestJapaneseBlockGate(unittest.TestCase):
@@ -109,8 +109,8 @@ class TestJapaneseBlockGate(unittest.TestCase):
     def test_japanese_talk_keeps_block(self):
         self.assertIn(SENTINEL, self._prompt("как будет по-японски слово дом"))
 
-    def test_empty_query_keeps_block(self):
-        self.assertIn(SENTINEL, self._prompt(""))
+    def test_empty_query_drops_block(self):
+        self.assertNotIn(SENTINEL, self._prompt(""))
 
 
 class TestFortuneBlockGate(unittest.TestCase):
@@ -129,8 +129,8 @@ class TestFortuneBlockGate(unittest.TestCase):
             with self.subTest(q=q):
                 self.assertIn(SENTINEL, self._prompt(q))
 
-    def test_empty_query_keeps_block(self):
-        self.assertIn(SENTINEL, self._prompt(""))
+    def test_empty_query_drops_block(self):
+        self.assertNotIn(SENTINEL, self._prompt(""))
 
 
 class TestSteamLibraryGate(unittest.TestCase):

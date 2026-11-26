@@ -53,6 +53,7 @@ FREE_TAIL_ACTIONS = frozenset({
     "task.add", "task.done", "reminder.add", "memory.forget",
     "steam.playtime", "steam.progress", "steam.achievements",
     "music_stats.recent", "music_stats.top",
+    "files.copy", "files.move", "ui.scroll",
 })
 
 # Необратимые действия питания: с отложенным временем («через час»)
@@ -318,6 +319,8 @@ class Router:
         exact = self._match_exact(cleaned, ctx)
         if exact is not None:
             trigger, d = exact
+            if not self._guard.takes_free_tail(d.id) and self._guard.is_blocked_talk(cleaned):
+                return None
             if d.param is not None and d.param.required == "ask":
                 param_val = d.param.extract(cleaned)
                 if param_val is None:
@@ -429,7 +432,15 @@ class Router:
 
         Неизвестные id отбрасываются. Параметр: значение от модели, иначе —
         шаблон декларации по фразе; числовой параметр обязан содержать цифры.
+        При уверенности ниже INTENT_MIN_CONFIDENCE команда сбрасывается в разговор.
         """
+        import config as _cfg
+        min_conf = float(getattr(_cfg, "INTENT_MIN_CONFIDENCE", 0.70))
+        conf = float(getattr(parsed, "confidence", 1.0))
+        if parsed.actions and conf < min_conf:
+            log.debug("[router] низкая confidence=%.2f < %.2f — сброс в conversation: %r",
+                      conf, min_conf, cleaned)
+            return None
         steps: list[Step] = []
         ask: Optional[Declaration] = None
         for action, param_val in parsed.actions:

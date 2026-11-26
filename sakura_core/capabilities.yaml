@@ -19,12 +19,12 @@
 
 - id: briefing.now
   legacy: [briefing:now]
-  desc: 'Что нового, сделай брифинг'
+  desc: 'Сделать брифинг, сводку новостей'
   executor: vps
   reversible: true
   confirm: false
   followup: ack
-  triggers: ['брифинг', 'что нового', 'сделай брифинг', 'какие новости', 'что произошло', 'дай сводку']
+  triggers: ['брифинг', 'сделай брифинг', 'сводка новостей', 'какие новости в мире', 'расскажи новости', 'дай сводку']
 
 - id: browser.back
   legacy: [browser:back]
@@ -84,7 +84,7 @@
 
 - id: app.switch
   legacy: [switch_to_app]
-  desc: 'Переключиться на приложение — переключись на дискорд, перейди в telegram'
+  desc: 'Переключиться на уже открытое окно приложения (переключись на дискорд, перейди в telegram)'
   executor: agent
   reversible: true
   confirm: false
@@ -97,7 +97,7 @@
     required: ask
 
 - id: app.switch_open
-  desc: 'Открыть установленное приложение — открой дискорд, покажи стим (не: погода, сайты, задачи)'
+  desc: 'Открыть или запустить установленное на ПК приложение (открой дискорд, покажи стим; не музыка и не сайты)'
   executor: agent
   reversible: true
   confirm: false
@@ -125,7 +125,7 @@
     resolve: installed_apps
 
 - id: app.launch
-  desc: 'Запустить игру или приложение по названию — запусти фортнайт, включи игру дота, поиграем в майнкрафт'
+  desc: 'Запустить игру или приложение по явному названию («запусти игру …», «поиграем в …»)'
   executor: agent
   reversible: true
   confirm: false
@@ -190,11 +190,11 @@
   reversible: false
   confirm: true
   followup: ack
-  triggers: ['гугл хром', 'закрой chrome', 'закрой opera', 'закрой браузер', 'закрой оперу']
+  triggers: ['закрой гугл хром', 'закрой хром', 'закрой chrome', 'закрой opera', 'закрой браузер', 'закрой оперу']
 
 - id: ext.page_content
   legacy: [ext:page_content]
-  desc: 'Что на странице, прочитай страницу'
+  desc: 'Прочитать и пересказать открытую веб-страницу в браузере'
   executor: agent
   reversible: true
   confirm: false
@@ -226,7 +226,7 @@
   reversible: true
   confirm: false
   followup: ack
-  triggers: ['игровой режим', 'включи игровой режим', 'я играю', 'режим игры']
+  triggers: ['игровой режим', 'включи игровой режим', 'режим игры']
 
 - id: memory.forget
   legacy: [memory:forget]
@@ -243,16 +243,17 @@
 
 - id: music.dislike
   legacy: [music:dislike, music_dislike]
-  desc: 'Дизлайкнуть трек'
+  desc: 'Дизлайкнуть текущий трек (только во время музыки)'
   executor: agent
   reversible: false
   confirm: false
   followup: ack
   triggers: ['дизлайк', 'дизлайк трек', 'дизлайкни', 'дизлайкни трек', 'не нравится', 'не нравится трек']
+  context: playing:music
 
 - id: music.history
   legacy: [music_history]
-  desc: 'История, плейлисты, любимые'
+  desc: 'История прослушиваний — какие треки Мастер слушал недавно'
   executor: agent
   reversible: true
   confirm: false
@@ -266,11 +267,11 @@
   reversible: true
   confirm: false
   followup: ack
-  triggers: ['поставь лайк', 'добавь в любимые', 'лайк', 'лайк трек', 'лайкни', 'лайкни трек', 'нравится', 'нравится трек', 'понравилось']
+  triggers: ['поставь лайк', 'добавь в любимые', 'лайк', 'лайк трек', 'лайкни', 'лайкни трек', 'нравится трек']
 
 - id: music.liked_tracks
   legacy: [music_liked_tracks]
-  desc: 'История, плейлисты, любимые'
+  desc: 'Любимые треки (список лайкнутых песен Мастера)'
   executor: agent
   reversible: true
   confirm: false
@@ -279,12 +280,12 @@
 
 - id: music.mute
   legacy: [music:mute]
-  desc: 'Список/пауза звука'
+  desc: 'Выключить звук (mute)'
   executor: agent
   reversible: true
   confirm: false
   followup: ack
-  triggers: ['выключи звук', 'заглуши звук', 'тишина']
+  triggers: ['выключи звук', 'заглуши звук']
 
 - id: music.next
   legacy: [music:next, music_next]
@@ -311,11 +312,11 @@
   reversible: true
   confirm: false
   followup: ack
-  triggers: ['играй', 'на паузу', 'останови', 'пауза', 'продолжай', 'продолжи', 'стоп']
+  triggers: ['играй', 'на паузу', 'останови', 'пауза', 'продолжи', 'стоп']
 
 - id: music.playlists
   legacy: [music_playlists]
-  desc: 'История, плейлисты, любимые'
+  desc: 'Список плейлистов Мастера в Яндекс Музыке'
   executor: agent
   reversible: true
   confirm: false
@@ -367,11 +368,11 @@
   reversible: true
   confirm: false
   followup: ack
-  triggers: ['repeat', 'зацикли', 'зациклить', 'на репит', 'повтор', 'повтори трек', 'повторяй', 'поставь на повтор', 'репит']
+  triggers: ['repeat', 'зацикли', 'зациклить', 'на репит', 'повтори трек', 'повторяй', 'поставь на повтор', 'репит']
 
 - id: music.seek_back
   legacy: [music:seek_back]
-  desc: 'Перемотать вперёд/назад (10с)'
+  desc: 'Перемотать трек назад (10с)'
   executor: agent
   reversible: true
   confirm: false
@@ -381,7 +382,7 @@
 
 - id: music.seek_forward
   legacy: [music:seek_forward]
-  desc: 'Перемотать вперёд/назад (10с)'
+  desc: 'Перемотать трек вперёд (10с)'
   executor: agent
   reversible: true
   confirm: false
@@ -581,12 +582,13 @@
     required: true
 
 - id: music.queue_show
-  desc: 'Сказать, что играет дальше и что в очереди'
+  desc: 'Сказать, что играет дальше и что в очереди музыки'
   executor: agent
   reversible: true
   confirm: false
   followup: llm
-  triggers: ['что в очереди', 'кто в очереди', 'кто в очереди стоит', 'кто стоит в очереди', 'что стоит в очереди', 'то в очереди', 'какие треки в очереди', 'покажи очередь', 'что дальше играет', 'что играет дальше', 'какой трек следующий']
+  triggers: ['что в очереди', 'что в очереди музыки', 'очередь треков', 'кто в очереди', 'кто в очереди стоит', 'кто стоит в очереди', 'что стоит в очереди', 'то в очереди', 'какие треки в очереди', 'покажи очередь', 'что дальше играет', 'что играет дальше', 'какой трек следующий']
+  context: playing:music
 
 - id: music.queue_clear
   desc: 'Очистить очередь воспроизведения'
@@ -753,7 +755,7 @@
 
 - id: open.app
   legacy: [open_app]
-  desc: 'Запустить/включить/поставить/врубить музыку — любая просьба начать воспроизведение музыки'
+  desc: 'Запустить/включить воспроизведение Яндекс Музыки (именно музыки, не других программ)'
   executor: agent
   reversible: false
   confirm: false
@@ -780,7 +782,7 @@
 
 - id: vision.ask
   legacy: [screenshot.describe, screenshot:describe]
-  desc: 'Посмотреть на экран Мастера и ответить на вопрос о нём'
+  desc: 'Посмотреть на экран и ответить текстом по изображению (не сохранять картинку)'
   executor: vps
   reversible: true
   confirm: false
@@ -805,7 +807,7 @@
 
 - id: screenshot.run
   legacy: [screenshot:]
-  desc: 'Скриншот'
+  desc: 'Сделать скриншот экрана и прислать картинку в Telegram (не анализ текста)'
   executor: agent
   reversible: true
   confirm: false
@@ -893,11 +895,11 @@
   reversible: true
   confirm: false
   followup: ack
-  triggers: ['отмени выключение', 'cancel shutdown', 'не выключай', 'отмена выключения']
+  triggers: ['отмени выключение', 'cancel shutdown', 'отмена выключения', 'не выключай пк', 'не выключай компьютер']
 
 - id: system.lock
   legacy: [system:lock]
-  desc: 'Заблокировать компьютер'
+  desc: 'Заблокировать экран / компьютер (lock)'
   executor: agent
   reversible: true
   confirm: false
@@ -1135,7 +1137,7 @@
 
 - id: files.open
   legacy: [open_file]
-  desc: 'Найти и открыть файл'
+  desc: 'Найти и открыть документ или файл на компьютере'
   executor: agent
   reversible: true
   confirm: false
@@ -1176,10 +1178,10 @@
 
 - id: coding.read_file
   legacy: [read_code_file]
-  desc: 'Показать код файла'
+  desc: 'Показать исходный код файла проекта на сервере'
   executor: vps
   reversible: true
-  confirm: false
+  confirm: true
   followup: ack
   triggers: ['прочитай файл', 'покажи код']
   param:
@@ -1192,7 +1194,7 @@
   desc: 'Сделать git коммит'
   executor: vps
   reversible: true
-  confirm: false
+  confirm: true
   followup: ack
   triggers: ['закоммить', 'сделай коммит']
   param:
@@ -1358,7 +1360,7 @@
   triggers: ['какие окна открыты', 'список окон', 'открытые окна', 'сколько окон открыто']
 
 - id: power.lock
-  desc: 'Заблокировать сеанс Windows'
+  desc: 'Заблокировать сеанс Windows (сессию пользователя)'
   executor: agent
   reversible: true
   confirm: false
@@ -1764,18 +1766,18 @@
 
 - id: scrap_mechanic.where_bag
   legacy: [sm:where_bag]
-  desc: 'Подсказать направление и расстояние до рюкзака с вещами'
+  desc: 'Подсказать направление и расстояние до рюкзака с вещами в игре Scrap Mechanic'
   executor: agent
   reversible: true
   confirm: false
   followup: ack
-  triggers: ['где мои вещи', 'где мой рюкзак', 'где вещи', 'где рюкзак']
+  triggers: ['где мои вещи в игре', 'где мой рюкзак', 'где вещи в игре', 'где рюкзак']
 
 - id: scrap_mechanic.where_elevator
   legacy: [sm:where_elevator]
-  desc: 'Подсказать направление и расстояние до лифта склада'
+  desc: 'Подсказать направление и расстояние до лифта склада в игре Scrap Mechanic'
   executor: agent
   reversible: true
   confirm: false
   followup: ack
-  triggers: ['куда идти к лифту', 'где лифт', 'где выход', 'куда к лифту', 'где ближайший лифт']
+  triggers: ['куда идти к лифту', 'где лифт', 'где выход из склада', 'куда к лифту', 'где ближайший лифт']

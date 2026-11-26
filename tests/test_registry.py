@@ -138,15 +138,15 @@ def test_followup_index_maps_wire_names():
 
 def test_substring_inside_word_is_not_a_match(index):
     # 'лайк' не должен срабатывать внутри 'дизлайк'/'дизлайкни'/'мои лайки'
-    assert index.match("дизлайк")[1].id == "music.dislike"  # свой триггер, не music.like
-    assert index.match("дизлайкни")[1].id == "music.dislike"
+    assert index.match("дизлайк", "playing:music")[1].id == "music.dislike"  # свой триггер, не music.like
+    assert index.match("дизлайкни", "playing:music")[1].id == "music.dislike"
     assert index.match("мои лайки")[1].id == "music.liked_tracks"  # не music.like
 
 
 def test_longest_trigger_wins_dislike_vs_like(index):
     # 'нравится' ⊂ 'не нравится' ⊂ 'не нравится трек' — побеждает самый длинный
-    assert index.match("не нравится трек")[1].id == "music.dislike"  # не like
-    assert index.match("не нравится")[1].id == "music.dislike"
+    assert index.match("не нравится трек", "playing:music")[1].id == "music.dislike"  # не like
+    assert index.match("не нравится", "playing:music")[1].id == "music.dislike"
     assert index.match("нравится трек")[1].id == "music.like"
 
 

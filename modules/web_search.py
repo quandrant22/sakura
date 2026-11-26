@@ -560,14 +560,16 @@ _FACTS_PROMPT_RULES = (
 
 
 def facts_prompt(facts: str) -> str:
-    """Системный блок «факты из поиска» для main.py (текст и голос).
+    """Системный блок «факты из поиска» для пользовательского контекста (текст и голос).
 
     Один источник текста — чтобы правило честности (пустая выдача ≠
-    «не существует») не разъехалось между путями.
+    «не существует») и изоляция <untrusted_web_data> не разъехались между путями.
     """
+    from sakura_core.web_safety import wrap_untrusted_web_data
+    wrapped = wrap_untrusted_web_data(facts)
     return (
         "\n\nСВЕЖИЕ ФАКТЫ ИЗ ИНТЕРНЕТА (только что проверено поиском):\n"
-        f"{facts}\n"
+        f"{wrapped}\n"
         + _FACTS_PROMPT_RULES
     )
 

@@ -97,6 +97,21 @@ def has_command_verb(text: str) -> bool:
     return False
 
 
+_TOOL_QUESTION_PATTERNS = (
+    re.compile(r"\b(?:погод\w*|за\s+окном|на\s+улиц\w*)\b", re.IGNORECASE),
+    re.compile(r"\b(?:что\s+(?:сейчас\s+)?играет|какой\s+трек|какая\s+песня|что\s+слушаем|что\s+в\s+очеред\w*|какие\s+треки)\b", re.IGNORECASE),
+    re.compile(r"\b(?:сколько\s+времен\w*|который\s+час)\b", re.IGNORECASE),
+    re.compile(r"\b(?:календар\w*|распис\w*|событ\w*|встреч\w*|задач\w*|напоминан\w*)\b", re.IGNORECASE),
+    re.compile(r"\b(?:что\s+(?:у\s+меня\s+)?на\s+экран\w*|что\s+происходит\s+на\s+экран\w*|что\s+открыто|что\s+на\s+страниц\w*|что\s+за\s+видео)\b", re.IGNORECASE),
+)
+
+
+def is_tool_question(text: str) -> bool:
+    """Вопросительная команда, обрабатываемая роутером/инструментами."""
+    s = (text or "").strip().lower().replace("ё", "е")
+    return any(rx.search(s) for rx in _TOOL_QUESTION_PATTERNS)
+
+
 def opens_early(text: str) -> bool:
-    """Вопрос без командных глаголов реестра — шлюз открывается сразу."""
-    return is_question(text) and not has_command_verb(text)
+    """Вопрос без командных глаголов реестра и не инструментальный запрос."""
+    return is_question(text) and not has_command_verb(text) and not is_tool_question(text)

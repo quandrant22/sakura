@@ -63,7 +63,8 @@ INDEX = build_index(DECLS)
     ("сделай компьютер тише", "system.volume_down", None),
 ])
 def test_phrase_to_action(text, action, param):
-    hit = INDEX.match(text)
+    ctx = "playing:music" if action == "music.queue_show" else None
+    hit = INDEX.match(text, ctx)
     assert hit is not None and hit[1].id == action and hit[2] == param
 
 

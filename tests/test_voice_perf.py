@@ -241,7 +241,11 @@ def test_early_gate_command_verdict_before_audio_is_silent(env):
 def test_early_gate_rules():
     assert early_gate.opens_early("Как дела?")
     assert early_gate.opens_early("почему небо голубое")
-    assert early_gate.opens_early("сколько времени?")
+    assert not early_gate.opens_early("сколько времени?")
+    assert not early_gate.opens_early("какая погода?")
+    assert not early_gate.opens_early("что сейчас играет?")
+    assert not early_gate.opens_early("что в календаре?")
+    assert not early_gate.opens_early("что на экране?")
     assert not early_gate.opens_early("расскажи анекдот")          # не вопрос
     assert not early_gate.opens_early("включи музыку?")            # глагол реестра
     assert not early_gate.opens_early("а можешь открыть браузер?")  # та же основа

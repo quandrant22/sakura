@@ -147,10 +147,21 @@ class Executor:
                 # «да» ждём от того, кто спросил (голос — устройство-источник),
                 # даже если команда уйдёт другому («на рабочем ноутбуке»).
                 asker = source if source not in (None, "telegram") else ctx.device_id
-                pending = self._session.expect("confirm", action=action_id,
-                                               device=asker or None,
-                                               ttl=timeout,
-                                               payload={"param": param, "command": prepared})
+                orig_text = (ctx.extra or {}).get("text") or ""
+                pending = self._session.expect(
+                    "confirm",
+                    action=action_id,
+                    device=asker or None,
+                    ttl=timeout,
+                    payload={
+                        "action": action_id,
+                        "param": param,
+                        "text": orig_text,
+                        "source": source,
+                        "device_id": ctx.device_id,
+                        "command": prepared,
+                    },
+                )
                 timeout = pending.until - _time.monotonic()
             log.info(
                 f"[confirm] ожидание: action={action_id} "

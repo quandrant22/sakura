@@ -116,4 +116,8 @@ async def read(url: str) -> tuple[str, str | None]:
     if not html:
         return "", None
     decoded = html.decode("utf-8", "ignore")
-    return page_text(decoded), page_image_url(decoded, url)
+    txt = page_text(decoded)
+    if txt:
+        from sakura_core.web_safety import wrap_untrusted_web_data
+        txt = wrap_untrusted_web_data(txt)
+    return txt, page_image_url(decoded, url)

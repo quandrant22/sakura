@@ -322,14 +322,16 @@ def _scan_steam() -> dict:
 
 
 def _epic_manifest_dir() -> str:
-    """Папка манифестов Epic: путь из реестра Windows, иначе стандартный."""
+    """Папка манифестов Epic: путь через платформенный слой, иначе стандартный."""
     try:
-        import winreg
-        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Epic Games\EpicGamesLauncher") as key:
-            return os.path.join(winreg.QueryValueEx(key, "AppDataPath")[0], "Manifests")
-    except (ImportError, OSError):
-        return os.path.join(os.environ.get("ProgramData", r"C:\ProgramData"),
-                            "Epic", "EpicGamesLauncher", "Data", "Manifests")
+        from desktop.core.platform import get_platform
+        path = get_platform().epic_manifest_dir()
+        if path:
+            return path
+    except (NotImplementedError, Exception):
+        pass
+    return os.path.join(os.environ.get("ProgramData", r"C:\ProgramData"),
+                        "Epic", "EpicGamesLauncher", "Data", "Manifests")
 
 
 def _scan_epic() -> dict:
@@ -871,6 +873,10 @@ def execute_command(action: str) -> dict:
             st = prov.get_state()
             nav = st.metrics.get("elevator_nav", "") if st else ""
             return {"result": f"Лифт: {nav}" if nav else "нет информации о лифте"}
+        if subcmd.startswith("chat:"):
+            chat_arg = arg.strip()[5:].strip()
+            ok = prov.send_chat_command(chat_arg)
+            return {"result": f"отправлена команда в чат: {chat_arg}" if ok else "ошибка отправки в чат"}
         return {"result": f"неизвестная команда Scrap Mechanic: {arg}"}
 
     if verb == "music":
@@ -1255,12 +1261,31 @@ _POWERSHELL_BLOCKLIST = (
 )
 
 
+_POWERSHELL_WHITELIST = frozenset({
+    "get-date",
+    "hostname",
+    "whoami",
+    "$psversiontable.psversion",
+})
+_PS_META_RE = re.compile(r"[;|&><`\r\n]|\$\(")
+
+
 def powershell(cmd: str) -> dict:
-    """Выполнить команду в PowerShell с проверкой стоп-листа."""
-    cmd_stripped = cmd.strip().lower()
+    """Выполнить команду в PowerShell (произвольные команды отключены по умолчанию)."""
+    raw = (cmd or "").strip()
+    if not raw:
+        return {"ok": False, "detail": "пустая команда PowerShell"}
+    cmd_stripped = raw.lower()
     for blocked in _POWERSHELL_BLOCKLIST:
         if blocked in cmd_stripped:
             return {"ok": False, "detail": f"заблокировано стоп-листом: содержит «{blocked.strip()}»"}
+    if os.getenv("SAKURA_ALLOW_RAW_POWERSHELL", "") != "1":
+        normalized = " ".join(cmd_stripped.split())
+        if _PS_META_RE.search(raw) or normalized not in _POWERSHELL_WHITELIST:
+            return {
+                "ok": False,
+                "detail": "произвольный PowerShell отключён по умолчанию (только безопасный whitelist)",
+            }
     try:
         r = subprocess.run(
             ["powershell", "-NoProfile", "-Command", cmd],

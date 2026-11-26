@@ -27,13 +27,15 @@ def _cleanup_pending_commands():
         del _pending_commands[k]
 
 
-def _register_command(action: str, device: str) -> str:
+def _register_command(action: str, device: str, source: str = "", chat_id: int | None = None) -> str:
     cmd_id = uuid.uuid4().hex[:12]
     _pending_commands[cmd_id] = {
         "action": action, "device": device,
         "ts": time.monotonic(), "status": "sent",
         # Голосовой ход команды: ответ по command_result — с его turn_id.
         "turn": voice_turns.current(),
+        "source": source,
+        "chat_id": chat_id,
     }
     _cleanup_pending_commands()
     return cmd_id
@@ -562,14 +564,23 @@ async def _handle_voice_command_inner(websocket, data, ctx, t_recv: float) -> No
                     await bot.send_message(MASTER_ID, "Хорошо, отменила.")
             async def _v3_ws_exec_decision(dec):
                 from sakura_core.bridge import execute_decision
-                if not ws_dev:
+                decl = _v3_r._by_id.get(dec.action)
+                needs_agent = decl is None or decl.executor == "agent"
+                if needs_agent and not ws_dev:
                     await bot.send_message(MASTER_ID, "Устройство отключилось, не могу выполнить.")
                     return
                 _ok, _cmd_id = await execute_decision(
                     dec, device_ws=ws_dev, device_id=device_id,
                     register_command=ctx.get("_register_command"),
                     text=text, source=device_id)
-                if isinstance(_cmd_id, str) and _cmd_id:
+                if isinstance(_cmd_id, tuple) and len(_cmd_id) == 2 and isinstance(_cmd_id[0], str):
+                    if _cmd_id[0]:
+                        if ws_dev:
+                            await stream_tts_to_device(_cmd_id[0], ws_dev,
+                                                       device_id or "laptop", literal=True)
+                        else:
+                            await bot.send_message(MASTER_ID, _cmd_id[0])
+                elif isinstance(_cmd_id, str) and _cmd_id:
                     # Результат агента озвучит подтверждение: «Готово» при
                     # status=done, иначе «Не получилось: …».
                     acks.arm(_cmd_id, ws=ws_dev, device_id=device_id or "laptop",

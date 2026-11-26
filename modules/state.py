@@ -73,7 +73,10 @@ def check_confirmation(text: str) -> str | None:
 # ── Треки по устройствам ─────────────────────────────────────────────
 
 def _track_playing(track: dict | None) -> bool:
-    return bool(track and track.get("title") and track.get("status") == "играет")
+    if not track or not track.get("title"):
+        return False
+    status = str(track.get("status") or "").strip().lower()
+    return status in ("играет", "playing")
 
 
 def set_device_track(device_id: str, track: dict, now: float | None = None) -> None:

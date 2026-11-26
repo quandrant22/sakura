@@ -31,12 +31,14 @@ class LlmUnavailable(RuntimeError):
 class IntentParse:
     """Результат структурированного разбора намерений.
 
-    actions — действия по порядку: ((id, параметр | None), …); пусто — команд нет.
-    chat    — во фразе есть разговорная часть, на которую нужно ответить.
+    actions    — действия по порядку: ((id, параметр | None), …); пусто — команд нет.
+    chat       — во фразе есть разговорная часть, на которую нужно ответить.
+    confidence — уверенность модели [0.0 .. 1.0]; по умолчанию 1.0.
     """
 
     actions: tuple[tuple[str, Optional[str]], ...] = ()
     chat: bool = False
+    confidence: float = 1.0
 
 
 # ── разбиение на части ──────────────────────────────────────────────────
@@ -55,15 +57,27 @@ _SPLIT_RE = re.compile(
 MAX_UNITS = 4
 
 
+_SPLIT_BLOCK_HEAD_RE = re.compile(
+    r"^(?:(?:ну|да|кстати|слушай)\s+)*(?:"
+    r"вчера|позавчера|прикинь|представь|если|помнишь\s+как"
+    r"|он\s+(?:сказал|попросил|написал)|она\s+(?:сказала|попросила|написала)"
+    r")(?!\w)",
+    re.IGNORECASE,
+)
+
+
 def split_units(text: str) -> list[tuple[str, str]]:
     """Фраза → [(часть, связка_перед_ней)]. Связка первой части — пустая.
 
     Одна часть — фразу делить не на что. Больше MAX_UNITS частей —
     это перечисление или рассказ, а не план: возвращается целая фраза.
+    Если начало фразы содержит маркер пересказа/условия/прошлого — фраза не режется.
     """
     s = (text or "").strip()
     if not s:
         return []
+    if _SPLIT_BLOCK_HEAD_RE.match(strip_polite(s).strip()):
+        return [(s, "")]
     units: list[tuple[str, str]] = []
     pos, sep = 0, ""
     for m in _SPLIT_RE.finditer(s):
@@ -119,23 +133,59 @@ CARRIERS = frozenset("""
 """.split())
 
 SLOT_WORDS = frozenset("""
-сегодня завтра послезавтра сейчас процент процента процентов градус градуса
+сегодня сейчас процент процента процентов градус градуса
 градусов минут минуты минуту секунд секунды час часа часов раз раза
 """.split())
 
-# Слова, после которых триггер — уже не просьба (отрицание, чужая речь, прошлое).
-NEGATIONS = frozenset({"не", "нельзя", "никогда", "ни"})
+# Временные слова будущего/суток разрешены только доменам расписания/погоды/напоминаний.
+_TIME_SLOT_WORDS = frozenset({
+    "завтра", "послезавтра", "утром", "вечером", "днём", "днем", "ночью",
+})
+_TIME_SLOT_DOMAINS = frozenset({
+    "weather", "calendar", "schedule", "reminder", "alarm", "timer", "briefing", "task",
+})
+
+# Слова и фразы, после которых триггер — уже не просьба (отрицание, чужая речь, планы).
+NEGATIONS = frozenset({
+    "не", "нельзя", "никогда", "ни", "перестань", "хватит", "прекрати", "отставить",
+})
+_NEGATION_PHRASES_RE = re.compile(
+    r"(?<!\w)(?:не\s+надо|не\s+стоит|лучше\s+не|ни\s+за\s+что)(?!\w)",
+    re.IGNORECASE,
+)
+SELF_FUTURE_VERBS = frozenset("""
+поставлю включу выключу закрою открою перезагружу усыплю удалю
+забуду закоммичу собираюсь планирую буду будем придётся придется
+""".split())
+_PLAN_PHRASES_RE = re.compile(
+    r"(?<!\w)(?:надо\s+будет|нужно\s+будет|хочу\s+потом|стоит\s+потом"
+    r"|потом\s+(?:поставлю|включу|открою|закрою|сделаю))(?!\w)",
+    re.IGNORECASE,
+)
+_CONDITIONAL_RE = re.compile(
+    r"(?<!\w)(?:если|допустим|представь|вдруг|в\s+шутку|шучу|как\s+будто"
+    r"|разве\s+что|а\s+что\s+если)(?!\w)",
+    re.IGNORECASE,
+)
+_META_QUESTION_RE = re.compile(
+    r"(?<!\w)(?:а\s+ты\s+умеешь|ты\s+умеешь|как\s+работает|как\s+работают"
+    r"|зачем\s+нуж(?:ен|на|но|ны)|что\s+делает\s+(?!агент\b)|расскажи\s+про)(?!\w)",
+    re.IGNORECASE,
+)
 NARRATIVE = frozenset("""
 вчера позавчера когда-то раньше сказал сказала сказали говорил говорила
 попросил попросила написал написала помнишь думал думала хотел хотела был
-была были было
+была были было прикинь
 """.split())
 
 # Слоты домена после триггера: «погода завтра в Питере» — город и «будет»
-# относятся к запросу, посторонним текстом не считаются.
+# относятся к запросу; «поставь чайник на кухне/на плиту» — бытовое место.
 _DOMAIN_SLOTS = {
     "weather": re.compile(
         r"(?<!\w)(?:(?:в|во)\s+[a-zа-яё\-]+|будет|ожидается|обещают|ждать)(?!\w)",
+        re.IGNORECASE),
+    "kettle": re.compile(
+        r"(?<!\w)(?:на\s+(?:кухне|работе|плит[уе]|даче)|дома)(?!\w)",
         re.IGNORECASE),
 }
 
@@ -188,6 +238,8 @@ class UnitGuard:
         return action_id in self._free_tail
 
     def _allowed(self, word: str, domain: str) -> bool:
+        if word in _TIME_SLOT_WORDS:
+            return domain in _TIME_SLOT_DOMAINS
         if word in FILLERS or word in CARRIERS or word in SLOT_WORDS:
             return True
         if word.isdigit() or re.fullmatch(r"\d+[%°]?", word):
@@ -211,7 +263,46 @@ class UnitGuard:
         slots = _DOMAIN_SLOTS.get(self.domain(decl.id)) if decl is not None else None
         if slots is not None:
             after = slots.sub(" ", after)
+        if decl is not None and decl.id in ("system.shutdown", "system.restart", "power.sleep"):
+            # Отложенное время вырезается из хвоста, чтобы фраза дошла до _hold_deferred
+            # и выдала честный отказ registry_deferred («по таймеру не умею»).
+            after = _DELAY_RE.sub(" ", after)
         return text[:start], after
+
+    def is_blocked_talk(self, text: str) -> bool:
+        """Мета-вопросы, условные/шуточные маркеры и 1-е лицо планов о будущем."""
+        clean = strip_polite(text)
+        if _META_QUESTION_RE.search(clean):
+            return True
+        if _CONDITIONAL_RE.search(clean):
+            return True
+        if _NEGATION_PHRASES_RE.search(clean):
+            return True
+        return False
+
+    def _rejects_future_or_neg(self, before: str, after: str, decl: Declaration,
+                               clean_text: str) -> bool:
+        domain = self.domain(decl.id)
+        free = self.takes_free_tail(decl.id)
+        prefix = words(before)
+        suffix = words(after)
+        if any(w in NEGATIONS or w in NARRATIVE for w in prefix):
+            return True
+        if not free and any(w in NEGATIONS for w in suffix):
+            return True
+        if _NEGATION_PHRASES_RE.search(before) or (not free and _NEGATION_PHRASES_RE.search(after)):
+            return True
+        if _CONDITIONAL_RE.search(before) or (not free and _CONDITIONAL_RE.search(after)):
+            return True
+        if _META_QUESTION_RE.search(clean_text) and not (
+                decl.id == "companion.husk_status" and "агент" in clean_text.lower()):
+            return True
+        if domain not in _TIME_SLOT_DOMAINS:
+            if any(w in SELF_FUTURE_VERBS for w in prefix) or (not free and any(w in SELF_FUTURE_VERBS for w in suffix)):
+                return True
+            if _PLAN_PHRASES_RE.search(before) or (not free and _PLAN_PHRASES_RE.search(after)):
+                return True
+        return False
 
     def is_command(self, text: str, trigger: str, decl: Declaration) -> bool:
         """Строгая проверка быстрого пути (без LLM).
@@ -220,48 +311,47 @@ class UnitGuard:
         и слова домена (или одно «я»/«мы»: «я выполнил задачу 5»).
         После триггера:
           • действие со свободным хвостом — что угодно (это его аргумент);
-          • триггер из нескольких слов — что угодно (сам триггер уже
-            однозначен: «какая погода завтра в Питере»);
-          • триггер из одного слова («дальше», «погода», «стоп») — только
-            допустимые слова: иначе это слово внутри чужой фразы.
+          • любое беспараметрическое действие (в т.ч. многословный триггер) —
+            только допустимые филлеры/носители/слова домена: посторонний хвост
+            отклоняется в LLM/разговор.
         """
-        span = self._span(strip_polite(text), trigger, decl)
+        clean_text = strip_polite(text)
+        span = self._span(clean_text, trigger, decl)
         if span is None:
             # Триггер попал внутрь вежливого оборота — проверяем исходный текст.
+            clean_text = text
             span = self._span(text, trigger, decl)
             if span is None:
                 return False
         before, after = span
         domain = self.domain(decl.id)
-        prefix = words(before)
-        if any(w in NEGATIONS or w in NARRATIVE for w in prefix):
+        if self._rejects_future_or_neg(before, after, decl, clean_text):
             return False
+        prefix = words(before)
         single = " " not in trigger.strip()
         if single and prefix[:2] == ["ну", "и"]:
             return False        # «ну и погода» — восклицание, не просьба
         if prefix not in (["я"], ["мы"]) and not all(self._allowed(w, domain) for w in prefix):
             return False
-        if not single or self.takes_free_tail(decl.id):
+        if self.takes_free_tail(decl.id):
             return True
         return all(self._allowed(w, domain) for w in words(after))
 
     def is_plausible(self, text: str, trigger: str, decl: Declaration) -> bool:
-        """Мягкая проверка — запасной путь, когда LLM недоступен.
-
-        Лучше исполнить вероятную команду, чем молча принять её за болтовню:
-        для триггера из нескольких слов запрещены только отрицание и пересказ
-        перед ним. Однословный триггер («погода», «дальше») и здесь проверяется
-        строго: без модели отличить его от слова в рассказе нечем.
-        """
+        """Мягкая проверка — запасной путь, когда LLM недоступен."""
         if " " not in trigger.strip() and not self.takes_free_tail(decl.id):
             return self.is_command(text, trigger, decl)
-        span = self._span(strip_polite(text), trigger, decl) or self._span(text, trigger, decl)
+        clean_text = strip_polite(text)
+        span = self._span(clean_text, trigger, decl)
         if span is None:
-            return False
+            clean_text = text
+            span = self._span(text, trigger, decl)
+            if span is None:
+                return False
         before, after = span
-        prefix = words(before)
-        if any(w in NEGATIONS or w in NARRATIVE for w in prefix):
+        if self._rejects_future_or_neg(before, after, decl, clean_text):
             return False
+        prefix = words(before)
         if len(prefix) > 4:
             return False
         # Чужой глагол в повелительном наклонении перед триггером («скинь

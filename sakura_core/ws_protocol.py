@@ -407,7 +407,8 @@ _READ_PROMPT = (
 )
 
 
-async def _answer_read_result(action, ok, detail, dev_name, ask_gemini, bot) -> None:
+async def _answer_read_result(action, ok, detail, dev_name, ask_gemini, bot,
+                              *, source: str = "", chat_id: int | None = None) -> None:
     """Результат действия-чтения (окна, процессы, буфер, недавние файлы,
     текст окна): пересказ голосом там, где спросили (голос) или в Telegram."""
     from modules import acks
@@ -429,11 +430,11 @@ async def _answer_read_result(action, ok, detail, dev_name, ask_gemini, bot) -> 
         if len(text) > 400:
             text = text[:400].rsplit(" ", 1)[0] + "…"
     ws_dev = st.connected_devices.get(dev_name)
-    if voice_turns.current() is not None and ws_dev is not None:
+    if source != "telegram" and voice_turns.current() is not None and ws_dev is not None:
         await stream_tts_to_device(text, ws_dev, dev_name, literal=True,
                                    reply_kind="llm" if ok else "error")
     else:
-        await bot.send_message(MASTER_ID, text)
+        await bot.send_message(chat_id or MASTER_ID, text)
 
 
 def music_result_phrase(action: str, detail: str) -> str:
@@ -444,13 +445,14 @@ def music_result_phrase(action: str, detail: str) -> str:
     return text if len(text) <= READ_RESULT_MAX else text[:READ_RESULT_MAX].rsplit(" ", 1)[0] + "…"
 
 
-async def _say_music_result(action, detail, dev_name, bot) -> None:
+async def _say_music_result(action, detail, dev_name, bot,
+                            *, source: str = "", chat_id: int | None = None) -> None:
     text = music_result_phrase(action, detail)
     ws_dev = st.connected_devices.get(dev_name)
-    if voice_turns.current() is not None and ws_dev is not None:
+    if source != "telegram" and voice_turns.current() is not None and ws_dev is not None:
         await stream_tts_to_device(text, ws_dev, dev_name, literal=True, reply_kind="llm")
     else:
-        await bot.send_message(MASTER_ID, text)
+        await bot.send_message(chat_id or MASTER_ID, text)
 
 
 async def handle_command_result(websocket, data, ctx) -> None:
@@ -476,6 +478,10 @@ async def _handle_command_result(websocket, data, ctx) -> None:
     _cmd_ok = True
     _cmd_detail = ""
     _cmd_id_from_agent = data.get("id")
+    _pend_entry = st._pending_commands.get(_cmd_id_from_agent) if _cmd_id_from_agent else None
+    _cmd_source = (_pend_entry or {}).get("source") or ""
+    _cmd_chat_id = (_pend_entry or {}).get("chat_id")
+    _tg_target = _cmd_chat_id or MASTER_ID
     if _cmd_id_from_agent and _cmd_id_from_agent not in st._pending_commands:
         log.warning(
             f"[ws] command_result с НЕИЗВЕСТНЫМ id={_cmd_id_from_agent!r} "
@@ -499,25 +505,36 @@ async def _handle_command_result(websocket, data, ctx) -> None:
                              _cmd_ok and not acks.detail_is_error(_cmd_detail),
                              _cmd_detail, status=_status),
               name=f"ack-{_cmd_id_from_agent}")
-        if (_status not in (None, "done") and not _armed
-                and voice_turns.current() is not None):
-            # Команда голосового хода без подтверждения (followup=llm) не
-            # удалась: честное «Не получилось», без LLM-продолжения.
-            _ws_err = st.connected_devices.get(dev_name)
-            if _ws_err is not None:
-                await stream_tts_to_device(acks.status_phrase(_cmd_detail), _ws_err,
-                                           dev_name, literal=True, reply_kind="error")
-            return
         _act = (st._pending_commands.get(_cmd_id_from_agent) or {}).get("action")
         from capabilities.pc_control import READ_ACTIONS
         if _act in READ_ACTIONS:
-            await _answer_read_result(_act, _cmd_ok, _cmd_detail, dev_name, ask_gemini, bot)
+            await _answer_read_result(_act, _cmd_ok, _cmd_detail, dev_name, ask_gemini, bot,
+                                      source=_cmd_source, chat_id=_cmd_chat_id)
             return
+        if (_status not in (None, "done") or not _cmd_ok) and not _armed:
+            err_msg = (acks.status_phrase(_cmd_detail) if _status is not None
+                       else acks.error_phrase(_cmd_detail))
+            if _cmd_source == "telegram":
+                await bot.send_message(_tg_target, err_msg)
+                return
+            if voice_turns.current() is not None:
+                # Команда голосового хода без подтверждения (followup=llm) не
+                # удалась: честное «Не получилось», без LLM-продолжения.
+                _ws_err = st.connected_devices.get(dev_name)
+                if _ws_err is not None:
+                    await stream_tts_to_device(acks.status_phrase(_cmd_detail), _ws_err,
+                                               dev_name, literal=True, reply_kind="error")
+                return
         from sakura_core.registry import followup_for
         if (str(_act or "").startswith("music.") and _cmd_ok and _cmd_detail and not data.get("music")
                 and followup_for(_act) == "llm"):
             # Без этого ответ встроенного плеера («что играет», «что в очереди») остаётся без голоса.
-            await _say_music_result(_act, _cmd_detail, dev_name, bot)
+            await _say_music_result(_act, _cmd_detail, dev_name, bot,
+                                    source=_cmd_source, chat_id=_cmd_chat_id)
+            return
+        if (_cmd_source == "telegram" and _cmd_detail and followup_for(_act or "") == "llm"
+                and not data.get("music") and not data.get("ext") and not screenshot):
+            await bot.send_message(_tg_target, _cmd_detail)
             return
     elif result:
         _cmd_detail = str(result)
@@ -530,15 +547,18 @@ async def _handle_command_result(websocket, data, ctx) -> None:
         ext_dev  = data.get("device_id", "laptop")
         ext_ws   = st.connected_devices.get(ext_dev)
         if ext_data.get("ok"):
+            from sakura_core.web_safety import wrap_untrusted_web_data
             if ext_data.get("result") and isinstance(ext_data["result"], dict):
                 r = ext_data["result"]
+                desc = wrap_untrusted_web_data(r["description"]) if r.get("description") else ""
+                desc_block = f"Описание:\n{desc}\n" if desc else ""
                 _page_prompt = (
                     f"Видео на YouTube: {r.get('title','?')} — канал {r.get('channel','?')}. "
-                    f"{'Описание: ' + r['description'] if r.get('description') else ''} "
+                    f"{desc_block}"
                     f"Расскажи Мастеру об этом видео коротко в своём стиле."
                 )
             elif ext_data.get("content"):
-                content = ext_data["content"][:3000]
+                content = wrap_untrusted_web_data(ext_data["content"][:3000])
                 title   = ext_data.get("title", "")
                 _page_prompt = (
                     f"Страница: {title}\n\nСодержимое:\n{content}\n\n"
@@ -553,10 +573,15 @@ async def _handle_command_result(websocket, data, ctx) -> None:
                     history_limit=VOICE_HISTORY_LIMIT,
                     chain=VOICE_MODEL_CHAIN, search=False,
                 )
-                if _page_reply and ext_ws:
-                    log.info(f"[голос] ответ: {_page_reply!r}")
-                    await stream_tts_to_device(_page_reply, ext_ws, ext_dev, literal=True,
-                                               reply_kind="llm")
+                if _page_reply:
+                    if _cmd_source == "telegram":
+                        await bot.send_message(_tg_target, _page_reply)
+                    elif ext_ws:
+                        log.info(f"[голос] ответ: {_page_reply!r}")
+                        await stream_tts_to_device(_page_reply, ext_ws, ext_dev, literal=True,
+                                                   reply_kind="llm")
+                    else:
+                        await bot.send_message(_tg_target, _page_reply)
         return
 
     if data.get("music"):
@@ -656,10 +681,10 @@ async def _handle_command_result(websocket, data, ctx) -> None:
         )
         if music_reply:
             log.info(f"[голос] ответ: {music_reply!r}")
-            if ws_m:
+            if ws_m and _cmd_source != "telegram":
                 await stream_tts_to_device(music_reply, ws_m, dev_m, literal=True,
                                            reply_kind="llm")
-            await bot.send_message(MASTER_ID, music_reply)
+            await bot.send_message(_tg_target, music_reply)
     elif screenshot:
         # Три случая, строго один: описание по просьбе (screenshot.describe →
         # vision.ask для старого клиента), игровой event-тик, явный

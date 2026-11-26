@@ -51,10 +51,11 @@ def test_files_open_without_query_is_an_error():
 # ── coding.*: серверная реализация (executor=vps) ──────────────────────
 
 
-def test_coding_read_file_returns_content(tmp_path):
+def test_coding_read_file_returns_content(tmp_path, monkeypatch):
     """coding.read_file показывает код файла — старый путь это только обещал."""
     target = tmp_path / "sample.py"
     target.write_text("print('привет')\n", encoding="utf-8")
+    monkeypatch.setattr(cap_coding, "PROJECT_DIR", str(tmp_path))
 
     text, ok = _run(get_handler("coding.read_file")(
         ExecutionContext(param=str(target))))

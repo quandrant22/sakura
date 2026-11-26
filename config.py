@@ -1,6 +1,7 @@
 from dotenv import load_dotenv
 import os
 import json
+import threading
 import time
 import logging
 from datetime import date
@@ -51,6 +52,8 @@ VOICE_GATE_WAIT_S = float(os.getenv("VOICE_GATE_WAIT_S", "3.0"))
 # LLM-разбор намерений (sakura_core/llm.py parse_intent): дольше не ждём —
 # роутер переходит на локальный разбор. Держать меньше VOICE_GATE_WAIT_S.
 INTENT_TIMEOUT_S = float(os.getenv("INTENT_TIMEOUT_S", "2.5"))
+# Порог уверенности LLM-разбора: ниже — считаем реплику разговором.
+INTENT_MIN_CONFIDENCE = float(os.getenv("INTENT_MIN_CONFIDENCE", "0.70"))
 # Стилизация справочного ответа команды (sakura_core/stylize.py): не успела —
 # звучит исходный текст.
 STYLIZE_TIMEOUT_S = float(os.getenv("STYLIZE_TIMEOUT_S", "0.8"))
@@ -145,6 +148,7 @@ def _parse_model_chain(name, default):
 
 MODEL_CHAIN = _parse_model_chain("MODEL_CHAIN", (MAIN_MODEL, FALLBACK_MODEL))
 VOICE_MODEL_CHAIN = _parse_model_chain("VOICE_MODEL_CHAIN", MODEL_CHAIN)
+INTENT_MODEL_CHAIN = _parse_model_chain("INTENT_MODEL_CHAIN", MODEL_CHAIN)
 BACKGROUND_MODEL_CHAIN = _parse_model_chain("BACKGROUND_MODEL_CHAIN", MODEL_CHAIN)
 VISION_MODEL_CHAIN = _parse_model_chain("VISION_MODEL_CHAIN", MODEL_CHAIN)
 
@@ -293,77 +297,99 @@ while True:
     i += 1
 
 KEYS_FILE = "memory/api_keys.json"
+_KEYS_LOCK = threading.RLock()
 
 
 def load_keys_state():
-    if not os.path.exists(KEYS_FILE):
-        state = {
-            "keys":       [{"key": k, "used_today": 0, "exhausted": False, "cooldown_until": 0} for k in GEMINI_KEYS],
-            "last_reset": str(date.today()),
-        }
-        save_keys_state(state)
+    with _KEYS_LOCK:
+        if not os.path.exists(KEYS_FILE):
+            state = {
+                "keys":       [{"key": k, "used_today": 0, "exhausted": False, "cooldown_until": 0} for k in GEMINI_KEYS],
+                "last_reset": str(date.today()),
+            }
+            save_keys_state(state)
+            return state
+        with open(KEYS_FILE, "r", encoding="utf-8") as f:
+            state = json.load(f)
+        # Миграция: добавить cooldown_until если нет
+        changed = False
+        for k in state["keys"]:
+            if "cooldown_until" not in k:
+                k["cooldown_until"] = 0
+                changed = True
+        if changed:
+            save_keys_state(state)
         return state
-    with open(KEYS_FILE, "r") as f:
-        state = json.load(f)
-    # Миграция: добавить cooldown_until если нет
-    changed = False
-    for k in state["keys"]:
-        if "cooldown_until" not in k:
-            k["cooldown_until"] = 0
-            changed = True
-    if changed:
-        save_keys_state(state)
-    return state
 
 
 def save_keys_state(state):
-    with open(KEYS_FILE, "w") as f:
-        json.dump(state, f, indent=2)
+    import tempfile
+    with _KEYS_LOCK:
+        parent = os.path.dirname(os.path.abspath(KEYS_FILE)) or "."
+        os.makedirs(parent, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(prefix=".api_keys_", suffix=".tmp", dir=parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(state, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, KEYS_FILE)
+        except Exception:
+            try:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
 
 def get_active_key():
-    state = load_keys_state()
-    now = time.time()
-    if state["last_reset"] != str(date.today()):
+    with _KEYS_LOCK:
+        state = load_keys_state()
+        now = time.time()
+        if state["last_reset"] != str(date.today()):
+            for k in state["keys"]:
+                k["used_today"] = 0
+                k["exhausted"]  = False
+                k["cooldown_until"] = 0
+            state["last_reset"] = str(date.today())
+            save_keys_state(state)
         for k in state["keys"]:
-            k["used_today"] = 0
-            k["exhausted"]  = False
-            k["cooldown_until"] = 0
-        state["last_reset"] = str(date.today())
-        save_keys_state(state)
-    for k in state["keys"]:
-        if not k["exhausted"] and now >= k.get("cooldown_until", 0):
-            return k["key"]
-    return None
+            if not k["exhausted"] and now >= k.get("cooldown_until", 0):
+                return k["key"]
+        return None
 
 
 def mark_key_used(key: str):
     if not key:
         return
-    state = load_keys_state()
-    for k in state["keys"]:
-        if k["key"] == key:
-            k["used_today"] += 1
-    save_keys_state(state)
+    with _KEYS_LOCK:
+        state = load_keys_state()
+        for k in state["keys"]:
+            if k["key"] == key:
+                k["used_today"] += 1
+        save_keys_state(state)
 
 
 def mark_key_rate_limited(key: str, cooldown_seconds: int = 60):
     """Временная блокировка ключа при 429 — через cooldown_seconds снова доступен."""
-    state = load_keys_state()
-    for k in state["keys"]:
-        if k["key"] == key:
-            k["cooldown_until"] = time.time() + cooldown_seconds
-            log.info(f"[keys] {key[:12]}... в cooldown {cooldown_seconds}с")
-    save_keys_state(state)
+    with _KEYS_LOCK:
+        state = load_keys_state()
+        for k in state["keys"]:
+            if k["key"] == key:
+                k["cooldown_until"] = time.time() + cooldown_seconds
+                log.info(f"[keys] {key[:12]}... в cooldown {cooldown_seconds}с")
+        save_keys_state(state)
 
 
 def mark_key_exhausted(key: str):
     """Полная блокировка ключа (например, невалидный ключ). До следующего дня."""
-    state = load_keys_state()
-    for k in state["keys"]:
-        if k["key"] == key:
-            k["exhausted"] = True
-    save_keys_state(state)
+    with _KEYS_LOCK:
+        state = load_keys_state()
+        for k in state["keys"]:
+            if k["key"] == key:
+                k["exhausted"] = True
+        save_keys_state(state)
 
 
 # Эпизоды «Выполнила команду: …» (executor) — служебный след, не память:

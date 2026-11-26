@@ -29,7 +29,9 @@ ok=False значит «источник или команда недоступ�
 import asyncio
 import logging
 import os
+import re
 import subprocess
+from pathlib import Path
 from typing import Optional
 
 from sakura_core.executor import ExecutionContext, Handler, register_table
@@ -93,10 +95,45 @@ async def run_mimo(prompt: str, work_dir: str = PROJECT_DIR,
 
 # ── Работа с файлами сервера ────────────────────────────────────────
 
+_FORBIDDEN_FILENAMES = frozenset({"api_keys.json"})
+_FORBIDDEN_SUFFIXES = frozenset({".pem", ".key"})
+
+
+def resolve_project_path(path: str) -> Path:
+    """Проверить и разрешить путь строго внутри PROJECT_DIR.
+
+    Блокирует path traversal (../, внешние абсолютные пути), а также доступ
+    к .env, .env.*, .git/, memory/, любым скрытым файлам/папкам (с '.') и
+    ключам (*.pem, *.key, api_keys.json).
+    """
+    raw = (path or "").strip()
+    if not raw:
+        raise ValueError("путь не указан")
+    root = Path(PROJECT_DIR).resolve()
+    candidate = Path(raw)
+    resolved = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
+    if not resolved.is_relative_to(root):
+        raise PermissionError(f"выход за пределы проекта запрещён: {path}")
+    rel = resolved.relative_to(root)
+    if not rel.parts:
+        raise PermissionError("недопустимый путь к корню проекта")
+    for part in rel.parts:
+        low = part.lower()
+        if low.startswith("."):
+            raise PermissionError(f"доступ к скрытому пути запрещён: {path}")
+        if low == "memory":
+            raise PermissionError(f"доступ к каталогу memory/ запрещён: {path}")
+    name_low = resolved.name.lower()
+    if name_low in _FORBIDDEN_FILENAMES or resolved.suffix.lower() in _FORBIDDEN_SUFFIXES:
+        raise PermissionError(f"доступ к секретному файлу запрещён: {path}")
+    return resolved
+
+
 async def read_file(path: str) -> str:
     """Читает файл на сервере. Ошибка источника — текстом с READ_ERROR_PREFIX."""
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        target = resolve_project_path(path)
+        with open(target, "r", encoding="utf-8") as f:
             return f.read()
     except Exception as e:
         return f"{READ_ERROR_PREFIX} {e}"
@@ -105,8 +142,9 @@ async def read_file(path: str) -> str:
 async def write_file(path: str, content: str) -> bool:
     """Записывает файл на сервере."""
     try:
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
+        target = resolve_project_path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with open(target, "w", encoding="utf-8") as f:
             f.write(content)
         return True
     except Exception as e:
@@ -117,12 +155,13 @@ async def write_file(path: str, content: str) -> bool:
 async def edit_file(path: str, old_text: str, new_text: str) -> bool:
     """Правит файл на сервере (поиск и замена)."""
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        target = resolve_project_path(path)
+        with open(target, "r", encoding="utf-8") as f:
             content = f.read()
         if old_text not in content:
             return False
         content = content.replace(old_text, new_text, 1)
-        with open(path, "w", encoding="utf-8") as f:
+        with open(target, "w", encoding="utf-8") as f:
             f.write(content)
         return True
     except Exception as e:
@@ -306,12 +345,17 @@ async def mimo_fix(prompt: str) -> dict:
     Запускает MiMo для исправления бага.
     Пример: mimo_fix("исправь ошибку в modules/weather.py")
     """
-    return await run_mimo(prompt, dangerous=True)
+    dangerous = os.getenv("SAKURA_MIMO_DANGEROUS", "") == "1"
+    return await run_mimo(prompt, dangerous=dangerous)
 
 
 async def mimo_review(path: str) -> dict:
     """Запрашивает ревью кода у MiMo."""
-    prompt = f"Проведи ревью файла {path}. Найди баги, улучшения, проблемы."
+    try:
+        target = resolve_project_path(path)
+    except Exception as e:
+        return {"ok": False, "output": "", "error": str(e)}
+    prompt = f"Проведи ревью файла {target}. Найди баги, улучшения, проблемы."
     return await run_mimo(prompt)
 
 
